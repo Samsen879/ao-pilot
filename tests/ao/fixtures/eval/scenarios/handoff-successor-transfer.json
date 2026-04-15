@@ -1,0 +1,54 @@
+{
+  "schema_version": "ao.eval-scenario.v1alpha1",
+  "format": "ao_eval_scenario",
+  "scenario_id": "handoff-successor-transfer",
+  "pack_id": "successor-handoff",
+  "runner": "managed_successor_handoff",
+  "title": "Accepted successor handoff transfers ownership on resume",
+  "task": {
+    "issue_number": 117,
+    "title": "feat(ao): add successor handoff and authority transfer protocol",
+    "branch_name": "feat/117",
+    "worktree_path": "/tmp/worker-58",
+    "pr_number": 127,
+    "owner_session_name": "worker-58",
+    "owner_session_id": "worker-58",
+    "successor_session_name": "worker-59",
+    "successor_session_id": "worker-59",
+    "operator_session_name": "operator-1",
+    "operator_session_id": "operator-1"
+  },
+  "task_spec_body": [
+    "## Problem Type",
+    "issue_delivery",
+    "",
+    "## Acceptance Contract",
+    "- successor handoff protocol exists",
+    "",
+    "## Runtime Ref",
+    "runtime.github_local",
+    "",
+    "## Policy Ref",
+    "policy.operator_gated",
+    "",
+    "## Human Gates",
+    "- operator_handoff"
+  ],
+  "timing": {
+    "enroll_at": "2026-03-31T10:00:00.000Z",
+    "preflight_at": "2026-03-31T10:01:00.000Z",
+    "checkpoint_at": "2026-03-31T10:02:00.000Z",
+    "pause_at": "2026-03-31T10:03:00.000Z",
+    "handoff_at": "2026-03-31T10:04:00.000Z",
+    "resume_at": "2026-03-31T10:05:00.000Z",
+    "grant_expires_at": "2026-03-31T10:20:00.000Z"
+  },
+  "expected": {
+    "continuity": {
+      "kind": "handoff",
+      "posture": "handoff_granted",
+      "recommended_action": "handoff_to_successor",
+      "outcome": "successor_handoff"
+    }
+  }
+}

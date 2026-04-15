@@ -1,0 +1,22 @@
+{
+  "project": {
+    "id": "my-project"
+  },
+  "sessions": [
+    {
+      "name": "ao-orchestrator",
+      "role": "orchestrator",
+      "branch": "runtime-post-pilot-0325-0001",
+      "lastActivity": "1m ago"
+    },
+    {
+      "name": "worker-95",
+      "id": "worker-95",
+      "role": "worker",
+      "branch": "feat/issue-95",
+      "prNumber": 95,
+      "issueNumber": 65,
+      "lastActivity": "21m ago"
+    }
+  ]
+}

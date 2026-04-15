@@ -1,0 +1,31 @@
+{
+  "schema_version": "ao.eval-scenario.v1alpha1",
+  "format": "ao_eval_scenario",
+  "scenario_id": "parity-orphaned-ownership",
+  "pack_id": "parity",
+  "runner": "controller_shadow_parity",
+  "title": "Controller shadow parity recommends successor handoff for orphaned ownership",
+  "acceptance_fixture": "../acceptance/orphaned-ownership",
+  "task": {
+    "task_id": "issue-94",
+    "issue_number": 94,
+    "title": "Fixture parity orphaned-ownership",
+    "branch_name": "feat/issue-94",
+    "worktree_path": "/tmp/feat-issue-94"
+  },
+  "pr_binding": {
+    "pr_number": 94,
+    "base_branch": "main"
+  },
+  "controller": {
+    "controller_id": "default",
+    "mode": "shadow"
+  },
+  "timing": {
+    "created_at": "2026-03-29T06:50:00.000Z",
+    "run_at": "2026-03-29T06:51:00.000Z"
+  },
+  "expected": {
+    "derived_trigger": "agent_exited"
+  }
+}

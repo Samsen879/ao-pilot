@@ -1,0 +1,52 @@
+{
+  "name": "ao-pilot",
+  "version": "0.1.0",
+  "description": "An autonomous control plane for AI coding agents — built for Codex CLI + agent-orchestrator",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "controller": "node scripts/ao-controller.js",
+    "doctor": "node scripts/ao-doctor.js",
+    "eval": "node scripts/ao-eval.js",
+    "manage": "node scripts/ao-manage.js",
+    "state": "node scripts/ao-state.js",
+    "metrics": "node scripts/ao-metrics.js",
+    "reconcile": "node scripts/ao-reconcile.js",
+    "lifecycle": "node scripts/ao-lifecycle.js",
+    "review": "node scripts/ao-review.js",
+    "handoff": "node scripts/ao-handoff.js",
+    "override": "node scripts/ao-override.js",
+    "knowledge": "node scripts/ao-knowledge.js",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest --testPathPattern='tests/ao/' --no-color"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/?(*.)+(spec|test).js"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/"
+    ],
+    "transform": {}
+  },
+  "devDependencies": {
+    "@jest/globals": "^29.7.0",
+    "jest": "^29.7.0"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "orchestrator",
+    "control-plane",
+    "coding-agent",
+    "autonomous",
+    "devtools"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Samsen879/ao-pilot.git"
+  }
+}

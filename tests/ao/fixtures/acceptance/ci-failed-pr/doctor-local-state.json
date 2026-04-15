@@ -1,0 +1,17 @@
+{
+  "repo_root": "/home/user/my-project",
+  "cwd": "/home/user/my-project",
+  "current_branch": "feat/issue-92",
+  "head_sha": "abc123",
+  "detached_head": false,
+  "upstream_branch": "origin/feat/issue-92",
+  "upstream_tracking": "present",
+  "worktree_dirty": false,
+  "staged_changes": false,
+  "unstaged_changes": false,
+  "untracked_file_count": 0,
+  "untracked_file_samples": [],
+  "ao_artifact_paths": [],
+  "git_observable": true,
+  "git_error": null
+}

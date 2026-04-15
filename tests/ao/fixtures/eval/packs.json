@@ -1,0 +1,58 @@
+{
+  "schema_version": "ao.eval-pack-registry.v1alpha1",
+  "format": "ao_eval_pack_registry",
+  "packs": [
+    {
+      "pack_id": "all",
+      "title": "Full AO eval suite",
+      "scenario_ids": [
+        "parity-ci-failed-pr",
+        "parity-approved-and-green-pr",
+        "parity-orphaned-ownership",
+        "policy-unknown-tool-fail-closed",
+        "resume-explicit-checkpoint",
+        "handoff-successor-transfer",
+        "ambiguous-competing-successors"
+      ]
+    },
+    {
+      "pack_id": "parity",
+      "title": "Controller shadow parity pack",
+      "scenario_ids": [
+        "parity-ci-failed-pr",
+        "parity-approved-and-green-pr",
+        "parity-orphaned-ownership"
+      ]
+    },
+    {
+      "pack_id": "policy-fail-closed",
+      "title": "Policy fail-closed pack",
+      "scenario_ids": [
+        "policy-unknown-tool-fail-closed"
+      ]
+    },
+    {
+      "pack_id": "resume-continuity",
+      "title": "Explicit resume continuity pack",
+      "scenario_ids": [
+        "resume-explicit-checkpoint"
+      ]
+    },
+    {
+      "pack_id": "successor-handoff",
+      "title": "Successor handoff continuity pack",
+      "scenario_ids": [
+        "handoff-successor-transfer"
+      ]
+    },
+    {
+      "pack_id": "continuity-incident-matrix",
+      "title": "Task-level continuity incident acceptance matrix",
+      "scenario_ids": [
+        "resume-explicit-checkpoint",
+        "handoff-successor-transfer",
+        "ambiguous-competing-successors"
+      ]
+    }
+  ]
+}

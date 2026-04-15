@@ -1,0 +1,31 @@
+{
+  "schema_version": "ao.eval-scenario.v1alpha1",
+  "format": "ao_eval_scenario",
+  "scenario_id": "parity-approved-and-green-pr",
+  "pack_id": "parity",
+  "runner": "controller_shadow_parity",
+  "title": "Controller shadow parity notifies on approved and green PR",
+  "acceptance_fixture": "../acceptance/approved-and-green-pr",
+  "task": {
+    "task_id": "issue-93",
+    "issue_number": 93,
+    "title": "Fixture parity approved-and-green-pr",
+    "branch_name": "feat/issue-93",
+    "worktree_path": "/tmp/feat-issue-93"
+  },
+  "pr_binding": {
+    "pr_number": 93,
+    "base_branch": "main"
+  },
+  "controller": {
+    "controller_id": "default",
+    "mode": "shadow"
+  },
+  "timing": {
+    "created_at": "2026-03-29T06:50:00.000Z",
+    "run_at": "2026-03-29T06:51:00.000Z"
+  },
+  "expected": {
+    "derived_trigger": "approved_and_green"
+  }
+}

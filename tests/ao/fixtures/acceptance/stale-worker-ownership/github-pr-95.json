@@ -1,0 +1,16 @@
+{
+  "number": 95,
+  "state": "OPEN",
+  "headRefName": "feat/issue-95",
+  "headRefOid": "95abc0",
+  "reviewDecision": "APPROVED",
+  "mergeStateStatus": "CLEAN",
+  "isDraft": false,
+  "statusCheckRollup": [
+    {
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS"
+    }
+  ],
+  "url": "https://github.com/example-user/my-project/pull/95"
+}

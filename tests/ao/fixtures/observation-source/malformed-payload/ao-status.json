@@ -1,0 +1,8 @@
+{
+  "project": {
+    "id": "my-project"
+  },
+  "sessions": {
+    "name": "not-an-array"
+  }
+}

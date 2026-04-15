@@ -1,0 +1,60 @@
+{
+  "schema_version": "ao.eval-scenario.v1alpha1",
+  "format": "ao_eval_scenario",
+  "scenario_id": "ambiguous-competing-successors",
+  "pack_id": "continuity-incident-matrix",
+  "runner": "managed_ambiguous_continuity",
+  "title": "Competing successor claims fail closed to human resolution",
+  "task": {
+    "issue_number": 118,
+    "title": "feat(ao): fail closed when successor selection is ambiguous",
+    "branch_name": "feat/118",
+    "worktree_path": "/tmp/worker-60",
+    "pr_number": 128,
+    "owner_session_name": "worker-60",
+    "owner_session_id": "worker-60",
+    "operator_session_name": "operator-2",
+    "operator_session_id": "operator-2",
+    "successor_candidates": [
+      {
+        "session_name": "worker-61",
+        "session_id": "worker-61"
+      },
+      {
+        "session_name": "worker-62",
+        "session_id": "worker-62"
+      }
+    ]
+  },
+  "task_spec_body": [
+    "## Problem Type",
+    "issue_delivery",
+    "",
+    "## Acceptance Contract",
+    "- ambiguous successor selection human-gates the task",
+    "",
+    "## Runtime Ref",
+    "runtime.github_local",
+    "",
+    "## Policy Ref",
+    "policy.operator_gated",
+    "",
+    "## Human Gates",
+    "- operator_handoff"
+  ],
+  "timing": {
+    "enroll_at": "2026-04-01T10:00:00.000Z",
+    "preflight_at": "2026-04-01T10:01:00.000Z",
+    "checkpoint_at": "2026-04-01T10:02:00.000Z",
+    "pause_at": "2026-04-01T10:03:00.000Z",
+    "handoff_at": "2026-04-01T10:04:00.000Z"
+  },
+  "expected": {
+    "continuity": {
+      "kind": "human_gate",
+      "posture": "ambiguous",
+      "recommended_action": "hold_for_human",
+      "outcome": "ambiguous_human_gate"
+    }
+  }
+}

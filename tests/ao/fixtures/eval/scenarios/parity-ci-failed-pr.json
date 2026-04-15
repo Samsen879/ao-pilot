@@ -1,0 +1,31 @@
+{
+  "schema_version": "ao.eval-scenario.v1alpha1",
+  "format": "ao_eval_scenario",
+  "scenario_id": "parity-ci-failed-pr",
+  "pack_id": "parity",
+  "runner": "controller_shadow_parity",
+  "title": "Controller shadow parity holds on CI failure",
+  "acceptance_fixture": "../acceptance/ci-failed-pr",
+  "task": {
+    "task_id": "issue-92",
+    "issue_number": 92,
+    "title": "Fixture parity ci-failed-pr",
+    "branch_name": "feat/issue-92",
+    "worktree_path": "/tmp/feat-issue-92"
+  },
+  "pr_binding": {
+    "pr_number": 92,
+    "base_branch": "main"
+  },
+  "controller": {
+    "controller_id": "default",
+    "mode": "shadow"
+  },
+  "timing": {
+    "created_at": "2026-03-29T06:50:00.000Z",
+    "run_at": "2026-03-29T06:51:00.000Z"
+  },
+  "expected": {
+    "derived_trigger": "ci_failed"
+  }
+}

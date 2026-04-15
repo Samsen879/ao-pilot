@@ -1,0 +1,48 @@
+{
+  "schema_version": "ao.eval-scenario.v1alpha1",
+  "format": "ao_eval_scenario",
+  "scenario_id": "resume-explicit-checkpoint",
+  "pack_id": "resume-continuity",
+  "runner": "managed_resume_continuity",
+  "title": "Explicit checkpoint resume preserves continuity",
+  "task": {
+    "issue_number": 110,
+    "title": "feat(ao): add checkpoint schema and explicit resume",
+    "branch_name": "feat/110",
+    "worktree_path": "/tmp/worker-57",
+    "pr_number": 120,
+    "owner_session_name": "worker-57",
+    "owner_session_id": "worker-57"
+  },
+  "task_spec_body": [
+    "## Problem Type",
+    "issue_delivery",
+    "",
+    "## Acceptance Contract",
+    "- checkpoint-backed resume exists",
+    "",
+    "## Runtime Ref",
+    "runtime.github_local",
+    "",
+    "## Policy Ref",
+    "policy.operator_gated",
+    "",
+    "## Human Gates",
+    "- operator_resume"
+  ],
+  "timing": {
+    "enroll_at": "2026-03-30T10:00:00.000Z",
+    "preflight_at": "2026-03-30T10:01:00.000Z",
+    "checkpoint_at": "2026-03-30T10:02:00.000Z",
+    "pause_at": "2026-03-30T10:03:00.000Z",
+    "resume_at": "2026-03-30T10:04:00.000Z"
+  },
+  "expected": {
+    "continuity": {
+      "kind": "resume",
+      "posture": "restore_ready",
+      "recommended_action": "restore_existing_worker",
+      "outcome": "explicit_resume"
+    }
+  }
+}
