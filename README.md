@@ -1,76 +1,141 @@
 <p align="center">
   <h1 align="center">ao-pilot</h1>
   <p align="center">
-    <strong>An autonomous control plane for AI coding agents</strong>
+    <strong>Experimental control-plane tooling for AI-assisted coding workflows</strong>
   </p>
   <p align="center">
-    Observe → Reason → Decide → Act → Recover → Verify
+    Observe → Reconcile → Decide → Recover → Verify
   </p>
 </p>
 
 <p align="center">
+  <a href="#what-is-this">What Is This?</a> •
+  <a href="#why-this-exists">Why</a> •
   <a href="#quick-start">Quick Start</a> •
-  <a href="#why-ao-control-plane">Why</a> •
   <a href="#architecture">Architecture</a> •
   <a href="#cli-reference">CLI</a> •
-  <a href="#how-it-works">How It Works</a> •
-  <a href="#contributing">Contributing</a>
+  <a href="#current-status">Status</a>
 </p>
 
 ---
 
 ## What Is This?
 
-**AO Control Plane** is a heavily extended fork of [ComposioHQ/agent-orchestrator](https://github.com/ComposioHQ/agent-orchestrator) that transforms a lightweight agent scheduler into a **full autonomous control plane** for managing fleets of AI coding agents.
+**ao-pilot** is an experimental, heavily extended fork of [ComposioHQ/agent-orchestrator](https://github.com/ComposioHQ/agent-orchestrator).
 
-Where the original AO acts as a dispatcher (spawn agent → route feedback → notify human), AO Control Plane implements a **Kubernetes-style control loop**: continuously observing, reasoning, deciding, acting, recovering, and verifying — pulling humans in only when genuine judgment is needed.
+The original project provides a lightweight way to run and coordinate AI coding agents. This fork explores a broader control-plane layer around that workflow: task state, PR reconciliation, ownership, handoff, recovery, diagnostics, policy gates, and evaluation.
 
-### Original AO vs AO Control Plane
+This repository is best understood as a **research prototype**, not a production-ready agent platform. It was built while experimenting with AI-assisted development workflows and trying to understand what infrastructure is needed once multiple coding-agent sessions, branches, issues, and PRs are active at the same time.
 
-| Capability | Original AO | AO Control Plane |
-|---|:---:|:---:|
-| Spawn agent sessions (tmux) | ✅ | ✅ |
-| Git worktree isolation | ✅ | ✅ |
-| CI failure → route to agent | ✅ | ✅ |
-| Review comments → route to agent | ✅ | ✅ |
-| **Autonomous control loop** | ❌ | ✅ |
-| **Persistent state machine** | ❌ | ✅ |
-| **Lifecycle engine** (trigger → decision → action) | ❌ | ✅ |
-| **Reconciliation engine** (AO state vs GitHub truth) | ❌ | ✅ |
-| **Diagnostics engine** (full health checks) | ❌ | ✅ |
-| **Handoff protocol** (death → diagnose → recover) | ❌ | ✅ |
-| **State transition engine** (formal transition rules) | ❌ | ✅ |
-| **Evaluation framework** (harness + scorecard) | ❌ | ✅ |
-| **Decision chain reasoning** (matrix-driven) | ❌ | ✅ |
-| **Checkpoint + recovery** | ❌ | ✅ |
-| **Code review protocol** (read-write separation) | ❌ | ✅ |
-| **Policy engine** (configurable behavior rules) | ❌ | ✅ |
-| **Run metrics + measurement taxonomy** | ❌ | ✅ |
+The core question behind this project is:
 
-> **TL;DR** — Original AO = `cron + webhook router`. AO Control Plane = `Kubernetes control loop for coding agents`.
+> How can AI-assisted coding work stay auditable, recoverable, and reviewable when agents are working across multiple tasks?
 
----
+## Why This Exists
 
-## Why AO Control Plane?
+Running one AI coding agent in a terminal is relatively easy. The harder problem starts when there are multiple issues, branches, worktrees, PRs, CI results, and review threads.
 
-Running one AI agent in a terminal is easy. Running many across different issues, branches, and PRs is a **coordination problem**. The original AO handles basic dispatching well, but in production you quickly hit:
+Without a control layer, several problems appear quickly:
 
-1. **Agents get stuck with no automatic recovery** — AO Control Plane provides continuity contracts, checkpoint recovery, and handoff protocols
-2. **No audit trail for decisions** — Every decision flows through a formal decision chain with full traceability
-3. **State drift** — The reconciliation engine continuously compares AO's internal state against GitHub's ground truth, correcting inconsistencies automatically
-4. **No structured code review** — The review protocol separates implementation and reviewer sessions with read-write isolation
-5. **No evaluation framework** — The eval harness and scorecard provide quantitative measurement of agent performance
+1. A worker session may stop without leaving enough recovery context.
+2. A PR can become stale while local state still assumes it is active.
+3. CI and review state can drift away from what the agent believes happened.
+4. Multiple sessions can accidentally overlap ownership of the same task.
+5. Automation can become hard to audit if actions are not tied to explicit decisions.
+6. A human operator may lose track of which tasks are blocked, ambiguous, or ready for review.
 
----
+**ao-pilot** experiments with ways to make those states visible, durable, and recoverable.
+
+The goal is not to remove human judgment. The goal is to make the automation boundary clearer.
+
+## Relationship to the Original Project
+
+This repository is a fork of `ComposioHQ/agent-orchestrator`.
+
+The original AO project focuses on agent orchestration primitives such as spawning sessions, routing feedback, and coordinating work. This fork keeps that direction but adds experimental control-plane layers around:
+
+- persistent task state;
+- ownership and handoff;
+- PR / CI / review reconciliation;
+- lifecycle reasoning;
+- diagnostics;
+- policy decisions;
+- review separation;
+- checkpoints and recovery;
+- evaluation and scorecards.
+
+Some implementation details may still reflect the original project structure. That is expected.
+
+## Current Status
+
+This repository is currently an **experimental prototype**.
+
+What is reasonably implemented:
+
+- CLI tools for controller runs, task management, reconciliation, lifecycle checks, diagnostics, handoff, state inspection, overrides, and knowledge inspection.
+- Persistent state contracts for tasks, ownership leases, controller leases, handoffs, checkpoints, review records, actions, overrides, and policy decisions.
+- A reconciliation model for comparing AO state with GitHub-facing PR / CI / review state.
+- Lifecycle and diagnostic checks for blocked, ambiguous, orphaned, stale, or review-dependent work.
+- Handoff and checkpoint concepts for recovering interrupted agent sessions.
+- Acceptance tests for several representative lifecycle scenarios.
+- Early evaluation and scorecard infrastructure.
+
+What is not guaranteed:
+
+- Stable public API.
+- Production deployment safety.
+- Complete documentation for external users.
+- Compatibility with every AI coding workflow.
+- Clean separation from every assumption in the original project.
+- A polished installation or onboarding experience.
+
+In other words: this repo is a working lab for control-plane ideas, not a finished product.
+
+## What This Fork Adds
+
+Compared with the original AO project, this fork experiments with the following areas:
+
+| Area | What this fork explores |
+|---|---|
+| Task state | Durable task records, PR bindings, ownership leases, lifecycle status |
+| Reconciliation | Comparing local AO state with GitHub PR / CI / review state |
+| Recovery | Checkpoints, handoff requests, successor claims, stale-worker detection |
+| Diagnostics | Doctor-style checks for blocked, ambiguous, orphaned, or stale work |
+| Review flow | Separation between implementation and review-oriented sessions |
+| Policy | Explicit decision points before automation is allowed to mutate state |
+| Evaluation | Early scoring and measurement ideas for agent runs |
+| Auditability | Machine-readable state, decision records, and run metrics |
+
+These pieces are intentionally conservative. The preferred failure mode is to mark work as `blocked` or `ambiguous`, rather than allowing automation to continue based on unclear state.
+
+## Design Principles
+
+The project is built around a few assumptions:
+
+- Prefer explicit state over hidden session memory.
+- Prefer `blocked` or `ambiguous` over unsafe automatic progress.
+- Keep human review gates visible.
+- Treat GitHub PR / CI / review state as a source of truth during reconciliation.
+- Make handoff and recovery durable instead of relying only on conversation history.
+- Let automation propose or assist, but keep policy boundaries clear.
+- Keep machine-readable output available for debugging and audit trails.
 
 ## Quick Start
 
 ### Prerequisites
 
-- [Node.js 20+](https://nodejs.org)
-- [Git 2.25+](https://git-scm.com)
-- [tmux](https://github.com/tmux/tmux/wiki/Installing) — `brew install tmux` (macOS) or `sudo apt install tmux` (Linux)
-- [GitHub CLI](https://cli.github.com) — `gh auth login` must be completed
+- Node.js 20+
+- npm
+- Git
+- tmux
+- GitHub CLI (`gh`)
+- A repository/workflow where AO-style agent sessions are expected to operate
+
+Make sure GitHub CLI is authenticated:
+
+```bash
+gh auth login
+```
 
 ### Install
 
@@ -80,416 +145,484 @@ cd ao-pilot
 npm install
 ```
 
-### Run the Controller
+### Run Tests
 
 ```bash
-# Single pass — observe, reason, decide, then exit
-node scripts/ao-controller.js --holder my-session --project my-project
-
-# Continuous mode — keep the control loop running
-node scripts/ao-controller.js --holder my-session --project my-project --continuous
-
-# Observe-only (no mutations)
-node scripts/ao-controller.js --holder my-session --mode observe
-
-# Target a specific issue
-node scripts/ao-controller.js --holder my-session --issue 42
+npm test
 ```
 
----
+If you only want to run the AO acceptance tests:
+
+```bash
+npm run ao:test:acceptance
+```
+
+### Run the Controller
+
+Single pass:
+
+```bash
+node scripts/ao-controller.js --holder my-session --project my-project
+```
+
+Continuous mode:
+
+```bash
+node scripts/ao-controller.js --holder my-session --project my-project --continuous
+```
+
+Observe-only mode:
+
+```bash
+node scripts/ao-controller.js --holder my-session --project my-project --mode observe
+```
+
+Target a specific issue:
+
+```bash
+node scripts/ao-controller.js --holder my-session --project my-project --issue 42
+```
+
+Most CLIs support `--json` for machine-readable output.
 
 ## Architecture
 
+At a high level, `ao-pilot` is organized around a control loop:
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                          ao-pilot                            │
+│                                                              │
+│  Observation Sources                                         │
+│  ├─ AO state                                                  │
+│  ├─ GitHub PR state                                           │
+│  ├─ CI/check state                                            │
+│  └─ Review state                                              │
+│          │                                                    │
+│          ▼                                                    │
+│  Event Ingest                                                 │
+│          │                                                    │
+│          ▼                                                    │
+│  Reconciliation                                               │
+│  ├─ local AO state                                             │
+│  ├─ GitHub-facing truth                                        │
+│  └─ drift / ambiguity detection                                │
+│          │                                                    │
+│          ▼                                                    │
+│  Lifecycle / Diagnostics                                      │
+│  ├─ blocked                                                    │
+│  ├─ ambiguous                                                  │
+│  ├─ stale                                                      │
+│  ├─ orphaned                                                   │
+│  └─ ready / needs review                                       │
+│          │                                                    │
+│          ▼                                                    │
+│  Decision + Policy Gates                                      │
+│          │                                                    │
+│          ▼                                                    │
+│  Action Proposal / Assisted Execution                         │
+│          │                                                    │
+│          ▼                                                    │
+│  Persistent State + Audit Trail                               │
+└──────────────────────────────────────────────────────────────┘
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        AO Control Plane                         │
-│                                                                 │
-│  ┌─────────────┐  ┌──────────────┐  ┌────────────────────────┐ │
-│  │  Observation │  │    Event     │  │   Decision Chain       │ │
-│  │   Sources    │→ │   Ingest     │→ │   (Matrix-Driven)      │ │
-│  └─────────────┘  └──────────────┘  └───────────┬────────────┘ │
-│                                                  │              │
-│  ┌─────────────┐  ┌──────────────┐  ┌───────────▼────────────┐ │
-│  │  GitHub      │  │ Lifecycle    │  │   Controller Loop      │ │
-│  │  Observation │→ │ Engine       │→ │ (Observe→Decide→Act)   │ │
-│  │  Source      │  │              │  │                        │ │
-│  └─────────────┘  └──────────────┘  └───────────┬────────────┘ │
-│                                                  │              │
-│  ┌─────────────┐  ┌──────────────┐  ┌───────────▼────────────┐ │
-│  │   Policy     │  │Reconciliation│  │   Action Executor      │ │
-│  │   Engine     │→ │   Engine     │→ │ (with Policy Gates)    │ │
-│  └─────────────┘  └──────────────┘  └───────────┬────────────┘ │
-│                                                  │              │
-│  ┌─────────────┐  ┌──────────────┐  ┌───────────▼────────────┐ │
-│  │ Checkpoint   │  │  Handoff     │  │   State Repository     │ │
-│  │ Store        │  │  Protocol    │  │ (Persistent + Audited) │ │
-│  └─────────────┘  └──────────────┘  └────────────────────────┘ │
-│                                                                 │
-│  ┌─────────────┐  ┌──────────────┐  ┌────────────────────────┐ │
-│  │  Diagnostics │  │   Review     │  │   Eval Harness +       │ │
-│  │  (Doctor)    │  │   Protocol   │  │   Scorecard            │ │
-│  └─────────────┘  └──────────────┘  └────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────┘
 
-         Persistent State (.ao-pilot/)
-         ├── state.json        # Full control plane state
-         ├── schema.json       # Schema version + migrations
-         ├── audit/            # Append-only audit trail
-         ├── checkpoints/      # Task checkpoint snapshots
-         └── handoffs/         # Handoff request/claim/transfer
-```
+The control loop does not assume that automation should always act. Depending on mode and policy, it may only observe, propose, block, or escalate.
 
-### Core Engines
+## Controller Modes
 
-| Engine | Purpose | Size |
-|--------|---------|------|
-| **Controller Loop** | Main observe → reason → decide → act loop with lease-based leadership | 56 KB |
-| **State Contracts** | Normalized, validated data structures for the entire control plane | 49 KB |
-| **Eval Harness** | Automated evaluation of agent runs with configurable scenarios | 42 KB |
-| **Lifecycle Engine** | Deterministic trigger → decision → action reasoning chain | 29 KB |
-| **State Repository** | Atomic read/write with file-level locking and migration support | 27 KB |
-| **Diagnostics Engine** | Full git/worktree/AO/GitHub health checks | 25 KB |
-| **Reconciliation Engine** | AO internal state vs GitHub ground truth auto-correction | 24 KB |
-| **Handoff Protocol** | Worker death → diagnose → checkpoint → recover/replace/escalate | 22 KB |
-| **Transition Engine** | Formal state transition rules and validation | 22 KB |
-| **Action Executor** | Executes proposed actions with policy gate enforcement | 22 KB |
-| **Manage Runner** | Task CRUD, PR binding, ownership lease management | 18 KB |
-| **Run Metrics** | Quantitative measurement of controller runs | 15 KB |
-| **Policy Engine** | Configurable rules governing orchestration behavior | 13 KB |
-| **Repo Knowledge** | Scan and lint repository knowledge files | 14 KB |
-| **Scorecard** | Agent performance scoring and grading | 13 KB |
-| **State Storage** | Low-level JSON persistence with atomic writes | 13 KB |
-| **State Migrations** | Schema evolution across control plane versions | 13 KB |
-| **Checkpoint Store** | Task interruption checkpoints for recovery | 12 KB |
-| **Debt Report** | Automated technical debt auditing and tracking | 12 KB |
-| **Continuity** | Stuck/exit/needs-input formal detection and recovery | 10 KB |
-| **Review Protocol** | Independent reviewer sessions with read-write separation | 8 KB |
-| **Decision Chain** | Matrix-driven trigger → decision → action chains | 6 KB |
+| Mode | Observes | Reasons | Proposes Actions | Executes Actions |
+|---|:---:|:---:|:---:|:---:|
+| `observe` | ✅ | ✅ | ❌ | ❌ |
+| `shadow` | ✅ | ✅ | ✅ | ❌ |
+| `assist` | ✅ | ✅ | ✅ | ✅ |
 
----
+The separation is intentional:
+
+- `observe` is useful for diagnostics and understanding state.
+- `shadow` is useful for seeing what the system would do without mutating state.
+- `assist` allows permitted actions to execute through policy gates.
 
 ## CLI Reference
 
-AO Control Plane provides **12 specialized CLIs**, each focused on one concern:
+The project provides several focused CLI entry points.
 
-### `ao-controller` — The Control Loop
+### `ao-controller`
+
+Runs the main control loop.
 
 ```bash
-# Run one control loop pass
-node scripts/ao-controller.js --holder <id> [--project <id>] [--mode observe|shadow|assist]
-
-# Continuous operation
-node scripts/ao-controller.js --holder <id> --continuous [--poll-interval-ms 30000]
-
-# Options:
-#   --project <id>             Project identifier (default: my-project)
-#   --controller <id>          Controller identity (default: default)
-#   --holder <id>              Required. Durable holder identity
-#   --mode <observe|shadow|assist>  Controller mutation mode
-#   --issue <number>           Focus on a specific issue
-#   --continuous               Keep running until SIGINT/SIGTERM
-#   --poll-interval-ms <ms>    Poll interval in continuous mode (default: 30000)
-#   --json                     Machine-readable JSON output
+node scripts/ao-controller.js --holder <id> [options]
 ```
 
-### `ao-manage` — Task Management
+Common options:
+
+```bash
+--project <id>                 Project identifier
+--controller <id>              Controller identity
+--holder <id>                  Durable holder identity
+--mode observe|shadow|assist   Controller mutation mode
+--issue <number>               Focus on a specific issue
+--continuous                   Keep running until stopped
+--poll-interval-ms <ms>        Poll interval in continuous mode
+--shutdown-timeout-ms <ms>     Shutdown grace bound
+--json                         Machine-readable JSON output
+```
+
+Examples:
+
+```bash
+node scripts/ao-controller.js --holder dev-session --mode observe
+node scripts/ao-controller.js --holder dev-session --mode shadow --json
+node scripts/ao-controller.js --holder dev-session --mode assist --continuous
+```
+
+### `ao-reconcile`
+
+Compares AO state with GitHub-facing state.
+
+```bash
+node scripts/ao-reconcile.js [options]
+```
+
+Examples:
+
+```bash
+node scripts/ao-reconcile.js --project my-project
+node scripts/ao-reconcile.js --pr 42 --json
+node scripts/ao-reconcile.js --pr 42 --json --strict
+```
+
+Use this when you want to know whether AO state agrees with PR, branch, CI, and review state.
+
+### `ao-doctor`
+
+Runs diagnostic checks.
+
+```bash
+node scripts/ao-doctor.js [options]
+```
+
+Examples:
+
+```bash
+node scripts/ao-doctor.js --project my-project
+node scripts/ao-doctor.js --pr 42 --json
+node scripts/ao-doctor.js --pr 42 --json --strict
+```
+
+Use this to surface blocked, ambiguous, orphaned, stale, or otherwise unhealthy work.
+
+### `ao-lifecycle`
+
+Inspects lifecycle state and readiness.
+
+```bash
+node scripts/ao-lifecycle.js [options]
+```
+
+Examples:
+
+```bash
+node scripts/ao-lifecycle.js --project my-project
+node scripts/ao-lifecycle.js --pr 42 --json
+node scripts/ao-lifecycle.js --pr 42 --json --strict
+```
+
+Use this to inspect whether a task or PR has enough continuity, CI, and review evidence to move forward.
+
+### `ao-manage`
+
+Manages task lifecycle records.
 
 ```bash
 node scripts/ao-manage.js <command> [options]
-
-# Commands: create, list, bind-pr, retire, ...
 ```
 
-### `ao-lifecycle` — Lifecycle Reasoning
+Supported commands include:
+
+```text
+enroll
+adopt
+resume
+unmanage
+retire
+```
+
+Example:
 
 ```bash
-node scripts/ao-lifecycle.js --holder <id> [--issue <number>]
+node scripts/ao-manage.js enroll \
+  --project my-project \
+  --issue 42 \
+  --title "Fix failing parser test" \
+  --branch feat/fix-parser-test \
+  --worktree ../worktrees/fix-parser-test
 ```
 
-### `ao-reconcile` — State Reconciliation
+### `ao-handoff`
 
-```bash
-node scripts/ao-reconcile.js --holder <id> [--project <id>]
-```
-
-### `ao-doctor` — Diagnostics
-
-```bash
-node scripts/ao-doctor.js [--project <id>] [--json]
-```
-
-### `ao-handoff` — Worker Handoff
+Handles successor-session handoff.
 
 ```bash
 node scripts/ao-handoff.js <command> [options]
 ```
 
-### `ao-review` — Code Review Protocol
+Supported commands include:
 
-```bash
-node scripts/ao-review.js <command> [options]
+```text
+request
+claim
+accept
+reject
+expire
+inspect
 ```
 
-### `ao-eval` — Evaluation Harness
+Examples:
 
 ```bash
-node scripts/ao-eval.js [options]
+node scripts/ao-handoff.js request \
+  --project my-project \
+  --issue 42 \
+  --successor-session next-worker
+
+node scripts/ao-handoff.js inspect \
+  --project my-project \
+  --issue 42 \
+  --json
 ```
 
-### `ao-state` — State Inspection
+### `ao-state`
+
+Inspects persistent AO state.
 
 ```bash
-node scripts/ao-state.js [--project <id>] [--json]
+node scripts/ao-state.js --project my-project
+node scripts/ao-state.js --project my-project --json
 ```
 
-### `ao-metrics` — Run Metrics
+### `ao-override`
 
-```bash
-node scripts/ao-metrics.js [--project <id>]
-```
-
-### `ao-override` — Override Management
+Manages explicit overrides.
 
 ```bash
 node scripts/ao-override.js <command> [options]
 ```
 
-### `ao-knowledge` — Repository Knowledge
+Overrides are intended for controlled operator intervention, not as a replacement for fixing state.
+
+### `ao-knowledge`
+
+Inspects repository knowledge files and related metadata.
 
 ```bash
-node scripts/ao-knowledge.js [options]
+node scripts/ao-knowledge.js --project my-project
+node scripts/ao-knowledge.js --project my-project --json
 ```
-
----
 
 ## How It Works
 
-### The Control Loop
+### 1. Observe
 
-The core of AO Control Plane is a **continuous control loop** inspired by Kubernetes controllers:
+The controller reads available state from AO and GitHub-facing sources.
 
-```
-┌────────────────── CONTROL LOOP ──────────────────┐
-│                                                    │
-│  1. ACQUIRE LEADERSHIP (lease-based)               │
-│     └─ Prevents duplicate controllers              │
-│                                                    │
-│  2. OBSERVE                                        │
-│     ├─ Poll AO internal state                      │
-│     ├─ Poll GitHub (PRs, checks, reviews)          │
-│     └─ Merge into unified observation set          │
-│                                                    │
-│  3. INGEST EVENTS                                  │
-│     ├─ Deduplicate delivery events                 │
-│     ├─ Classify into families (PR/check/review)    │
-│     └─ Map to lifecycle triggers                   │
-│                                                    │
-│  4. REASON (per task)                              │
-│     ├─ Run reconciliation (AO vs GitHub truth)     │
-│     ├─ Run lifecycle engine (trigger → decision)   │
-│     ├─ Run diagnostics (health checks)             │
-│     ├─ Evaluate decision chain                     │
-│     └─ Check continuity contracts                  │
-│                                                    │
-│  5. DECIDE                                         │
-│     ├─ Propose actions based on reasoning          │
-│     ├─ Pass through policy engine                  │
-│     └─ Record policy decisions                     │
-│                                                    │
-│  6. ACT (if mode = assist)                         │
-│     ├─ Execute allowed actions                     │
-│     ├─ Block denied actions                        │
-│     └─ Record execution results                    │
-│                                                    │
-│  7. PERSIST                                        │
-│     ├─ Update state atomically                     │
-│     ├─ Append audit entries                        │
-│     └─ Renew controller lease                      │
-│                                                    │
-│  (repeat if --continuous)                          │
-└────────────────────────────────────────────────────┘
-```
+Typical observed inputs include:
 
-### Controller Modes
+- active tasks;
+- ownership leases;
+- PR bindings;
+- GitHub PR status;
+- branch/head state;
+- CI checks;
+- review decisions;
+- handoff records;
+- checkpoints.
 
-| Mode | Observes | Reasons | Proposes Actions | Executes Actions |
-|------|:--------:|:-------:|:----------------:|:----------------:|
-| `observe` | ✅ | ✅ | ❌ | ❌ |
-| `shadow` | ✅ | ✅ | ✅ | ❌ |
-| `assist` | ✅ | ✅ | ✅ | ✅ |
+### 2. Reconcile
 
-### Matrix-Driven Decisions
+The reconciliation engine compares local AO state with external state.
 
-Instead of hardcoded if-else reactions, AO Control Plane uses a **three-layer matrix system**:
+For example:
 
-```yaml
-# Layer 1: Chain Matrix — formal contract rules (C0-C11)
-AO_PHASE2_CHAIN_MATRIX
+- If AO believes a PR is failing but GitHub shows passing checks, the stale AO view should not be blindly trusted.
+- If a task has no valid owner but still has an open PR, it may be marked as orphaned.
+- If local state and GitHub state disagree in a way that cannot be safely resolved, the result should become ambiguous.
 
-# Layer 2: Workflow Matrix — engineering process rules (W0-W11)
-AO_WORKFLOW_MATRIX
+### 3. Diagnose
 
-# Layer 3: Trigger Matrix — event → decision chain mapping
-AO_TRIGGER_MATRIX[approved-and-green] =
-  preflight:C0+C1               # Calibrate with GitHub truth
-  | entry:C2(trigger=xxx)        # Enter lifecycle engine
-  | inspect:C3+C11               # Check decision chain + review gate
-  | drilldown:C4,C5              # Reconcile + diagnose
-  | outcome:hold_or_notify       # Output decision
-```
+The doctor and lifecycle logic classify work into states such as:
 
-This produces **auditable, traceable, extensible** decision records.
+- healthy;
+- blocked;
+- ambiguous;
+- stale;
+- orphaned;
+- review-pending;
+- ready for next action.
 
-### Reconciliation
+This is meant to make operator decisions easier, not to hide them.
 
-The reconciliation engine continuously compares AO's internal state against GitHub's ground truth:
+### 4. Decide
 
-> "When AO says a PR is still failing CI, but GitHub shows CI has passed — **GitHub wins.**"
+The decision layer maps observed state and diagnostics into possible actions.
 
-This prevents state drift, duplicate work, and stale notifications.
+Examples:
 
-### Worker Continuity
+- continue observing;
+- request human review;
+- mark work as blocked;
+- propose a handoff;
+- recover from checkpoint;
+- notify a session;
+- hold until CI or review changes.
 
-When an agent dies, the system doesn't just notify a human:
+### 5. Act
 
-```
-Agent dies → Diagnose why → Check if recoverable →
-  → Try checkpoint recovery → If failed, spawn successor →
-    → If still failed, escalate to human
+In `assist` mode, allowed actions can be executed through policy gates.
+
+In `observe` and `shadow` modes, the system should avoid mutating state directly.
+
+### 6. Persist
+
+State changes are written into the persistent AO state model, with audit-oriented records where applicable.
+
+## Persistent State
+
+The project uses a local persistent state model for control-plane records.
+
+Conceptually, it includes:
+
+```text
+tasks
+ownership leases
+controller leases
+PR bindings
+actions
+policy decisions
+handoff requests
+handoff claims
+handoff transfers
+checkpoints
+review records
+run metrics
+audit entries
 ```
 
-### Code Review Protocol
-
-Implementation and review are **structurally separated**:
-
-- **Implementation session**: Read-write access, makes code changes
-- **Reviewer session**: Read-only independent session, evaluates changes against verification baseline
-
----
-
-## Project Structure
-
-```
-scripts/
-├── ao-controller.js          # Main control loop CLI
-├── ao-doctor.js              # Diagnostics CLI
-├── ao-eval.js                # Evaluation harness CLI
-├── ao-handoff.js             # Handoff protocol CLI
-├── ao-knowledge.js           # Repo knowledge CLI
-├── ao-lifecycle.js           # Lifecycle engine CLI
-├── ao-manage.js              # Task management CLI
-├── ao-metrics.js             # Run metrics CLI
-├── ao-override.js            # Override management CLI
-├── ao-reconcile.js           # Reconciliation CLI
-├── ao-review.js              # Code review protocol CLI
-├── ao-state.js               # State inspection CLI
-└── ao/
-    └── lib/
-        ├── controller-loop.js          # Core control loop
-        ├── state-contracts.js          # Data structure contracts
-        ├── state-repository.js         # Atomic state persistence
-        ├── state-storage.js            # Low-level storage
-        ├── state-migrations.js         # Schema evolution
-        ├── lifecycle-engine.js         # Lifecycle reasoning
-        ├── lifecycle-contracts.js      # Lifecycle data types
-        ├── reconciliation-engine.js    # State reconciliation
-        ├── reconciliation-contracts.js # Reconciliation types
-        ├── doctor-engine.js            # Health diagnostics
-        ├── doctor-contracts.js         # Diagnostics types
-        ├── handoff-protocol.js         # Worker handoff
-        ├── transition-engine.js        # State transitions
-        ├── action-executor.js          # Action execution
-        ├── event-ingest.js             # Event ingestion
-        ├── decision-chain.js           # Decision chains
-        ├── policy-engine.js            # Policy evaluation
-        ├── review-protocol.js          # Code review
-        ├── eval-harness.js             # Eval framework
-        ├── scorecard.js                # Performance scoring
-        ├── checkpoint-store.js         # Checkpoint persistence
-        ├── continuity.js               # Continuity detection
-        ├── run-metrics.js              # Run measurement
-        ├── measurement-taxonomy.js     # Metric taxonomy
-        ├── repo-knowledge.js           # Knowledge management
-        ├── debt-report.js              # Tech debt tracking
-        └── ...                         # 52 modules total
-
-tests/ao/                     # 68 test files, ~18,000 lines
-```
-
-## Code Stats
-
-| Dimension | Value |
-|-----------|-------|
-| Core library modules | **52** |
-| CLI entry points | **12** |
-| Core code lines | **~22,000** |
-| Test files | **68** |
-| Test lines | **~18,000** |
-| Total | **~40,000 lines** |
-
----
+The exact schema is still experimental and may change.
 
 ## Testing
 
+Run the default test suite:
+
 ```bash
-# Run all AO tests
-npx vitest run tests/ao/
-
-# Run a specific test file
-npx vitest run tests/ao/controller-loop.test.js
-
-# Watch mode
-npx vitest tests/ao/
+npm test
 ```
 
-68 test files covering all core engines with ~18,000 lines of test code.
+Run AO acceptance tests:
 
----
-
-## Configuration
-
-AO Control Plane uses an `agent-orchestrator.yaml` configuration file:
-
-```yaml
-# agent-orchestrator.yaml
-port: 3000
-defaults:
-  runtime: tmux
-  agent: claude-code
-  workspace: worktree
-
-projects:
-  my-project:
-    repo: owner/repo
-    path: ~/my-project
-    defaultBranch: main
-
-    reactions:
-      ci-failed:
-        auto: true
-        action: send-to-agent
-        retries: 2
-      changes-requested:
-        auto: true
-        action: send-to-agent
-        escalateAfter: 30m
-      approved-and-green:
-        auto: false
-        action: notify
+```bash
+npm run ao:test:acceptance
 ```
 
----
+The acceptance tests cover representative situations such as:
 
-## Acknowledgments
+- clean PR continuity;
+- failed CI;
+- approved and green PRs;
+- orphaned ownership;
+- stale worker ownership;
+- cross-source disagreement between AO and GitHub state.
 
-AO Control Plane is built on top of [ComposioHQ/agent-orchestrator](https://github.com/ComposioHQ/agent-orchestrator) (MIT License). The original project provides the foundational agent spawning, worktree isolation, and feedback routing that this project extends with autonomous control-plane capabilities.
+## Project Structure
+
+The exact structure may change, but the important areas are:
+
+```text
+scripts/
+  ao-controller.js        Main controller loop CLI
+  ao-reconcile.js         State reconciliation CLI
+  ao-doctor.js            Diagnostics CLI
+  ao-lifecycle.js         Lifecycle inspection CLI
+  ao-manage.js            Task management CLI
+  ao-handoff.js           Handoff CLI
+  ao-state.js             State inspection CLI
+  ao-override.js          Override CLI
+  ao-knowledge.js         Repository knowledge CLI
+
+scripts/ao/lib/
+  controller-loop.js      Main control loop implementation
+  state-contracts.js      State contract definitions
+  reconciliation-*.js     Reconciliation contracts, runner, engine
+  doctor-*.js             Diagnostic contracts, runner, engine
+  lifecycle-*.js          Lifecycle contracts and engine
+  handoff-*.js            Handoff protocol
+  checkpoint-*.js         Checkpoint storage and recovery concepts
+  policy-*.js             Policy evaluation
+  action-*.js             Action proposal/execution
+  run-metrics.js          Measurement and run summaries
+
+tests/
+  ao/                     AO-specific acceptance and unit tests
+```
+
+## Intended Use
+
+This repo is mainly useful if you are interested in:
+
+- AI-assisted software engineering;
+- coding-agent orchestration;
+- PR-based automation;
+- recovering interrupted agent sessions;
+- making agent workflows auditable;
+- designing conservative automation gates;
+- thinking about state machines around AI coding tools.
+
+It is probably not the right tool if you want:
+
+- a plug-and-play production agent platform;
+- a polished SaaS-style product;
+- a stable public API;
+- a fully documented contributor experience;
+- an agent that can safely operate without human review.
+
+## Development Notes
+
+This project intentionally keeps many concepts explicit:
+
+- task IDs;
+- owner sessions;
+- controller leases;
+- PR bindings;
+- decision records;
+- policy decisions;
+- handoff records;
+- checkpoint records;
+- diagnostic findings.
+
+That makes the system more verbose, but also easier to inspect when something goes wrong.
+
+The current codebase may still contain rough edges, old assumptions, and names inherited from the original AO project. Those are part of the prototype status.
+
+## Contributing
+
+Contributions are welcome, but please treat this repository as experimental.
+
+Useful contribution areas include:
+
+- clearer documentation;
+- smaller examples;
+- better tests;
+- simpler setup;
+- bug fixes in CLI behavior;
+- improved diagnostics;
+- safer default policies;
+- clearer state transition rules.
+
+Before making large architectural changes, opening an issue first is recommended.
 
 ## License
 
-[MIT](LICENSE) — same as the original agent-orchestrator.
+MIT License.
 
----
-
-<p align="center">
-  <sub>Based on <a href="https://github.com/ComposioHQ/agent-orchestrator">agent-orchestrator</a> by ComposioHQ (MIT License)</sub>
-</p>
+See [LICENSE](./LICENSE).
