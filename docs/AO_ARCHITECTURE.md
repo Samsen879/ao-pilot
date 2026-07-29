@@ -16,6 +16,21 @@ worktree creation, or model execution itself.
 5. Evaluate policy before proposing or executing an action.
 6. Persist state, decisions, checkpoints, handoffs, reviews, and metrics.
 
+## Evaluation Boundary
+
+The evaluation framework separates:
+
+- pack and scenario catalog validation;
+- built-in AO scenario runners;
+- caller-supplied runner registration;
+- deterministic replay and fingerprinting;
+- metrics aggregation;
+- scorecard generation, scope comparison, and quality gates.
+
+Installed packages carry a small public eval pack. Downstream repositories may
+point configuration at their own pack root without adding domain logic to the
+generic control plane.
+
 ## Boundaries
 
 - Runtime providers expose agent-session observations and capabilities.

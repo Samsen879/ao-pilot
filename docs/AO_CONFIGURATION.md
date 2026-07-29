@@ -27,6 +27,13 @@ ao-pilot state --config ./config/ao.config.json --json
     "commands": [
       "npm test"
     ]
+  },
+  "evaluation": {
+    "fixture_root": null,
+    "packs": [
+      "all"
+    ],
+    "replay_count": 2
   }
 }
 ```
@@ -37,3 +44,9 @@ names fail during configuration loading.
 
 Command-line `--project` values override the configured project. PR-scoped
 doctor, lifecycle, and reconciliation commands retain their explicit PR scope.
+
+`evaluation.fixture_root` is resolved relative to the configuration file. Leave
+it as `null` to use the public packs bundled with the installed package.
+`evaluation.packs` selects the default pack set, and
+`evaluation.replay_count` controls deterministic replay with a minimum of two
+executions per scenario. Explicit eval CLI options override these values.

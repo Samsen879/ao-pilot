@@ -41,6 +41,18 @@ Verify the actual npm tarball in an isolated install directory:
 npm run verify:package
 ```
 
+Run the bundled evaluation suite:
+
+```bash
+ao-pilot eval --pack all
+```
+
+Run project-owned packs with stronger replay:
+
+```bash
+ao-pilot eval --fixture-root ./eval --pack smoke --replay-count 3
+```
+
 ## Change Discipline
 
 Keep migrations deterministic and file based. Add tests for every state or

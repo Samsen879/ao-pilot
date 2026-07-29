@@ -13,6 +13,11 @@ export const DEFAULT_AO_CONFIG = Object.freeze({
   verification: {
     commands: ['npm test'],
   },
+  evaluation: {
+    fixture_root: null,
+    packs: ['all'],
+    replay_count: 2,
+  },
 });
 
 const SUPPORTED_AGENT_RUNTIME_PROVIDERS = ['agent-orchestrator-cli'];
@@ -47,6 +52,29 @@ function normalizeCommands(value) {
   ));
 }
 
+function normalizeOptionalString(value, fieldName) {
+  if (value == null) return null;
+  return normalizeRequiredString(value, fieldName);
+}
+
+function normalizeStringList(value, fieldName) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`Invalid ${fieldName}`);
+  }
+  return value.map((item, index) => normalizeRequiredString(
+    item,
+    `${fieldName}[${index}]`,
+  ));
+}
+
+function normalizeReplayCount(value) {
+  const replayCount = Number(value);
+  if (!Number.isInteger(replayCount) || replayCount < 2) {
+    throw new Error('Invalid evaluation.replay_count');
+  }
+  return replayCount;
+}
+
 export function normalizeAoConfig(value = {}) {
   if (!isPlainObject(value)) {
     throw new Error('Invalid AO configuration');
@@ -67,6 +95,7 @@ export function normalizeAoConfig(value = {}) {
 
   const providers = isPlainObject(value.providers) ? value.providers : {};
   const verification = isPlainObject(value.verification) ? value.verification : {};
+  const evaluation = isPlainObject(value.evaluation) ? value.evaluation : {};
 
   return {
     config_version: AO_CONFIG_VERSION,
@@ -86,6 +115,19 @@ export function normalizeAoConfig(value = {}) {
     verification: {
       commands: normalizeCommands(
         verification.commands ?? DEFAULT_AO_CONFIG.verification.commands,
+      ),
+    },
+    evaluation: {
+      fixture_root: normalizeOptionalString(
+        evaluation.fixture_root ?? DEFAULT_AO_CONFIG.evaluation.fixture_root,
+        'evaluation.fixture_root',
+      ),
+      packs: normalizeStringList(
+        evaluation.packs ?? DEFAULT_AO_CONFIG.evaluation.packs,
+        'evaluation.packs',
+      ),
+      replay_count: normalizeReplayCount(
+        evaluation.replay_count ?? DEFAULT_AO_CONFIG.evaluation.replay_count,
       ),
     },
   };

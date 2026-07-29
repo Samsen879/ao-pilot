@@ -311,6 +311,10 @@ describe('ao eval scorecard', () => {
           }),
         },
       },
+      quality_gate: {
+        status: 'failed',
+        finding_count: 3,
+      },
     });
     expect(scorecard.findings).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -402,6 +406,46 @@ describe('ao eval scorecard', () => {
         metric: 'policy_block',
       }),
     ]));
+  });
+
+  it('uses order-independent scope fingerprints and rejects real scope drift', () => {
+    const baseline = buildAoEvalScorecard({
+      projectId: PROJECT_ID,
+      harnessResult: createHarnessResult(),
+      generatedAt: '2026-03-31T12:00:00.000Z',
+    });
+    const reordered = buildAoEvalScorecard({
+      projectId: PROJECT_ID,
+      harnessResult: createHarnessResult({
+        pack_ids: [...createHarnessResult().pack_ids].reverse(),
+        scenario_ids: [...createHarnessResult().scenario_ids].reverse(),
+      }),
+      generatedAt: '2026-03-31T12:01:00.000Z',
+    });
+    const drifted = buildAoEvalScorecard({
+      projectId: PROJECT_ID,
+      harnessResult: createHarnessResult({
+        pack_ids: ['different-pack'],
+      }),
+      generatedAt: '2026-03-31T12:02:00.000Z',
+    });
+
+    expect(compareAoEvalScorecards({
+      baselineScorecard: baseline,
+      currentScorecard: reordered,
+    }).status).not.toBe('invalid');
+    expect(compareAoEvalScorecards({
+      baselineScorecard: baseline,
+      currentScorecard: drifted,
+    })).toMatchObject({
+      status: 'invalid',
+      findings: [
+        {
+          code: 'scorecard_scope_mismatch',
+          metric: 'scope.fingerprint',
+        },
+      ],
+    });
   });
 
   it('persists versioned scorecards and baseline aliases under AO artifact roots', () => {

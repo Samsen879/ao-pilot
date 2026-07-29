@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from '@jest/globals';
 
 import {
+  applyConfiguredEvaluation,
   applyConfiguredProject,
   isDirectExecution,
   runCli,
@@ -59,6 +60,45 @@ describe('ao-pilot unified cli', () => {
       '--pr',
       '42',
       '--json',
+    ]);
+  });
+
+  it('applies portable eval configuration without overriding explicit CLI options', () => {
+    expect(applyConfiguredEvaluation(
+      ['--json'],
+      {
+        fixture_root: './eval-packs',
+        packs: ['smoke', 'continuity'],
+        replay_count: 3,
+      },
+      '/tmp/sample/ao.config.json',
+    )).toEqual([
+      '--json',
+      '--fixture-root',
+      '/tmp/sample/eval-packs',
+      '--pack',
+      'smoke',
+      '--pack',
+      'continuity',
+      '--replay-count',
+      '3',
+    ]);
+
+    expect(applyConfiguredEvaluation(
+      ['--fixture-root', '/explicit', '--pack', 'one', '--replay-count', '4'],
+      {
+        fixture_root: './ignored',
+        packs: ['ignored'],
+        replay_count: 2,
+      },
+      '/tmp/sample/ao.config.json',
+    )).toEqual([
+      '--fixture-root',
+      '/explicit',
+      '--pack',
+      'one',
+      '--replay-count',
+      '4',
     ]);
   });
 

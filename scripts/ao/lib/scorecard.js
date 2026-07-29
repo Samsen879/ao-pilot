@@ -29,6 +29,26 @@ function buildScorecardId({ projectId, generatedAt, scenarioIds, packIds }) {
   return `scorecard-${digest}`;
 }
 
+function normalizeScopeValues(values = []) {
+  return [...new Set(values.map((value) => String(value)))].sort(
+    (left, right) => left.localeCompare(right),
+  );
+}
+
+function buildScorecardScope({ projectId, scenarioIds, packIds }) {
+  const scope = {
+    project_id: projectId,
+    pack_ids: normalizeScopeValues(packIds),
+    scenario_ids: normalizeScopeValues(scenarioIds),
+  };
+  return {
+    ...scope,
+    fingerprint: createHash('sha256')
+      .update(JSON.stringify(scope))
+      .digest('hex'),
+  };
+}
+
 function sumCountMaps(countMaps = []) {
   const result = {};
   for (const countMap of countMaps) {
@@ -144,6 +164,11 @@ export function buildAoEvalScorecard({
       });
     }
   }
+  const scope = buildScorecardScope({
+    projectId,
+    scenarioIds,
+    packIds,
+  });
 
   return {
     schema_version: AO_EVAL_SCORECARD_SCHEMA_VERSION,
@@ -158,6 +183,7 @@ export function buildAoEvalScorecard({
     generated_at: generatedAt,
     pack_ids: packIds,
     scenario_ids: scenarioIds,
+    scope,
     guardrails: buildDefaultGuardrails(),
     summary: {
       scenario_count: scenarioResults.length,
@@ -192,6 +218,15 @@ export function buildAoEvalScorecard({
     },
     scenarios: scenarioResults,
     findings,
+    quality_gate: {
+      status: findings.length === 0 ? 'passed' : 'failed',
+      finding_count: findings.length,
+      required_checks: [
+        'verification_success',
+        'replay_stability',
+        'continuity_success',
+      ],
+    },
   };
 }
 
@@ -211,9 +246,17 @@ export function compareAoEvalScorecards({
 } = {}) {
   const findings = [];
 
-  const baselineScenarioIds = JSON.stringify(baselineScorecard?.scenario_ids ?? []);
-  const currentScenarioIds = JSON.stringify(currentScorecard?.scenario_ids ?? []);
-  if (baselineScenarioIds !== currentScenarioIds) {
+  const baselineScope = baselineScorecard?.scope ?? buildScorecardScope({
+    projectId: baselineScorecard?.project_id ?? null,
+    packIds: baselineScorecard?.pack_ids ?? [],
+    scenarioIds: baselineScorecard?.scenario_ids ?? [],
+  });
+  const currentScope = currentScorecard?.scope ?? buildScorecardScope({
+    projectId: currentScorecard?.project_id ?? null,
+    packIds: currentScorecard?.pack_ids ?? [],
+    scenarioIds: currentScorecard?.scenario_ids ?? [],
+  });
+  if (baselineScope.fingerprint !== currentScope.fingerprint) {
     return {
       status: 'invalid',
       compared_at: comparedAt,
@@ -222,9 +265,9 @@ export function compareAoEvalScorecards({
       findings: [
         createRegressionFinding(
           'scorecard_scope_mismatch',
-          'scenario_ids',
-          baselineScorecard?.scenario_ids ?? [],
-          currentScorecard?.scenario_ids ?? [],
+          'scope.fingerprint',
+          baselineScope,
+          currentScope,
         ),
       ],
     };

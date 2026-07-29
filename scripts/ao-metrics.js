@@ -28,6 +28,8 @@ function parseArgs(argv) {
   const options = {
     projectId: DEFAULT_PROJECT_ID,
     traceLimit: 5,
+    since: null,
+    until: null,
     json: false,
     help: false,
   };
@@ -47,6 +49,26 @@ function parseArgs(argv) {
     } else if (arg === '--limit') {
       const value = argv[index + 1] ?? null;
       options.traceLimit = value == null ? null : Number(value);
+      index += 1;
+    } else if (arg === '--since') {
+      try {
+        options.since = readOptionValue(argv, index, '--since');
+      } catch (error) {
+        return {
+          ok: false,
+          error: error.message,
+        };
+      }
+      index += 1;
+    } else if (arg === '--until') {
+      try {
+        options.until = readOptionValue(argv, index, '--until');
+      } catch (error) {
+        return {
+          ok: false,
+          error: error.message,
+        };
+      }
       index += 1;
     } else if (arg === '--json') {
       options.json = true;
@@ -73,6 +95,17 @@ function parseArgs(argv) {
       error: 'Invalid value for --limit',
     };
   }
+  const sinceTimestamp = options.since == null ? null : Date.parse(options.since);
+  const untilTimestamp = options.until == null ? null : Date.parse(options.until);
+  if (options.since != null && Number.isNaN(sinceTimestamp)) {
+    return { ok: false, error: 'Invalid value for --since' };
+  }
+  if (options.until != null && Number.isNaN(untilTimestamp)) {
+    return { ok: false, error: 'Invalid value for --until' };
+  }
+  if (sinceTimestamp != null && untilTimestamp != null && sinceTimestamp > untilTimestamp) {
+    return { ok: false, error: 'Invalid metrics window: --since is after --until' };
+  }
 
   return {
     ok: true,
@@ -87,6 +120,8 @@ function renderHelp() {
     'Options:',
     '  --project <project_id>   AO project id. Default: my-project',
     '  --limit <number>         Number of recent traces to include. Default: 5',
+    '  --since <timestamp>      Include measurements at or after this timestamp',
+    '  --until <timestamp>      Include measurements at or before this timestamp',
     '  --json                   Print machine-readable JSON output',
     '  -h, --help               Show help',
   ].join('\n');
@@ -116,6 +151,8 @@ export async function runCli(argv, io = createDefaultIo()) {
       cwd: process.cwd(),
       projectId: options.projectId,
       traceLimit: options.traceLimit,
+      since: options.since,
+      until: options.until,
     });
 
     if (options.json) {

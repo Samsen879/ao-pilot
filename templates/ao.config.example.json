@@ -9,5 +9,12 @@
     "commands": [
       "npm test"
     ]
+  },
+  "evaluation": {
+    "fixture_root": null,
+    "packs": [
+      "all"
+    ],
+    "replay_count": 2
   }
 }
