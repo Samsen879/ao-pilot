@@ -1,0 +1,6 @@
+export const DEFAULT_PROJECT_ID = 'my-project';
+export const CONTROLLER_MUTATION_MODES = ['observe', 'shadow', 'assist'];
+export const DEFAULT_CONTROLLER_POLL_INTERVAL_MS = 30 * 1000;
+export const DEFAULT_CONTROLLER_SHUTDOWN_TIMEOUT_MS = 10 * 1000;
+export const DEFAULT_CONTROLLER_LEASE_TIMEOUT_MS = 5 * 60 * 1000;
+export const DEFAULT_CONTROLLER_HEARTBEAT_INTERVAL_MS = 1000;

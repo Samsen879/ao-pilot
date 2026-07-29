@@ -1,4 +1,5 @@
 node_modules/
 coverage/
 .ao-pilot/
+.ao-control-plane/
 *.log

@@ -3,7 +3,6 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   CONTROL_PLANE_DEFAULT_CONTROLLER_ID,
   createActionRecord,
-  createControllerLease,
   createControllerModeRecord,
   createPolicyDecisionRecord,
 } from './state-contracts.js';
@@ -21,7 +20,6 @@ import { buildDoctorReport as buildDoctorReportModel } from './doctor-engine.js'
 import { loadDoctorLocalState } from './doctor-local-state-source.js';
 import { loadGitHubObservationSet } from './github-observation-source.js';
 import {
-  LIFECYCLE_DELIVERY_TRIGGER_PRIORITY,
   createLifecyclePrScope,
   createLifecycleProjectScope,
 } from './lifecycle-contracts.js';
@@ -36,7 +34,6 @@ import {
 } from './action-executor.js';
 import { buildTaskContinuityFromSnapshot } from './continuity.js';
 import { buildDecisionChainReport } from './decision-chain.js';
-import { deriveReviewPosture } from './review-contracts.js';
 import { buildControllerRunMetric } from './run-metrics.js';
 import {
   buildPolicyInputForAction,
@@ -49,346 +46,56 @@ import {
 import { reconcileObservations as reconcileObservationModels } from './reconciliation-engine.js';
 import {
   buildCurrentProcessMetadata,
-  matchesRecordedProcessIdentity,
 } from './state-storage.js';
+import {
+  CONTROLLER_MUTATION_MODES,
+  DEFAULT_CONTROLLER_LEASE_TIMEOUT_MS,
+  DEFAULT_CONTROLLER_POLL_INTERVAL_MS,
+  DEFAULT_CONTROLLER_SHUTDOWN_TIMEOUT_MS,
+  DEFAULT_PROJECT_ID,
+} from './controller-loop/constants.js';
+import {
+  buildGitHubScope,
+  deriveLifecycleTriggerForTask,
+  resolveLifecyclePrNumber,
+  resolveTaskRuntimePreflight,
+} from './controller-loop/delivery-triggers.js';
+import {
+  CURRENT_PROCESS_COMPAT_STARTED_AT,
+  buildActiveControllerLease,
+  buildExpiredControllerLease,
+  buildReleasedControllerLease,
+  canRecoverSameHolderLease,
+  isControllerLeaseStale,
+  resolveHeartbeatIntervalMs,
+  resolveHolderIdentity,
+} from './controller-loop/lease-helpers.js';
+import {
+  buildTaskReviewInspection,
+  resolveCurrentHeadSha,
+} from './controller-loop/review-inspection.js';
+import {
+  isControllerShutdownTimeoutError,
+  isControllerStopRequestedError,
+  isStopRequested,
+  runStepWithShutdownBudget,
+  waitForNextPass,
+} from './controller-loop/shutdown.js';
+import {
+  resolveNow,
+} from './controller-loop/time.js';
 
-export const DEFAULT_PROJECT_ID = 'my-project';
-export const CONTROLLER_MUTATION_MODES = ['observe', 'shadow', 'assist'];
-export const DEFAULT_CONTROLLER_POLL_INTERVAL_MS = 30 * 1000;
-export const DEFAULT_CONTROLLER_SHUTDOWN_TIMEOUT_MS = 10 * 1000;
-export const DEFAULT_CONTROLLER_LEASE_TIMEOUT_MS = 5 * 60 * 1000;
-export const DEFAULT_CONTROLLER_HEARTBEAT_INTERVAL_MS = 1000;
-const CURRENT_PROCESS_COMPAT_STARTED_AT = new Date().toISOString();
-
-class ControllerStopRequestedError extends Error {
-  constructor(stepName) {
-    super(`Controller shutdown requested during ${stepName}.`);
-    this.name = 'ControllerStopRequestedError';
-    this.code = 'controller_stop_requested';
-    this.stepName = stepName;
-  }
-}
-
-class ControllerShutdownTimeoutError extends Error {
-  constructor(stepName) {
-    super(`Controller shutdown timed out during ${stepName}.`);
-    this.name = 'ControllerShutdownTimeoutError';
-    this.code = 'controller_shutdown_timeout';
-    this.stepName = stepName;
-  }
-}
-
-function resolveNow(now) {
-  if (typeof now === 'function') return resolveNow(now());
-  if (typeof now === 'string' && now.trim() !== '') return now.trim();
-  return new Date().toISOString();
-}
-
-function compareIsoDescending(left, right) {
-  return String(right ?? '').localeCompare(String(left ?? ''));
-}
-
-function addMilliseconds(isoTimestamp, durationMs) {
-  const date = new Date(isoTimestamp);
-  if (Number.isNaN(date.getTime())) {
-    throw new Error(`Invalid timestamp: ${isoTimestamp}`);
-  }
-
-  return new Date(date.getTime() + durationMs).toISOString();
-}
-
-function latestTaskReviewRecord(snapshot, taskId) {
-  return [...(snapshot?.state?.review_records ?? [])]
-    .filter((record) => record?.task_id === taskId)
-    .sort((left, right) => {
-      const byTimestamp = compareIsoDescending(left?.updated_at, right?.updated_at);
-      if (byTimestamp !== 0) return byTimestamp;
-      return String(right?.review_id ?? '').localeCompare(String(left?.review_id ?? ''));
-    })[0] ?? null;
-}
-
-function buildTaskReviewInspection(snapshot, taskId) {
-  const reviewRecord = latestTaskReviewRecord(snapshot, taskId);
-  if (!reviewRecord) return null;
-
-  const posture = deriveReviewPosture(reviewRecord);
-  return {
-    review_id: reviewRecord.review_id,
-    task_id: reviewRecord.task_id,
-    issue_number: reviewRecord.issue_number ?? null,
-    implementation_session_name: reviewRecord.implementation_session_name ?? null,
-    reviewer_session_name: reviewRecord.reviewer_session_name ?? null,
-    target_branch: reviewRecord.target_branch ?? null,
-    target_head_sha: reviewRecord.target_head_sha ?? null,
-    status: reviewRecord.status,
-    verdict: reviewRecord.verdict,
-    freeze_status: reviewRecord.freeze_status,
-    posture: posture.posture,
-    freeze_active: posture.freeze_active,
-  };
-}
-
-function resolveCurrentHeadSha(githubObservation, prNumber) {
-  if (!Number.isInteger(Number(prNumber))) return null;
-  return (githubObservation?.prs ?? []).find((pr) => pr?.pr_number === Number(prNumber))?.head_sha ?? null;
-}
-
-function resolveHolderIdentity({
-  holderId = null,
-  holderType = null,
-} = {}) {
-  const normalizedHolderId = typeof holderId === 'string' && holderId.trim() !== ''
-    ? holderId.trim()
-    : null;
-  const sessionNameHolderId = typeof process.env.AO_SESSION_NAME === 'string' && process.env.AO_SESSION_NAME.trim() !== ''
-    ? process.env.AO_SESSION_NAME.trim()
-    : null;
-  const sessionIdHolderId = typeof process.env.AO_SESSION_ID === 'string' && process.env.AO_SESSION_ID.trim() !== ''
-    ? process.env.AO_SESSION_ID.trim()
-    : null;
-  const sessionHolderId = sessionNameHolderId ?? sessionIdHolderId;
-  const resolvedHolderId = normalizedHolderId ?? sessionHolderId;
-
-  if (resolvedHolderId == null) {
-    throw new Error('Controller holder identity required when AO_SESSION_NAME/AO_SESSION_ID are unset. Pass an explicit holderId.');
-  }
-
-  return {
-    holderId: resolvedHolderId,
-    holderType: holderType
-      ?? process.env.AO_CALLER_TYPE
-      ?? (normalizedHolderId != null && sessionHolderId == null ? 'manual' : 'session'),
-  };
-}
-
-function normalizeControllerMetadataValue(value) {
-  return typeof value === 'string' && value.trim() !== ''
-    ? value.trim()
-    : null;
-}
-
-function canRecoverSameHolderLease(
-  existingLease,
-  {
-    processId = process.pid,
-    processStartedAt = null,
-  } = {},
-) {
-  if (!existingLease || existingLease.status !== 'active') {
-    return false;
-  }
-  const metadata = existingLease?.metadata ?? {};
-  const priorProcessId = Number(metadata?.process_pid);
-  if (!Number.isInteger(priorProcessId) || priorProcessId <= 0) {
-    return false;
-  }
-  if (!matchesRecordedProcessIdentity(metadata)) {
-    return true;
-  }
-
-  const recordedStartToken = normalizeControllerMetadataValue(metadata?.process_start_token);
-  if (recordedStartToken != null) {
-    return false;
-  }
-
-  const currentProcessId = Number(processId);
-  const recordedProcessStartedAt = normalizeControllerMetadataValue(metadata?.process_started_at);
-  const normalizedProcessStartedAt = normalizeControllerMetadataValue(processStartedAt);
-  return Number.isInteger(currentProcessId)
-    && currentProcessId > 0
-    && priorProcessId === currentProcessId
-    && recordedProcessStartedAt != null
-    && normalizedProcessStartedAt != null
-    && recordedProcessStartedAt !== normalizedProcessStartedAt;
-}
-function isControllerLeaseStale(lease, now) {
-  if (!lease || lease.status !== 'active') return false;
-  return new Date(lease.expires_at).getTime() <= new Date(now).getTime();
-}
-
-function isStopRequested(stopSignal) {
-  return stopSignal?.aborted === true;
-}
-
-function ensureStopRequestedAt(stopSignal) {
-  if (!stopSignal) return new Date().toISOString();
-  if (typeof stopSignal.requested_at === 'string' && stopSignal.requested_at.trim() !== '') {
-    return stopSignal.requested_at;
-  }
-  const timestamp = new Date().toISOString();
-  stopSignal.requested_at = timestamp;
-  return timestamp;
-}
-
-function isAbortSignalError(error, abortSignal) {
-  return abortSignal?.aborted === true && (
-    error === abortSignal.reason
-      || error?.name === 'AbortError'
-      || error?.code === 'ABORT_ERR'
-      || error?.message === abortSignal.reason?.message
-  );
-}
-
-function isControllerStopRequestedError(error) {
-  return error?.code === 'controller_stop_requested';
-}
-
-function isControllerShutdownTimeoutError(error) {
-  return error?.code === 'controller_shutdown_timeout';
-}
-
-function resolveHeartbeatIntervalMs(heartbeatIntervalMs, leaseTimeoutMs) {
-  if (Number.isInteger(heartbeatIntervalMs) && heartbeatIntervalMs > 0) {
-    return heartbeatIntervalMs;
-  }
-  return Math.max(
-    25,
-    Math.min(DEFAULT_CONTROLLER_HEARTBEAT_INTERVAL_MS, Math.floor(leaseTimeoutMs / 3)),
-  );
-}
-
-async function runStepWithShutdownBudget(
-  stepName,
-  execute,
-  {
-    stopSignal = null,
-    shutdownTimeoutMs = DEFAULT_CONTROLLER_SHUTDOWN_TIMEOUT_MS,
-  } = {},
-) {
-  const abortController = new AbortController();
-  let settled = false;
-  let timerId = null;
-  let deadlineMs = null;
-
-  const stopWatcher = new Promise((resolve, reject) => {
-    function poll() {
-      if (settled) {
-        resolve();
-        return;
-      }
-      if (!isStopRequested(stopSignal)) {
-        timerId = setTimeout(poll, 5);
-        return;
-      }
-
-      if (deadlineMs == null) {
-        const requestedAtMs = new Date(ensureStopRequestedAt(stopSignal)).getTime();
-        deadlineMs = requestedAtMs + shutdownTimeoutMs;
-        abortController.abort(new ControllerStopRequestedError(stepName));
-      }
-
-      if (Date.now() >= deadlineMs) {
-        reject(new ControllerShutdownTimeoutError(stepName));
-        return;
-      }
-
-      timerId = setTimeout(poll, 5);
-    }
-
-    poll();
-  });
-
-  try {
-    return await Promise.race([
-      Promise.resolve().then(() => execute({
-        abortSignal: abortController.signal,
-      })),
-      stopWatcher,
-    ]);
-  } catch (error) {
-    if (isAbortSignalError(error, abortController.signal)) {
-      throw abortController.signal.reason;
-    }
-    throw error;
-  } finally {
-    settled = true;
-    if (timerId != null) {
-      clearTimeout(timerId);
-    }
-  }
-}
-
-function buildActiveControllerLease({
-  existingLease = null,
-  leaseId,
-  controllerId,
-  holderId,
-  holderType,
-  incarnationId = null,
-  metadata = null,
-  now,
-  runtimeKind,
-  pollIntervalMs = null,
-  shutdownTimeoutMs = null,
-  leaseTimeoutMs = DEFAULT_CONTROLLER_LEASE_TIMEOUT_MS,
-  lastRunStartedAt = null,
-  lastRunCompletedAt = null,
-  lastRunStatus = 'running',
-} = {}) {
-  const timestamp = resolveNow(now);
-
-  return createControllerLease({
-    ...existingLease,
-    lease_id: leaseId ?? existingLease?.lease_id ?? buildControllerLeaseId({
-      controllerId,
-      holderId,
-      incarnationId,
-    }),
-    controller_id: controllerId ?? existingLease?.controller_id,
-    holder_id: holderId ?? existingLease?.holder_id,
-    holder_type: holderType ?? existingLease?.holder_type,
-    incarnation_id: incarnationId ?? existingLease?.incarnation_id ?? null,
-    status: 'active',
-    acquired_at: existingLease?.acquired_at ?? timestamp,
-    heartbeat_at: timestamp,
-    expires_at: addMilliseconds(timestamp, leaseTimeoutMs ?? existingLease?.lease_timeout_ms ?? DEFAULT_CONTROLLER_LEASE_TIMEOUT_MS),
-    lease_timeout_ms: leaseTimeoutMs ?? existingLease?.lease_timeout_ms ?? DEFAULT_CONTROLLER_LEASE_TIMEOUT_MS,
-    runtime_kind: runtimeKind ?? existingLease?.runtime_kind ?? 'oneshot',
-    poll_interval_ms: pollIntervalMs ?? existingLease?.poll_interval_ms ?? null,
-    shutdown_timeout_ms: shutdownTimeoutMs ?? existingLease?.shutdown_timeout_ms ?? null,
-    last_run_started_at: lastRunStartedAt ?? existingLease?.last_run_started_at ?? null,
-    last_run_completed_at: lastRunCompletedAt ?? existingLease?.last_run_completed_at ?? null,
-    last_run_status: lastRunStatus ?? existingLease?.last_run_status ?? null,
-    released_at: null,
-    release_reason: null,
-    metadata: {
-      ...(existingLease?.metadata ?? {}),
-      ...(metadata ?? {}),
-    },
-  });
-}
-
-function buildReleasedControllerLease(existingLease, {
-  now,
-  reason,
-  lastRunCompletedAt = null,
-  lastRunStatus = null,
-} = {}) {
-  const timestamp = resolveNow(now);
-
-  return createControllerLease({
-    ...existingLease,
-    status: 'released',
-    released_at: timestamp,
-    release_reason: reason ?? 'released',
-    last_run_completed_at: lastRunCompletedAt ?? existingLease?.last_run_completed_at ?? timestamp,
-    last_run_status: lastRunStatus ?? existingLease?.last_run_status ?? 'completed',
-  });
-}
-
-function buildExpiredControllerLease(existingLease, {
-  now,
-  reason,
-} = {}) {
-  const timestamp = resolveNow(now);
-
-  return createControllerLease({
-    ...existingLease,
-    status: 'expired',
-    released_at: timestamp,
-    release_reason: reason ?? 'expired',
-  });
-}
+export {
+  CONTROLLER_MUTATION_MODES,
+  DEFAULT_CONTROLLER_HEARTBEAT_INTERVAL_MS,
+  DEFAULT_CONTROLLER_LEASE_TIMEOUT_MS,
+  DEFAULT_CONTROLLER_POLL_INTERVAL_MS,
+  DEFAULT_CONTROLLER_SHUTDOWN_TIMEOUT_MS,
+  DEFAULT_PROJECT_ID,
+} from './controller-loop/constants.js';
+export {
+  deriveLifecycleTriggerForTask,
+} from './controller-loop/delivery-triggers.js';
 
 async function acquireControllerLeadership({
   repository,
@@ -697,165 +404,8 @@ function startControllerHeartbeat({
   };
 }
 
-async function waitForNextPass({
-  intervalMs,
-  stopSignal = null,
-} = {}) {
-  const remaining = Number(intervalMs);
-  if (!Number.isFinite(remaining) || remaining <= 0) {
-    return;
-  }
-
-  let elapsedMs = 0;
-  while (elapsedMs < remaining) {
-    if (stopSignal?.aborted) return;
-    const sleepMs = Math.min(remaining - elapsedMs, 100);
-    await new Promise((resolve) => {
-      setTimeout(resolve, sleepMs);
-    });
-    elapsedMs += sleepMs;
-  }
-}
-
 function hashText(value) {
   return createHash('sha1').update(value).digest('hex');
-}
-
-function uniquePrNumbers(prBindings = [], matchedPrs = []) {
-  return [...new Set([
-    ...(prBindings ?? []).filter((binding) => binding.status === 'bound').map((binding) => binding.pr_number),
-    ...(matchedPrs ?? []).map((pr) => pr.pr_number),
-  ])].filter((value) => Number.isInteger(value)).sort((left, right) => left - right);
-}
-
-function buildGitHubScope(task, prBindings = []) {
-  const prNumbers = uniquePrNumbers(prBindings, []);
-  const selectionBasis = [];
-  if (prNumbers.length) selectionBasis.push('managed_task_pr_binding');
-  if (task.branch_name) selectionBasis.push('managed_task_branch');
-
-  return createProjectScope({
-    prNumbers,
-    selectionBasis,
-    notes: task.branch_name ? [`branch:${task.branch_name}`] : [],
-  });
-}
-
-function resolveTaskRuntimePreflight(snapshot, task) {
-  const taskSpec = snapshot.state.task_specs.find((record) => record.task_id === task.task_id) ?? null;
-  const runtimeRef = taskSpec?.snapshot?.spec?.runtime_ref ?? null;
-  const runtimePreflight = runtimeRef == null
-    ? null
-    : (snapshot.state.runtime_preflights.find((record) => record.runtime_ref === runtimeRef) ?? null);
-  return {
-    taskSpec,
-    runtimeRef,
-    runtimePreflight,
-  };
-}
-
-function resolveLifecyclePrNumber(prBindings = [], matchedPrs = []) {
-  const prNumbers = uniquePrNumbers(prBindings, matchedPrs);
-  return prNumbers.length === 1 ? prNumbers[0] : null;
-}
-
-function compareDeliveryEventOrder(left, right) {
-  const leftObservedAt = String(left?.observed_at ?? '');
-  const rightObservedAt = String(right?.observed_at ?? '');
-  if (leftObservedAt !== rightObservedAt) {
-    return leftObservedAt.localeCompare(rightObservedAt);
-  }
-  return String(left?.event_id ?? '').localeCompare(String(right?.event_id ?? ''));
-}
-
-function isDeliveryEventCurrentForPr(event, pr) {
-  if (!pr || event?.pr_number !== pr.pr_number) return false;
-
-  const payload = event.payload ?? {};
-  const currentHeadSha = pr.head_sha ?? null;
-  const eventHeadSha = event.event_family === 'review_comment'
-    ? (payload.commit_oid ?? payload.head_sha ?? null)
-    : (payload.head_sha ?? null);
-
-  if (!currentHeadSha || !eventHeadSha) return true;
-  return eventHeadSha === currentHeadSha;
-}
-
-function selectCurrentDeliveryEvents({
-  matchedPrs = [],
-  deliveryEvents = [],
-} = {}) {
-  const latestByFamily = new Map();
-
-  for (const pr of matchedPrs ?? []) {
-    const prEvents = (deliveryEvents ?? [])
-      .filter((event) => isDeliveryEventCurrentForPr(event, pr))
-      .sort(compareDeliveryEventOrder);
-    const latestReviewCommentEvent = prEvents
-      .filter((event) => event.event_family === 'review_comment')
-      .at(-1) ?? null;
-
-    for (const family of ['pr', 'check', 'review']) {
-      const latestEvent = prEvents.filter((event) => event.event_family === family).at(-1) ?? null;
-      if (!latestEvent) continue;
-      latestByFamily.set(`${pr.pr_number}:${family}`, latestEvent);
-    }
-
-    if (latestReviewCommentEvent) {
-      latestByFamily.set(`${pr.pr_number}:review_comment`, latestReviewCommentEvent);
-    }
-  }
-
-  return [...latestByFamily.values()].sort(compareDeliveryEventOrder);
-}
-
-export function deriveLifecycleTriggerForTask({
-  matchedAoWorkers = [],
-  matchedPrs = [],
-  deliveryEvents = [],
-} = {}) {
-  if (
-    matchedAoWorkers.length === 0
-    || matchedAoWorkers.some((worker) => worker.freshness?.status === 'stale')
-  ) {
-    return 'agent_exited';
-  }
-
-  const activeDeliveryTriggers = new Set(selectCurrentDeliveryEvents({
-    matchedPrs,
-    deliveryEvents,
-  })
-    .map((event) => event.lifecycle_trigger)
-    .filter((trigger) => typeof trigger === 'string' && trigger !== '' && trigger !== 'manual'));
-
-  for (const trigger of LIFECYCLE_DELIVERY_TRIGGER_PRIORITY) {
-    if (activeDeliveryTriggers.has(trigger)) {
-      return trigger;
-    }
-  }
-
-  if (matchedPrs.some((pr) => pr.review_status === 'changes_requested')) {
-    return 'changes_requested';
-  }
-
-  if (matchedPrs.some((pr) => pr.ci_status === 'failing')) {
-    return 'ci_failed';
-  }
-
-  if (matchedPrs.some((pr) => pr.mergeability === 'conflicting')) {
-    return 'merge_conflicts';
-  }
-
-  if (matchedPrs.some((pr) => (
-    pr.review_status === 'approved'
-      && pr.ci_status === 'passing'
-      && pr.mergeability === 'mergeable'
-      && pr.is_draft === false
-  ))) {
-    return 'approved_and_green';
-  }
-
-  return 'manual';
 }
 
 async function persistShadowActions({
@@ -1308,6 +858,7 @@ async function executeControllerPass({
           task,
           actionIds: proposalResult.actionIds,
           now: timestamp,
+          commandRunner: services.commandRunner,
           abortSignal,
         }), {
           stopSignal,
@@ -1506,7 +1057,7 @@ export async function runControllerLoop({
       stopReason = 'stop_requested';
     }
 
-    while (true) {
+    for (;;) {
       if (stopReason !== 'completed' && passCount === 0) {
         break;
       }
