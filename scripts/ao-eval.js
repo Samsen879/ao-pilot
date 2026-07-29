@@ -14,6 +14,15 @@ import {
   renderAoEvalHumanSummary,
 } from './ao/lib/scorecard.js';
 
+const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+export const DEFAULT_EVAL_FIXTURE_ROOT = path.join(
+  PACKAGE_ROOT,
+  'tests',
+  'ao',
+  'fixtures',
+  'eval',
+);
+
 function createDefaultIo() {
   return {
     writeStdout: (text) => process.stdout.write(text),
@@ -35,6 +44,8 @@ function parseArgs(argv) {
     packNames: [],
     baselineRef: null,
     saveBaseline: null,
+    fixtureRoot: DEFAULT_EVAL_FIXTURE_ROOT,
+    replayCount: 2,
     json: false,
     help: false,
   };
@@ -81,6 +92,20 @@ function parseArgs(argv) {
         };
       }
       index += 1;
+    } else if (arg === '--fixture-root') {
+      try {
+        options.fixtureRoot = readOptionValue(argv, index, '--fixture-root');
+      } catch (error) {
+        return {
+          ok: false,
+          error: error.message,
+        };
+      }
+      index += 1;
+    } else if (arg === '--replay-count') {
+      const value = argv[index + 1] ?? null;
+      options.replayCount = value == null ? null : Number(value);
+      index += 1;
     } else if (arg === '--json') {
       options.json = true;
     } else if (arg === '--help' || arg === '-h') {
@@ -103,6 +128,18 @@ function parseArgs(argv) {
       error: 'Missing value for --project',
     };
   }
+  if (typeof options.fixtureRoot !== 'string' || options.fixtureRoot.trim() === '') {
+    return {
+      ok: false,
+      error: 'Missing value for --fixture-root',
+    };
+  }
+  if (!Number.isInteger(options.replayCount) || options.replayCount < 2) {
+    return {
+      ok: false,
+      error: 'Invalid value for --replay-count',
+    };
+  }
 
   return {
     ok: true,
@@ -119,6 +156,8 @@ function renderHelp() {
     '  --pack <name>               Eval pack to run. Repeatable. Default: all',
     '  --baseline <ref>            Compare against a saved baseline alias, scorecard id, or JSON path',
     '  --save-baseline <name>      Save the current scorecard as a named baseline alias',
+    '  --fixture-root <path>        Eval pack root. Default: bundled public packs',
+    '  --replay-count <number>      Executions per scenario. Minimum/default: 2',
     '  --json                      Print machine-readable JSON output',
     '  -h, --help                  Show help',
   ].join('\n');
@@ -161,8 +200,9 @@ export async function runCli(argv, io = createDefaultIo()) {
 
     const harnessResult = await runAoEvalHarness({
       projectId: options.projectId,
-      fixtureRoot: path.join(repoRoot, 'tests', 'ao', 'fixtures', 'eval'),
+      fixtureRoot: path.resolve(process.cwd(), options.fixtureRoot),
       packNames: options.packNames,
+      replayCount: options.replayCount,
     });
     const scorecard = buildAoEvalScorecard({
       projectId: options.projectId,

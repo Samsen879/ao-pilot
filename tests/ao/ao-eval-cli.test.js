@@ -94,6 +94,8 @@ describe('ao eval cli', () => {
     expect(mockRunAoEvalHarness).toHaveBeenCalledWith(expect.objectContaining({
       projectId: 'my-project',
       packNames: ['all'],
+      replayCount: 2,
+      fixtureRoot: expect.stringMatching(/tests[/\\]ao[/\\]fixtures[/\\]eval$/),
     }));
     expect(mockPersistAoEvalScorecard).toHaveBeenCalledWith(expect.objectContaining({
       projectId: 'my-project',
@@ -130,6 +132,8 @@ describe('ao eval cli', () => {
       '--pack', 'successor-handoff',
       '--baseline', 'wave-1',
       '--save-baseline', 'wave-2',
+      '--fixture-root', '/tmp/custom-eval',
+      '--replay-count', '3',
       '--json',
     ], {
       writeStdout: (text) => stdout.push(text),
@@ -139,6 +143,8 @@ describe('ao eval cli', () => {
     expect(result.exitCode).toBe(0);
     expect(mockRunAoEvalHarness).toHaveBeenCalledWith(expect.objectContaining({
       packNames: ['parity', 'successor-handoff'],
+      fixtureRoot: '/tmp/custom-eval',
+      replayCount: 3,
     }));
     expect(mockLoadAoEvalBaseline).toHaveBeenCalledWith(expect.objectContaining({
       projectId: 'my-project',
@@ -221,13 +227,19 @@ describe('ao eval cli', () => {
       writeStdout: () => {},
       writeStderr: (text) => stderr.push(text),
     });
+    const invalidReplayCount = await runCli(['--replay-count', '1'], {
+      writeStdout: () => {},
+      writeStderr: (text) => stderr.push(text),
+    });
 
     expect(missingPackValue.exitCode).toBe(4);
     expect(missingBaselineValue.exitCode).toBe(4);
     expect(unknownFlag.exitCode).toBe(4);
+    expect(invalidReplayCount.exitCode).toBe(4);
     expect(mockRunAoEvalHarness).not.toHaveBeenCalled();
     expect(stderr.join('')).toContain('Missing value for --pack');
     expect(stderr.join('')).toContain('Missing value for --baseline');
     expect(stderr.join('')).toContain('Unknown argument: --bogus');
+    expect(stderr.join('')).toContain('Invalid value for --replay-count');
   });
 });

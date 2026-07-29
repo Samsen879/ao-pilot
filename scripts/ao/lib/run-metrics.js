@@ -116,6 +116,37 @@ function compareMetricRecords(left, right) {
   ));
 }
 
+function normalizeWindowBoundary(value, fieldName) {
+  if (value == null) return null;
+  const timestamp = parseTimestamp(value);
+  if (timestamp == null) throw new Error(`Invalid metrics ${fieldName}: ${value}`);
+  return {
+    iso: new Date(timestamp).toISOString(),
+    timestamp,
+  };
+}
+
+function resolveMetricTimestamp(record) {
+  return parseTimestamp(
+    record?.completed_at ?? record?.started_at ?? record?.recorded_at ?? null,
+  );
+}
+
+function filterMetricsByWindow(records, since, until) {
+  return records.filter((record) => {
+    const timestamp = resolveMetricTimestamp(record);
+    if (timestamp == null) return since == null && until == null;
+    if (since != null && timestamp < since.timestamp) return false;
+    if (until != null && timestamp > until.timestamp) return false;
+    return true;
+  });
+}
+
+function hasIntervention(record) {
+  return Object.values(record?.intervention_counts ?? {})
+    .some((value) => Number(value ?? 0) > 0);
+}
+
 function buildInterventionCountsFromReason(reason, {
   actionKind = null,
   retryCause = 'none',
@@ -396,6 +427,11 @@ function buildZeroMetricsSummary() {
   return {
     controller_run_count: 0,
     execution_attempt_count: 0,
+    measurement_count: 0,
+    intervened_measurement_count: 0,
+    failed_measurement_count: 0,
+    intervention_rate: 0,
+    failure_rate: 0,
     trigger_counts: createMeasurementCountMap(MEASUREMENT_TRIGGER_KINDS),
     action_class_counts: createMeasurementCountMap(MEASUREMENT_ACTION_CLASSES),
     intervention_counts: createMeasurementCountMap(MEASUREMENT_INTERVENTION_KINDS),
@@ -409,13 +445,44 @@ export function buildAoMetricsReport({
   repoRoot = null,
   snapshot = null,
   traceLimit = 5,
+  since = null,
+  until = null,
 } = {}) {
-  const controllerRuns = [...(snapshot?.state?.controller_run_metrics ?? [])].sort(compareMetricRecords);
-  const executionAttempts = [...(snapshot?.state?.execution_attempt_metrics ?? [])].sort(compareMetricRecords);
+  const normalizedSince = normalizeWindowBoundary(since, 'since');
+  const normalizedUntil = normalizeWindowBoundary(until, 'until');
+  if (
+    normalizedSince != null
+      && normalizedUntil != null
+      && normalizedSince.timestamp > normalizedUntil.timestamp
+  ) {
+    throw new Error('Invalid metrics window: since is after until');
+  }
+  const controllerRuns = filterMetricsByWindow(
+    [...(snapshot?.state?.controller_run_metrics ?? [])],
+    normalizedSince,
+    normalizedUntil,
+  ).sort(compareMetricRecords);
+  const executionAttempts = filterMetricsByWindow(
+    [...(snapshot?.state?.execution_attempt_metrics ?? [])],
+    normalizedSince,
+    normalizedUntil,
+  ).sort(compareMetricRecords);
+  const measurementRecords = [...controllerRuns, ...executionAttempts];
 
   const summary = buildZeroMetricsSummary();
   summary.controller_run_count = controllerRuns.length;
   summary.execution_attempt_count = executionAttempts.length;
+  summary.measurement_count = measurementRecords.length;
+  summary.intervened_measurement_count = measurementRecords.filter(hasIntervention).length;
+  summary.failed_measurement_count = measurementRecords.filter(
+    (record) => record?.failure_class != null && record.failure_class !== 'none',
+  ).length;
+  summary.intervention_rate = summary.measurement_count === 0
+    ? 0
+    : summary.intervened_measurement_count / summary.measurement_count;
+  summary.failure_rate = summary.measurement_count === 0
+    ? 0
+    : summary.failed_measurement_count / summary.measurement_count;
   summary.trigger_counts = countValues(
     MEASUREMENT_TRIGGER_KINDS,
     controllerRuns.map((record) => record.trigger_kind),
@@ -448,6 +515,10 @@ export function buildAoMetricsReport({
     report_format: AO_METRICS_REPORT_FORMAT,
     project_id: projectId,
     repo_root: repoRoot,
+    window: {
+      since: normalizedSince?.iso ?? null,
+      until: normalizedUntil?.iso ?? null,
+    },
     summary,
     recent_traces: {
       controller_runs: controllerRuns.slice(0, traceLimit),
@@ -461,6 +532,8 @@ export async function loadAoMetricsReport({
   repoRoot = null,
   projectId = DEFAULT_PROJECT_ID,
   traceLimit = 5,
+  since = null,
+  until = null,
 } = {}) {
   const resolvedRepoRoot = repoRoot ?? findRepoRoot(cwd);
   if (!resolvedRepoRoot) {
@@ -477,6 +550,8 @@ export async function loadAoMetricsReport({
     repoRoot: resolvedRepoRoot,
     snapshot: repository.getSnapshot(),
     traceLimit,
+    since,
+    until,
   });
 }
 
@@ -497,6 +572,9 @@ export function renderAoMetricsHumanSummary(report) {
     `project_id: ${report.project_id}`,
     `controller_runs: ${report.summary.controller_run_count}`,
     `execution_attempts: ${report.summary.execution_attempt_count}`,
+    `measurements: ${report.summary.measurement_count}`,
+    `intervention_rate: ${report.summary.intervention_rate}`,
+    `failure_rate: ${report.summary.failure_rate}`,
     `interventions: ${formatCountMap(report.summary.intervention_counts)}`,
     `failures: ${formatCountMap(report.summary.failure_class_counts)}`,
     `retries: ${formatCountMap(report.summary.retry_cause_counts)}`,

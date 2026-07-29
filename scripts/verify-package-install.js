@@ -79,14 +79,32 @@ try {
     cwd: installRoot,
     shell: process.platform === 'win32',
   });
+  const evalResult = run(binPath, [
+    'eval',
+    '--pack',
+    'policy-fail-closed',
+    '--json',
+  ], {
+    cwd: installRoot,
+    shell: process.platform === 'win32',
+  });
 
   const initReport = JSON.parse(initResult.stdout);
   const stateReport = JSON.parse(stateResult.stdout);
+  const evalReport = JSON.parse(evalResult.stdout);
   if (
     initReport.project_id !== 'package-verification'
     || stateReport.project_id !== 'package-verification'
   ) {
     throw new Error('Installed CLI did not apply its generated project configuration');
+  }
+  if (
+    evalReport?.scorecard?.project_id !== 'package-verification'
+      || evalReport?.scorecard?.quality_gate?.status !== 'passed'
+      || !String(evalReport?.scorecard?.scenarios?.[0]?.replay?.fingerprint ?? '')
+        .match(/^[a-f0-9]{64}$/)
+  ) {
+    throw new Error('Installed CLI did not execute its bundled evaluation pack');
   }
 
   process.stdout.write(`${JSON.stringify({
@@ -95,6 +113,7 @@ try {
     entry_count: packReport[0].entryCount,
     unpacked_size: packReport[0].unpackedSize,
     project_id: stateReport.project_id,
+    eval_quality_gate: evalReport.scorecard.quality_gate.status,
   }, null, 2)}\n`);
 } finally {
   fs.rmSync(verificationRoot, { recursive: true, force: true });

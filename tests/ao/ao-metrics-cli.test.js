@@ -72,6 +72,8 @@ describe('ao metrics cli', () => {
       cwd: process.cwd(),
       projectId: 'my-project',
       traceLimit: 5,
+      since: null,
+      until: null,
     });
     expect(stdout.join('')).toContain('controller_runs: 2');
   });
@@ -79,7 +81,12 @@ describe('ao metrics cli', () => {
   it('renders JSON output with an explicit trace limit', async () => {
     const stdout = [];
 
-    const result = await runCli(['--json', '--limit', '2'], {
+    const result = await runCli([
+      '--json',
+      '--limit', '2',
+      '--since', '2026-07-01T00:00:00Z',
+      '--until', '2026-07-31T23:59:59Z',
+    ], {
       writeStdout: (text) => stdout.push(text),
       writeStderr: () => {},
     });
@@ -89,6 +96,8 @@ describe('ao metrics cli', () => {
       cwd: process.cwd(),
       projectId: 'my-project',
       traceLimit: 2,
+      since: '2026-07-01T00:00:00Z',
+      until: '2026-07-31T23:59:59Z',
     });
     expect(JSON.parse(stdout.join(''))).toMatchObject({
       schema_version: 'ao.metrics-report.v1alpha1',
@@ -110,12 +119,21 @@ describe('ao metrics cli', () => {
       writeStdout: () => {},
       writeStderr: (text) => stderr.push(text),
     });
+    const invalidWindow = await runCli([
+      '--since', '2026-08-01T00:00:00Z',
+      '--until', '2026-07-01T00:00:00Z',
+    ], {
+      writeStdout: () => {},
+      writeStderr: (text) => stderr.push(text),
+    });
 
     expect(invalidLimit.exitCode).toBe(4);
     expect(unknownArg.exitCode).toBe(4);
+    expect(invalidWindow.exitCode).toBe(4);
     expect(mockLoadAoMetricsReport).not.toHaveBeenCalled();
     expect(stderr.join('')).toContain('Invalid value for --limit');
     expect(stderr.join('')).toContain('Unknown argument: --bogus');
+    expect(stderr.join('')).toContain('--since is after --until');
   });
 
   it('rejects --project when the next token is another flag', async () => {

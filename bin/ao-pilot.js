@@ -88,6 +88,38 @@ export function applyConfiguredProject(command, argv, projectId) {
   return [...argv, '--project', projectId];
 }
 
+function hasOption(argv, optionName) {
+  return argv.includes(optionName);
+}
+
+export function applyConfiguredEvaluation(argv, evaluation, configPath = null) {
+  const effectiveArgs = [...argv];
+  if (
+    evaluation?.fixture_root != null
+      && !hasOption(effectiveArgs, '--fixture-root')
+  ) {
+    const configDirectory = configPath == null
+      ? process.cwd()
+      : path.dirname(configPath);
+    effectiveArgs.push(
+      '--fixture-root',
+      path.resolve(configDirectory, evaluation.fixture_root),
+    );
+  }
+  if (!hasOption(effectiveArgs, '--pack')) {
+    for (const packName of evaluation?.packs ?? ['all']) {
+      effectiveArgs.push('--pack', packName);
+    }
+  }
+  if (!hasOption(effectiveArgs, '--replay-count')) {
+    effectiveArgs.push(
+      '--replay-count',
+      String(evaluation?.replay_count ?? 2),
+    );
+  }
+  return effectiveArgs;
+}
+
 export async function runCli(argv, io = createDefaultIo(), {
   cwd = process.cwd(),
 } = {}) {
@@ -132,11 +164,18 @@ export async function runCli(argv, io = createDefaultIo(), {
     return { exitCode: 4, result: null };
   }
 
-  const effectiveArgs = applyConfiguredProject(
+  let effectiveArgs = applyConfiguredProject(
     command,
     extracted.argv,
     loadedConfig.config.project_id,
   );
+  if (command === 'eval') {
+    effectiveArgs = applyConfiguredEvaluation(
+      effectiveArgs,
+      loadedConfig.config.evaluation,
+      loadedConfig.path,
+    );
+  }
   return commandModule.runCli(effectiveArgs, io);
 }
 

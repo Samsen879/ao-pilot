@@ -89,7 +89,7 @@ What is reasonably implemented:
 - Lifecycle and diagnostic checks for blocked, ambiguous, orphaned, stale, or review-dependent work.
 - Handoff and checkpoint concepts for recovering interrupted agent sessions.
 - Acceptance tests for several representative lifecycle scenarios.
-- Early evaluation and scorecard infrastructure.
+- Deterministic evaluation packs, bounded metrics, scorecards, and baseline gates.
 
 What is not guaranteed:
 
@@ -115,7 +115,7 @@ following areas:
 | Diagnostics | Doctor-style checks for blocked, ambiguous, orphaned, or stale work |
 | Review flow | Separation between implementation and review-oriented sessions |
 | Policy | Explicit decision points before automation is allowed to mutate state |
-| Evaluation | Early scoring and measurement ideas for agent runs |
+| Evaluation | Replay-stable scenarios, metrics windows, scorecards, and baseline gates |
 | Auditability | Machine-readable state, decision records, and run metrics |
 
 These pieces are intentionally conservative. The preferred failure mode is to mark work as `blocked` or `ambiguous`, rather than allowing automation to continue based on unclear state.
@@ -552,6 +552,15 @@ Run AO acceptance tests:
 npm run ao:test:acceptance
 ```
 
+Run the bundled generic evaluation suite:
+
+```bash
+ao-pilot eval --pack all
+```
+
+See [AO Evaluation](docs/AO_EVALUATION.md) for project-owned packs, replay,
+metrics windows, scorecards, and baselines.
+
 The acceptance tests cover representative situations such as:
 
 - clean PR continuity;
@@ -588,6 +597,9 @@ scripts/ao/lib/
   policy-*.js             Policy evaluation
   action-*.js             Action proposal/execution
   run-metrics.js          Measurement and run summaries
+  eval-harness.js         Generic eval orchestration
+  eval/                    Catalog, replay, and built-in scenario runners
+  scorecard.js             Eval scorecards and baseline comparison
 
 tests/
   ao/                     AO-specific acceptance and unit tests

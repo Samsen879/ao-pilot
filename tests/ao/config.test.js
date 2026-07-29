@@ -21,6 +21,11 @@ describe('ao public configuration', () => {
       verification: {
         commands: ['npm test', 'npm run ao:smoke'],
       },
+      evaluation: {
+        fixture_root: './eval',
+        packs: ['smoke', 'continuity'],
+        replay_count: 3,
+      },
     })).toEqual({
       config_version: 1,
       project_id: 'sample-project',
@@ -30,6 +35,11 @@ describe('ao public configuration', () => {
       },
       verification: {
         commands: ['npm test', 'npm run ao:smoke'],
+      },
+      evaluation: {
+        fixture_root: './eval',
+        packs: ['smoke', 'continuity'],
+        replay_count: 3,
       },
     });
   });
@@ -64,5 +74,10 @@ describe('ao public configuration', () => {
         source_control: 'unknown',
       },
     })).toThrow('Unsupported providers.source_control');
+    expect(() => normalizeAoConfig({
+      evaluation: {
+        replay_count: 1,
+      },
+    })).toThrow('Invalid evaluation.replay_count');
   });
 });
