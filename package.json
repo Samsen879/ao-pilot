@@ -4,13 +4,25 @@
   "description": "An autonomous control plane for AI coding agents — built for Codex CLI + agent-orchestrator",
   "type": "module",
   "license": "MIT",
+  "bin": {
+    "ao-pilot": "./bin/ao-pilot.js"
+  },
+  "files": [
+    "bin",
+    "scripts",
+    "docs",
+    "templates",
+    "tests/ao/fixtures"
+  ],
   "engines": {
     "node": ">=20.0.0"
   },
   "scripts": {
     "controller": "node scripts/ao-controller.js",
     "doctor": "node scripts/ao-doctor.js",
+    "doctor:json": "node scripts/ao-doctor.js --json",
     "eval": "node scripts/ao-eval.js",
+    "init": "node scripts/ao-init.js",
     "manage": "node scripts/ao-manage.js",
     "state": "node scripts/ao-state.js",
     "metrics": "node scripts/ao-metrics.js",
@@ -20,7 +32,29 @@
     "handoff": "node scripts/ao-handoff.js",
     "override": "node scripts/ao-override.js",
     "knowledge": "node scripts/ao-knowledge.js",
-    "test": "node --experimental-vm-modules node_modules/.bin/jest --testPathPattern='tests/ao/' --no-color"
+    "ao:controller": "node scripts/ao-controller.js",
+    "ao:doctor": "node scripts/ao-doctor.js",
+    "ao:doctor:strict": "node scripts/ao-doctor.js --strict",
+    "ao:doctor:strict:pr": "node scripts/ao-doctor.js --json --strict --pr",
+    "ao:eval": "node scripts/ao-eval.js",
+    "ao:handoff": "node scripts/ao-handoff.js",
+    "ao:init": "node scripts/ao-init.js",
+    "ao:knowledge": "node scripts/ao-knowledge.js",
+    "ao:lifecycle": "node scripts/ao-lifecycle.js",
+    "ao:lifecycle:strict": "node scripts/ao-lifecycle.js --strict",
+    "ao:lifecycle:strict:pr": "node scripts/ao-lifecycle.js --json --strict --pr",
+    "ao:manage": "node scripts/ao-manage.js",
+    "ao:metrics": "node scripts/ao-metrics.js",
+    "ao:override": "node scripts/ao-override.js",
+    "ao:reconcile": "node scripts/ao-reconcile.js",
+    "ao:reconcile:strict": "node scripts/ao-reconcile.js --json --strict",
+    "ao:reconcile:strict:pr": "node scripts/ao-reconcile.js --json --strict --pr",
+    "ao:review": "node scripts/ao-review.js",
+    "ao:smoke": "node scripts/ao/run-operator-smoke.js",
+    "ao:state": "node scripts/ao-state.js",
+    "ao:test:acceptance": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --runTestsByPath tests/ao/ao-lifecycle-acceptance.test.js --no-color",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --testPathPattern='tests/ao/' --no-color",
+    "verify:package": "node scripts/verify-package-install.js"
   },
   "jest": {
     "testEnvironment": "node",

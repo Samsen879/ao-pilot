@@ -1,0 +1,158 @@
+#!/usr/bin/env node
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import {
+  loadAoConfig,
+} from '../scripts/ao/lib/config.js';
+
+const COMMAND_MODULES = {
+  controller: '../scripts/ao-controller.js',
+  doctor: '../scripts/ao-doctor.js',
+  eval: '../scripts/ao-eval.js',
+  handoff: '../scripts/ao-handoff.js',
+  init: '../scripts/ao-init.js',
+  knowledge: '../scripts/ao-knowledge.js',
+  lifecycle: '../scripts/ao-lifecycle.js',
+  manage: '../scripts/ao-manage.js',
+  metrics: '../scripts/ao-metrics.js',
+  override: '../scripts/ao-override.js',
+  reconcile: '../scripts/ao-reconcile.js',
+  review: '../scripts/ao-review.js',
+  state: '../scripts/ao-state.js',
+};
+
+const PROJECT_SCOPED_COMMANDS = new Set(Object.keys(COMMAND_MODULES).filter(
+  (command) => command !== 'init',
+));
+const PR_EXCLUSIVE_COMMANDS = new Set(['doctor', 'lifecycle', 'reconcile']);
+
+function createDefaultIo() {
+  return {
+    writeStdout: (text) => process.stdout.write(text),
+    writeStderr: (text) => process.stderr.write(text),
+  };
+}
+
+function renderHelp() {
+  return [
+    'Usage: ao-pilot <command> [options]',
+    '',
+    'Commands:',
+    '  init        Create ao.config.json',
+    '  controller  Run the control loop',
+    '  doctor      Diagnose current control-plane state',
+    '  reconcile   Reconcile AO and source-control observations',
+    '  lifecycle   Evaluate lifecycle readiness',
+    '  manage      Manage durable tasks',
+    '  handoff     Manage successor handoffs',
+    '  review      Manage independent review records',
+    '  state       Inspect durable state',
+    '  override    Manage explicit operator overrides',
+    '  knowledge   Inspect repository knowledge',
+    '  metrics     Inspect run metrics',
+    '  eval        Run evaluation packs',
+    '',
+    'Global options:',
+    '  --config <path>  Use an explicit AO config file',
+    '  -h, --help       Show help',
+    '  -v, --version    Show version',
+  ].join('\n');
+}
+
+function extractConfigOption(argv) {
+  const remaining = [];
+  let configPath = null;
+
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] !== '--config') {
+      remaining.push(argv[index]);
+      continue;
+    }
+    const value = argv[index + 1] ?? null;
+    if (value == null || value.startsWith('-')) {
+      throw new Error('Missing value for --config');
+    }
+    configPath = value;
+    index += 1;
+  }
+
+  return { configPath, argv: remaining };
+}
+
+export function applyConfiguredProject(command, argv, projectId) {
+  if (!PROJECT_SCOPED_COMMANDS.has(command) || argv.includes('--project')) return argv;
+  if (PR_EXCLUSIVE_COMMANDS.has(command) && argv.includes('--pr')) return argv;
+  return [...argv, '--project', projectId];
+}
+
+export async function runCli(argv, io = createDefaultIo(), {
+  cwd = process.cwd(),
+} = {}) {
+  const [command, ...commandArgs] = argv;
+  if (command == null || command === '--help' || command === '-h') {
+    io.writeStdout(`${renderHelp()}\n`);
+    return { exitCode: 0, result: null };
+  }
+  if (command === '--version' || command === '-v') {
+    io.writeStdout('0.1.0\n');
+    return { exitCode: 0, result: null };
+  }
+  if (!(command in COMMAND_MODULES)) {
+    io.writeStderr(`Unknown command: ${command}\n`);
+    return { exitCode: 4, result: null };
+  }
+
+  let extracted;
+  try {
+    extracted = extractConfigOption(commandArgs);
+  } catch (error) {
+    io.writeStderr(`${error.message}\n`);
+    return { exitCode: 4, result: null };
+  }
+
+  const commandModule = await import(COMMAND_MODULES[command]);
+  if (command === 'init') {
+    const initArgs = extracted.configPath == null
+      ? extracted.argv
+      : [...extracted.argv, '--config', extracted.configPath];
+    return commandModule.runCli(initArgs, io, { cwd });
+  }
+
+  let loadedConfig;
+  try {
+    loadedConfig = loadAoConfig({
+      cwd,
+      configPath: extracted.configPath,
+    });
+  } catch (error) {
+    io.writeStderr(`${error.message}\n`);
+    return { exitCode: 4, result: null };
+  }
+
+  const effectiveArgs = applyConfiguredProject(
+    command,
+    extracted.argv,
+    loadedConfig.config.project_id,
+  );
+  return commandModule.runCli(effectiveArgs, io);
+}
+
+export function isDirectExecution(executedFile, currentFile) {
+  if (!executedFile) return false;
+  const absoluteExecutedFile = path.resolve(executedFile);
+  const resolvedExecutedFile = fs.existsSync(absoluteExecutedFile)
+    ? fs.realpathSync(absoluteExecutedFile)
+    : absoluteExecutedFile;
+  return resolvedExecutedFile === currentFile;
+}
+
+const currentFile = fileURLToPath(import.meta.url);
+const executedFile = process.argv[1] ? path.resolve(process.argv[1]) : null;
+
+if (isDirectExecution(executedFile, currentFile)) {
+  const { exitCode } = await runCli(process.argv.slice(2));
+  process.exitCode = exitCode;
+}

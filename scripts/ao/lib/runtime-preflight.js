@@ -1,6 +1,5 @@
 import * as fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 
 import {
   createRuntimePreflightCheck,
@@ -11,6 +10,7 @@ import {
   buildRepoKnowledgeRef,
   listRepoKnowledgeCommands,
 } from './repo-knowledge.js';
+import { LOCAL_COMMAND_RUNNER } from './providers/command-runner.js';
 
 function resolveNow(now) {
   if (typeof now === 'function') return resolveNow(now());
@@ -18,11 +18,11 @@ function resolveNow(now) {
   return new Date().toISOString();
 }
 
-function defaultCommandExists(command) {
-  const result = spawnSync('bash', ['-lc', `command -v ${JSON.stringify(String(command))}`], {
+function defaultCommandExists(command, context) {
+  const result = context.commandRunner.run(command, ['--version'], {
     stdio: 'ignore',
   });
-  return result.status === 0;
+  return result.status === 0 && result.error == null;
 }
 
 function defaultPathExists(targetPath) {
@@ -38,9 +38,9 @@ function hasWritableAccess(cwd) {
   }
 }
 
-function hasGitHubAuth(env) {
+function hasGitHubAuth(env, commandRunner) {
   if (env.GITHUB_TOKEN || env.GH_TOKEN || env.GITHUB_AUTH_TOKEN) return true;
-  const result = spawnSync('gh', ['auth', 'status'], {
+  const result = commandRunner.run('gh', ['auth', 'status'], {
     stdio: 'ignore',
     env,
   });
@@ -56,7 +56,7 @@ function defaultCapability(capability, context) {
     case 'filesystem.workspace_write':
       return hasWritableAccess(context?.cwd ?? process.cwd());
     case 'secret.github_auth':
-      return hasGitHubAuth(env);
+      return hasGitHubAuth(env, context.commandRunner);
     default:
       return false;
   }
@@ -185,6 +185,7 @@ export function runRuntimeBootstrapPreflight({
   probes = {},
   env = process.env,
   repoKnowledge = null,
+  commandRunner = LOCAL_COMMAND_RUNNER,
 } = {}) {
   const timestamp = resolveNow(now);
   const runtimeProvider = resolveRuntimeProvider(runtimeRef);
@@ -213,6 +214,7 @@ export function runRuntimeBootstrapPreflight({
     env,
     runtime_ref: runtimeProvider.runtime_ref,
     provider_id: runtimeProvider.provider_id,
+    commandRunner,
   };
   const effectiveProbes = {
     commandExists: probes.commandExists ?? defaultCommandExists,

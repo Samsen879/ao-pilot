@@ -3,35 +3,21 @@ import path from 'node:path';
 
 import {
   CONTROL_PLANE_LATEST_VERSION,
-  createActionRecord,
-  createCheckpointRecord,
   createControlPlaneAuditEntry,
   createControlPlaneSchema,
   createControllerLease,
-  createControllerModeRecord,
-  createControllerRunMetricRecord,
-  createControllerCursorRecord,
-  createCredentialProvenanceRecord,
-  createDeliveryEventRecord,
   createEmptyControlPlaneState,
-  createExecutionAttemptMetricRecord,
-  createHandoffClaimRecord,
-  createHandoffDecisionRecord,
-  createHandoffRequestRecord,
-  createHandoffTransferRecord,
-  createManagedTask,
-  createObservationRecord,
-  createOverrideRecord,
-  createOwnershipLease,
-  createPolicyDecisionRecord,
-  createPrBinding,
-  createReviewRecord,
   createRepoKnowledgeRecord,
   createRuntimePreflightRecord,
-  createTaskSpecRecord,
 } from './state-contracts.js';
 import { materializeRepoKnowledge } from './repo-knowledge.js';
 import { runRuntimeBootstrapPreflight } from './runtime-preflight.js';
+import {
+  createRepositoryCollectionUpsertMethods,
+  sortRepositoryCollectionByKey,
+  sortRepositoryStateCollections,
+  upsertRepositoryCollectionRecord,
+} from './state-repository/collections.js';
 import { appendControlPlaneAuditEntry, readControlPlaneAuditEntries } from './state-audit.js';
 import {
   bootstrapControlPlaneState,
@@ -76,10 +62,6 @@ function buildVirtualState(projectId) {
   });
 }
 
-function sortCollectionByKey(items, key) {
-  return [...(items ?? [])].sort((left, right) => String(left?.[key] ?? '').localeCompare(String(right?.[key] ?? '')));
-}
-
 function normalizeRuntimeRefs(runtimeRefs) {
   if (!Array.isArray(runtimeRefs)) return [];
   return [...new Set(runtimeRefs
@@ -122,7 +104,7 @@ export function createStateRepository({
   function readControllerLeaseRecords() {
     const records = readJsonFile(paths.controllerLeasesPath);
     if (!Array.isArray(records)) return null;
-    return sortCollectionByKey(
+    return sortRepositoryCollectionByKey(
       records.map((record) => createControllerLease(record)),
       'lease_id',
     );
@@ -141,40 +123,10 @@ export function createStateRepository({
       };
     }
 
-    const nextState = cloneJsonValue(state);
-    nextState.managed_tasks = sortCollectionByKey(nextState.managed_tasks, 'task_id');
-    nextState.pr_bindings = sortCollectionByKey(nextState.pr_bindings, 'binding_id');
-    nextState.ownership_leases = sortCollectionByKey(nextState.ownership_leases, 'lease_id');
-    nextState.controller_leases = sortCollectionByKey(nextState.controller_leases, 'lease_id');
-    nextState.actions = sortCollectionByKey(nextState.actions, 'action_id');
-    nextState.overrides = sortCollectionByKey(nextState.overrides, 'override_id');
-    nextState.controller_modes = sortCollectionByKey(nextState.controller_modes, 'controller_id');
-    nextState.observations = sortCollectionByKey(nextState.observations, 'observation_id');
-    nextState.delivery_events = sortCollectionByKey(nextState.delivery_events, 'event_id');
-    nextState.controller_cursors = sortCollectionByKey(nextState.controller_cursors, 'cursor_id');
-    nextState.policy_decisions = sortCollectionByKey(nextState.policy_decisions, 'decision_id');
-    nextState.credential_provenances = sortCollectionByKey(nextState.credential_provenances, 'provenance_id');
-    nextState.task_specs = sortCollectionByKey(nextState.task_specs, 'task_id');
-    nextState.runtime_preflights = sortCollectionByKey(nextState.runtime_preflights, 'runtime_ref');
-    nextState.repo_knowledge = sortCollectionByKey(nextState.repo_knowledge, 'project_id');
-    nextState.review_records = sortCollectionByKey(nextState.review_records, 'review_id');
-    nextState.checkpoints = sortCollectionByKey(nextState.checkpoints, 'checkpoint_id');
-    nextState.handoff_requests = sortCollectionByKey(nextState.handoff_requests, 'request_id');
-    nextState.handoff_claims = sortCollectionByKey(nextState.handoff_claims, 'claim_id');
-    nextState.handoff_decisions = sortCollectionByKey(nextState.handoff_decisions, 'decision_id');
-    nextState.handoff_transfers = sortCollectionByKey(nextState.handoff_transfers, 'transfer_id');
-    nextState.controller_run_metrics = sortCollectionByKey(
-      nextState.controller_run_metrics,
-      'controller_run_metric_id',
-    );
-    nextState.execution_attempt_metrics = sortCollectionByKey(
-      nextState.execution_attempt_metrics,
-      'execution_attempt_metric_id',
-    );
     const isolatedControllerLeases = readControllerLeaseRecords();
-    if (isolatedControllerLeases != null) {
-      nextState.controller_leases = isolatedControllerLeases;
-    }
+    const nextState = sortRepositoryStateCollections(cloneJsonValue(state), {
+      controllerLeases: isolatedControllerLeases,
+    });
 
     return {
       bootstrapped: true,
@@ -226,7 +178,7 @@ export function createStateRepository({
     details,
   } = {}) {
     const recordedAt = resolveNow(clock);
-    const nextControllerLeases = sortCollectionByKey(
+    const nextControllerLeases = sortRepositoryCollectionByKey(
       (controllerLeases ?? []).map((record) => createControllerLease(record)),
       'lease_id',
     );
@@ -305,37 +257,30 @@ export function createStateRepository({
   }
 
   function upsertCollectionRecord({
-    collectionKey,
-    identityKey,
-    entityKind,
+    descriptor,
     record,
-    normalize,
-    summary,
   } = {}) {
     ensureBootstrapped();
     const snapshot = readSnapshot();
     const nextState = cloneJsonValue(snapshot.state);
-    const normalizedRecord = normalize(record);
-    const existingIndex = nextState[collectionKey].findIndex(
-      (entry) => entry?.[identityKey] === normalizedRecord[identityKey],
-    );
-
-    if (existingIndex >= 0) {
-      nextState[collectionKey][existingIndex] = normalizedRecord;
-    } else {
-      nextState[collectionKey].push(normalizedRecord);
-    }
+    const normalizedRecord = upsertRepositoryCollectionRecord({
+      state: nextState,
+      descriptor,
+      record,
+    });
 
     persistState({
       state: nextState,
-      entityKind,
-      entityId: normalizedRecord[identityKey],
-      summary,
+      entityKind: descriptor.entityKind,
+      entityId: normalizedRecord[descriptor.identityKey],
+      summary: descriptor.summary(record, normalizedRecord),
       details: normalizedRecord,
     });
 
     return normalizedRecord;
   }
+
+  const collectionUpsertMethods = createRepositoryCollectionUpsertMethods(upsertCollectionRecord);
 
   return {
     getSnapshot() {
@@ -375,38 +320,7 @@ export function createStateRepository({
       });
     },
 
-    upsertManagedTask(record) {
-      return upsertCollectionRecord({
-        collectionKey: 'managed_tasks',
-        identityKey: 'task_id',
-        entityKind: 'managed_task',
-        record,
-        normalize: createManagedTask,
-        summary: `Persisted managed task ${record?.task_id}.`,
-      });
-    },
-
-    upsertPrBinding(record) {
-      return upsertCollectionRecord({
-        collectionKey: 'pr_bindings',
-        identityKey: 'binding_id',
-        entityKind: 'pr_binding',
-        record,
-        normalize: createPrBinding,
-        summary: `Persisted PR binding ${record?.binding_id}.`,
-      });
-    },
-
-    upsertOwnershipLease(record) {
-      return upsertCollectionRecord({
-        collectionKey: 'ownership_leases',
-        identityKey: 'lease_id',
-        entityKind: 'ownership_lease',
-        record,
-        normalize: createOwnershipLease,
-        summary: `Persisted ownership lease ${record?.lease_id}.`,
-      });
-    },
+    ...collectionUpsertMethods,
 
     upsertControllerLease(record) {
       ensureBootstrapped();
@@ -436,204 +350,6 @@ export function createStateRepository({
     },
 
     mutateControllerLeasesAtomically,
-
-    upsertAction(record) {
-      return upsertCollectionRecord({
-        collectionKey: 'actions',
-        identityKey: 'action_id',
-        entityKind: 'action',
-        record,
-        normalize: createActionRecord,
-        summary: `Persisted action ${record?.action_id}.`,
-      });
-    },
-
-    upsertOverride(record) {
-      return upsertCollectionRecord({
-        collectionKey: 'overrides',
-        identityKey: 'override_id',
-        entityKind: 'override',
-        record,
-        normalize: createOverrideRecord,
-        summary: `Persisted override ${record?.override_id}.`,
-      });
-    },
-
-    upsertControllerMode(record) {
-      return upsertCollectionRecord({
-        collectionKey: 'controller_modes',
-        identityKey: 'controller_id',
-        entityKind: 'controller_mode',
-        record,
-        normalize: createControllerModeRecord,
-        summary: `Persisted controller mode ${record?.controller_id}.`,
-      });
-    },
-
-    upsertObservation(record) {
-      return upsertCollectionRecord({
-        collectionKey: 'observations',
-        identityKey: 'observation_id',
-        entityKind: 'observation',
-        record,
-        normalize: createObservationRecord,
-        summary: `Persisted observation ${record?.observation_id}.`,
-      });
-    },
-
-    upsertDeliveryEvent(record) {
-      return upsertCollectionRecord({
-        collectionKey: 'delivery_events',
-        identityKey: 'event_id',
-        entityKind: 'delivery_event',
-        record,
-        normalize: createDeliveryEventRecord,
-        summary: `Persisted delivery event ${record?.event_id}.`,
-      });
-    },
-
-    upsertCredentialProvenance(record) {
-      return upsertCollectionRecord({
-        collectionKey: 'credential_provenances',
-        identityKey: 'provenance_id',
-        entityKind: 'credential_provenance',
-        record,
-        normalize: createCredentialProvenanceRecord,
-        summary: `Persisted credential provenance ${record?.provenance_id}.`,
-      });
-    },
-
-    upsertPolicyDecision(record) {
-      return upsertCollectionRecord({
-        collectionKey: 'policy_decisions',
-        identityKey: 'decision_id',
-        entityKind: 'policy_decision',
-        record,
-        normalize: createPolicyDecisionRecord,
-        summary: `Persisted policy decision ${record?.decision_id}.`,
-      });
-    },
-
-    upsertControllerCursor(record) {
-      return upsertCollectionRecord({
-        collectionKey: 'controller_cursors',
-        identityKey: 'cursor_id',
-        entityKind: 'controller_cursor',
-        record,
-        normalize: createControllerCursorRecord,
-        summary: `Persisted controller cursor ${record?.cursor_id}.`,
-      });
-    },
-
-    upsertTaskSpec(record) {
-      return upsertCollectionRecord({
-        collectionKey: 'task_specs',
-        identityKey: 'task_id',
-        entityKind: 'task_spec',
-        record,
-        normalize: createTaskSpecRecord,
-        summary: `Persisted task spec ${record?.task_id}.`,
-      });
-    },
-
-    upsertRuntimePreflight(record) {
-      return upsertCollectionRecord({
-        collectionKey: 'runtime_preflights',
-        identityKey: 'runtime_ref',
-        entityKind: 'runtime_preflight',
-        record,
-        normalize: createRuntimePreflightRecord,
-        summary: `Persisted runtime preflight ${record?.runtime_ref ?? record?.snapshot?.runtime_ref}.`,
-      });
-    },
-
-    upsertRepoKnowledge(record) {
-      return upsertCollectionRecord({
-        collectionKey: 'repo_knowledge',
-        identityKey: 'project_id',
-        entityKind: 'repo_knowledge',
-        record,
-        normalize: createRepoKnowledgeRecord,
-        summary: `Persisted repo knowledge ${record?.project_id ?? record?.snapshot?.project_id}.`,
-      });
-    },
-
-    upsertReviewRecord(record) {
-      return upsertCollectionRecord({
-        collectionKey: 'review_records',
-        identityKey: 'review_id',
-        entityKind: 'review_record',
-        record,
-        normalize: createReviewRecord,
-        summary: `Persisted review record ${record?.review_id}.`,
-      });
-    },
-
-    upsertHandoffRequest(record) {
-      return upsertCollectionRecord({
-        collectionKey: 'handoff_requests',
-        identityKey: 'request_id',
-        entityKind: 'handoff_request',
-        record,
-        normalize: createHandoffRequestRecord,
-        summary: `Persisted handoff request ${record?.request_id}.`,
-      });
-    },
-
-    upsertHandoffClaim(record) {
-      return upsertCollectionRecord({
-        collectionKey: 'handoff_claims',
-        identityKey: 'claim_id',
-        entityKind: 'handoff_claim',
-        record,
-        normalize: createHandoffClaimRecord,
-        summary: `Persisted handoff claim ${record?.claim_id}.`,
-      });
-    },
-
-    upsertHandoffDecision(record) {
-      return upsertCollectionRecord({
-        collectionKey: 'handoff_decisions',
-        identityKey: 'decision_id',
-        entityKind: 'handoff_decision',
-        record,
-        normalize: createHandoffDecisionRecord,
-        summary: `Persisted handoff decision ${record?.decision_id}.`,
-      });
-    },
-
-    upsertHandoffTransfer(record) {
-      return upsertCollectionRecord({
-        collectionKey: 'handoff_transfers',
-        identityKey: 'transfer_id',
-        entityKind: 'handoff_transfer',
-        record,
-        normalize: createHandoffTransferRecord,
-        summary: `Persisted handoff transfer ${record?.transfer_id}.`,
-      });
-    },
-
-    upsertControllerRunMetric(record) {
-      return upsertCollectionRecord({
-        collectionKey: 'controller_run_metrics',
-        identityKey: 'controller_run_metric_id',
-        entityKind: 'controller_run_metric',
-        record,
-        normalize: createControllerRunMetricRecord,
-        summary: `Persisted controller run metric ${record?.controller_run_metric_id}.`,
-      });
-    },
-
-    upsertExecutionAttemptMetric(record) {
-      return upsertCollectionRecord({
-        collectionKey: 'execution_attempt_metrics',
-        identityKey: 'execution_attempt_metric_id',
-        entityKind: 'execution_attempt_metric',
-        record,
-        normalize: createExecutionAttemptMetricRecord,
-        summary: `Persisted execution attempt metric ${record?.execution_attempt_metric_id}.`,
-      });
-    },
 
     ensureRuntimePreflights({
       cwd = repoRoot,
@@ -683,7 +399,7 @@ export function createStateRepository({
           state: nextState,
           entityKind: 'runtime_preflight',
           entityId: normalizedRecord.runtime_ref,
-        summary: `Persisted runtime preflight ${normalizedRecord.runtime_ref}.`,
+          summary: `Persisted runtime preflight ${normalizedRecord.runtime_ref}.`,
           details: normalizedRecord,
         });
         snapshot = {
@@ -693,7 +409,7 @@ export function createStateRepository({
         ensuredRecords.push(normalizedRecord);
       }
 
-      return sortCollectionByKey(ensuredRecords, 'runtime_ref');
+      return sortRepositoryCollectionByKey(ensuredRecords, 'runtime_ref');
     },
 
     ensureRepoKnowledge({
@@ -738,17 +454,6 @@ export function createStateRepository({
       });
 
       return normalizedRecord;
-    },
-
-    upsertCheckpoint(record) {
-      return upsertCollectionRecord({
-        collectionKey: 'checkpoints',
-        identityKey: 'checkpoint_id',
-        entityKind: 'checkpoint',
-        record,
-        normalize: createCheckpointRecord,
-        summary: `Persisted checkpoint ${record?.checkpoint_id}.`,
-      });
     },
 
     persistEvalScorecardArtifact({

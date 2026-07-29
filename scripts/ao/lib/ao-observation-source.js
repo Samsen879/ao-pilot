@@ -1,5 +1,5 @@
-import { spawnSync } from 'node:child_process';
 import { readAoFixture } from './fixture-support.js';
+import { LOCAL_COMMAND_RUNNER } from './providers/command-runner.js';
 
 export const DEFAULT_FRESHNESS_THRESHOLD_MS = 15 * 60 * 1000;
 
@@ -217,6 +217,7 @@ export async function loadAoProjectObservation({
   projectId,
   now = new Date().toISOString(),
   staleAfterMs = DEFAULT_FRESHNESS_THRESHOLD_MS,
+  commandRunner = LOCAL_COMMAND_RUNNER,
 } = {}) {
   const fixture = readAoFixture('ao-status.json');
   if (fixture) {
@@ -236,7 +237,7 @@ export async function loadAoProjectObservation({
     });
   }
 
-  const result = spawnSync('ao', ['status', '-p', projectId, '--json'], {
+  const result = commandRunner.run('ao', ['status', '-p', projectId, '--json'], {
     encoding: 'utf8',
   });
 

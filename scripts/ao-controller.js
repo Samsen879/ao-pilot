@@ -79,6 +79,13 @@ function parseArgs(argv) {
     };
   }
 
+  if (options.help) {
+    return {
+      ok: true,
+      options,
+    };
+  }
+
   if (options.mode != null && !['observe', 'shadow', 'assist'].includes(options.mode)) {
     return {
       ok: false,

@@ -1,8 +1,8 @@
-import { spawnSync } from 'node:child_process';
 import {
   readAoFixture,
   sanitizeFixtureToken,
 } from './fixture-support.js';
+import { LOCAL_COMMAND_RUNNER } from './providers/command-runner.js';
 
 const PR_JSON_FIELDS = 'number,state,headRefName,headRefOid,reviewDecision,mergeStateStatus,isDraft,statusCheckRollup,url,reviews';
 
@@ -143,7 +143,7 @@ function extractBranchHints(scope) {
   return [...new Set(branchHints)].sort((left, right) => left.localeCompare(right));
 }
 
-function fetchPrObservationByNumber(prNumber, now) {
+function fetchPrObservationByNumber(prNumber, now, commandRunner) {
   const fixture = readAoFixture(
     ['github', `pr-${prNumber}.json`],
     `github-pr-${prNumber}.json`,
@@ -153,7 +153,7 @@ function fetchPrObservationByNumber(prNumber, now) {
     return normalizePrObservation(parsed ?? {}, now);
   }
 
-  const result = spawnSync('gh', [
+  const result = commandRunner.run('gh', [
     'pr',
     'view',
     String(prNumber),
@@ -172,7 +172,7 @@ function fetchPrObservationByNumber(prNumber, now) {
   return normalizePrObservation(parsed ?? {}, now);
 }
 
-function fetchPrObservationsByBranch(branchName, now) {
+function fetchPrObservationsByBranch(branchName, now, commandRunner) {
   const fixture = readAoFixture(
     ['github', `branch-${sanitizeFixtureToken(branchName)}.json`],
     `github-branch-${sanitizeFixtureToken(branchName)}.json`,
@@ -183,7 +183,7 @@ function fetchPrObservationsByBranch(branchName, now) {
     return items.map((item) => normalizePrObservation(item, now));
   }
 
-  const result = spawnSync('gh', [
+  const result = commandRunner.run('gh', [
     'pr',
     'list',
     '--state',
@@ -209,6 +209,7 @@ function fetchPrObservationsByBranch(branchName, now) {
 export async function loadGitHubObservationSet({
   scope,
   now = new Date().toISOString(),
+  commandRunner = LOCAL_COMMAND_RUNNER,
 } = {}) {
   const selectedPrNumbers = Array.isArray(scope?.selected_pr_numbers)
     ? scope.selected_pr_numbers
@@ -218,12 +219,12 @@ export async function loadGitHubObservationSet({
   const observationMap = new Map();
   try {
     for (const prNumber of selectedPrNumbers) {
-      const observation = fetchPrObservationByNumber(prNumber, now);
+      const observation = fetchPrObservationByNumber(prNumber, now, commandRunner);
       observationMap.set(observation.pr_number, observation);
     }
 
     for (const branchName of branchHints) {
-      const observations = fetchPrObservationsByBranch(branchName, now);
+      const observations = fetchPrObservationsByBranch(branchName, now, commandRunner);
       for (const observation of observations) {
         observationMap.set(observation.pr_number, observation);
       }

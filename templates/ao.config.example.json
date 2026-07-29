@@ -1,0 +1,13 @@
+{
+  "config_version": 1,
+  "project_id": "my-project",
+  "providers": {
+    "agent_runtime": "agent-orchestrator-cli",
+    "source_control": "github-cli"
+  },
+  "verification": {
+    "commands": [
+      "npm test"
+    ]
+  }
+}

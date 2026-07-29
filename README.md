@@ -21,11 +21,19 @@
 
 ## What Is This?
 
-**ao-pilot** is an experimental, heavily extended fork of [ComposioHQ/agent-orchestrator](https://github.com/ComposioHQ/agent-orchestrator).
+**ao-pilot** is an independently maintained control-plane companion for
+[ComposioHQ/agent-orchestrator](https://github.com/ComposioHQ/agent-orchestrator)
+and compatible AI coding-agent runtimes.
 
-The original project provides a lightweight way to run and coordinate AI coding agents. This fork explores a broader control-plane layer around that workflow: task state, PR reconciliation, ownership, handoff, recovery, diagnostics, policy gates, and evaluation.
+The original project provides a lightweight way to run and coordinate AI coding
+agents. `ao-pilot` adds a separate control-plane layer around that workflow:
+task state, PR reconciliation, ownership, handoff, recovery, diagnostics,
+policy gates, and evaluation.
 
-This repository is best understood as a **research prototype**, not a production-ready agent platform. It was built while experimenting with AI-assisted development workflows and trying to understand what infrastructure is needed once multiple coding-agent sessions, branches, issues, and PRs are active at the same time.
+This repository packages those control-plane capabilities as a standalone,
+file-based Node.js tool. It remains conservative and experimental, but its
+installation, configuration, tests, and CLI are maintained independently from
+any downstream product repository.
 
 The core question behind this project is:
 
@@ -50,9 +58,12 @@ The goal is not to remove human judgment. The goal is to make the automation bou
 
 ## Relationship to the Original Project
 
-This repository is a fork of `ComposioHQ/agent-orchestrator`.
+This repository is a companion to `ComposioHQ/agent-orchestrator`, not a copy of
+its session runtime.
 
-The original AO project focuses on agent orchestration primitives such as spawning sessions, routing feedback, and coordinating work. This fork keeps that direction but adds experimental control-plane layers around:
+The original AO project focuses on agent orchestration primitives such as
+spawning sessions, routing feedback, and coordinating work. This companion
+project adds experimental control-plane layers around:
 
 - persistent task state;
 - ownership and handoff;
@@ -91,11 +102,12 @@ What is not guaranteed:
 
 In other words: this repo is a working lab for control-plane ideas, not a finished product.
 
-## What This Fork Adds
+## What The Control Plane Adds
 
-Compared with the original AO project, this fork experiments with the following areas:
+Compared with the original AO runtime, this project experiments with the
+following areas:
 
-| Area | What this fork explores |
+| Area | What the control plane explores |
 |---|---|
 | Task state | Durable task records, PR bindings, ownership leases, lifecycle status |
 | Reconciliation | Comparing local AO state with GitHub PR / CI / review state |
@@ -145,6 +157,19 @@ cd ao-pilot
 npm install
 ```
 
+For a reproducible install after the lockfile is present:
+
+```bash
+npm ci
+```
+
+Link the unified CLI and create a project configuration:
+
+```bash
+npm link
+ao-pilot init --project my-project
+```
+
 ### Run Tests
 
 ```bash
@@ -162,28 +187,30 @@ npm run ao:test:acceptance
 Single pass:
 
 ```bash
-node scripts/ao-controller.js --holder my-session --project my-project
+ao-pilot controller --holder my-session
 ```
 
 Continuous mode:
 
 ```bash
-node scripts/ao-controller.js --holder my-session --project my-project --continuous
+ao-pilot controller --holder my-session --continuous
 ```
 
 Observe-only mode:
 
 ```bash
-node scripts/ao-controller.js --holder my-session --project my-project --mode observe
+ao-pilot controller --holder my-session --mode observe
 ```
 
 Target a specific issue:
 
 ```bash
-node scripts/ao-controller.js --holder my-session --project my-project --issue 42
+ao-pilot controller --holder my-session --issue 42
 ```
 
-Most CLIs support `--json` for machine-readable output.
+The project id is read from `ao.config.json`. A command-level `--project`
+option overrides it. Most commands support `--json` for machine-readable
+output, and the original `node scripts/ao-*.js` entrypoints remain compatible.
 
 ## Architecture
 
