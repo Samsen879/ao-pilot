@@ -12,7 +12,8 @@ describe('ao-pilot public product contract', () => {
   it('ships a deterministic install and verification surface', () => {
     const packageJson = JSON.parse(read('package.json'));
 
-    expect(packageJson.engines.node).toBe('>=20.0.0');
+    expect(packageJson.version).toBe('0.2.0');
+    expect(packageJson.engines.node).toBe('^20.0.0 || >=22.0.0');
     expect(packageJson.bin['ao-pilot']).toBe('./bin/ao-pilot.js');
     expect(packageJson.scripts['ao:init']).toBe('node scripts/ao-init.js');
     expect(packageJson.scripts.test).toContain('--runInBand');
@@ -20,7 +21,15 @@ describe('ao-pilot public product contract', () => {
       'tests/ao/ao-lifecycle-acceptance.test.js',
     );
     expect(packageJson.scripts['ao:smoke']).toBe('node scripts/ao/run-operator-smoke.js');
+    expect(packageJson.scripts['release:check']).toContain('npm run verify:package');
+    expect(packageJson.publishConfig).toEqual({
+      access: 'public',
+      provenance: true,
+    });
+    expect(packageJson.overrides['brace-expansion']).toBe('5.0.8');
     expect(fs.existsSync(path.join(PROJECT_ROOT, 'package-lock.json'))).toBe(true);
+    expect(fs.existsSync(path.join(PROJECT_ROOT, 'CHANGELOG.md'))).toBe(true);
+    expect(fs.existsSync(path.join(PROJECT_ROOT, 'docs', 'AO_RELEASE.md'))).toBe(true);
   });
 
   it('keeps public documentation independent from the CIE product repository', () => {

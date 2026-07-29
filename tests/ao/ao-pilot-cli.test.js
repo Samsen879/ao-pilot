@@ -50,6 +50,18 @@ describe('ao-pilot unified cli', () => {
     }
   });
 
+  it('reports the version declared by the installed package metadata', async () => {
+    const output = createIo();
+    const result = await runCli(['--version'], output.io);
+    const packageJson = JSON.parse(fs.readFileSync(
+      path.join(process.cwd(), 'package.json'),
+      'utf8',
+    ));
+
+    expect(result.exitCode).toBe(0);
+    expect(output.stdout.join('')).toBe(`${packageJson.version}\n`);
+  });
+
   it('applies configured projects without breaking explicit PR scope', () => {
     expect(applyConfiguredProject('state', ['--json'], 'portable-project')).toEqual([
       '--json',

@@ -1,0 +1,28 @@
+name: release-check
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run release:check
+      - run: npm pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ao-pilot-package
+          path: ao-pilot-*.tgz
+          if-no-files-found: error

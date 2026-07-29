@@ -561,6 +561,10 @@ ao-pilot eval --pack all
 See [AO Evaluation](docs/AO_EVALUATION.md) for project-owned packs, replay,
 metrics windows, scorecards, and baselines.
 
+Release candidates use `npm run release:check`. See
+[AO Release](docs/AO_RELEASE.md) for the second-machine checklist, tagging, and
+npm publication boundary.
+
 The acceptance tests cover representative situations such as:
 
 - clean PR continuity;
