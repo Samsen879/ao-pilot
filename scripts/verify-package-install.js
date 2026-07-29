@@ -66,6 +66,10 @@ try {
     cwd: installRoot,
     shell: process.platform === 'win32',
   });
+  const versionResult = run(binPath, ['--version'], {
+    cwd: installRoot,
+    shell: process.platform === 'win32',
+  });
   const initResult = run(binPath, [
     'init',
     '--project',
@@ -92,6 +96,12 @@ try {
   const initReport = JSON.parse(initResult.stdout);
   const stateReport = JSON.parse(stateResult.stdout);
   const evalReport = JSON.parse(evalResult.stdout);
+  const packageVersion = JSON.parse(
+    fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'),
+  ).version;
+  if (versionResult.stdout.trim() !== packageVersion) {
+    throw new Error('Installed CLI version does not match package metadata');
+  }
   if (
     initReport.project_id !== 'package-verification'
     || stateReport.project_id !== 'package-verification'
@@ -113,6 +123,7 @@ try {
     entry_count: packReport[0].entryCount,
     unpacked_size: packReport[0].unpackedSize,
     project_id: stateReport.project_id,
+    version: packageVersion,
     eval_quality_gate: evalReport.scorecard.quality_gate.status,
   }, null, 2)}\n`);
 } finally {
