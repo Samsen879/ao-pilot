@@ -38,6 +38,7 @@ describe('measurement taxonomy', () => {
     expect(MEASUREMENT_ACTION_CLASSES).toEqual([
       'continue_worker',
       'notify_human',
+      'merge_pr',
       'hold',
       'human_gate',
       'restore_worker',
@@ -72,6 +73,7 @@ describe('measurement taxonomy', () => {
       'preflight_block',
       'worker_exit',
       'successor_handoff',
+      'external_effect',
       'unknown',
     ]);
   });
@@ -88,6 +90,13 @@ describe('measurement taxonomy', () => {
       actionKind: 'notify_human_ready',
       actionClass: 'notify_human',
     })).toBe('notify_human');
+    expect(resolveMeasurementActionClass({
+      actionKind: 'notify_human_blocked',
+    })).toBe('notify_human');
+    expect(resolveMeasurementActionClass({
+      actionKind: 'auto_merge_ready_pr',
+      actionClass: 'merge_pr',
+    })).toBe('merge_pr');
     expect(resolveMeasurementActionClass({
       actionKind: 'hold_ci',
       actionClass: 'hold',
@@ -136,6 +145,12 @@ describe('measurement taxonomy', () => {
     expect(resolveExecutionAttemptFailureClass({
       reason: 'worker_exited',
     })).toBe('worker_exit');
+    expect(resolveExecutionAttemptFailureClass({
+      reason: 'auto_merge_command_failed',
+    })).toBe('external_effect');
+    expect(resolveExecutionAttemptFailureClass({
+      reason: 'blocked_notification_transport_failed',
+    })).toBe('external_effect');
 
     expect(resolveControllerRunFailureClass({
       triggerKind: 'ci_failed',

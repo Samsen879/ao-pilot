@@ -5,6 +5,10 @@ import {
   createDeliveryEventRecord,
   createObservationRecord,
 } from './state-contracts.js';
+import {
+  DEFAULT_RELEASE_READY_ACTION,
+  normalizeReleaseReadyAction,
+} from './lifecycle-engine.js';
 
 function hashPayload(payload) {
   return createHash('sha1')
@@ -161,7 +165,7 @@ function ingestSingleObservation({
   };
 }
 
-function resolvePrLifecycleBinding(pr = {}) {
+function resolvePrLifecycleBinding(pr = {}, releaseReadyAction = DEFAULT_RELEASE_READY_ACTION) {
   if (
     pr.state === 'OPEN'
     && pr.review_status === 'approved'
@@ -171,7 +175,7 @@ function resolvePrLifecycleBinding(pr = {}) {
   ) {
     return {
       lifecycleTrigger: 'approved_and_green',
-      controllerActionHint: 'notify_human_ready',
+      controllerActionHint: releaseReadyAction,
     };
   }
 
@@ -271,12 +275,13 @@ function buildDeliveryEventsForPr({
   pr,
   observedAt,
   now,
+  releaseReadyAction = DEFAULT_RELEASE_READY_ACTION,
 } = {}) {
   const lineage = buildEventLineage({
     observationId,
     sourceCursor,
   });
-  const prBinding = resolvePrLifecycleBinding(pr);
+  const prBinding = resolvePrLifecycleBinding(pr, releaseReadyAction);
   const checkBinding = resolveCheckLifecycleBinding(pr);
   const reviewBinding = resolveReviewLifecycleBinding(pr);
   const events = [];
@@ -418,7 +423,9 @@ export function ingestManagedTaskPollEvents({
   aoObservation = {},
   githubObservation = {},
   now = new Date().toISOString(),
+  releaseReadyAction = DEFAULT_RELEASE_READY_ACTION,
 } = {}) {
+  const normalizedReleaseReadyAction = normalizeReleaseReadyAction(releaseReadyAction);
   const matchedAoWorkers = matchAoWorkers(task, prBindings, aoObservation);
   const matchedPrs = matchGitHubPrs(task, prBindings, githubObservation);
   const aoResult = ingestSingleObservation({
@@ -451,6 +458,7 @@ export function ingestManagedTaskPollEvents({
       pr,
       observedAt: githubObservation.observed_at ?? now,
       now,
+      releaseReadyAction: normalizedReleaseReadyAction,
     })),
   });
 

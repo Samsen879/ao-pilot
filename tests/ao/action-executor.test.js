@@ -45,6 +45,71 @@ function seedActiveTask(repository) {
   }));
 }
 
+function buildExecutableActionModel(repository, {
+  actionKind,
+  actionClass,
+  summary,
+  commands = [],
+  derivedTrigger = 'approved_and_green',
+} = {}) {
+  return buildAssistActionModel({
+    controllerId: 'default',
+    task: repository.getSnapshot().state.managed_tasks[0],
+    prNumber: 101,
+    derivedTrigger,
+    lifecycleTopStatus: 'continue',
+    runtimeRef: 'runtime.github_local',
+    runtimePreflight: {
+      runtime_ref: 'runtime.github_local',
+      status: 'clean',
+      replay_key: 'runtime_preflight:clean',
+    },
+    action: {
+      id: actionKind,
+      action_class: actionClass,
+      summary,
+      commands,
+      rationale: 'Focused action-executor test fixture.',
+    },
+  });
+}
+
+function seedAllowedAction(repository, {
+  actionId,
+  actionKind,
+  actionClass,
+  summary,
+  commands = [],
+  releaseDecision = null,
+} = {}) {
+  const actionModel = buildExecutableActionModel(repository, {
+    actionKind,
+    actionClass,
+    summary,
+    commands,
+  });
+  repository.upsertAction(createActionRecord({
+    action_id: actionId,
+    task_id: 'issue-90',
+    action_kind: actionKind,
+    status: 'proposed',
+    requested_by: 'assist_controller',
+    reason: summary,
+    created_at: '2026-03-29T07:11:00.000Z',
+    updated_at: '2026-03-29T07:11:00.000Z',
+    payload: {
+      action_model: actionModel,
+      ...(releaseDecision == null ? {} : { release_decision: releaseDecision }),
+      policy_decision_id: 'policy-1',
+      policy: {
+        decision: 'allow',
+        policy_version: 'ao.policy.v1',
+      },
+    },
+  }));
+  return actionModel;
+}
+
 afterEach(() => {
   while (tempDirs.length) {
     fs.rmSync(tempDirs.pop(), { recursive: true, force: true });
@@ -501,5 +566,353 @@ describe('ao action executor', () => {
         actor: 'assist_controller',
       }),
     ]));
+  });
+
+  it('performs guarded auto-merge through an injected runner and records an external-effect receipt', async () => {
+    const repository = createStateRepository({
+      repoRoot: createTempRepo(),
+      projectId: PROJECT_ID,
+      auditIdGenerator: createIdGenerator('audit'),
+    });
+    seedActiveTask(repository);
+    seedAllowedAction(repository, {
+      actionId: 'action-merge',
+      actionKind: 'auto_merge_ready_pr',
+      actionClass: 'merge_pr',
+      summary: 'Merge the release-ready AO-managed PR.',
+      commands: ['gh pr merge 101 --squash --delete-branch'],
+      releaseDecision: {
+        disposition: 'auto_merge_ready_pr',
+        expected_head_sha: 'head-1',
+      },
+    });
+
+    const calls = [];
+    const commandRunner = async ({ command, args, cwd }) => {
+      calls.push([command, ...args, `cwd=${cwd}`]);
+      expect(repository.getSnapshot().state.actions[0]).toMatchObject({
+        status: 'proposed',
+        payload: {
+          execution: {
+            outcome: 'effect_attempted',
+            effect: {
+              status: 'attempted',
+              kind: 'auto_merge',
+            },
+          },
+        },
+      });
+      if (args[1] === 'view') {
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            number: 101,
+            state: 'OPEN',
+            headRefOid: 'head-1',
+            reviewDecision: 'APPROVED',
+            mergeStateStatus: 'CLEAN',
+            isDraft: false,
+            statusCheckRollup: [{ status: 'COMPLETED', conclusion: 'SUCCESS' }],
+          }),
+          stderr: '',
+        };
+      }
+      return { status: 0, stdout: '', stderr: '' };
+    };
+
+    const result = await executeAssistActions({
+      repository,
+      controllerId: 'default',
+      task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: ['action-merge'],
+      now: '2026-03-29T07:12:00.000Z',
+      commandRunner,
+      commandCwd: '/tmp/my-project',
+    });
+
+    expect(result).toEqual({
+      executedActionIds: ['action-merge'],
+      blockedActionIds: [],
+    });
+    expect(calls).toEqual([
+      ['gh', 'pr', 'view', '101', '--json', 'number,state,headRefOid,reviewDecision,mergeStateStatus,isDraft,statusCheckRollup,url', 'cwd=/tmp/my-project'],
+      ['gh', 'pr', 'merge', '101', '--squash', '--delete-branch', 'cwd=/tmp/my-project'],
+    ]);
+    expect(repository.getSnapshot().state.actions[0]).toMatchObject({
+      status: 'executed',
+      payload: {
+        execution: {
+          outcome: 'executed',
+          reason: 'auto_merge_completed',
+          effect: {
+            status: 'succeeded',
+            kind: 'auto_merge',
+            retryable: false,
+            receipt: {
+              reason: 'auto_merge_completed',
+              command_receipts: [
+                expect.objectContaining({ command: 'gh', status: 0, cwd: '/tmp/my-project' }),
+                expect.objectContaining({ command: 'gh', status: 0, cwd: '/tmp/my-project' }),
+              ],
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it('keeps an auto-merge action proposed after external failure so a later pass can retry', async () => {
+    const repository = createStateRepository({
+      repoRoot: createTempRepo(),
+      projectId: PROJECT_ID,
+      auditIdGenerator: createIdGenerator('audit'),
+    });
+    seedActiveTask(repository);
+    seedAllowedAction(repository, {
+      actionId: 'action-merge',
+      actionKind: 'auto_merge_ready_pr',
+      actionClass: 'merge_pr',
+      summary: 'Merge the release-ready AO-managed PR.',
+      releaseDecision: {
+        disposition: 'auto_merge_ready_pr',
+        expected_head_sha: 'head-1',
+      },
+    });
+
+    let mergeAttempts = 0;
+    const commandRunner = async ({ args }) => {
+      if (args[1] === 'view') {
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            state: 'OPEN',
+            headRefOid: 'head-1',
+            reviewDecision: 'APPROVED',
+            mergeStateStatus: 'CLEAN',
+            isDraft: false,
+            statusCheckRollup: [{ status: 'COMPLETED', conclusion: 'SUCCESS' }],
+          }),
+          stderr: '',
+        };
+      }
+      mergeAttempts += 1;
+      return mergeAttempts === 1
+        ? { status: 1, stdout: '', stderr: 'temporary failure' }
+        : { status: 0, stdout: '', stderr: '' };
+    };
+
+    expect(await executeAssistActions({
+      repository,
+      controllerId: 'default',
+      task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: ['action-merge'],
+      now: '2026-03-29T07:12:00.000Z',
+      commandRunner,
+    })).toEqual({
+      executedActionIds: [],
+      blockedActionIds: ['action-merge'],
+    });
+    expect(repository.getSnapshot().state.actions[0]).toMatchObject({
+      status: 'proposed',
+      payload: {
+        execution: {
+          outcome: 'effect_failed',
+          reason: 'auto_merge_command_failed',
+          effect: {
+            status: 'failed',
+            kind: 'auto_merge',
+            retryable: true,
+          },
+        },
+      },
+    });
+
+    expect(await executeAssistActions({
+      repository,
+      controllerId: 'default',
+      task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: ['action-merge'],
+      now: '2026-03-29T07:13:00.000Z',
+      commandRunner,
+    })).toEqual({
+      executedActionIds: ['action-merge'],
+      blockedActionIds: [],
+    });
+    expect(repository.getSnapshot().state.actions[0]).toMatchObject({
+      status: 'executed',
+      payload: {
+        execution: {
+          effect: { status: 'succeeded' },
+        },
+      },
+    });
+  });
+
+  it('fails closed before invoking the runner when auto-merge lacks an exact approved head', async () => {
+    const repository = createStateRepository({
+      repoRoot: createTempRepo(),
+      projectId: PROJECT_ID,
+      auditIdGenerator: createIdGenerator('audit'),
+    });
+    seedActiveTask(repository);
+    seedAllowedAction(repository, {
+      actionId: 'action-merge',
+      actionKind: 'auto_merge_ready_pr',
+      actionClass: 'merge_pr',
+      summary: 'Merge the release-ready AO-managed PR.',
+      releaseDecision: { disposition: 'auto_merge_ready_pr' },
+    });
+
+    const result = await executeAssistActions({
+      repository,
+      controllerId: 'default',
+      task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: ['action-merge'],
+      now: '2026-03-29T07:12:00.000Z',
+      commandRunner: async () => {
+        throw new Error('runner must not be called without expected_head_sha');
+      },
+    });
+
+    expect(result).toEqual({
+      executedActionIds: [],
+      blockedActionIds: ['action-merge'],
+    });
+    expect(repository.getSnapshot().state.actions[0]).toMatchObject({
+      status: 'blocked',
+      payload: {
+        execution: {
+          outcome: 'blocked',
+          reason: 'auto_merge_expected_head_missing',
+          effect: null,
+        },
+      },
+    });
+  });
+
+  it('records a blocked-notification intent as durable-only when no transport is configured', async () => {
+    const repository = createStateRepository({
+      repoRoot: createTempRepo(),
+      projectId: PROJECT_ID,
+      auditIdGenerator: createIdGenerator('audit'),
+    });
+    seedActiveTask(repository);
+    seedAllowedAction(repository, {
+      actionId: 'action-notify',
+      actionKind: 'notify_human_blocked',
+      actionClass: 'notify_human',
+      summary: 'AO is blocked and needs human input.',
+      commands: [],
+    });
+
+    const result = await executeAssistActions({
+      repository,
+      controllerId: 'default',
+      task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: ['action-notify'],
+      now: '2026-03-29T07:12:00.000Z',
+      blockedNotificationTransport: null,
+    });
+
+    expect(result).toEqual({
+      executedActionIds: ['action-notify'],
+      blockedActionIds: [],
+    });
+    expect(repository.getSnapshot().state.actions[0]).toMatchObject({
+      status: 'executed',
+      payload: {
+        execution: {
+          reason: 'blocked_notification_recorded',
+          effect: {
+            status: 'durable_only',
+            kind: 'blocked_notification',
+            intent: {
+              format: 'ao_blocked_notification_intent',
+              project_id: PROJECT_ID,
+              dedupe_key: `${PROJECT_ID}:pr-101`,
+            },
+            receipt: {
+              status: 'not_configured',
+              transport: null,
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it('keeps a failed blocked-notification effect proposed and retries the same intent', async () => {
+    const repository = createStateRepository({
+      repoRoot: createTempRepo(),
+      projectId: PROJECT_ID,
+      auditIdGenerator: createIdGenerator('audit'),
+    });
+    seedActiveTask(repository);
+    seedAllowedAction(repository, {
+      actionId: 'action-notify',
+      actionKind: 'notify_human_blocked',
+      actionClass: 'notify_human',
+      summary: 'AO is blocked and needs human input.',
+    });
+
+    const intents = [];
+    const blockedNotificationTransport = {
+      async sendBlockedNotification(intent) {
+        intents.push(intent);
+        return intents.length === 1
+          ? { status: 'failed', transport: 'fake', attempts: 1, reason: 'temporary' }
+          : { status: 'succeeded', transport: 'fake', attempts: 1 };
+      },
+    };
+
+    expect(await executeAssistActions({
+      repository,
+      controllerId: 'default',
+      task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: ['action-notify'],
+      now: '2026-03-29T07:12:00.000Z',
+      blockedNotificationTransport,
+    })).toEqual({
+      executedActionIds: [],
+      blockedActionIds: ['action-notify'],
+    });
+    expect(repository.getSnapshot().state.actions[0]).toMatchObject({
+      status: 'proposed',
+      payload: {
+        execution: {
+          outcome: 'effect_failed',
+          reason: 'blocked_notification_transport_failed',
+          effect: {
+            status: 'failed',
+            retryable: true,
+          },
+        },
+      },
+    });
+
+    expect(await executeAssistActions({
+      repository,
+      controllerId: 'default',
+      task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: ['action-notify'],
+      now: '2026-03-29T07:13:00.000Z',
+      blockedNotificationTransport,
+    })).toEqual({
+      executedActionIds: ['action-notify'],
+      blockedActionIds: [],
+    });
+    expect(intents).toHaveLength(2);
+    expect(intents[0].dedupe_key).toBe(intents[1].dedupe_key);
+    expect(repository.getSnapshot().state.actions[0]).toMatchObject({
+      status: 'executed',
+      payload: {
+        execution: {
+          effect: {
+            status: 'succeeded',
+            receipt: { transport: 'fake' },
+          },
+        },
+      },
+    });
   });
 });

@@ -10,6 +10,7 @@ export const MEASUREMENT_TRIGGER_KINDS = [...LIFECYCLE_TRIGGERS];
 export const MEASUREMENT_ACTION_CLASSES = [
   'continue_worker',
   'notify_human',
+  'merge_pr',
   'hold',
   'human_gate',
   'restore_worker',
@@ -47,6 +48,7 @@ export const MEASUREMENT_FAILURE_CLASSES = [
   'preflight_block',
   'worker_exit',
   'successor_handoff',
+  'external_effect',
   'unknown',
 ];
 
@@ -117,8 +119,15 @@ export function resolveMeasurementActionClass({
   if (normalizedActionKind === 'continue_worker' || normalizedActionClass === 'continue_worker') {
     return 'continue_worker';
   }
-  if (normalizedActionKind === 'notify_human_ready' || normalizedActionClass === 'notify_human') {
+  if (
+    normalizedActionKind === 'notify_human_ready'
+    || normalizedActionKind === 'notify_human_blocked'
+    || normalizedActionClass === 'notify_human'
+  ) {
     return 'notify_human';
+  }
+  if (normalizedActionKind === 'auto_merge_ready_pr' || normalizedActionClass === 'merge_pr') {
+    return 'merge_pr';
   }
   if (
     ['hold_ci', 'hold_review', 'hold_mergeability', 'hold_local_control'].includes(normalizedActionKind)
@@ -168,6 +177,12 @@ export function resolveExecutionAttemptFailureClass({
   if (normalizedReason === 'explicit_human_gate_required') return 'human_gate';
   if (normalizedReason === 'worker_exited' || normalizedReason === 'worker_stale') return 'worker_exit';
   if (normalizedReason.includes('handoff')) return 'successor_handoff';
+  if (
+    normalizedReason === 'blocked_notification_transport_failed'
+    || normalizedReason === 'auto_merge_pr_view_failed'
+    || normalizedReason === 'auto_merge_pr_view_invalid_json'
+    || normalizedReason === 'auto_merge_command_failed'
+  ) return 'external_effect';
   if (normalizedLifecycleTopStatus === 'source_failure') return 'source_failure';
   if (normalizedTriggerKind === 'ci_failed') return 'ci_failure';
   if (['changes_requested', 'bugbot_comments'].includes(normalizedTriggerKind)) return 'review_blocked';
