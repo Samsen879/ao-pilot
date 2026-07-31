@@ -40,8 +40,54 @@ generic control plane.
 - Repository policy and verification commands are configuration, not core code.
 - Domain-specific product workflows belong in downstream repositories.
 
+## Public Package Boundary
+
+Downstream repositories consume only the declared ESM exports:
+
+- `ao-pilot/cli`
+- `ao-pilot/contracts`
+- `ao-pilot/repository`
+- `ao-pilot/engines`
+- `ao-pilot/protocols`
+- `ao-pilot/providers`
+
+The internal `scripts/ao/lib/**` layout is not a compatibility contract. Package
+verification installs the tarball in an isolated consumer, imports every public
+subpath, and proves an undeclared deep import is rejected.
+
+## External Effect Contract
+
+Durable state and provider effects are different observables:
+
+- `durable_only` records a control-plane transition and does not claim a remote
+  command or notification occurred;
+- `attempted` is persisted before a provider call;
+- `succeeded` requires a provider receipt and live confirmation where available;
+- `failed` remains retryable only when the failure is known not to have produced
+  an ambiguous remote result.
+
+The effect-status vocabulary is exactly `durable_only`, `attempted`, `succeeded`,
+and `failed`. An unconfirmed in-flight effect is represented separately by
+`execution.outcome=effect_attempted` with `effect.status=attempted`; it is not a
+fifth status and is not automatically replayed.
+
+This release has no claim-resolution CLI or public API. Recovery therefore starts
+with a live provider-state check, followed by a deliberate, audited manual repair
+of durable state under the consuming repository's operator procedure. That gap is
+explicit: callers must not clear the claim or retry an irreversible effect merely
+because the provider result is unknown. Notification transports receive a stable
+idempotency key and use an at-least-once contract.
+
+`auto_merge_ready_pr` is an irreversible remote effect. It is disabled by the
+conservative lifecycle default and requires explicit durable authorization bound
+to the expected head SHA. Execution re-reads live PR/review/check state, rejects
+unknown or unstable status, passes `--match-head-commit`, and confirms the merged
+head afterward. TaskSpec `independent_review` gates require a current-head passing
+review before such an action can be proposed.
+
 ## Safety Posture
 
 Unknown or contradictory evidence fails closed. Observe and shadow modes do not
 execute workflow actions. Assist mode is limited by explicit policy decisions
-and an action allowlist.
+and an action allowlist. The default release-ready action is
+`notify_human_ready`, not automatic merge.
