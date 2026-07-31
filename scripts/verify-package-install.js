@@ -56,6 +56,58 @@ try {
     cwd: installRoot,
   });
 
+  const publicApiResult = run(process.execPath, [
+    '--input-type=module',
+    '--eval',
+    [
+      "const root = await import('ao-pilot');",
+      "const cli = await import('ao-pilot/cli');",
+      "const contracts = await import('ao-pilot/contracts');",
+      "const repository = await import('ao-pilot/repository');",
+      "const engines = await import('ao-pilot/engines');",
+      "const protocols = await import('ao-pilot/protocols');",
+      "const providers = await import('ao-pilot/providers');",
+      'const cieCliExports = [',
+      "  'runControllerCli', 'runDoctorCli', 'runEvalCli', 'runHandoffCli',",
+      "  'runKnowledgeCli', 'runLifecycleCli', 'runManageCli', 'runMetricsCli',",
+      "  'runOverrideCli', 'runReconcileCli', 'runReviewCli', 'runStateCli',",
+      '];',
+      'for (const name of cieCliExports) {',
+      "  if (typeof cli[name] !== 'function' || root[name] !== cli[name]) {",
+      "    throw new Error(`Missing public CLI export: ${name}`);",
+      '  }',
+      '}',
+      'const coreChecks = [',
+      "  ['contracts.createPrScope', contracts.createPrScope],",
+      "  ['repository.createStateRepository', repository.createStateRepository],",
+      "  ['engines.reconcileObservations', engines.reconcileObservations],",
+      "  ['protocols.createHandoffProtocol', protocols.createHandoffProtocol],",
+      "  ['providers.createLocalCommandRunner', providers.createLocalCommandRunner],",
+      '];',
+      'for (const [name, value] of coreChecks) {',
+      "  if (typeof value !== 'function') throw new Error(`Missing public core export: ${name}`);",
+      '}',
+      'const cieNames = Object.keys(root).filter((name) => /cie|9709|questionpart/i.test(name));',
+      "if (cieNames.length > 0) throw new Error(`CIE-specific exports found: ${cieNames.join(', ')}`);",
+      'let deepImportBlocked = false;',
+      'try {',
+      "  await import('ao-pilot/scripts/ao/lib/state-contracts.js');",
+      '} catch (error) {',
+      "  if (error?.code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') throw error;",
+      '  deepImportBlocked = true;',
+      '}',
+      "if (!deepImportBlocked) throw new Error('Undeclared package deep import was not blocked');",
+      'process.stdout.write(JSON.stringify({',
+      "  status: 'pass',",
+      '  cli_export_count: cieCliExports.length,',
+      '  core_group_count: coreChecks.length,',
+      '  deep_import_blocked: deepImportBlocked,',
+      '}));',
+    ].join('\n'),
+  ], {
+    cwd: installRoot,
+  });
+
   const binPath = path.join(
     installRoot,
     'node_modules',
@@ -96,6 +148,7 @@ try {
   const initReport = JSON.parse(initResult.stdout);
   const stateReport = JSON.parse(stateResult.stdout);
   const evalReport = JSON.parse(evalResult.stdout);
+  const publicApiReport = JSON.parse(publicApiResult.stdout);
   const packageVersion = JSON.parse(
     fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'),
   ).version;
@@ -125,6 +178,7 @@ try {
     project_id: stateReport.project_id,
     version: packageVersion,
     eval_quality_gate: evalReport.scorecard.quality_gate.status,
+    public_api: publicApiReport,
   }, null, 2)}\n`);
 } finally {
   fs.rmSync(verificationRoot, { recursive: true, force: true });

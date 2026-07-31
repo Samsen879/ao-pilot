@@ -3,6 +3,17 @@
   "version": "0.2.0",
   "description": "An independently installable control plane for AI coding agents",
   "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./cli": "./lib/cli.js",
+    "./contracts": "./lib/contracts.js",
+    "./repository": "./lib/repository.js",
+    "./engines": "./lib/engines.js",
+    "./protocols": "./lib/protocols.js",
+    "./providers": "./lib/providers.js",
+    "./package.json": "./package.json"
+  },
   "license": "MIT",
   "bin": {
     "ao-pilot": "./bin/ao-pilot.js"
@@ -10,6 +21,7 @@
   "files": [
     "CHANGELOG.md",
     "bin",
+    "lib",
     "scripts",
     "docs",
     "templates",
