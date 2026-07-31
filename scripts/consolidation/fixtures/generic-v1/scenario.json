@@ -190,15 +190,18 @@
     },
     {
       "path": "$.metrics.summary.measurement_count",
-      "equals": 1
+      "equals": 1,
+      "scope": "canonical_only"
     },
     {
       "path": "$.evaluation.harness.summary.passed_scenario_count",
-      "equals": 1
+      "equals": 1,
+      "scope": "canonical_only"
     },
     {
       "path": "$.evaluation.scorecard.quality_gate.status",
-      "equals": "passed"
+      "equals": "passed",
+      "scope": "canonical_only"
     },
     {
       "path": "$.migration.schema.current_version",

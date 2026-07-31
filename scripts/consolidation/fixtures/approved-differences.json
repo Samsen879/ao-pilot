@@ -1,4 +1,38 @@
 {
   "schema_version": "ao.consolidation.approved-differences.v1",
-  "differences": []
+  "differences": [
+    {
+      "id": "ao-modular-evaluation-v1",
+      "path_prefix": "$.evaluation",
+      "difference_fingerprint": "29dbd3d39c0274fd743b2c93e9466bdcd0e82440feb3768da29b9e9b8934aa5b",
+      "reason": "ao-pilot's modular runner, deterministic replay, scope fingerprint, and quality gate are the canonical generic evaluation capability missing from the embedded CIE copy."
+    },
+    {
+      "id": "ao-bounded-metrics-v1",
+      "path_prefix": "$.metrics",
+      "difference_fingerprint": "d3e499a60ae75559c3c0113fa3baad54b07f4a827c039be2bbe6f8cbb871cc8c",
+      "reason": "ao-pilot's bounded windows, measurement counts, rates, and external-effect taxonomy are the canonical generic metrics shape missing from the embedded CIE copy."
+    },
+    {
+      "id": "action-effect-kind-v1",
+      "path": "$.policy_action.action_record.effect_kind",
+      "reason": "The canonical action summary explicitly distinguishes a durable-state transition from a provider effect.",
+      "standalone": "durable_state",
+      "cie": "__AO_CONSOLIDATION_MISSING__"
+    },
+    {
+      "id": "action-effect-retryability-v1",
+      "path": "$.policy_action.action_record.effect_retryable",
+      "reason": "The canonical action summary exposes whether a failed external effect may be retried.",
+      "standalone": false,
+      "cie": "__AO_CONSOLIDATION_MISSING__"
+    },
+    {
+      "id": "action-effect-status-v1",
+      "path": "$.policy_action.action_record.effect_status",
+      "reason": "The canonical action summary records durable_only so executed is not misread as proof of an external effect.",
+      "standalone": "durable_only",
+      "cie": "__AO_CONSOLIDATION_MISSING__"
+    }
+  ]
 }

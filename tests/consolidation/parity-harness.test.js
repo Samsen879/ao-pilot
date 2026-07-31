@@ -96,6 +96,37 @@ describe('AO consolidation behavioral parity harness', () => {
     expect(classified.unused_approvals.map((item) => item.id)).toEqual(['stale-approval']);
   });
 
+  it('binds group approvals to the exact current difference set fingerprint', () => {
+    const differences = diffObservables(
+      { evaluation: { replay_count: 2, stable: true } },
+      { evaluation: { replay_count: 1, stable: false } },
+    );
+    const approval = {
+      id: 'evaluation-group-v1',
+      path_prefix: '$.evaluation',
+      difference_fingerprint: buildStableFingerprint(differences),
+      reason: 'The exact current evaluation delta is intentional.',
+    };
+
+    const classified = applyApprovedDifferences(differences, {
+      differences: [approval],
+    });
+    expect(classified.approved).toHaveLength(2);
+    expect(classified.unapproved).toHaveLength(0);
+    expect(classified.unused_approvals).toHaveLength(0);
+
+    const drifted = diffObservables(
+      { evaluation: { replay_count: 3, stable: true } },
+      { evaluation: { replay_count: 1, stable: false } },
+    );
+    const stale = applyApprovedDifferences(drifted, {
+      differences: [approval],
+    });
+    expect(stale.approved).toHaveLength(0);
+    expect(stale.unapproved).toHaveLength(2);
+    expect(stale.unused_approvals.map((item) => item.id)).toEqual(['evaluation-group-v1']);
+  });
+
   it('replays the checked-in generic fixture with the pinned standalone fingerprint', async () => {
     const report = await runConsolidationParity();
 
@@ -125,8 +156,16 @@ describe('AO consolidation behavioral parity harness', () => {
   });
 
   it('supports AO_CIE_REPO-style cross-checks without source-text comparison', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-parity-empty-approvals-'));
+    tempDirs.push(root);
+    const approvalsPath = path.join(root, 'approved-differences.json');
+    fs.writeFileSync(approvalsPath, JSON.stringify({
+      schema_version: 'ao.consolidation.approved-differences.v1',
+      differences: [],
+    }), 'utf8');
     const report = await runConsolidationParity({
       cieRoot: DEFAULT_AO_ROOT,
+      approvedDifferencesPath: approvalsPath,
     });
 
     expect(report.status).toBe('passed');

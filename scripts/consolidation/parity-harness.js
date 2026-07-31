@@ -791,8 +791,15 @@ function getPath(value, expression) {
   return current;
 }
 
-function verifyExpectations(observable, expectations = []) {
-  return expectations.flatMap((expectation) => {
+function expectationApplies(expectation, implementationLabel) {
+  if (expectation?.scope == null || expectation.scope === 'shared') return true;
+  return expectation.scope === 'canonical_only' && implementationLabel === 'ao-pilot';
+}
+
+function verifyExpectations(observable, expectations = [], implementationLabel) {
+  return expectations
+    .filter((expectation) => expectationApplies(expectation, implementationLabel))
+    .flatMap((expectation) => {
     const actual = getPath(observable, expectation.path);
     return stableStringify(actual) === stableStringify(expectation.equals)
       ? []
@@ -801,7 +808,7 @@ function verifyExpectations(observable, expectations = []) {
           expected: expectation.equals,
           actual,
         }];
-  });
+    });
 }
 
 export async function runImplementation({
@@ -960,10 +967,19 @@ export async function runImplementation({
       tempRoots: [tempRoot],
       harnessCwd: process.cwd(),
     });
+    const expectationFailures = verifyExpectations(
+      observable,
+      fixture.expectations,
+      implementation.label,
+    );
+    const expectationSkippedCount = fixture.expectations.filter(
+      (expectation) => !expectationApplies(expectation, implementation.label),
+    ).length;
     return {
       label: implementation.label,
       fingerprint: buildStableFingerprint(observable),
-      expectation_failures: verifyExpectations(observable, fixture.expectations),
+      expectation_failures: expectationFailures,
+      expectation_skipped_count: expectationSkippedCount,
       observable,
     };
   } finally {
@@ -1025,16 +1041,19 @@ export function loadApprovedDifferences(filePath = DEFAULT_APPROVED_DIFFERENCES_
   }
   const ids = new Set();
   for (const approval of registry.differences) {
+    const exactApproval = typeof approval?.path === 'string'
+      && Object.hasOwn(approval, 'standalone')
+      && Object.hasOwn(approval, 'cie');
+    const groupApproval = typeof approval?.path_prefix === 'string'
+      && /^[a-f0-9]{64}$/.test(approval?.difference_fingerprint ?? '');
     if (
       typeof approval?.id !== 'string'
-        || typeof approval?.path !== 'string'
         || typeof approval?.reason !== 'string'
-        || !Object.hasOwn(approval, 'standalone')
-        || !Object.hasOwn(approval, 'cie')
+        || exactApproval === groupApproval
     ) {
       throw new ParityHarnessError(
         'invalid_approval_registry',
-        'Each approved difference requires id, path, reason, standalone, and cie',
+        'Each approval requires id/reason and either exact path values or a fingerprint-bound path_prefix',
       );
     }
     if (ids.has(approval.id)) {
@@ -1046,6 +1065,7 @@ export function loadApprovedDifferences(filePath = DEFAULT_APPROVED_DIFFERENCES_
 }
 
 function approvalMatches(approval, difference) {
+  if (typeof approval.path !== 'string') return false;
   const standaloneMatches = approval.standalone === '__ANY__'
     || valuesEqual(approval.standalone, difference.standalone);
   const cieMatches = approval.cie === '__ANY__'
@@ -1053,11 +1073,36 @@ function approvalMatches(approval, difference) {
   return approval.path === difference.path && standaloneMatches && cieMatches;
 }
 
+function pathHasPrefix(candidatePath, pathPrefix) {
+  return candidatePath === pathPrefix
+    || candidatePath.startsWith(`${pathPrefix}.`)
+    || candidatePath.startsWith(`${pathPrefix}[`);
+}
+
+function comparableDifference(difference) {
+  return {
+    path: difference.path,
+    standalone: difference.standalone,
+    cie: difference.cie,
+  };
+}
+
 export function applyApprovedDifferences(differences, registry) {
   const usedIds = new Set();
+  const validGroupApprovals = registry.differences.filter((approval) => {
+    if (typeof approval.path_prefix !== 'string') return false;
+    const candidates = differences
+      .filter((difference) => pathHasPrefix(difference.path, approval.path_prefix))
+      .map(comparableDifference);
+    return candidates.length > 0
+      && buildStableFingerprint(candidates) === approval.difference_fingerprint;
+  });
   const classified = differences.map((difference) => {
-    const approval = registry.differences.find((candidate) => (
+    const exactApproval = registry.differences.find((candidate) => (
       approvalMatches(candidate, difference)
+    ));
+    const approval = exactApproval ?? validGroupApprovals.find((candidate) => (
+      pathHasPrefix(difference.path, candidate.path_prefix)
     ));
     if (!approval) return { ...difference, approved: false };
     usedIds.add(approval.id);
@@ -1129,6 +1174,7 @@ export async function runConsolidationParity({
       unapproved_difference_count: classified.unapproved.length,
       unused_approval_count: classified.unused_approvals.length,
       cie_expectation_failure_count: cie.expectation_failures.length,
+      cie_skipped_expectation_count: cie.expectation_skipped_count,
       differences: classified.differences,
       unused_approvals: classified.unused_approvals,
     };
