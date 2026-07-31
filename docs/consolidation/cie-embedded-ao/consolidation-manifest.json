@@ -1,0 +1,601 @@
+{
+  "schema_version": "ao.consolidation.v1",
+  "verdict": "PASS_WITH_EXPLICIT_LIMITATIONS",
+  "ao_pilot_initial_head": "ba36262289c105471837d5ed191ebd424d6a61f4",
+  "cie_initial_head": "5bb8b4951a015950396d453c7f784f5bf1708922",
+  "cie_migration_base_head": "a670ecf52688ce6653a3296aa3e4447dda3b1a75",
+  "ao_pilot_implementation_head": "fb6c04f546d049a257f52886d8bc22fe4b78073a",
+  "ao_pilot_final_head": "f9d56b3a4d5d6272df71ab9a2ed522fd1adeafcb",
+  "cie_final_head": "4a5f83f33b51063c7d60003dd4455c40e1b1f4ed",
+  "ao_pilot_implementation_tree": "72d49893c6ece287b3468072d1d9092bd879a455",
+  "ao_pilot_final_tree": "9d3fc5bf9d9a906f10a90ec470b6406313a8a2b2",
+  "cie_final_tree": "00b168accb4c5405d8cefee27cfee45fa8136f92",
+  "head_semantics": "ao_pilot_implementation_head identifies the final generic runtime. ao_pilot_final_head is its full-suite-tested and packed public-documentation descendant. The AO consolidation-report commit that contains this manifest follows ao_pilot_final_head and is reported in the terminal handoff because a commit cannot contain its own hash. cie_final_head is the exact clean cutover head.",
+  "canonical_repository": "ao-pilot",
+  "baseline_status": {
+    "environment": {
+      "node": "v22.22.1",
+      "npm": "11.15.0",
+      "corepack": "0.34.6",
+      "package_manager": "npm",
+      "lockfile_version": 3
+    },
+    "ao_pilot": {
+      "branch": "main",
+      "clean": true,
+      "unit": "69 suites / 320 tests passed after narrow loopback permission",
+      "acceptance": "1 suite / 7 tests passed",
+      "smoke": "passed",
+      "eval": "passed",
+      "package": "125 entries; isolated install passed",
+      "lint": "not declared",
+      "build": "not declared"
+    },
+    "ciecopilot_home": {
+      "root_head": "5bb8b4951a015950396d453c7f784f5bf1708922",
+      "migration_base": "a670ecf52688ce6653a3296aa3e4447dda3b1a75",
+      "root_local_commit_preserved": true,
+      "unit": "623 suites: 600 passed, 23 failed; 4202 tests: 4145 passed, 57 failed",
+      "acceptance": "1 suite / 7 tests passed",
+      "smoke": "passed",
+      "lint": "47 errors / 11 warnings, pre-existing",
+      "build": "2502 modules, passed"
+    }
+  },
+  "module_inventory": [
+    {
+      "capability": "cli_facade",
+      "initial_relation": "AO 13 commands including init; CIE 12 copied facades",
+      "canonical_owner": "ao-pilot",
+      "evidence": ["bin/ao-pilot.js", "lib/cli.js", "package.json#bin"]
+    },
+    {
+      "capability": "configuration_and_project_identity",
+      "initial_relation": "AO loader more complete; CIE relied on embedded defaults",
+      "canonical_owner": "ao-pilot with CIE ao.config.json",
+      "evidence": ["scripts/ao/lib/config.js", "ciecopilot-home/ao.config.json"]
+    },
+    {
+      "capability": "state_contracts_and_managed_tasks",
+      "initial_relation": "exact schema-v10 core",
+      "canonical_owner": "ao-pilot",
+      "evidence": ["scripts/ao/lib/state-contracts.js", "lib/contracts.js"]
+    },
+    {
+      "capability": "persistence_locks_and_migrations",
+      "initial_relation": "exact shared blobs",
+      "canonical_owner": "ao-pilot",
+      "evidence": ["scripts/ao/lib/state-repository.js", "scripts/ao/lib/state-storage.js", "scripts/ao/lib/state-migrations.js"]
+    },
+    {
+      "capability": "observation_and_event_deduplication",
+      "initial_relation": "equivalent core with release-action drift",
+      "canonical_owner": "ao-pilot",
+      "evidence": ["scripts/ao/lib/ao-observation-source.js", "scripts/ao/lib/github-observation-source.js", "scripts/ao/lib/event-ingest.js"]
+    },
+    {
+      "capability": "reconciliation_and_doctor",
+      "initial_relation": "reconciliation engine exact; report/config wiring drift",
+      "canonical_owner": "ao-pilot",
+      "evidence": ["scripts/ao/lib/reconciliation-engine.js", "scripts/ao/lib/doctor-engine.js"]
+    },
+    {
+      "capability": "lifecycle_policy_and_transition",
+      "initial_relation": "shared pure logic; auto-merge versus notify default conflict",
+      "canonical_owner": "ao-pilot with conservative configurable default",
+      "evidence": ["scripts/ao/lib/lifecycle-engine.js", "scripts/ao/lib/policy-engine.js", "agent-orchestrator.yaml"]
+    },
+    {
+      "capability": "action_execution_and_external_effects",
+      "initial_relation": "CIE more complete provider effect; both had ambiguous durable-only execution",
+      "canonical_owner": "ao-pilot",
+      "evidence": ["scripts/ao/lib/action-executor.js", "scripts/ao/lib/blocked-notification-transport.js"]
+    },
+    {
+      "capability": "controller_lease_heartbeat_and_workflow",
+      "initial_relation": "exact controller core with surrounding provider/review gaps",
+      "canonical_owner": "ao-pilot",
+      "evidence": ["scripts/ao/lib/controller-loop.js", "tests/ao/controller-loop-assist-policy.test.js"]
+    },
+    {
+      "capability": "checkpoint_review_handoff_and_recovery",
+      "initial_relation": "exact shared protocols",
+      "canonical_owner": "ao-pilot",
+      "evidence": ["scripts/ao/lib/checkpoint-store.js", "scripts/ao/lib/review-protocol.js", "scripts/ao/lib/handoff-protocol.js"]
+    },
+    {
+      "capability": "metrics_evaluation_and_scorecards",
+      "initial_relation": "AO materially more complete",
+      "canonical_owner": "ao-pilot",
+      "evidence": ["scripts/ao/lib/run-metrics.js", "scripts/ao/lib/eval-harness.js", "scripts/ao/lib/scorecard.js"]
+    },
+    {
+      "capability": "runtime_and_github_providers",
+      "initial_relation": "AO read/provider boundary more mature; CIE had selected write effect",
+      "canonical_owner": "ao-pilot",
+      "evidence": ["lib/providers.js", "scripts/ao/lib/providers/command-runner.js", "scripts/ao/lib/runtime-providers/github-local.js"]
+    },
+    {
+      "capability": "repository_knowledge",
+      "initial_relation": "generic mechanism plus CIE-specific content",
+      "canonical_owner": "split",
+      "evidence": ["scripts/ao/lib/repo-knowledge.js", "agent-orchestrator.yaml"]
+    },
+    {
+      "capability": "9709_manifest_validation",
+      "initial_relation": "CIE-only domain rule",
+      "canonical_owner": "ciecopilot-home",
+      "evidence": ["scripts/ao/validate_9709_active_issue_manifest_v1.py", "tests/ao/test_validate_9709_active_issue_manifest_v1.py"]
+    },
+    {
+      "capability": "windows_localhost_relay_and_init",
+      "initial_relation": "AO-only generic product capability",
+      "canonical_owner": "ao-pilot",
+      "evidence": ["scripts/ao-init.js", "scripts/ao/windows-localhost-relay.js"]
+    }
+  ],
+  "canonical_decisions": [
+    {
+      "id": "generic-core-owner",
+      "choice": "All generic AO contracts, persistence, engines, protocols, providers, CLI, metrics and evaluation live in ao-pilot.",
+      "reason": "Exact blobs and semantic replay showed a shared generic kernel; keeping two copies creates divergence."
+    },
+    {
+      "id": "cie-domain-owner",
+      "choice": "9709 validation, repository workflow, prompts, Skills and operational configuration remain in CIE.",
+      "reason": "They encode CIE/9709 semantics and paths, not reusable control-plane mechanisms."
+    },
+    {
+      "id": "release-default",
+      "choice": "notify_human_ready",
+      "reason": "Fail-safe generic default and consistent with CIE's active decide-only/no-merge policy."
+    },
+    {
+      "id": "external-effect-proof",
+      "choice": "Provider execution requires a confirmed receipt; durable-only is explicit.",
+      "reason": "Initial executed status did not prove an external effect."
+    },
+    {
+      "id": "auto-merge-boundary",
+      "choice": "Irreversible remote effect with durable authorization, current-head review and match-head command.",
+      "reason": "Prevents wrong-head, stale-review and implicit-authorization merges."
+    },
+    {
+      "id": "consumer-model",
+      "choice": "Runtime file dependency file:../ao-pilot with allowlisted package exports.",
+      "reason": "Matches the requested sibling repositories and permits isolated packed verification without deep imports."
+    },
+    {
+      "id": "metrics-eval",
+      "choice": "AO richer metrics/evaluation output is canonical.",
+      "reason": "It adds tested generic replay hashes, quality gates and scorecards; differences are fingerprint-approved."
+    }
+  ],
+  "migrated_capabilities": [
+    {
+      "capability": "guarded_action_effects",
+      "source": "ciecopilot-home scripts/ao/lib/action-executor.js and blocked-notification-transport.js",
+      "target": "ao-pilot scripts/ao/lib/action-executor.js and blocked-notification-transport.js",
+      "commits": ["9570878e081b79097d19d5b1ad1a7351fc8c76fd", "219d060f5804468c06663e8edc9d74671347cdb6", "d7a18a9c8a5a1d616c75ce5219e0d48b892b0174"],
+      "behavior": "Migrated mechanism with conservative default, explicit receipt, exact-head authorization and fake provider tests."
+    },
+    {
+      "capability": "public_package_api",
+      "source": "previously missing",
+      "target": "lib/*.js and package.json exports",
+      "commits": ["b248e92208fb8eac06660f0b0d5d4319c36e7193", "5823b8014b9a0893c17758503d067ae7d0dd3bb3"],
+      "behavior": "Seven public core groups, named CLI runners and blocked deep imports."
+    },
+    {
+      "capability": "behavioral_parity_harness",
+      "source": "shared existing fixtures and new generic fixture",
+      "target": "scripts/consolidation and tests/consolidation",
+      "commits": ["99106f097154e7d1d36110cf12dd058bec2ecaae", "34edb3a43510456795bb01ae54c1ffc134e00788", "03b3951e489bba8c46fca27cf05c0ac1778c2034"],
+      "behavior": "Stable semantic fingerprint and fingerprint-bound difference approval."
+    },
+    {
+      "capability": "state_contract_characterization",
+      "source": "ciecopilot-home tests/ao/state-contracts-characterization.test.js",
+      "target": "ao-pilot tests/ao/state-contracts-characterization.test.js",
+      "commits": ["fb6c04f546d049a257f52886d8bc22fe4b78073a"],
+      "behavior": "Preserves public vocabulary, normalized metric count maps, exact checkpoint task identity and object-shaped review baseline."
+    }
+  ],
+  "remaining_cie_specific_modules": [
+    "ao.config.json",
+    "agent-orchestrator.yaml",
+    "scripts/ao/start-clean.sh",
+    "scripts/ao/validate_9709_active_issue_manifest_v1.py",
+    "tests/ao/test_validate_9709_active_issue_manifest_v1.py",
+    "scripts/quality/ao-package-boundary-guard.mjs",
+    "tests/ao-consumer/**",
+    "CIE workflow, VLM/9709 validators, prompts, paths, issue taxonomy and Skills",
+    "historical and live .ao-control-plane/artifact evidence"
+  ],
+  "deleted_duplicate_modules": [
+    {
+      "group": "embedded_cli_facades",
+      "count": 12
+    },
+    {
+      "group": "embedded_generic_scripts_ao_files",
+      "count": 61
+    },
+    {
+      "group": "embedded_generic_smoke_runner",
+      "count": 1
+    },
+    {
+      "group": "embedded_tests_and_fixtures",
+      "count": 108,
+      "disposition": {
+        "same_path_in_ao": 96,
+        "behaviorally_covered_or_inlined_in_ao": 3,
+        "generic_oracle_migrated_to_ao": 1,
+        "cie_owned_contracts_rewritten_at_consumer_boundary": 8,
+        "exceptional_paths": [
+          "tests/ao/controller-loop-delivery-handoff.test.js",
+          "tests/ao/controller-loop-observation-routing.test.js",
+          "tests/ao/helpers/controller-loop-fixtures.js",
+          "tests/ao/state-contracts-characterization.test.js",
+          "tests/ao/control-plane-assist-contract.test.js",
+          "tests/ao/control-plane-closeout-contract.test.js",
+          "tests/ao/control-plane-continuity-contract.test.js",
+          "tests/ao/control-plane-phase6-contract.test.js",
+          "tests/ao/entry-topology-contract.test.js",
+          "tests/ao/orchestrator-decision-matrix-contract.test.js",
+          "tests/ao/orchestrator-secret-symlink-contract.test.js",
+          "tests/ao/roadmap-completion-contract.test.js"
+        ]
+      }
+    }
+  ],
+  "compatibility_shims": [
+    {
+      "type": "npm_command_aliases",
+      "location": "ciecopilot-home/package.json",
+      "purpose": "Preserve existing ao:* workflow command names while routing to the public ao-pilot binary.",
+      "contains_generic_core": false
+    }
+  ],
+  "parity_fixtures": [
+    {
+      "id": "generic-control-plane-parity-v1",
+      "path": "scripts/consolidation/fixtures/generic-v1/scenario.json",
+      "fingerprint": "6f81aed7a563f69bad533ebb4cb99c7c62fbf6d8cec5417806ed97e3afd9cca6",
+      "cross_repository_difference_count": 85,
+      "approved_difference_count": 85,
+      "unapproved_difference_count": 0,
+      "cie_expectation_failure_count": 0
+    }
+  ],
+  "approved_behavior_differences": [
+    {
+      "id": "ao-modular-evaluation-v1",
+      "path_count": 74,
+      "binding": "path_prefix plus aggregate difference_fingerprint",
+      "decision": "retain AO deterministic replay, scorecard, scope fingerprint and quality gate"
+    },
+    {
+      "id": "ao-bounded-metrics-v1",
+      "path_count": 7,
+      "binding": "path_prefix plus aggregate difference_fingerprint",
+      "decision": "retain AO windows, rates and failure/intervention counts"
+    },
+    {
+      "id": "action-effect-contract",
+      "path_count": 4,
+      "binding": "exact path plus expected standalone and CIE values",
+      "decision": "make remote effect, durable-only status, kind and retryability explicit"
+    },
+    {
+      "id": "release-ready-default",
+      "registry_bound": false,
+      "decision": "default to notify_human_ready; auto merge only by explicit opt-in and authorization"
+    }
+  ],
+  "verification_commands": [
+    {
+      "repository": "ao-pilot",
+      "command": "npm test",
+      "cwd": "/home/samsen/code/ao-pilot",
+      "exit_code": 0,
+      "result": "73/73 suites, 371/371 tests",
+      "duration": "9.472 s Jest",
+      "warnings": ["Node VM Modules experimental warning"]
+    },
+    {
+      "repository": "ao-pilot",
+      "command": "npm run ao:test:acceptance",
+      "cwd": "/home/samsen/code/ao-pilot",
+      "exit_code": 0,
+      "result": "1 suite, 7/7 tests",
+      "duration": "0.167 s Jest / 0.854 s wall",
+      "warnings": []
+    },
+    {
+      "repository": "ao-pilot",
+      "command": "npm run ao:smoke",
+      "cwd": "/home/samsen/code/ao-pilot",
+      "exit_code": 0,
+      "result": "ci-failed-pr correctly reconciled blocked and lifecycle hold",
+      "duration": "0.241 s wall",
+      "warnings": []
+    },
+    {
+      "repository": "ao-pilot",
+      "command": "npm run ao:eval -- --pack policy-fail-closed --json",
+      "cwd": "/home/samsen/code/ao-pilot",
+      "exit_code": 0,
+      "result": "1/1 scenario passed; replay stable; quality gate passed",
+      "duration": "0.320 s wall",
+      "warnings": []
+    },
+    {
+      "repository": "ao-pilot",
+      "command": "npm run verify:package",
+      "cwd": "/home/samsen/code/ao-pilot",
+      "exit_code": 0,
+      "result": "149 entries; isolated packed install, 12 CLI exports, 7 core groups, eval gate and deep-import rejection passed",
+      "duration": "6.3 s wall",
+      "warnings": []
+    },
+    {
+      "repository": "ao-pilot",
+      "command": "npm audit --omit=dev",
+      "cwd": "/home/samsen/code/ao-pilot",
+      "exit_code": 0,
+      "result": "0 vulnerabilities",
+      "duration": "0.424 s wall",
+      "warnings": []
+    },
+    {
+      "repository": "cross-repository",
+      "command": "node scripts/consolidation/parity-harness.js --cie-root /home/samsen/code/ciecopilot-home",
+      "cwd": "/home/samsen/code/ao-pilot",
+      "exit_code": 0,
+      "result": "fingerprint matched; 85 differences approved; 0 unapproved; 0 CIE expectation failures",
+      "duration": "0.304 s wall",
+      "warnings": []
+    },
+    {
+      "repository": "ciecopilot-home",
+      "command": "npm run ao:boundary:check",
+      "cwd": "/home/samsen/code/ciecopilot-home/.worktrees/task-local--ao-consumer-cutover",
+      "exit_code": 0,
+      "result": "0 violations",
+      "duration": "4.397 s wall",
+      "warnings": []
+    },
+    {
+      "repository": "ciecopilot-home",
+      "command": "npm run ao:test:consumer",
+      "cwd": "/home/samsen/code/ciecopilot-home/.worktrees/task-local--ao-consumer-cutover",
+      "exit_code": 0,
+      "result": "4/4 suites, 21/21 tests; includes installed CLI state -> reconcile -> lifecycle",
+      "duration": "4.897 s Jest / 6.301 s wall",
+      "warnings": ["restricted first attempt denied child spawn; identical complete narrow-permission rerun passed"]
+    },
+    {
+      "repository": "ciecopilot-home",
+      "command": "npm run ao:smoke",
+      "cwd": "/home/samsen/code/ciecopilot-home/.worktrees/task-local--ao-consumer-cutover",
+      "exit_code": 0,
+      "result": "installed binary version 0.2.0",
+      "duration": "0.214 s wall",
+      "warnings": ["version/binary smoke only; workflow smoke is covered by ao:test:consumer"]
+    },
+    {
+      "repository": "ciecopilot-home",
+      "command": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --runTestsByPath scripts/workflow/__tests__/codex-preflight.test.js scripts/workflow/__tests__/workflow-scripts.test.js --no-color",
+      "cwd": "/home/samsen/code/ciecopilot-home/.worktrees/task-local--ao-consumer-cutover",
+      "exit_code": 0,
+      "result": "2/2 suites, 18/18 tests",
+      "duration": "2.017 s Jest / 3.718 s wall",
+      "warnings": []
+    },
+    {
+      "repository": "ciecopilot-home",
+      "command": "npm run 9709:active-issue-manifest:contract-test",
+      "cwd": "/home/samsen/code/ciecopilot-home/.worktrees/task-local--ao-consumer-cutover",
+      "exit_code": 0,
+      "result": "passed true; 0 errors",
+      "duration": "0.281 s wall",
+      "warnings": []
+    },
+    {
+      "repository": "ciecopilot-home",
+      "command": "npm run build",
+      "cwd": "/home/samsen/code/ciecopilot-home/.worktrees/task-local--ao-consumer-cutover",
+      "exit_code": 0,
+      "result": "2502 modules; build passed",
+      "duration": "5.54 s Vite / 6.566 s wall",
+      "warnings": ["stale Browserslist data", "large chunk warning"]
+    },
+    {
+      "repository": "ciecopilot-home",
+      "command": "npm run lint",
+      "cwd": "/home/samsen/code/ciecopilot-home/.worktrees/task-local--ao-consumer-cutover",
+      "exit_code": 1,
+      "result": "47 errors, 11 warnings; identical to baseline",
+      "duration": "29.972 s",
+      "warnings": ["pre-existing lint debt; new lint failures 0"]
+    },
+    {
+      "repository": "ciecopilot-home",
+      "command": "npm test -- --runInBand --no-color",
+      "cwd": "/home/samsen/code/ciecopilot-home/.worktrees/task-local--ao-consumer-cutover",
+      "exit_code": 1,
+      "result": "552 suites: 531 passed, 21 failed; 3892 tests: 3843 passed, 49 failed; 1 failed snapshot",
+      "duration": "506.871 s Jest",
+      "warnings": ["all final failing suite identities unchanged from d68243fe1", "new failures 0"]
+    },
+    {
+      "repository": "fresh-sibling",
+      "command": "npm ci --cache <isolated-cache> in AO and CIE exact git archives",
+      "cwd": "/tmp/ao-cie-exact-fb6c04f-4a5f83f-K4eJAD/{ao-pilot,ciecopilot-home}",
+      "exit_code": 0,
+      "result": "AO 292 packages / 0 vulnerabilities; CIE 804 packages / 806 audited",
+      "duration": "AO 6.922 s; CIE 21.857 s",
+      "warnings": ["CIE install reported 24 vulnerabilities: 1 low, 5 moderate, 18 high"]
+    },
+    {
+      "repository": "fresh-sibling",
+      "command": "npm run ao:test:consumer",
+      "cwd": "/tmp/ao-cie-exact-fb6c04f-4a5f83f-K4eJAD/ciecopilot-home",
+      "exit_code": 0,
+      "result": "4/4 suites, 21/21 tests",
+      "duration": "5.067 s Jest / 6.450 s wall",
+      "warnings": ["restricted first consumer run hit spawn EPERM; identical narrow-permission rerun passed"]
+    },
+    {
+      "repository": "fresh-sibling",
+      "command": "npm run ao:boundary:check",
+      "cwd": "/tmp/ao-cie-exact-fb6c04f-4a5f83f-K4eJAD/ciecopilot-home",
+      "exit_code": 0,
+      "result": "0 violations; canonical package root is the exact sibling AO export",
+      "duration": "4.677 s wall",
+      "warnings": []
+    },
+    {
+      "repository": "fresh-sibling",
+      "command": "npm run ao:smoke",
+      "cwd": "/tmp/ao-cie-exact-fb6c04f-4a5f83f-K4eJAD/ciecopilot-home",
+      "exit_code": 0,
+      "result": "installed binary version 0.2.0",
+      "duration": "0.215 s wall",
+      "warnings": ["version/binary smoke only"]
+    },
+    {
+      "repository": "fresh-sibling",
+      "command": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --runTestsByPath scripts/workflow/__tests__/workflow-scripts.test.js --no-color",
+      "cwd": "/tmp/ao-cie-exact-fb6c04f-4a5f83f-K4eJAD/ciecopilot-home",
+      "exit_code": 0,
+      "result": "1/1 CIE workflow fixture suite, 7/7 tests",
+      "duration": "1.78 s Jest / 2.925 s wall",
+      "warnings": []
+    },
+    {
+      "repository": "ao-pilot-package",
+      "command": "npm pack --json --cache <isolated-cache>",
+      "cwd": "/tmp/ao-cie-exact-fb6c04f-4a5f83f-K4eJAD/ao-pilot",
+      "exit_code": 0,
+      "result": "ao-pilot 0.2.0; 140 entries; 172340 packed bytes; 889346 unpacked bytes; sha256 780d710c65683672fafe78c47f3cd4f0a106a99ad70e4094614c1bb848663fb8",
+      "duration": "0.617 s wall",
+      "warnings": []
+    },
+    {
+      "repository": "packed-isolated-cie",
+      "command": "offline npm ci; npm run ao:test:consumer; npm run ao:boundary:check; workflow-scripts.test.js; public import/deep-import/binary checks",
+      "cwd": "/tmp/ao-cie-exact-fb6c04f-4a5f83f-K4eJAD/packed-isolated/ciecopilot-home",
+      "exit_code": 0,
+      "result": "regular tarball install with no sibling AO; 4/4 consumer suites and 21/21 tests; 0 boundary violations; workflow 1/1 suite and 7/7 tests; 7 public imports; binary 0.2.0",
+      "duration": "install 10.553 s; consumer 5.75 s Jest / 7.349 s wall; boundary 4.212 s; workflow 2.663 s",
+      "warnings": ["restricted first install hit spawn EPERM; identical narrow-permission rerun passed"]
+    },
+    {
+      "repository": "packed-isolated-cie",
+      "command": "import ao-pilot/scripts/ao/lib/state-contracts.js",
+      "cwd": "/tmp/ao-cie-exact-fb6c04f-4a5f83f-K4eJAD/packed-isolated/ciecopilot-home",
+      "exit_code": 1,
+      "expected_exit_code": 1,
+      "result": "ERR_PACKAGE_PATH_NOT_EXPORTED",
+      "duration": "0.089 s wall",
+      "warnings": []
+    }
+  ],
+  "important_warnings": [
+    "Fresh exact CIE npm ci reported 24 vulnerabilities: 1 low, 5 moderate and 18 high. This is not classified as an AO assertion failure and was not proven pre-existing by the baseline ledger.",
+    "The approval layer rejected an additional online npm audit because it would send dependency metadata to a public advisory service; no bypass was attempted.",
+    "The current remote CIE AO workflow resolves AO package 0.1.0 without public exports until a canonical remote revision is published and pinned."
+  ],
+  "pre_existing_failures": {
+    "cie_lint": "47 errors and 11 warnings",
+    "cie_full_jest_final": "21 failing suites / 49 failing tests / 1 failed snapshot; same identities as post-deletion d68243fe1",
+    "baseline_failures_now_passing_without_test_edits": [
+      {
+        "path": "src/pages/paper-workspace/__tests__/paper-workspace-characterization.test.js",
+        "case_count": 7,
+        "baseline_failure": "shared beforeAll exceeded 5000 ms",
+        "final_result": "passed; file unchanged between migration base and final"
+      },
+      {
+        "path": "scripts/learning/__tests__/closed-loop-release-gate.test.js",
+        "case_count": 1,
+        "baseline_failure": "expected undefined process.exitCode but observed 1",
+        "final_result": "passed; file unchanged between migration base and final; exact baseline pollution root cause not claimed"
+      }
+    ],
+    "failing_suite_ids": [
+      "security-baseline-report",
+      "full-beta-runtime-activation",
+      "layer-b-c-completion-wave",
+      "semantic-kg-readiness-gate",
+      "lr2-544-preflight-receipt",
+      "route-manifest",
+      "semantic-kg-rag-handoff-contract",
+      "9709-canonical-topic-tree-draft",
+      "semantic-kg-codex-native-boundary",
+      "9709-syllabus-topic-tree-schema",
+      "semantic-kg-misconception-attempt-error-layer",
+      "semantic-kg-prerequisite-graph",
+      "9709-syllabus-gate",
+      "workspace-read-service",
+      "paper-workspace-entry-resolver",
+      "paper-workspace-pr3-supporting-pages",
+      "public-launch-copy-guard",
+      "s1-metric-gate-workflow-scope",
+      "page-route-test-harness",
+      "paper-workspace-frontend-smoke",
+      "pr4RuntimeApi"
+    ]
+  },
+  "new_failures": [],
+  "resolved_final_regressions": [
+    {
+      "head": "03b3951e489bba8c46fca27cf05c0ac1778c2034",
+      "failure": "controller public-seam fixture expected auto merge without durable explicit authorization",
+      "classification": "new test expectation regression; implementation correctly failed closed",
+      "fix_commit": "72b3b81598ed628cd83ce6883b7bea5f5f8d9f76"
+    }
+  ],
+  "remaining_blockers": [
+    {
+      "scope": "release",
+      "blocker": "CIE ao-operations workflow checks out Samsen879/ao-pilot without an immutable ref while remote origin/main remains ba36262289c105471837d5ed191ebd424d6a61f4 (package 0.1.0 without public exports).",
+      "impact": "The local sibling/packed cutover is verified, but the committed remote workflow cannot select this canonical local AO implementation until a separately authorized release makes it remotely resolvable and pins it."
+    }
+  ],
+  "explicit_limitations": [
+    "No push or npm publication was authorized; local file dependency requires the sibling repository or exact packed artifact, and the remote workflow is not yet pinned to the canonical revision.",
+    "Live GitHub/webhook provider writes were not executed; fake providers verify intent and receipt contracts.",
+    "A crash after provider success and before durable receipt requires manual provider-state reconciliation.",
+    "CIE broad repository test/lint debt predates and remains outside the consolidation surface.",
+    "The aggregate root export is intentionally broad; future compatibility discipline should prefer the seven scoped public groups while keeping scripts/** private."
+  ],
+  "local_commits": {
+    "ao_pilot": [
+      "a1a3d5977bc9c30580ef14d0bdb07e32d6d9d745",
+      "9570878e081b79097d19d5b1ad1a7351fc8c76fd",
+      "b248e92208fb8eac06660f0b0d5d4319c36e7193",
+      "43c72b1ab38e375f36d63666575c54bb56ad0a66",
+      "99106f097154e7d1d36110cf12dd058bec2ecaae",
+      "5823b8014b9a0893c17758503d067ae7d0dd3bb3",
+      "34edb3a43510456795bb01ae54c1ffc134e00788",
+      "cb0676335216c04aeb465096f6cdff104ecfad4c",
+      "219d060f5804468c06663e8edc9d74671347cdb6",
+      "07537fc094fe5738fda5ac664ff5c2830913ec58",
+      "03b3951e489bba8c46fca27cf05c0ac1778c2034",
+      "72b3b81598ed628cd83ce6883b7bea5f5f8d9f76",
+      "d7a18a9c8a5a1d616c75ce5219e0d48b892b0174",
+      "fb6c04f546d049a257f52886d8bc22fe4b78073a",
+      "f9d56b3a4d5d6272df71ab9a2ed522fd1adeafcb"
+    ],
+    "ciecopilot_home": [
+      "4de96ce29275a1186e965720f12ef789322aa6aa",
+      "7bf90defbfd641d6272b57dee916890aec983566",
+      "d68243fe10ad2a132237582b88f0e01a3edba0b4",
+      "4a5f83f33b51063c7d60003dd4455c40e1b1f4ed"
+    ]
+  }
+}
