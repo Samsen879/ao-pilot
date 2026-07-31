@@ -985,20 +985,7 @@ async function prepareAutoMergeExecution({
   commandReceipts.push(mergeCommand.receipt);
   const mergeSucceeded = commandSucceeded(mergeCommand.result);
   const mergeReportedAlready = /already\s+merged/i.test(String(mergeCommand.result.stderr ?? ''));
-  if (!mergeSucceeded && !mergeReportedAlready) {
-    return {
-      ok: false,
-      attempted: true,
-      retryable: true,
-      reason: 'auto_merge_command_failed',
-      details: {
-        stage: 'pr_merge',
-        status: mergeCommand.result.status,
-        signal: mergeCommand.result.signal,
-      },
-      command_receipts: commandReceipts,
-    };
-  }
+  const mergeCommandFailed = !mergeSucceeded && !mergeReportedAlready;
 
   const confirmationCommand = await runCommand(commandRunner, 'gh', [
     'pr',
@@ -1012,12 +999,14 @@ async function prepareAutoMergeExecution({
     return {
       ok: false,
       attempted: true,
-      retryable: true,
+      effect_dispatched: true,
+      retryable: false,
       reason: 'auto_merge_confirmation_view_failed',
       details: {
         stage: 'pr_confirmation_view',
         status: confirmationCommand.result.status,
         signal: confirmationCommand.result.signal,
+        merge_command_failed: mergeCommandFailed,
       },
       command_receipts: commandReceipts,
     };
@@ -1031,6 +1020,8 @@ async function prepareAutoMergeExecution({
     return {
       ...confirmationParsed,
       attempted: true,
+      effect_dispatched: true,
+      retryable: false,
       command_receipts: commandReceipts,
     };
   }
@@ -1042,6 +1033,7 @@ async function prepareAutoMergeExecution({
     return {
       ok: false,
       attempted: true,
+      effect_dispatched: true,
       retryable: false,
       reason: confirmedHeadSha ? 'auto_merge_confirmation_head_mismatch' : 'auto_merge_confirmation_head_missing',
       details: {
@@ -1056,13 +1048,18 @@ async function prepareAutoMergeExecution({
     return {
       ok: false,
       attempted: true,
-      retryable: true,
+      effect_dispatched: true,
+      retryable: false,
       reason: mergeReportedAlready
         ? 'auto_merge_already_merged_not_confirmed'
-        : 'auto_merge_not_confirmed',
+        : mergeCommandFailed
+          ? 'auto_merge_command_unconfirmed'
+          : 'auto_merge_not_confirmed',
       details: {
         confirmed_state: confirmedState,
         confirmed_head_sha: confirmedHeadSha,
+        merge_command_status: mergeCommand.result.status,
+        merge_command_signal: mergeCommand.result.signal,
       },
       command_receipts: commandReceipts,
     };
@@ -1071,12 +1068,19 @@ async function prepareAutoMergeExecution({
   return {
     ok: true,
     attempted: true,
+    effect_dispatched: true,
     alreadyMerged: mergeReportedAlready,
-    reason: mergeReportedAlready ? 'auto_merge_already_merged' : 'auto_merge_completed',
+    reason: mergeReportedAlready
+      ? 'auto_merge_already_merged'
+      : mergeCommandFailed
+        ? 'auto_merge_confirmed_after_command_failure'
+        : 'auto_merge_completed',
     details: {
       ...validation.details,
       confirmed_state: confirmedState,
       confirmed_head_sha: confirmedHeadSha,
+      merge_command_status: mergeCommand.result.status,
+      merge_command_signal: mergeCommand.result.signal,
       authorization: authorization.receipt,
     },
     command_receipts: commandReceipts,
@@ -1557,7 +1561,19 @@ export async function executeAssistActions({
         result: cloneJsonValue(autoMergeResult.details ?? null),
       };
       if (!autoMergeResult.ok) {
-        const failedEffect = autoMergeResult.attempted
+        const effectDispatched = autoMergeResult.effect_dispatched === true;
+        const failureEffect = effectDispatched
+          ? buildEffectReceipt({
+              status: 'attempted',
+              kind: 'auto_merge',
+              timestamp,
+              intent,
+              receipt: autoMergeReceipt,
+              retryable: false,
+              attemptId,
+              deliverySemantics: ASSIST_EXTERNAL_EFFECT_DELIVERY_SEMANTICS,
+            })
+          : autoMergeResult.attempted
           ? buildEffectReceipt({
               status: 'failed',
               kind: 'auto_merge',
@@ -1569,36 +1585,45 @@ export async function executeAssistActions({
               deliverySemantics: ASSIST_EXTERNAL_EFFECT_DELIVERY_SEMANTICS,
             })
           : null;
-        const failureRecord = autoMergeResult.attempted !== true
+        const failureRecord = effectDispatched
+          ? buildAttemptedActionRecord(record, model, timestamp, {
+              reason: autoMergeResult.reason,
+              effect: failureEffect,
+            })
+          : autoMergeResult.attempted !== true
           ? buildBlockedActionRecord(record, model, timestamp, {
               reason: autoMergeResult.reason,
               matchedOverrideIds: [],
               structural: autoMergeResult.retryable !== true,
               details: autoMergeResult.details ?? null,
-              effect: failedEffect,
+              effect: failureEffect,
             })
           : autoMergeResult.retryable === true
           ? buildFailedEffectActionRecord(record, model, timestamp, {
               reason: autoMergeResult.reason,
               details: autoMergeResult.details ?? null,
-              effect: failedEffect,
+              effect: failureEffect,
             })
           : buildBlockedActionRecord(record, model, timestamp, {
               reason: autoMergeResult.reason,
               matchedOverrideIds: [],
               structural: true,
               details: autoMergeResult.details ?? null,
-              effect: failedEffect,
+              effect: failureEffect,
             });
         repository.upsertAction(failureRecord);
         repository.appendAuditEntry({
           entityKind: 'action',
           entityId: record.action_id,
-          operation: autoMergeResult.attempted === true && autoMergeResult.retryable === true
+          operation: effectDispatched
+            ? 'effect_unconfirmed'
+            : autoMergeResult.attempted === true && autoMergeResult.retryable === true
             ? 'effect_failed'
             : 'execution_blocked',
           actor: 'assist_controller',
-          summary: autoMergeResult.attempted === true && autoMergeResult.retryable === true
+          summary: effectDispatched
+            ? `External effect result is unconfirmed for ${record.action_id}; automatic replay is blocked.`
+            : autoMergeResult.attempted === true && autoMergeResult.retryable === true
             ? `External effect failed for ${record.action_id}; action remains proposed for retry.`
             : `Blocked assist execution for ${record.action_id}.`,
           details: {
@@ -1607,7 +1632,7 @@ export async function executeAssistActions({
             reason: autoMergeResult.reason,
             risk_class: model.risk_class,
             runtime_preflight: cloneJsonValue(model.runtime_preflight ?? null),
-            effect: cloneJsonValue(failedEffect),
+            effect: cloneJsonValue(failureEffect),
             idempotency_mode: model?.execution_contract?.idempotency_mode ?? null,
             rollback_mode: model?.execution_contract?.rollback_mode ?? null,
           },
