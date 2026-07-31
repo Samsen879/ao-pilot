@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from '@jest/globals';
 
-import { runControllerLoop } from 'ao-pilot/engines';
+import { executeAssistActions, runControllerLoop } from 'ao-pilot/engines';
 import { runRuntimeBootstrapPreflight } from 'ao-pilot/providers';
 import { createStateRepository } from 'ao-pilot/repository';
 import {
@@ -184,7 +184,7 @@ afterEach(() => {
 });
 
 describe('controller assist release-action policy', () => {
-  it('executes exact-head reviewed auto-merge through the public controller/provider seam', async () => {
+  it('requires durable exact-head authorization before the public controller/provider seam can merge', async () => {
     const repository = createStateRepository({
       repoRoot: createTempRepo(),
       projectId: PROJECT_ID,
@@ -231,8 +231,8 @@ describe('controller assist release-action policy', () => {
     expect(result).toMatchObject({
       mode: 'assist',
       proposed_action_count: 1,
-      executed_action_count: 1,
-      blocked_action_count: 0,
+      executed_action_count: 0,
+      blocked_action_count: 1,
       task_results: [
         expect.objectContaining({
           release_decision: expect.objectContaining({
@@ -242,9 +242,9 @@ describe('controller assist release-action policy', () => {
           assist_actions: [
             expect.objectContaining({
               action_kind: 'auto_merge_ready_pr',
-              status: 'executed',
-              effect_status: 'succeeded',
-              effect_kind: 'auto_merge',
+              status: 'proposed',
+              effect_status: null,
+              execution_reason: 'auto_merge_explicit_authorization_required',
             }),
           ],
         }),
@@ -254,6 +254,53 @@ describe('controller assist release-action policy', () => {
       { provider: 'ao', projectId: PROJECT_ID },
       expect.objectContaining({ provider: 'github' }),
     ]);
+    expect(commandCalls).toEqual([]);
+
+    const proposedAction = repository.getSnapshot().state.actions.find(
+      (record) => record.action_kind === 'auto_merge_ready_pr',
+    );
+    repository.upsertAction({
+      ...proposedAction,
+      status: 'proposed',
+      updated_at: '2026-03-29T06:41:30.000Z',
+      payload: {
+        ...proposedAction.payload,
+        external_effect_authorization: {
+          status: 'authorized',
+          effect_kind: 'github_pull_request_merge',
+          expected_head_sha: 'head-92',
+          authorized_by: 'release-owner-test',
+          authorized_at: '2026-03-29T06:41:30.000Z',
+          authorization_id: 'authorization-controller-test-1',
+        },
+      },
+    });
+
+    await expect(executeAssistActions({
+      repository,
+      controllerId: 'default',
+      task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: [proposedAction.action_id],
+      now: '2026-03-29T06:42:00.000Z',
+      commandRunner,
+      commandCwd: repository.getSnapshot().paths.repoRoot,
+    })).resolves.toEqual({
+      executedActionIds: [proposedAction.action_id],
+      blockedActionIds: [],
+    });
+    expect(repository.getSnapshot().state.actions.find(
+      (record) => record.action_id === proposedAction.action_id,
+    )).toMatchObject({
+      status: 'executed',
+      payload: {
+        execution: {
+          effect: {
+            status: 'succeeded',
+            kind: 'auto_merge',
+          },
+        },
+      },
+    });
     expect(commandCalls).toEqual([
       {
         command: 'gh',
