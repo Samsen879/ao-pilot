@@ -71,9 +71,11 @@ describe('ao-pilot public library API', () => {
     expect(repository.bootstrapControlPlaneState).toEqual(expect.any(Function));
     expect(engines.reconcileObservations).toEqual(expect.any(Function));
     expect(engines.evaluatePolicyDecision).toEqual(expect.any(Function));
+    expect(engines.executeAssistActions).toEqual(expect.any(Function));
     expect(protocols.createHandoffProtocol).toEqual(expect.any(Function));
     expect(protocols.createReviewProtocol).toEqual(expect.any(Function));
     expect(providers.createLocalCommandRunner).toEqual(expect.any(Function));
+    expect(providers.createBlockedNotificationWebhookTransport).toEqual(expect.any(Function));
     expect(providers.listRuntimeProviderContracts()).toEqual(expect.any(Array));
 
     expect(rootApi.contracts).toBeDefined();
