@@ -169,7 +169,9 @@ function exitCodeForResult(scorecard, comparison) {
   return 0;
 }
 
-export async function runCli(argv, io = createDefaultIo()) {
+export async function runCli(argv, io = createDefaultIo(), {
+  cwd = process.cwd(),
+} = {}) {
   const parsed = parseArgs(argv);
   if (!parsed.ok) {
     io.writeStderr(`${parsed.error}\n`);
@@ -193,14 +195,14 @@ export async function runCli(argv, io = createDefaultIo()) {
   }
 
   try {
-    const repoRoot = findRepoRoot(process.cwd());
+    const repoRoot = findRepoRoot(cwd);
     if (!repoRoot) {
-      throw new Error(`Could not locate repo root from ${process.cwd()}`);
+      throw new Error(`Could not locate repo root from ${cwd}`);
     }
 
     const harnessResult = await runAoEvalHarness({
       projectId: options.projectId,
-      fixtureRoot: path.resolve(process.cwd(), options.fixtureRoot),
+      fixtureRoot: path.resolve(cwd, options.fixtureRoot),
       packNames: options.packNames,
       replayCount: options.replayCount,
     });
@@ -215,7 +217,7 @@ export async function runCli(argv, io = createDefaultIo()) {
             repoRoot,
             projectId: options.projectId,
             baselineRef: options.baselineRef,
-            cwd: process.cwd(),
+            cwd,
           }),
           currentScorecard: scorecard,
         });

@@ -104,6 +104,7 @@ function renderHelp() {
 }
 
 export async function runCli(argv, io = createDefaultIo(), {
+  cwd = process.cwd(),
   defaultProjectId = DEFAULT_PROJECT_ID,
 } = {}) {
   const parsed = parseArgs(argv);
@@ -130,7 +131,7 @@ export async function runCli(argv, io = createDefaultIo(), {
   const { report: reconciliationReport } = await runReconciliation({
     projectId: options.projectId,
     prNumber: options.prNumber,
-    cwd: process.cwd(),
+    cwd,
   });
   const report = {
     ...reconciliationReport,

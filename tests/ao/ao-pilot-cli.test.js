@@ -50,6 +50,38 @@ describe('ao-pilot unified cli', () => {
     }
   });
 
+  it('uses the supplied library cwd for delegated config and state discovery', async () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-pilot-library-cwd-'));
+    const output = createIo();
+
+    try {
+      fs.mkdirSync(path.join(repoRoot, '.git'));
+      fs.writeFileSync(path.join(repoRoot, 'ao.config.json'), JSON.stringify({
+        config_version: 1,
+        project_id: 'ciecopilot-home',
+      }));
+
+      const result = await runCli(
+        ['state', '--json'],
+        output.io,
+        { cwd: repoRoot },
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.report).toMatchObject({
+        project_id: 'ciecopilot-home',
+        repo_root: repoRoot,
+        state_root: path.join(
+          repoRoot,
+          '.ao-control-plane',
+          'ciecopilot-home',
+        ),
+      });
+    } finally {
+      fs.rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
   it('reports the version declared by the installed package metadata', async () => {
     const output = createIo();
     const result = await runCli(['--version'], output.io);

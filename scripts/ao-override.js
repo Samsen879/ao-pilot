@@ -180,7 +180,9 @@ function renderHumanSummary(result) {
   ].join('\n');
 }
 
-export async function runCli(argv, io = createDefaultIo()) {
+export async function runCli(argv, io = createDefaultIo(), {
+  cwd = process.cwd(),
+} = {}) {
   const parsed = parseArgs(argv);
   if (!parsed.ok) {
     io.writeStderr(`${parsed.error}\n`);
@@ -199,9 +201,9 @@ export async function runCli(argv, io = createDefaultIo()) {
     };
   }
 
-  const repoRoot = findRepoRoot(process.cwd());
+  const repoRoot = findRepoRoot(cwd);
   if (!repoRoot) {
-    io.writeStderr(`Could not locate repo root from ${process.cwd()}\n`);
+    io.writeStderr(`Could not locate repo root from ${cwd}\n`);
     return {
       exitCode: 3,
       result: null,
@@ -211,7 +213,7 @@ export async function runCli(argv, io = createDefaultIo()) {
   try {
     const result = await runOverrideCommand({
       repoRoot,
-      cwd: process.cwd(),
+      cwd,
       projectId: options.projectId,
       command: options.command,
       overrideId: options.overrideId,

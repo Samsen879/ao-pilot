@@ -181,6 +181,7 @@ export async function runCli(argv, io = createDefaultIo(), {
     );
   }
   return commandModule.runCli(effectiveArgs, io, {
+    cwd,
     defaultProjectId: loadedConfig.config.project_id,
   });
 }

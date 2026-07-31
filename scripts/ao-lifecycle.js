@@ -174,6 +174,7 @@ function resolveReviewInspection({ controlPlaneSnapshot, prNumber } = {}) {
 }
 
 export async function runCli(argv, io = createDefaultIo(), {
+  cwd = process.cwd(),
   defaultProjectId = DEFAULT_PROJECT_ID,
 } = {}) {
   const parsed = parseArgs(argv);
@@ -211,7 +212,7 @@ export async function runCli(argv, io = createDefaultIo(), {
   const doctorResult = await runDoctor({
     projectId: options.projectId,
     prNumber: options.prNumber,
-    cwd: process.cwd(),
+    cwd,
   });
   const { reviewRequired, reviewInspection } = resolveReviewInspection({
     controlPlaneSnapshot: doctorResult.controlPlaneSnapshot ?? null,

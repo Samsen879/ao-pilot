@@ -127,7 +127,9 @@ function renderHelp() {
   ].join('\n');
 }
 
-export async function runCli(argv, io = createDefaultIo()) {
+export async function runCli(argv, io = createDefaultIo(), {
+  cwd = process.cwd(),
+} = {}) {
   const parsed = parseArgs(argv);
   if (!parsed.ok) {
     io.writeStderr(`${parsed.error}\n`);
@@ -148,7 +150,7 @@ export async function runCli(argv, io = createDefaultIo()) {
 
   try {
     const report = await loadAoMetricsReport({
-      cwd: process.cwd(),
+      cwd,
       projectId: options.projectId,
       traceLimit: options.traceLimit,
       since: options.since,

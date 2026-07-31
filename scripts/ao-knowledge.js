@@ -81,7 +81,9 @@ function exitCodeForInspection(status) {
   return 12;
 }
 
-export async function runCli(argv, io = createDefaultIo()) {
+export async function runCli(argv, io = createDefaultIo(), {
+  cwd = process.cwd(),
+} = {}) {
   const parsed = parseArgs(argv);
   if (!parsed.ok) {
     io.writeStderr(`${parsed.error}\n`);
@@ -102,7 +104,7 @@ export async function runCli(argv, io = createDefaultIo()) {
 
   try {
     const report = await loadRepoKnowledgeReport({
-      cwd: process.cwd(),
+      cwd,
       projectId: options.projectId,
     });
 
