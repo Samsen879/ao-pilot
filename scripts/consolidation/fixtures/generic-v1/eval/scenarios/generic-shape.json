@@ -1,0 +1,8 @@
+{
+  "schema_version": "ao.eval-scenario.v1alpha1",
+  "format": "ao_eval_scenario",
+  "scenario_id": "generic-shape",
+  "pack_id": "generic-shape",
+  "runner": "consolidation_generic_shape",
+  "title": "Generic caller-supplied runner contract"
+}
