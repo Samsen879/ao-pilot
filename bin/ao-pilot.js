@@ -180,7 +180,9 @@ export async function runCli(argv, io = createDefaultIo(), {
       loadedConfig.path,
     );
   }
-  return commandModule.runCli(effectiveArgs, io);
+  return commandModule.runCli(effectiveArgs, io, {
+    defaultProjectId: loadedConfig.config.project_id,
+  });
 }
 
 export function isDirectExecution(executedFile, currentFile) {

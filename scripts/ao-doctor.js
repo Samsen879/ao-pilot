@@ -103,7 +103,9 @@ function renderHelp() {
   ].join('\n');
 }
 
-export async function runCli(argv, io = createDefaultIo()) {
+export async function runCli(argv, io = createDefaultIo(), {
+  defaultProjectId = DEFAULT_PROJECT_ID,
+} = {}) {
   const parsed = parseArgs(argv);
   if (!parsed.ok) {
     io.writeStderr(`${parsed.error}\n`);
@@ -114,6 +116,9 @@ export async function runCli(argv, io = createDefaultIo()) {
   }
 
   const { options } = parsed;
+  if (!options.explicitProject) {
+    options.projectId = defaultProjectId;
+  }
   if (options.help) {
     io.writeStdout(`${renderHelp()}\n`);
     return {

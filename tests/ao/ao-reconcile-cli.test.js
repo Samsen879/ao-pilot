@@ -87,6 +87,44 @@ describe('ao reconcile cli', () => {
     });
   });
 
+  it('uses a configured default project in PR mode', async () => {
+    mockLoadAoProjectObservation.mockResolvedValue({ project_id: 'ciecopilot-home' });
+    mockLoadGitHubObservationSet.mockResolvedValue({
+      scope: { mode: 'pr', selected_pr_numbers: [44] },
+    });
+    mockReconcileObservations.mockReturnValue({
+      schema_version: 'ao.reconciliation.v1alpha1',
+      report_format: 'ao_reconciliation_report',
+      top_status: 'healthy',
+      automation_disposition: 'continue',
+      source_health: { ao: 'ok', github: 'ok' },
+      pr_assessments: [],
+      project_summary: {
+        selected_pr_count: 1,
+        ready_pr_numbers: [44],
+        blocked_pr_numbers: [],
+        ambiguous_pr_numbers: [],
+        warning_pr_numbers: [],
+        not_applicable_pr_numbers: [],
+        basis: [],
+      },
+      findings: [],
+      recommended_actions: [],
+    });
+
+    const result = await runCli(['--pr', '44', '--strict'], {
+      writeStdout: () => {},
+      writeStderr: () => {},
+    }, {
+      defaultProjectId: 'ciecopilot-home',
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(mockLoadAoProjectObservation).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'ciecopilot-home',
+    }));
+  });
+
   it('returns automation exit code 11 for blocked PR-scoped results', async () => {
     mockLoadAoProjectObservation.mockResolvedValue({ project_id: 'my-project' });
     mockLoadGitHubObservationSet.mockResolvedValue({ scope: { mode: 'pr', selected_pr_numbers: [44] } });
