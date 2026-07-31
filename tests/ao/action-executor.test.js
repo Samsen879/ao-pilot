@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 
 import {
   buildAssistActionModel,
@@ -81,6 +81,16 @@ function seedAllowedAction(repository, {
   summary,
   commands = [],
   releaseDecision = null,
+  externalEffectAuthorization = actionKind === 'auto_merge_ready_pr' && releaseDecision?.expected_head_sha
+    ? {
+        status: 'authorized',
+        effect_kind: 'github_pull_request_merge',
+        expected_head_sha: releaseDecision.expected_head_sha,
+        authorized_by: 'test-release-owner',
+        authorized_at: '2026-03-29T07:10:30.000Z',
+        authorization_id: 'authorization-test-1',
+      }
+    : null,
 } = {}) {
   const actionModel = buildExecutableActionModel(repository, {
     actionKind,
@@ -100,6 +110,9 @@ function seedAllowedAction(repository, {
     payload: {
       action_model: actionModel,
       ...(releaseDecision == null ? {} : { release_decision: releaseDecision }),
+      ...(externalEffectAuthorization == null ? {} : {
+        external_effect_authorization: externalEffectAuthorization,
+      }),
       policy_decision_id: 'policy-1',
       policy: {
         decision: 'allow',
@@ -108,6 +121,44 @@ function seedAllowedAction(repository, {
     },
   }));
   return actionModel;
+}
+
+function createAllowedMergeRepository({ expectedHeadSha = 'head-1' } = {}) {
+  const repository = createStateRepository({
+    repoRoot: createTempRepo(),
+    projectId: PROJECT_ID,
+    auditIdGenerator: createIdGenerator('audit'),
+  });
+  seedActiveTask(repository);
+  seedAllowedAction(repository, {
+    actionId: 'action-merge',
+    actionKind: 'auto_merge_ready_pr',
+    actionClass: 'merge_pr',
+    summary: 'Merge the release-ready AO-managed PR.',
+    releaseDecision: {
+      disposition: 'auto_merge_ready_pr',
+      expected_head_sha: expectedHeadSha,
+    },
+  });
+  return repository;
+}
+
+function buildFreshPr({
+  state = 'OPEN',
+  headRefOid = 'head-1',
+  reviewDecision = 'APPROVED',
+  mergeStateStatus = 'CLEAN',
+  statusCheckRollup = [{ status: 'COMPLETED', conclusion: 'SUCCESS' }],
+} = {}) {
+  return {
+    number: 101,
+    state,
+    headRefOid,
+    reviewDecision,
+    mergeStateStatus,
+    isDraft: false,
+    statusCheckRollup,
+  };
 }
 
 afterEach(() => {
@@ -176,6 +227,33 @@ describe('ao action executor', () => {
         satisfied: true,
       }),
     ]));
+
+    const mergeModel = buildAssistActionModel({
+      controllerId: 'default',
+      task: { task_id: 'issue-90', status: 'active' },
+      prNumber: 101,
+      runtimeRef: 'runtime.github_local',
+      runtimePreflight: { runtime_ref: 'runtime.github_local', status: 'clean' },
+      action: {
+        id: 'auto_merge_ready_pr',
+        action_class: 'merge_pr',
+        summary: 'Merge one exact approved head.',
+      },
+    });
+    expect(mergeModel).toMatchObject({
+      risk_class: 'irreversible_remote_effect',
+      execution_contract: {
+        automation_boundary: 'explicit_irreversible_remote_authorization',
+        reason: 'explicit_irreversible_remote_authorization_gate',
+        rollback_mode: 'irreversible',
+        remote_effect: {
+          kind: 'github_pull_request_merge',
+          reversibility: 'irreversible',
+          explicit_authorization_required: true,
+          exact_head_required: true,
+        },
+      },
+    });
 
     const missingPreflightModel = buildAssistActionModel({
       controllerId: 'default',
@@ -588,6 +666,7 @@ describe('ao action executor', () => {
     });
 
     const calls = [];
+    let viewCount = 0;
     const commandRunner = async ({ command, args, cwd }) => {
       calls.push([command, ...args, `cwd=${cwd}`]);
       expect(repository.getSnapshot().state.actions[0]).toMatchObject({
@@ -603,11 +682,12 @@ describe('ao action executor', () => {
         },
       });
       if (args[1] === 'view') {
+        viewCount += 1;
         return {
           status: 0,
           stdout: JSON.stringify({
             number: 101,
-            state: 'OPEN',
+            state: viewCount === 1 ? 'OPEN' : 'MERGED',
             headRefOid: 'head-1',
             reviewDecision: 'APPROVED',
             mergeStateStatus: 'CLEAN',
@@ -636,7 +716,8 @@ describe('ao action executor', () => {
     });
     expect(calls).toEqual([
       ['gh', 'pr', 'view', '101', '--json', 'number,state,headRefOid,reviewDecision,mergeStateStatus,isDraft,statusCheckRollup,url', 'cwd=/tmp/my-project'],
-      ['gh', 'pr', 'merge', '101', '--squash', '--delete-branch', 'cwd=/tmp/my-project'],
+      ['gh', 'pr', 'merge', '101', '--squash', '--delete-branch', '--match-head-commit', 'head-1', 'cwd=/tmp/my-project'],
+      ['gh', 'pr', 'view', '101', '--json', 'number,state,headRefOid,reviewDecision,mergeStateStatus,isDraft,statusCheckRollup,url', 'cwd=/tmp/my-project'],
     ]);
     expect(repository.getSnapshot().state.actions[0]).toMatchObject({
       status: 'executed',
@@ -651,6 +732,7 @@ describe('ao action executor', () => {
             receipt: {
               reason: 'auto_merge_completed',
               command_receipts: [
+                expect.objectContaining({ command: 'gh', status: 0, cwd: '/tmp/my-project' }),
                 expect.objectContaining({ command: 'gh', status: 0, cwd: '/tmp/my-project' }),
                 expect.objectContaining({ command: 'gh', status: 0, cwd: '/tmp/my-project' }),
               ],
@@ -680,12 +762,13 @@ describe('ao action executor', () => {
     });
 
     let mergeAttempts = 0;
+    let merged = false;
     const commandRunner = async ({ args }) => {
       if (args[1] === 'view') {
         return {
           status: 0,
           stdout: JSON.stringify({
-            state: 'OPEN',
+            state: merged ? 'MERGED' : 'OPEN',
             headRefOid: 'head-1',
             reviewDecision: 'APPROVED',
             mergeStateStatus: 'CLEAN',
@@ -696,9 +779,9 @@ describe('ao action executor', () => {
         };
       }
       mergeAttempts += 1;
-      return mergeAttempts === 1
-        ? { status: 1, stdout: '', stderr: 'temporary failure' }
-        : { status: 0, stdout: '', stderr: '' };
+      if (mergeAttempts === 1) return { status: 1, stdout: '', stderr: 'temporary failure' };
+      merged = true;
+      return { status: 0, stdout: '', stderr: '' };
     };
 
     expect(await executeAssistActions({
@@ -790,7 +873,402 @@ describe('ao action executor', () => {
     });
   });
 
-  it('records a blocked-notification intent as durable-only when no transport is configured', async () => {
+  it('requires an explicitly injected command runner and performs no live merge by default', async () => {
+    const repository = createAllowedMergeRepository();
+
+    expect(await executeAssistActions({
+      repository,
+      controllerId: 'default',
+      task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: ['action-merge'],
+      now: '2026-03-29T07:12:00.000Z',
+    })).toEqual({
+      executedActionIds: [],
+      blockedActionIds: ['action-merge'],
+    });
+    expect(repository.getSnapshot().state.actions[0]).toMatchObject({
+      status: 'proposed',
+      payload: {
+        execution: {
+          outcome: 'blocked',
+          reason: 'auto_merge_command_runner_missing',
+          effect: null,
+        },
+      },
+    });
+  });
+
+  it('requires durable explicit authorization bound to the exact head for an irreversible merge', async () => {
+    const repository = createStateRepository({
+      repoRoot: createTempRepo(),
+      projectId: PROJECT_ID,
+      auditIdGenerator: createIdGenerator('audit'),
+    });
+    seedActiveTask(repository);
+    seedAllowedAction(repository, {
+      actionId: 'action-merge',
+      actionKind: 'auto_merge_ready_pr',
+      actionClass: 'merge_pr',
+      summary: 'Merge the release-ready AO-managed PR.',
+      releaseDecision: {
+        disposition: 'auto_merge_ready_pr',
+        expected_head_sha: 'head-1',
+      },
+      externalEffectAuthorization: null,
+    });
+    const commandRunner = jest.fn();
+
+    expect(await executeAssistActions({
+      repository,
+      controllerId: 'default',
+      task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: ['action-merge'],
+      now: '2026-03-29T07:12:00.000Z',
+      commandRunner,
+    })).toEqual({
+      executedActionIds: [],
+      blockedActionIds: ['action-merge'],
+    });
+    expect(commandRunner).not.toHaveBeenCalled();
+    expect(repository.getSnapshot().state.actions[0]).toMatchObject({
+      status: 'proposed',
+      payload: {
+        execution: {
+          outcome: 'blocked',
+          reason: 'auto_merge_explicit_authorization_required',
+          effect: null,
+        },
+      },
+    });
+  });
+
+  it('rejects an irreversible merge authorization bound to another head', async () => {
+    const repository = createStateRepository({
+      repoRoot: createTempRepo(),
+      projectId: PROJECT_ID,
+      auditIdGenerator: createIdGenerator('audit'),
+    });
+    seedActiveTask(repository);
+    seedAllowedAction(repository, {
+      actionId: 'action-merge',
+      actionKind: 'auto_merge_ready_pr',
+      actionClass: 'merge_pr',
+      summary: 'Merge the release-ready AO-managed PR.',
+      releaseDecision: {
+        disposition: 'auto_merge_ready_pr',
+        expected_head_sha: 'head-1',
+      },
+      externalEffectAuthorization: {
+        status: 'authorized',
+        effect_kind: 'github_pull_request_merge',
+        expected_head_sha: 'head-older',
+        authorized_by: 'test-release-owner',
+        authorized_at: '2026-03-29T07:10:30.000Z',
+      },
+    });
+    const commandRunner = jest.fn();
+
+    await executeAssistActions({
+      repository,
+      controllerId: 'default',
+      task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: ['action-merge'],
+      now: '2026-03-29T07:12:00.000Z',
+      commandRunner,
+    });
+    expect(commandRunner).not.toHaveBeenCalled();
+    expect(repository.getSnapshot().state.actions[0]).toMatchObject({
+      status: 'proposed',
+      payload: { execution: { reason: 'auto_merge_authorization_head_mismatch' } },
+    });
+  });
+
+  it('accepts the public command runner object contract and preserves command intent in receipts', async () => {
+    const repository = createAllowedMergeRepository();
+    let viewCount = 0;
+    const commandRunner = {
+      run: jest.fn((command, args, options) => {
+        if (args[1] === 'view') {
+          viewCount += 1;
+          return {
+            status: 0,
+            signal: null,
+            stdout: JSON.stringify(buildFreshPr({
+              state: viewCount === 1 ? 'OPEN' : 'MERGED',
+              statusCheckRollup: [
+                { state: 'SUCCESS' },
+                { status: 'COMPLETED', conclusion: 'SUCCESS' },
+              ],
+            })),
+            stderr: '',
+          };
+        }
+        return { status: 0, signal: null, stdout: '', stderr: '' };
+      }),
+    };
+
+    expect(await executeAssistActions({
+      repository,
+      controllerId: 'default',
+      task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: ['action-merge'],
+      now: '2026-03-29T07:12:00.000Z',
+      commandRunner,
+      commandCwd: '/tmp/public-runner-project',
+    })).toEqual({
+      executedActionIds: ['action-merge'],
+      blockedActionIds: [],
+    });
+    expect(commandRunner.run).toHaveBeenNthCalledWith(
+      2,
+      'gh',
+      ['pr', 'merge', '101', '--squash', '--delete-branch', '--match-head-commit', 'head-1'],
+      { cwd: '/tmp/public-runner-project' },
+    );
+    expect(repository.getSnapshot().state.actions[0]).toMatchObject({
+      payload: {
+        execution: {
+          effect: {
+            status: 'succeeded',
+            delivery_semantics: 'at_least_once_with_durable_inflight_claim',
+            receipt: {
+              command_receipts: [
+                expect.objectContaining({ command: 'gh', args: expect.any(Array), cwd: '/tmp/public-runner-project' }),
+                expect.objectContaining({
+                  command: 'gh',
+                  args: expect.arrayContaining(['--match-head-commit', 'head-1']),
+                  cwd: '/tmp/public-runner-project',
+                }),
+                expect.objectContaining({ command: 'gh', args: expect.any(Array), cwd: '/tmp/public-runner-project' }),
+              ],
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it.each([
+    ['StatusContext FAILURE', [{ state: 'FAILURE' }], 'CLEAN', 'auto_merge_ci_not_passing'],
+    ['StatusContext ERROR', [{ state: 'ERROR' }], 'CLEAN', 'auto_merge_ci_not_passing'],
+    ['StatusContext PENDING', [{ state: 'PENDING' }], 'CLEAN', 'auto_merge_ci_not_passing'],
+    ['StatusContext EXPECTED', [{ state: 'EXPECTED' }], 'CLEAN', 'auto_merge_ci_not_passing'],
+    ['CheckRun failure', [{ status: 'COMPLETED', conclusion: 'FAILURE' }], 'CLEAN', 'auto_merge_ci_not_passing'],
+    ['unknown check state', [{ status: 'COMPLETED', conclusion: null }], 'CLEAN', 'auto_merge_ci_not_passing'],
+    ['UNSTABLE merge state', [{ state: 'SUCCESS' }], 'UNSTABLE', 'auto_merge_not_mergeable'],
+  ])('fails closed for %s', async (_label, statusCheckRollup, mergeStateStatus, expectedReason) => {
+    const repository = createAllowedMergeRepository();
+    const commandRunner = jest.fn(async ({ args }) => {
+      if (args[1] !== 'view') throw new Error('merge must not run');
+      return {
+        status: 0,
+        stdout: JSON.stringify(buildFreshPr({ statusCheckRollup, mergeStateStatus })),
+        stderr: '',
+      };
+    });
+
+    expect(await executeAssistActions({
+      repository,
+      controllerId: 'default',
+      task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: ['action-merge'],
+      now: '2026-03-29T07:12:00.000Z',
+      commandRunner,
+    })).toEqual({
+      executedActionIds: [],
+      blockedActionIds: ['action-merge'],
+    });
+    expect(commandRunner).toHaveBeenCalledTimes(1);
+    expect(repository.getSnapshot().state.actions[0]).toMatchObject({
+      payload: { execution: { reason: expectedReason } },
+    });
+  });
+
+  it('does not accept an already-MERGED PR unless its live head exactly matches the approved head', async () => {
+    const repository = createAllowedMergeRepository();
+    const commandRunner = jest.fn(async () => ({
+      status: 0,
+      stdout: JSON.stringify(buildFreshPr({ state: 'MERGED', headRefOid: 'unexpected-head' })),
+      stderr: '',
+    }));
+
+    expect(await executeAssistActions({
+      repository,
+      controllerId: 'default',
+      task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: ['action-merge'],
+      now: '2026-03-29T07:12:00.000Z',
+      commandRunner,
+    })).toEqual({
+      executedActionIds: [],
+      blockedActionIds: ['action-merge'],
+    });
+    expect(commandRunner).toHaveBeenCalledTimes(1);
+    expect(repository.getSnapshot().state.actions[0]).toMatchObject({
+      status: 'blocked',
+      payload: { execution: { reason: 'auto_merge_head_mismatch' } },
+    });
+  });
+
+  it('accepts an already-MERGED PR only after a live exact-head read and does not invoke merge again', async () => {
+    const repository = createAllowedMergeRepository();
+    const commandRunner = jest.fn(async () => ({
+      status: 0,
+      stdout: JSON.stringify(buildFreshPr({ state: 'MERGED' })),
+      stderr: '',
+    }));
+
+    expect(await executeAssistActions({
+      repository,
+      controllerId: 'default',
+      task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: ['action-merge'],
+      now: '2026-03-29T07:12:00.000Z',
+      commandRunner,
+    })).toEqual({
+      executedActionIds: ['action-merge'],
+      blockedActionIds: [],
+    });
+    expect(commandRunner).toHaveBeenCalledTimes(1);
+    expect(commandRunner.mock.calls[0][0].args.slice(0, 2)).toEqual(['pr', 'view']);
+    expect(repository.getSnapshot().state.actions[0]).toMatchObject({
+      payload: {
+        execution: {
+          reason: 'auto_merge_already_merged',
+          details: {
+            head_sha: 'head-1',
+            authorization: { status: 'authorized', expected_head_sha: 'head-1' },
+          },
+        },
+      },
+    });
+  });
+
+  it('re-reads an already-merged stderr result and confirms the exact live head before success', async () => {
+    const repository = createAllowedMergeRepository();
+    let call = 0;
+    const commandRunner = jest.fn(async ({ args }) => {
+      call += 1;
+      if (call === 1) return { status: 0, stdout: JSON.stringify(buildFreshPr()), stderr: '' };
+      if (args[1] === 'merge') return { status: 1, stdout: '', stderr: 'Pull request is already merged' };
+      return { status: 0, stdout: JSON.stringify(buildFreshPr({ state: 'MERGED' })), stderr: '' };
+    });
+
+    expect(await executeAssistActions({
+      repository,
+      controllerId: 'default',
+      task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: ['action-merge'],
+      now: '2026-03-29T07:12:00.000Z',
+      commandRunner,
+    })).toEqual({
+      executedActionIds: ['action-merge'],
+      blockedActionIds: [],
+    });
+    expect(commandRunner).toHaveBeenCalledTimes(3);
+    expect(repository.getSnapshot().state.actions[0]).toMatchObject({
+      payload: { execution: { reason: 'auto_merge_already_merged' } },
+    });
+  });
+
+  it('fails closed when an already-merged stderr result re-reads a different head', async () => {
+    const repository = createAllowedMergeRepository();
+    let call = 0;
+    const commandRunner = jest.fn(async ({ args }) => {
+      call += 1;
+      if (call === 1) return { status: 0, stdout: JSON.stringify(buildFreshPr()), stderr: '' };
+      if (args[1] === 'merge') return { status: 1, stdout: '', stderr: 'already merged' };
+      return {
+        status: 0,
+        stdout: JSON.stringify(buildFreshPr({ state: 'MERGED', headRefOid: 'different-head' })),
+        stderr: '',
+      };
+    });
+
+    expect(await executeAssistActions({
+      repository,
+      controllerId: 'default',
+      task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: ['action-merge'],
+      now: '2026-03-29T07:12:00.000Z',
+      commandRunner,
+    })).toEqual({
+      executedActionIds: [],
+      blockedActionIds: ['action-merge'],
+    });
+    expect(repository.getSnapshot().state.actions[0]).toMatchObject({
+      status: 'blocked',
+      payload: { execution: { reason: 'auto_merge_confirmation_head_mismatch' } },
+    });
+  });
+
+  it.each([
+    ['signal termination', { status: 0, signal: 'SIGTERM', stdout: '{}', stderr: '' }],
+    ['non-numeric status', { status: '0', signal: null, stdout: '{}', stderr: '' }],
+  ])('treats %s as command failure', async (_label, commandResult) => {
+    const repository = createAllowedMergeRepository();
+    expect(await executeAssistActions({
+      repository,
+      controllerId: 'default',
+      task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: ['action-merge'],
+      now: '2026-03-29T07:12:00.000Z',
+      commandRunner: async () => commandResult,
+    })).toEqual({
+      executedActionIds: [],
+      blockedActionIds: ['action-merge'],
+    });
+    expect(repository.getSnapshot().state.actions[0]).toMatchObject({
+      status: 'proposed',
+      payload: { execution: { reason: 'auto_merge_pr_view_failed' } },
+    });
+  });
+
+  it('does not replay a durable unconfirmed in-flight effect claim', async () => {
+    const repository = createAllowedMergeRepository();
+    const existing = repository.getSnapshot().state.actions[0];
+    repository.upsertAction(createActionRecord({
+      ...existing,
+      payload: {
+        ...existing.payload,
+        execution: {
+          outcome: 'effect_attempted',
+          reason: 'auto_merge_attempted',
+          effect: {
+            status: 'attempted',
+            kind: 'auto_merge',
+            attempt_id: 'action-merge@2026-03-29T07:11:30.000Z',
+            delivery_semantics: 'at_least_once_with_durable_inflight_claim',
+          },
+        },
+      },
+    }));
+    const commandRunner = jest.fn();
+
+    expect(await executeAssistActions({
+      repository,
+      controllerId: 'default',
+      task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: ['action-merge'],
+      now: '2026-03-29T07:12:00.000Z',
+      commandRunner,
+    })).toEqual({
+      executedActionIds: [],
+      blockedActionIds: ['action-merge'],
+    });
+    expect(commandRunner).not.toHaveBeenCalled();
+    expect(repository.getSnapshot().state.actions[0]).toMatchObject({
+      status: 'proposed',
+      payload: {
+        execution: {
+          outcome: 'effect_attempted',
+          effect: { attempt_id: 'action-merge@2026-03-29T07:11:30.000Z' },
+        },
+      },
+    });
+  });
+
+  it('records a blocked-notification intent but keeps the action proposed when no transport is configured', async () => {
     const repository = createStateRepository({
       repoRoot: createTempRepo(),
       projectId: PROJECT_ID,
@@ -815,14 +1293,15 @@ describe('ao action executor', () => {
     });
 
     expect(result).toEqual({
-      executedActionIds: ['action-notify'],
-      blockedActionIds: [],
+      executedActionIds: [],
+      blockedActionIds: ['action-notify'],
     });
     expect(repository.getSnapshot().state.actions[0]).toMatchObject({
-      status: 'executed',
+      status: 'proposed',
       payload: {
         execution: {
-          reason: 'blocked_notification_recorded',
+          outcome: 'blocked',
+          reason: 'blocked_notification_transport_missing',
           effect: {
             status: 'durable_only',
             kind: 'blocked_notification',
@@ -861,7 +1340,13 @@ describe('ao action executor', () => {
         intents.push(intent);
         return intents.length === 1
           ? { status: 'failed', transport: 'fake', attempts: 1, reason: 'temporary' }
-          : { status: 'succeeded', transport: 'fake', attempts: 1 };
+          : {
+              status: 'succeeded',
+              transport: 'fake',
+              attempts: 1,
+              delivery_semantics: 'at_least_once',
+              idempotency_key: intent.delivery_id,
+            };
       },
     };
 
@@ -910,6 +1395,55 @@ describe('ao action executor', () => {
           effect: {
             status: 'succeeded',
             receipt: { transport: 'fake' },
+          },
+        },
+      },
+    });
+  });
+
+  it('does not confirm a notification when the provider returns success without delivery receipt evidence', async () => {
+    const repository = createStateRepository({
+      repoRoot: createTempRepo(),
+      projectId: PROJECT_ID,
+      auditIdGenerator: createIdGenerator('audit'),
+    });
+    seedActiveTask(repository);
+    seedAllowedAction(repository, {
+      actionId: 'action-notify',
+      actionKind: 'notify_human_blocked',
+      actionClass: 'notify_human',
+      summary: 'AO is blocked and needs human input.',
+    });
+
+    expect(await executeAssistActions({
+      repository,
+      controllerId: 'default',
+      task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: ['action-notify'],
+      now: '2026-03-29T07:12:00.000Z',
+      blockedNotificationTransport: {
+        async sendBlockedNotification() {
+          return { status: 'succeeded', transport: 'receipt-free', attempts: 1 };
+        },
+      },
+    })).toEqual({
+      executedActionIds: [],
+      blockedActionIds: ['action-notify'],
+    });
+    expect(repository.getSnapshot().state.actions[0]).toMatchObject({
+      status: 'proposed',
+      payload: {
+        execution: {
+          outcome: 'effect_failed',
+          reason: 'blocked_notification_transport_failed',
+          effect: {
+            status: 'failed',
+            receipt: {
+              status: 'succeeded',
+              transport: 'receipt-free',
+              delivery_semantics: 'unknown',
+              idempotency_key: null,
+            },
           },
         },
       },

@@ -17,6 +17,8 @@ describe('blocked notification transport', () => {
       schema_version: 'ao.blocked-notification-intent.v1alpha1',
       format: 'ao_blocked_notification_intent',
       event_kind: 'ao_blocked_notification',
+      delivery_semantics: 'at_least_once',
+      delivery_id: 'ao-blocked:action-blocked-notify',
       project_id: 'my-project',
       pr_number: 411,
       action_id: 'action-blocked-notify',
@@ -56,10 +58,16 @@ describe('blocked notification transport', () => {
       status: 'succeeded',
       transport: 'webhook',
       attempts: 1,
+      delivery_semantics: 'at_least_once',
+      idempotency_key: 'ao-blocked:action-blocked-notify',
       http_status: 202,
     });
     expect(JSON.stringify(result)).not.toContain('secret-token');
     expect(JSON.parse(calls[0].options.body)).toEqual(intent);
+    expect(calls[0].options.headers).toMatchObject({
+      'idempotency-key': 'ao-blocked:action-blocked-notify',
+      'x-ao-delivery-semantics': 'at_least_once',
+    });
   });
 
   it('supports an injected provider adapter and returns sanitized retry failure', async () => {
@@ -95,12 +103,18 @@ describe('blocked notification transport', () => {
       status: 'failed',
       transport: 'custom-chat',
       attempts: 2,
+      delivery_semantics: 'at_least_once',
+      idempotency_key: 'ao-blocked:action-blocked-notify',
       http_status: 503,
       reason: 'webhook_http_error',
     });
     expect(JSON.stringify(result)).not.toContain('secret-token');
     expect(JSON.parse(requests[0].options.body)).toEqual({
       message: 'Human input is required.',
+    });
+    expect(requests[0].options.headers).toMatchObject({
+      'idempotency-key': 'ao-blocked:action-blocked-notify',
+      'x-ao-delivery-semantics': 'at_least_once',
     });
   });
 });

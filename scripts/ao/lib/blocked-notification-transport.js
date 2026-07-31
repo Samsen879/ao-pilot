@@ -1,5 +1,6 @@
 export const BLOCKED_NOTIFICATION_INTENT_SCHEMA_VERSION = 'ao.blocked-notification-intent.v1alpha1';
 export const BLOCKED_NOTIFICATION_INTENT_FORMAT = 'ao_blocked_notification_intent';
+export const BLOCKED_NOTIFICATION_DELIVERY_SEMANTICS = 'at_least_once';
 
 function normalizeString(value) {
   return typeof value === 'string' && value.trim() !== ''
@@ -27,17 +28,21 @@ export function buildBlockedNotificationIntent({
 } = {}) {
   const normalizedProjectId = normalizeString(projectId) ?? 'unknown-project';
   const normalizedPrNumber = toNullablePositiveInteger(prNumber);
+  const normalizedActionId = normalizeString(actionId);
   const dedupeKey = normalizedPrNumber == null
     ? `${normalizedProjectId}:project`
     : `${normalizedProjectId}:pr-${normalizedPrNumber}`;
+  const deliveryId = `ao-blocked:${normalizedActionId ?? dedupeKey}`;
 
   return {
     schema_version: BLOCKED_NOTIFICATION_INTENT_SCHEMA_VERSION,
     format: BLOCKED_NOTIFICATION_INTENT_FORMAT,
     event_kind: 'ao_blocked_notification',
+    delivery_semantics: BLOCKED_NOTIFICATION_DELIVERY_SEMANTICS,
+    delivery_id: deliveryId,
     project_id: normalizedProjectId,
     pr_number: normalizedPrNumber,
-    action_id: normalizeString(actionId),
+    action_id: normalizedActionId,
     summary: normalizeString(summary) ?? 'AO is blocked and needs human input.',
     dedupe_key: dedupeKey,
     dedupe_marker: normalizeString(dedupeMarker)
@@ -51,6 +56,8 @@ function buildDefaultRequest(intent) {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
+      'idempotency-key': intent.delivery_id,
+      'x-ao-delivery-semantics': BLOCKED_NOTIFICATION_DELIVERY_SEMANTICS,
     },
     body: JSON.stringify(intent),
   };
@@ -62,11 +69,14 @@ function createResult({
   attempts,
   httpStatus = null,
   reason = null,
+  deliveryId = null,
 } = {}) {
   return {
     status,
     transport: transportName,
     attempts,
+    delivery_semantics: BLOCKED_NOTIFICATION_DELIVERY_SEMANTICS,
+    idempotency_key: deliveryId,
     ...(httpStatus == null ? {} : { http_status: httpStatus }),
     ...(reason == null ? {} : { reason }),
   };
@@ -105,18 +115,28 @@ export function createBlockedNotificationWebhookTransport({
           transportName: normalizedTransportName,
           attempts: 0,
           reason: 'fetch_unavailable',
+          deliveryId: intent.delivery_id,
         });
       }
 
       let request;
       try {
         request = await requestBuilder(intent);
+        request = {
+          ...(request ?? {}),
+          headers: {
+            ...(request?.headers ?? {}),
+            'idempotency-key': intent.delivery_id,
+            'x-ao-delivery-semantics': BLOCKED_NOTIFICATION_DELIVERY_SEMANTICS,
+          },
+        };
       } catch {
         return createResult({
           status: 'failed',
           transportName: normalizedTransportName,
           attempts: 0,
           reason: 'request_builder_failed',
+          deliveryId: intent.delivery_id,
         });
       }
 
@@ -133,6 +153,7 @@ export function createBlockedNotificationWebhookTransport({
               transportName: normalizedTransportName,
               attempts: attempt,
               httpStatus: lastStatus,
+              deliveryId: intent.delivery_id,
             });
           }
           lastReason = 'webhook_http_error';
@@ -150,6 +171,7 @@ export function createBlockedNotificationWebhookTransport({
         attempts,
         httpStatus: lastStatus,
         reason: lastReason,
+        deliveryId: intent.delivery_id,
       });
     },
   };
