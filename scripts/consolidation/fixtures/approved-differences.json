@@ -33,6 +33,13 @@
       "reason": "The canonical action summary records durable_only so executed is not misread as proof of an external effect.",
       "standalone": "durable_only",
       "cie": "__AO_CONSOLIDATION_MISSING__"
+    },
+    {
+      "id": "action-remote-effect-contract-v1",
+      "path": "$.policy_action.action_model.execution_contract.remote_effect",
+      "reason": "The canonical action model makes the absence of a remote effect explicit for durable-only actions.",
+      "standalone": null,
+      "cie": "__AO_CONSOLIDATION_MISSING__"
     }
   ]
 }

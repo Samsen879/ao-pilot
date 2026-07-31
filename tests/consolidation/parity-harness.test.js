@@ -132,8 +132,8 @@ describe('AO consolidation behavioral parity harness', () => {
 
     expect(report.status).toBe('passed');
     expect(report.standalone_baseline).toEqual({
-      expected_fingerprint: '20f79e5fb136b273b9d35519694829cc3aead64eec5c92d170ec93581bc7cd0b',
-      actual_fingerprint: '20f79e5fb136b273b9d35519694829cc3aead64eec5c92d170ec93581bc7cd0b',
+      expected_fingerprint: '6f81aed7a563f69bad533ebb4cb99c7c62fbf6d8cec5417806ed97e3afd9cca6',
+      actual_fingerprint: '6f81aed7a563f69bad533ebb4cb99c7c62fbf6d8cec5417806ed97e3afd9cca6',
       matches: true,
       expectation_failure_count: 0,
     });
