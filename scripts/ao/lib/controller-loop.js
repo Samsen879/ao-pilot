@@ -97,6 +97,24 @@ export {
   deriveLifecycleTriggerForTask,
 } from './controller-loop/delivery-triggers.js';
 
+function taskRequiresIndependentReview(snapshot, taskId) {
+  const taskSpec = (snapshot?.state?.task_specs ?? []).find(
+    (record) => record?.task_id === taskId,
+  );
+  return (taskSpec?.snapshot?.spec?.human_gates ?? []).some(
+    (gate) => String(gate).trim() === 'independent_review',
+  );
+}
+
+function resolveTaskReviewGate(snapshot, taskId) {
+  const reviewInspection = buildTaskReviewInspection(snapshot, taskId);
+  return {
+    reviewInspection,
+    reviewRequired: reviewInspection != null
+      || taskRequiresIndependentReview(snapshot, taskId),
+  };
+}
+
 async function acquireControllerLeadership({
   repository,
   controllerId,
@@ -613,8 +631,10 @@ async function resolveLifecycleReportForTask({
     localState,
     controlPlaneSnapshot: deps.controlPlaneSnapshot ?? null,
   });
-  const reviewInspection = buildTaskReviewInspection(deps.controlPlaneSnapshot ?? null, task.task_id);
-  const reviewRequired = reviewInspection != null;
+  const {
+    reviewInspection,
+    reviewRequired,
+  } = resolveTaskReviewGate(deps.controlPlaneSnapshot ?? null, task.task_id);
   const lifecycleReport = deps.buildLifecycleReport({
         scope: prNumber != null
           ? createLifecyclePrScope({ projectId, prNumber, trigger: derivedTrigger })
@@ -793,8 +813,10 @@ async function executeControllerPass({
         shutdownTimeoutMs,
       });
       const controlPlaneSnapshot = repository.getSnapshot();
-      const reviewInspection = buildTaskReviewInspection(controlPlaneSnapshot, task.task_id);
-      const reviewRequired = reviewInspection != null;
+      const {
+        reviewInspection,
+        reviewRequired,
+      } = resolveTaskReviewGate(controlPlaneSnapshot, task.task_id);
       const originalLifecycleReport = resolvedLifecycle.lifecycleReport ?? resolvedLifecycle;
       lifecycleReport = applyReviewGateToLifecycleReport({
         lifecycleReport: originalLifecycleReport,
@@ -859,6 +881,8 @@ async function executeControllerPass({
           actionIds: proposalResult.actionIds,
           now: timestamp,
           commandRunner: services.commandRunner,
+          commandCwd: cwd,
+          blockedNotificationTransport: services.blockedNotificationTransport,
           abortSignal,
         }), {
           stopSignal,
