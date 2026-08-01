@@ -11,6 +11,10 @@ const EXPECTED_AO_PILOT_MAIN_SHA = 'e51bef40ccd124939b2781b14af3297e856c6f17';
 const EXPECTED_AO_PILOT_TREE_SHA = '67aa09d8b11a6532876353f500df7fb529e4d9b5';
 const EXPECTED_MIGRATION_BODY_LEDGER_SHA256 =
   '37bebf141ece71ced8f02d029e5242e00fc828882e7b5cd3a07a4cbe7fc4d0e4';
+const EXPECTED_INCIDENT_INVENTORY_SHA256 =
+  '50f98cec5cec01b49f7ce7df96e0980beb2c794debfd4e10718b1efe8c2cd02d';
+const EXPECTED_MIGRATION_RECEIPT_SHA256 =
+  'e8c8651b33dde2786c39840a9bd3222e22e46471187b0cd28b8150cbf87cced4';
 
 const EXPECTED_OFFICIAL_RUNTIME = Object.freeze({
   canonical_repository: 'https://github.com/Untrivial-ai/agent-orchestrator',
@@ -52,6 +56,23 @@ const EXPECTED_MIGRATED_ISSUES = Object.freeze([
   8,
   ...Array.from({ length: 43 }, (_, index) => index + 12),
 ]);
+
+const EXPECTED_DOCUMENT_SHA256 = new Map([
+  ['docs/runtime-portability/P0-R01_INCIDENT_BASELINE.md', 'b9af18f116af7fb9ba5afd0a6fedeb49e54ddce58e4bca49ce71d9980c868b6c'],
+  ['README.md', '2c70d7d00d5c6cb0a9f4b0558825c1c62b6f916697aba0fdacc62e87cad72e45'],
+  ['docs/AO_ARCHITECTURE.md', '8e8514214905b595414276b327163eaa1b1c80769d5e793cf18281d781fe7e47'],
+  ['docs/AO_DEVELOPMENT.md', '37557a157056856e262c972701a5eee3bd58142b2c2c20d2f05fe48cae4aae26'],
+  ['docs/AO_RELEASE.md', 'b2485d19a39970eb8637fd70ada41f9ca0ccd1283b80e0189238be61c59d09a4'],
+  ['docs/AO_CONFIGURATION.md', '214633aacb9e8df3c527a047684effc02dde9a0e6e363a05f47b64374874fab9'],
+  ['docs/AO_MIGRATION_HISTORY.md', 'c7e7509940d6821d85f15be0ad00f015c3900c9788ce54a850c56e437ffca93e'],
+  ['docs/AO_SYSTEM_ARCHITECTURE_AND_UPGRADE_GUIDE.md', '048a294010ca8f3bb4b70a0921dff2797fc755c47e49dce652829559211e0109'],
+  ['docs/consolidation/cie-embedded-ao/FINAL_CONSOLIDATION_REPORT.md', 'c936519cd91557d4a63e021704ac82dd1ed7b346be817b0750fcf888020d9538'],
+  ['docs/consolidation/cie-embedded-ao/07-runtime-portability-erratum.md', 'd31728fbe5243af609c7a2dfa58001cd59bd0271a7000a3b6849abc9468499d6'],
+]);
+
+function sha256(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
 
 function assert(condition, message) {
   if (!condition) {
@@ -146,6 +167,10 @@ export function validateIncidentInventory(inventory) {
     'operational portability claim not blocked',
   );
   assert(inventory.fail_closed_boundaries.length >= 6, 'fail-closed boundary ledger incomplete');
+  assert(
+    sha256(JSON.stringify(inventory)) === EXPECTED_INCIDENT_INVENTORY_SHA256,
+    'incident inventory digest drifted',
+  );
 
   return {
     schema_version: inventory.schema_version,
@@ -213,6 +238,10 @@ export function validateIssueMigrationReceipt(receipt) {
       assert(entry.new_predecessor === `#${issueNumber - 1}`, `predecessor changed for #${issueNumber}`);
     }
   }
+  assert(
+    sha256(JSON.stringify(receipt)) === EXPECTED_MIGRATION_RECEIPT_SHA256,
+    'migration receipt digest drifted',
+  );
   return {
     schema_version: receipt.schema_version,
     updated_issues: receipt.issues.length,
@@ -244,7 +273,12 @@ export function verifyRuntimePortabilityInventory(root = process.cwd()) {
     for (const fragment of fragments) {
       assert(text.includes(fragment), `${relativePath} is missing required incident text: ${fragment}`);
     }
+    assert(
+      sha256(text) === EXPECTED_DOCUMENT_SHA256.get(relativePath),
+      `${relativePath} digest drifted`,
+    );
   }
+  assert(requiredText.size === EXPECTED_DOCUMENT_SHA256.size, 'document digest ledger mismatch');
 
   const packageJson = readJson(root, 'package.json');
   assert(Object.keys(packageJson.bin).length === 1, 'P0-R01 must preserve the package binary surface');

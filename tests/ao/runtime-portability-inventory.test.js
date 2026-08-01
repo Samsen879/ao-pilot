@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from '@jest/globals';
 
@@ -66,6 +67,12 @@ describe('P0-R01 runtime portability incident inventory', () => {
     );
   });
 
+  it('fails if an otherwise-unchecked incident inventory field changes', () => {
+    const inventory = readJson('docs/runtime-portability/p0-r01-incident-inventory.json');
+    delete inventory.dependency_inventory;
+    expect(() => validateIncidentInventory(inventory)).toThrow(/incident inventory digest drifted/);
+  });
+
   it('fails if the original chain loses its exact serial or predecessor migration', () => {
     const receipt = readJson('docs/runtime-portability/p0-r01-issue-migration-receipt.json');
     const issue12 = receipt.issues.find((entry) => entry.issue_number === 12);
@@ -91,6 +98,42 @@ describe('P0-R01 runtime portability incident inventory', () => {
     const receipt = readJson('docs/runtime-portability/p0-r01-issue-migration-receipt.json');
     receipt.issues.find((entry) => entry.issue_number === 8).new_predecessor = '#55';
     expect(() => validateIssueMigrationReceipt(receipt)).toThrow(/#8 predecessor migration mismatch/);
+  });
+
+  it('fails if an otherwise-unchecked migration receipt field changes', () => {
+    const receipt = readJson('docs/runtime-portability/p0-r01-issue-migration-receipt.json');
+    receipt.observed_main_sha = 'f'.repeat(40);
+    expect(() => validateIssueMigrationReceipt(receipt)).toThrow(/migration receipt digest drifted/);
+  });
+
+  it('fails if a correction document retains markers but changes other content', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-pilot-r01-doc-digest-'));
+    const requiredPaths = [
+      'docs/runtime-portability/p0-r01-incident-inventory.json',
+      'docs/runtime-portability/p0-r01-issue-migration-receipt.json',
+      'docs/runtime-portability/P0-R01_INCIDENT_BASELINE.md',
+      'README.md',
+      'docs/AO_ARCHITECTURE.md',
+      'docs/AO_DEVELOPMENT.md',
+      'docs/AO_RELEASE.md',
+      'docs/AO_CONFIGURATION.md',
+      'docs/AO_MIGRATION_HISTORY.md',
+      'docs/AO_SYSTEM_ARCHITECTURE_AND_UPGRADE_GUIDE.md',
+      'docs/consolidation/cie-embedded-ao/FINAL_CONSOLIDATION_REPORT.md',
+      'docs/consolidation/cie-embedded-ao/07-runtime-portability-erratum.md',
+      'package.json',
+    ];
+    try {
+      for (const relativePath of requiredPaths) {
+        const target = path.join(tempRoot, relativePath);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.copyFileSync(path.join(ROOT, relativePath), target);
+      }
+      fs.appendFileSync(path.join(tempRoot, 'README.md'), '\nContradictory portability claim.\n');
+      expect(() => verifyRuntimePortabilityInventory(tempRoot)).toThrow(/README\.md digest drifted/);
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it('fails if package portability is promoted to runtime portability', () => {
