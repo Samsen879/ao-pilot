@@ -22,7 +22,7 @@
 ## What Is This?
 
 **ao-pilot** is an independently maintained control-plane companion for
-[ComposioHQ/agent-orchestrator](https://github.com/ComposioHQ/agent-orchestrator)
+[Untrivial-ai/agent-orchestrator](https://github.com/Untrivial-ai/agent-orchestrator)
 and compatible AI coding-agent runtimes.
 
 The original project provides a lightweight way to run and coordinate AI coding
@@ -38,6 +38,20 @@ any downstream product repository.
 The core question behind this project is:
 
 > How can AI-assisted coding work stay auditable, recoverable, and reviewable when agents are working across multiple tasks?
+
+## P0 Runtime Portability Incident
+
+The `0.2.0` package boundary is installable, but a fresh clone cannot yet
+recover the complete Agent Orchestrator runtime. There is no `ao-pilot start`,
+no repository-owned deterministic runtime bootstrap or lock, and the current
+`scripts/ao/start-clean.sh` can select an unverified `ao` from `PATH`.
+This is package-level portability only.
+
+Therefore package installation, control-plane installation, external runtime
+installation, user-provided GitHub/Codex credentials, runtime bootstrap, and
+self-hosting acceptance are separate gates. Do not claim operational
+portability from `npm ci` or `npm run verify:package`. See the
+[P0-R01 incident baseline](docs/runtime-portability/P0-R01_INCIDENT_BASELINE.md).
 
 ## Why This Exists
 
@@ -58,7 +72,7 @@ The goal is not to remove human judgment. The goal is to make the automation bou
 
 ## Relationship to the Original Project
 
-This repository is a companion to `ComposioHQ/agent-orchestrator`, not a copy of
+This repository is a companion to `Untrivial-ai/agent-orchestrator`, not a copy of
 its session runtime.
 
 The original AO project focuses on agent orchestration primitives such as
@@ -136,6 +150,10 @@ The project is built around a few assumptions:
 ## Quick Start
 
 ### Prerequisites
+
+> **P0 limitation:** the commands below install and exercise `ao-pilot` only.
+> They do not install or verify the external Agent Orchestrator runtime and do
+> not constitute a self-hosting proof.
 
 - Node.js 20+
 - npm

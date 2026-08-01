@@ -1,0 +1,315 @@
+{
+  "schema_version": "ao.runtime-portability-incident.v1",
+  "policy_ref": "policy.ao_runtime_portability_recovery.v1",
+  "recorded_at": "2026-08-02T01:23:18+08:00",
+  "severity": "P0_RELEASE_BLOCKER",
+  "current_claim": "ao-pilot has package-level portability and does not yet have operational runtime portability.",
+  "admission": {
+    "p0_parent_issue": 55,
+    "admitted_issue": 56,
+    "blocked_successors": [
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      12
+    ],
+    "p0_r08_runtime_ref": "runtime.bootstrap_recovery.unresolved_fail_closed_v1",
+    "p0_r08_runtime_ref_rule": "must be replaced by the final verified pinned runtime ref before admission"
+  },
+  "frozen_observation": {
+    "meaning": "incident discovery snapshot; not live authority",
+    "ao_pilot_main_sha": "e51bef40ccd124939b2781b14af3297e856c6f17",
+    "ao_pilot_tree_sha": "67aa09d8b11a6532876353f500df7fb529e4d9b5",
+    "estimated_local_runtime_unique_commits": 11,
+    "upstream_stable_release": "v0.11.2"
+  },
+  "live_observation": {
+    "ao_pilot": {
+      "repository": "https://github.com/Samsen879/ao-pilot",
+      "main_sha": "e51bef40ccd124939b2781b14af3297e856c6f17",
+      "main_tree_sha": "67aa09d8b11a6532876353f500df7fb529e4d9b5",
+      "open_pr_count": 0,
+      "duplicate_p0_lane_found": false,
+      "package_name": "ao-pilot",
+      "package_version": "0.2.0",
+      "package_bin": {
+        "ao-pilot": "./bin/ao-pilot.js"
+      },
+      "has_ao_pilot_start": false,
+      "verify_package_scope": "isolated tarball install, public API, CLI init/state/version, evaluation pack, and deep-import rejection only",
+      "start_clean_dependency": "scripts/ao/start-clean.sh invokes an arbitrary PATH-resolved ao binary"
+    },
+    "old_local_runtime": {
+      "audit_mode": "read_only",
+      "command_path": "/home/samsen/.nvm/versions/node/v22.22.1/bin/ao",
+      "resolved_target": "/home/samsen/.local/share/agent-orchestrator-src/packages/cli/dist/index.js",
+      "package_name": "@composio/ao-cli",
+      "package_version": "0.1.0",
+      "checkout": "/home/samsen/.local/share/agent-orchestrator-src",
+      "branch": "codex/unfinished-chain-resume",
+      "head_sha": "00bea6e589b4696ea7c897ea45dd15e2de78b4e7",
+      "tree_sha": "9499d49334b3ba8b3da60ea653483a1a0d00377a",
+      "configured_remote": "https://github.com/ComposioHQ/agent-orchestrator.git",
+      "stale_origin_main_sha": "a99aedf9a889f023477cfb1696b73f3c74fa0e79",
+      "clean": true,
+      "unique_commit_count": 12,
+      "unique_commits": [
+        {
+          "ordinal": 1,
+          "commit": "44d333b5000b75b5b5b89df5df6818a3fbe7f7ce",
+          "subject": "Handle tmux liveness check failures under sandboxing",
+          "parity_disposition": "pending_p0_r02"
+        },
+        {
+          "ordinal": 2,
+          "commit": "718da41daa762d41c6f142cd86d3b11baf761d45",
+          "subject": "Keep Codex orchestrators running autonomously",
+          "parity_disposition": "pending_p0_r02"
+        },
+        {
+          "ordinal": 3,
+          "commit": "d9c64fa38e55fb32280d0dcad880e646ff7f2534",
+          "subject": "Repeat sustained idle reactions on cadence",
+          "parity_disposition": "pending_p0_r02"
+        },
+        {
+          "ordinal": 4,
+          "commit": "26e1904163f17a7de905a8a956903ebef9563c4a",
+          "subject": "Slow idle reaction retries to eight minutes",
+          "parity_disposition": "pending_p0_r02"
+        },
+        {
+          "ordinal": 5,
+          "commit": "d7eb1aeebfdce3f40bef90ee4c1dd64a40e5fede",
+          "subject": "Stop idle nudges after all work is complete",
+          "parity_disposition": "pending_p0_r02"
+        },
+        {
+          "ordinal": 6,
+          "commit": "9957b8319423a5b5f6a50550c5440bcc5d40f068",
+          "subject": "Avoid codex tmux paste corruption on long sends",
+          "parity_disposition": "pending_p0_r02"
+        },
+        {
+          "ordinal": 7,
+          "commit": "a862a5d0c07ccaea5b376cd68af551b33a5a77e3",
+          "subject": "Preserve idle session status from metadata",
+          "parity_disposition": "pending_p0_r02"
+        },
+        {
+          "ordinal": 8,
+          "commit": "5ed0947826a66932a607d8a883a7b74ad4909393",
+          "subject": "fix: reconcile ao session branch and ci state",
+          "parity_disposition": "pending_p0_r02"
+        },
+        {
+          "ordinal": 9,
+          "commit": "e5a6ff03445dbf86bdff52dc42b02476f174bc35",
+          "subject": "fix(cli): clarify AO running lock permission errors",
+          "parity_disposition": "pending_p0_r02"
+        },
+        {
+          "ordinal": 10,
+          "commit": "859da6db0299a61feace4930bb1f4e221edf5f5a",
+          "subject": "fix: harden local AO runtime lifecycle",
+          "parity_disposition": "pending_p0_r02"
+        },
+        {
+          "ordinal": 11,
+          "commit": "1f3f32e0db9a9429380760a579858eb4ac867066",
+          "subject": "fix: make worker startup and stuck detection fail closed",
+          "parity_disposition": "pending_p0_r02"
+        },
+        {
+          "ordinal": 12,
+          "commit": "00bea6e589b4696ea7c897ea45dd15e2de78b4e7",
+          "subject": "fix: resume orchestration after terminal worker epochs",
+          "parity_disposition": "pending_p0_r02"
+        }
+      ],
+      "prohibition": "Do not push this checkout or migrate the stack in bulk."
+    },
+    "official_runtime": {
+      "canonical_repository": "https://github.com/Untrivial-ai/agent-orchestrator",
+      "main_sha": "4a907abda23db81865e594f2e00b3c0cef4cc3ee",
+      "main_tree_sha": "8b9f57b938a7f0e9f5ef29a7663e748f8c1ec47a",
+      "latest_stable_release": {
+        "tag": "v0.11.2",
+        "commit": "c5523a6d0e51251b79555b95ddc7d2be59da0f50",
+        "tree": "6784a292cb54c4a2031ede6cfeaee9a4bb1cd104"
+      },
+      "npm_wrapper": {
+        "name": "@aoagents/ao",
+        "version": "0.10.3",
+        "bin": {
+          "ao": "bin/ao.js"
+        },
+        "integrity": "sha512-La3w8jv2AJV0GoekWzTEav7ZaQnw1xhnZmfwooXwLVGGuX1BV6vCT56P7xzUrfRPFJ+BuGMRuSqyftMVo6JzyQ==",
+        "shasum": "aded3adbbb5e6a18cbf19865c17a287b45e5e549"
+      },
+      "npm_linux_x64": {
+        "name": "@aoagents/ao-linux-x64",
+        "version": "0.10.3",
+        "integrity": "sha512-B74xSc073V9hjIoZs860m7hbm/7rgjjuV7mkEdeVU8WaJKylBhkHit90qclaC6ol8UJw/AA1j5syLLF9RND+9A==",
+        "shasum": "929632edfb263e42f8cfc65bd9fd533c358d7176"
+      },
+      "source_build_contract": {
+        "go": "1.25.7",
+        "node": "20.19.0 or newer",
+        "npm": "10",
+        "daemon_build": "cd backend && go build ./...",
+        "cli_build": "cd backend && go build -o <managed-path>/ao ./cmd/ao",
+        "cross_platform_build": "packages/build-binaries.sh uses CGO_ENABLED=0"
+      },
+      "unresolved_distribution_facts": [
+        "The stable Git tag is v0.11.2 while the live npm wrapper/platform packages are 0.10.3.",
+        "The v0.11.2 source package metadata says 0.10.0, so repository documentation and the live registry are not equivalent authority.",
+        "The v0.11.2 release assets are desktop artifacts rather than a standalone raw CLI runtime asset.",
+        "Source inspection shows v0.11.2 ao start is a desktop acquisition/opening path, not ao-pilot's required deterministic managed daemon lifecycle entrypoint.",
+        "v0.11.2 contains idle-orchestrator re-engagement behavior later removed from current main; P0-R02 must determine parity and safety before P0-R03 selects an artifact."
+      ],
+      "selection_status": "NOT_ESTABLISHED",
+      "selection_owner_issue": 58
+    },
+    "workstation_tools": {
+      "node": "v22.22.1",
+      "npm": "11.15.0",
+      "git": "2.43.0",
+      "tmux": "3.4",
+      "go_available": false,
+      "gh_cli_authenticated": false,
+      "github_connector_authenticated_as": "Samsen879"
+    }
+  },
+  "dependency_inventory": [
+    {
+      "category": "package_install",
+      "items": [
+        "Node.js >=20",
+        "npm lockfile",
+        "ao-pilot tarball/public exports"
+      ],
+      "current_status": "package verification exists"
+    },
+    {
+      "category": "external_runtime",
+      "items": [
+        "public immutable source/artifact",
+        "exact runtime binary",
+        "daemon/session runtime",
+        "tmux or platform session backend"
+      ],
+      "current_status": "not locked or bootstrappable"
+    },
+    {
+      "category": "control_plane",
+      "items": [
+        "ao-pilot CLI",
+        "file-based durable state",
+        "runtime and source-control providers"
+      ],
+      "current_status": "package installable; runtime resolver absent"
+    },
+    {
+      "category": "source_control",
+      "items": [
+        "Git",
+        "GitHub repository",
+        "GitHub issues/PRs/checks/reviews",
+        "gh or authenticated provider"
+      ],
+      "current_status": "GitHub connector available; local gh auth invalid"
+    },
+    {
+      "category": "agent_credentials",
+      "items": [
+        "user-provided GitHub authentication",
+        "user-provided Codex authentication"
+      ],
+      "current_status": "explicit prerequisite; never copied or emitted"
+    },
+    {
+      "category": "workstation",
+      "items": [
+        "fresh clone",
+        "isolated HOME/state",
+        "managed runtime store",
+        "independent worktrees"
+      ],
+      "current_status": "P0-R05 through P0-R08 not yet proven"
+    }
+  ],
+  "release_claim_ledger": [
+    {
+      "claim": "ao-pilot 0.2.0 can be packed and installed with its declared public API and ao-pilot binary",
+      "disposition": "REMAINS_VALID_PACKAGE_LEVEL",
+      "evidence": [
+        "package.json",
+        "scripts/verify-package-install.js"
+      ]
+    },
+    {
+      "claim": "ao-pilot is maintained independently from a downstream product repository",
+      "disposition": "REMAINS_VALID_SOURCE_AND_PACKAGE_BOUNDARY",
+      "evidence": [
+        "package.json#exports",
+        "tests/ao/public-product-contract.test.js"
+      ]
+    },
+    {
+      "claim": "verify:package proves runtime portability",
+      "disposition": "WITHDRAWN",
+      "reason": "it never installs, authenticates, starts, stops, or observes an Agent Orchestrator runtime"
+    },
+    {
+      "claim": "a fresh clone can operationally start AO from repository instructions",
+      "disposition": "NOT_ESTABLISHED",
+      "reason": "no ao-pilot start or deterministic runtime bootstrap exists"
+    },
+    {
+      "claim": "scripts/ao/start-clean.sh uses an authenticated pinned runtime",
+      "disposition": "WITHDRAWN",
+      "reason": "it invokes PATH ao without provenance verification"
+    },
+    {
+      "claim": "the v0.2.0 second-machine recipe proves self-hosting",
+      "disposition": "NARROWED_TO_PACKAGE_ONLY",
+      "reason": "it runs ao-pilot package tests and evaluation only"
+    },
+    {
+      "claim": "canonical consolidation removed the embedded generic control-plane core",
+      "disposition": "REMAINS_VALID_HISTORICAL_SCOPE",
+      "reason": "runtime bootstrap and workstation portability were outside that consolidation surface"
+    },
+    {
+      "claim": "ao-pilot is operationally migratable or can admit issue #12",
+      "disposition": "WITHDRAWN_UNTIL_P0_R08",
+      "reason": "P0-R08 must be produced by a newly bootstrapped AO on a new workstation"
+    }
+  ],
+  "fail_closed_boundaries": [
+    "No runtime artifact is selected in P0-R01.",
+    "No local runtime commit receives a parity disposition before P0-R02.",
+    "No old HOME runtime state, session, lease, credential, or worktree is copied.",
+    "No old hidden checkout is pushed.",
+    "No issue after #56 is admitted.",
+    "No npm package or GitHub Release is published."
+  ],
+  "evidence_paths": [
+    "package.json",
+    "scripts/verify-package-install.js",
+    "scripts/ao/start-clean.sh",
+    "README.md",
+    "docs/AO_ARCHITECTURE.md",
+    "docs/AO_DEVELOPMENT.md",
+    "docs/AO_RELEASE.md",
+    "docs/AO_CONFIGURATION.md",
+    "docs/AO_SYSTEM_ARCHITECTURE_AND_UPGRADE_GUIDE.md",
+    "docs/consolidation/cie-embedded-ao/FINAL_CONSOLIDATION_REPORT.md",
+    "docs/runtime-portability/p0-r01-issue-migration-receipt.json"
+  ]
+}

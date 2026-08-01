@@ -8,6 +8,13 @@
 - `gh`, authenticated when live GitHub observation is required
 - an `ao` compatible runtime when live agent observation is required
 
+The final bullet is not currently a reproducible installation contract. During
+the P0 recovery, do not satisfy it with an arbitrary PATH binary, an npm package
+whose provenance is unknown, or a hidden HOME checkout. `npm ci`, `npm test`,
+and `verify:package` exercise the control-plane package only. The incident and
+dependency inventory are recorded in
+[P0-R01](runtime-portability/P0-R01_INCIDENT_BASELINE.md).
+
 ## Clean Install
 
 ```bash
@@ -40,6 +47,9 @@ Verify the actual npm tarball in an isolated install directory:
 ```bash
 npm run verify:package
 ```
+
+This proves package-level portability only. It does not install or run an
+Agent Orchestrator daemon, OR, or Worker.
 
 Run the complete release candidate gate:
 

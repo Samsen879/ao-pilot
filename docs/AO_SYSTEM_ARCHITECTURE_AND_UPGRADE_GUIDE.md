@@ -15,6 +15,15 @@ source_documents:
   - AO_MULTI_WORKSTREAM.md
 ```
 
+> **2026-08-02 P0 superseding notice:** the `implementation_authorized: false`
+> field describes this earlier design snapshot; the Owner later authorized the
+> bounded P0 runtime portability recovery in issue #55. More importantly, prior
+> operational success on the old workstation does not prove fresh-clone
+> portability. `ao-pilot@0.2.0` is package-portable but the external runtime is
+> not yet locked, bootstrapped, or self-hosting-proven. The authoritative
+> correction is [P0-R01](runtime-portability/P0-R01_INCIDENT_BASELINE.md), and
+> the original #12–#54 chain is blocked until P0-R08 closes.
+
 > 这是一份面向非资深技术人员的系统说明书。它不替代底层 contract，也不授权开始实施。它的任务是用一套连贯的语言说明：AO 原来是什么、已经能做什么、真实项目中如何运行、为什么仍要升级，以及升级完成后整个系统会变成什么样。
 
 ## 1. 先用一句话理解 AO
@@ -63,7 +72,7 @@ AO 的核心价值不是“替 Agent 写更多代码”，而是让无人值守�
 
 最重要的边界是：
 
-> 当前系统已经稳定完成过至少上百个 issue 和数十条 parent issue chain。本轮升级不是为了证明 AO 能不能工作，而是为了让已经有效的运行方式更容易并行、更容易恢复、更容易沉淀经验，并减少同类 review blocker 重复出现。
+> 旧工作站上的系统已经稳定完成过至少上百个 issue 和数十条 parent issue chain；这证明既有环境中的运行实践，不证明 fresh clone 可恢复同一 runtime。本轮必须先通过 P0-R01–P0-R08 建立 operational portability 与新工作站 self-hosting，之后才允许启动原升级链。
 
 ## 3. AO 不是一个单体程序，而是三层系统
 

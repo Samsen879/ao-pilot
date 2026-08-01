@@ -1,5 +1,15 @@
 # AO Migration History
 
+## P0 runtime portability correction
+
+The independently installable package baseline did not establish operational
+runtime portability. A later P0 incident found no deterministic external
+runtime lock/bootstrap, no `ao-pilot start`, and an unverified PATH dependency
+in `scripts/ao/start-clean.sh`. Package/source separation remains accepted, but
+fresh-clone runtime recovery and self-hosting remain blocked until P0-R08. The
+full frozen/live ledger is in
+[P0-R01](runtime-portability/P0-R01_INCIDENT_BASELINE.md).
+
 ## Independent product baseline
 
 The public repository baseline removes documentation-contract tests that
