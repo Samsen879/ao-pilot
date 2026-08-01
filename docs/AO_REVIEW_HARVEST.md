@@ -23,6 +23,8 @@ filtered by its actual pull-request `merged_at`. A mismatch with
 `--expected-pr-count` writes `scope/COUNT_MISMATCH.json` and stops before formal
 normalization. Successful pages are content-addressed and never overwritten;
 `scope/checkpoint.json` makes a repeat invocation resume safely.
+Repository identity is captured independently from `GET /repos/{owner}/{repo}`,
+including for an exact window containing zero pull requests.
 
 The default reserve thresholds are Core 1500, GraphQL 1500, and Search 10.
 Concurrency is bounded to two. Primary and secondary limits honor reset or
@@ -38,9 +40,12 @@ npm run ao:harvest:reviews -- replay \
 ```
 
 Replay verifies every page reference, page sequence, raw SHA-256, redacted
-header set, and required per-PR endpoint before generating any normalized
-artifact. Missing or changed input fails closed. The snapshot timestamps are
-reused; replay does not create new output timestamps.
+header set, PR-reference-to-metadata relationship, and required per-PR endpoint
+before generating any normalized artifact. Missing or changed input fails
+closed. When the output differs from the source directory, replay copies the
+referenced content-addressed raw pages so the emitted manifest remains a usable
+offline replay root. The snapshot timestamps are reused; replay does not create
+new output timestamps.
 
 ## Deterministic classification boundary
 
@@ -49,7 +54,9 @@ Independent reviewer role and verdict require the versioned body protocol,
 reviewed HEAD, and an equal GitHub `commit_id`. A mismatch is `unknown`.
 Connector-bot P1/P2 inline comments are retained as
 `automated_inline_suggestion` evidence and excluded from primary blocker counts.
-No semantic NLP or model classifier is used.
+Exact-head verdicts recorded only as PR conversation comments are retained as
+`unknown` evidence with `head_binding: not_established`; they are not promoted
+to exact-head review rounds. No semantic NLP or model classifier is used.
 
 `first_detectable_stage` is only advanced when the finding text contains an
 explicit stage marker covered by a versioned rule. Otherwise it is

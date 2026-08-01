@@ -18,7 +18,7 @@ import {
 } from './github-client.js';
 import { validateSnapshotManifest } from './schemas.js';
 
-export const HARVESTER_VERSION = 'ao.review-harvester@0.1.0';
+export const HARVESTER_VERSION = 'ao.review-harvester@0.1.1';
 export const SNAPSHOT_MANIFEST_FILENAME = 'ao.github-review-snapshot-manifest.v1alpha1.json';
 const CHECKPOINT_VERSION = 'ao.github-review-harvest-checkpoint.v1alpha1';
 
@@ -252,6 +252,20 @@ export async function harvestGitHubReviewSnapshots({
 
   let manifest = null;
   try {
+    await guard.check('core');
+    const repositoryPage = await fetchPage({
+      requestId: buildRequestId('repository-metadata', 1),
+      endpoint: `/repos/${identity.owner}/${identity.repo}`,
+      parameters: {},
+      resource: 'core',
+      page: 1,
+    });
+    if (Array.isArray(repositoryPage.parsed)
+      || !Number.isInteger(repositoryPage.parsed?.id)
+      || repositoryPage.parsed.id <= 0
+      || String(repositoryPage.parsed?.full_name ?? '').toLowerCase() !== identity.fullName.toLowerCase()) {
+      throw new Error(`Invalid repository identity response for ${identity.fullName}`);
+    }
     await guard.check('search');
     const query = `repo:${identity.fullName} is:pr is:merged merged:${mergedAtStart.slice(0, 10)}..${new Date(Date.parse(mergedAtEndExclusive) - 1).toISOString().slice(0, 10)}`;
     const searchPages = await fetchPagination({
@@ -361,7 +375,7 @@ export async function harvestGitHubReviewSnapshots({
       schema_version: 'ao.github-review-snapshot-manifest.v1alpha1',
       target_repository_identity: {
         full_name: identity.fullName,
-        repository_id: Number(metadata[0]?.base?.repo?.id ?? metadata[0]?.head?.repo?.id ?? 0),
+        repository_id: repositoryPage.parsed.id,
       },
       selector: {
         merged_at_gte: mergedAtStart,
@@ -376,6 +390,7 @@ export async function harvestGitHubReviewSnapshots({
         order: 'asc',
         search_total_count: searchPages[0]?.parsed?.total_count ?? null,
         search_page_request_ids: searchPages.map((page) => page.record.request_id),
+        repository_metadata_request_id: repositoryPage.record.request_id,
         exact_filter_metadata_request_ids: exactPrs.map((pr) => buildRequestId(`pr-${String(pr.number).padStart(6, '0')}-metadata`, 1)),
       },
       exact_pr_numbers: exactPrNumbers,

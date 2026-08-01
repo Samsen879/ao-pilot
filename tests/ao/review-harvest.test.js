@@ -36,6 +36,7 @@ import {
 
 const HEAD_A = 'a'.repeat(40);
 const HEAD_B = 'b'.repeat(40);
+const HEAD_C = 'e'.repeat(40);
 const MERGE_SHA = 'c'.repeat(40);
 
 function tempDir() {
@@ -116,6 +117,7 @@ function createMockProvider({
     async get(endpoint, parameters = {}) {
       calls.push({ endpoint, parameters });
       if (endpoint === '/rate_limit') return rateResponse();
+      if (endpoint === '/repos/o/r') return response({ id: 999357095, full_name: 'o/r' });
       if (endpoint === failAlwaysEndpoint) {
         return response({ message: 'fixture failure' }, { status: 500, processStatus: 1 });
       }
@@ -179,6 +181,18 @@ describe('P0-A review harvester', () => {
     expect(hasNextPage({ link: '<x>; rel="next"' })).toBe(true);
   });
 
+  it('preserves independently fetched repository identity for an empty exact window', async () => {
+    const outputDir = tempDir();
+    const manifest = await networkFixture({
+      provider: createMockProvider({ prNumbers: [] }),
+      outputDir,
+      expectedPrCount: 0,
+    });
+    expect(manifest.enumerated_pr_count).toBe(0);
+    expect(manifest.target_repository_identity).toEqual({ full_name: 'o/r', repository_id: 999357095 });
+    expect(manifest.enumeration.repository_metadata_request_id).toBe('repository-metadata-page-0001');
+  });
+
   it('persists enumeration evidence and stops before finalization on expected-count mismatch', async () => {
     const outputDir = tempDir();
     await expect(networkFixture({
@@ -201,6 +215,7 @@ describe('P0-A review harvester', () => {
     const second = createMockProvider({ prNumbers: [1] });
     const manifest = await networkFixture({ provider: second, outputDir });
     expect(second.calls.some((call) => call.endpoint === '/search/issues')).toBe(false);
+    expect(second.calls.some((call) => call.endpoint === '/repos/o/r')).toBe(false);
     expect(second.calls.some((call) => call.endpoint === '/repos/o/r/pulls/1')).toBe(false);
     expect(second.calls.some((call) => call.endpoint === '/repos/o/r/pulls/1/commits')).toBe(false);
     expect(manifest.raw_snapshot.corpus_digest).toMatch(/^[a-f0-9]{64}$/);
@@ -353,6 +368,39 @@ describe('P0-A review harvester', () => {
     expect(classifyFirstDetectableStage('This preflight validator should reject it.')).toBe('worker_preflight');
   });
 
+  it('reconciles body findings with referenced inline findings without dropping either source', async () => {
+    const outputDir = tempDir();
+    const review = blockedReview({ findings: 1 });
+    review.body = `BLOCKED — independent exact-head code review\n\nReviewed head: \`${HEAD_A}\`\n\n## Blocking findings\n\n1. **First body finding.** Preserve this finding.\n\n2. **Second body finding.** Preserve this finding too.\n\n3. **New inline finding below.** The detailed evidence is attached inline.\n\n## Evidence\n\nDeterministic checks ran.`;
+    await networkFixture({
+      provider: createMockProvider({
+        reviewsByPr: { 1: [review] },
+        reviewCommentsByPr: {
+          1: [{
+            id: 88,
+            pull_request_review_id: review.id,
+            user: { login: 'Samsen879' },
+            body: '**[P2] Third inline finding**\n\nDetailed inline evidence.',
+            commit_id: HEAD_A,
+            created_at: review.submitted_at,
+          }],
+        },
+      }),
+      outputDir,
+    });
+    const replay = replayReviewHarvest({
+      manifestPath: path.join(outputDir, SNAPSHOT_MANIFEST_FILENAME),
+      outputDir,
+    });
+    expect(replay.artifacts.inventory.blockers).toHaveLength(3);
+    expect(replay.artifacts.baseline.per_pr_rounds[0].rounds[0].finding_count).toBe(3);
+    expect(replay.artifacts.inventory.blockers.map((finding) => finding.summary)).toEqual([
+      'First body finding',
+      'Second body finding',
+      '[P2] Third inline finding',
+    ]);
+  });
+
   it('requires correction HEAD plus fresh PASS for resolution and never infers resolution from merge', async () => {
     const resolvedDir = tempDir();
     await networkFixture({
@@ -379,6 +427,71 @@ describe('P0-A review harvester', () => {
     expect(unresolved.artifacts.inventory.blockers.every((blocker) => blocker.status === 'unresolved')).toBe(true);
   });
 
+  it('does not resolve a blocked successor head from a stale or unrelated PASS head', async () => {
+    for (const staleHead of [HEAD_A, HEAD_C]) {
+      const outputDir = tempDir();
+      await networkFixture({
+        provider: createMockProvider({
+          reviewsByPr: { 1: [blockedReview({ commitId: HEAD_B }), passReview({ commitId: staleHead })] },
+        }),
+        outputDir,
+      });
+      const replay = replayReviewHarvest({
+        manifestPath: path.join(outputDir, SNAPSHOT_MANIFEST_FILENAME),
+        outputDir,
+      });
+      expect(replay.artifacts.inventory.blockers.every((blocker) => blocker.status === 'unresolved')).toBe(true);
+      expect(replay.artifacts.baseline.correction_round_distribution.total_rounds).toBe(0);
+    }
+  });
+
+  it('retains exact-head conversation verdicts as unknown unbound evidence, not review rounds', async () => {
+    const outputDir = tempDir();
+    await networkFixture({
+      provider: createMockProvider({
+        issueCommentsByPr: {
+          1: [{
+            id: 55,
+            user: { login: 'Samsen879' },
+            created_at: '2026-07-15T10:00:00Z',
+            body: `## BLOCKING exact-head review — CHANGES REQUIRED\n\nGitHub cannot bind this conversation verdict to a review submission.\n\n- PR head: \`${HEAD_A}\``,
+          }],
+        },
+      }),
+      outputDir,
+    });
+    const replay = replayReviewHarvest({
+      manifestPath: path.join(outputDir, SNAPSHOT_MANIFEST_FILENAME),
+      outputDir,
+    });
+    expect(replay.artifacts.inventory.unbound_conversation_review_evidence_count).toBe(1);
+    expect(replay.artifacts.inventory.unbound_conversation_review_evidence[0]).toMatchObject({
+      verdict: 'BLOCKED',
+      declared_head_sha: HEAD_A,
+      github_commit_id: null,
+      head_binding: 'not_established',
+      classification: 'unknown',
+    });
+    expect(replay.artifacts.inventory.unknown_classification_count).toBe(1);
+    expect(replay.artifacts.baseline.review_round_distribution.total_rounds).toBe(0);
+  });
+
+  it('fails closed when a PR metadata page is bound to the wrong PR reference', async () => {
+    const outputDir = tempDir();
+    await networkFixture({
+      provider: createMockProvider({ prNumbers: [1, 2] }),
+      outputDir,
+      expectedPrCount: 2,
+    });
+    const manifestPath = path.join(outputDir, SNAPSHOT_MANIFEST_FILENAME);
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    [manifest.pull_requests[0].metadata_request_id, manifest.pull_requests[1].metadata_request_id]
+      = [manifest.pull_requests[1].metadata_request_id, manifest.pull_requests[0].metadata_request_id];
+    writeCanonicalJson(manifestPath, manifest);
+    expect(() => replayReviewHarvest({ manifestPath, outputDir: tempDir() }))
+      .toThrow('PR metadata endpoint binding mismatch');
+  });
+
   it('replays offline twice with identical output digests and fixed ordering', async () => {
     const sourceDir = tempDir();
     await networkFixture({
@@ -392,6 +505,12 @@ describe('P0-A review harvester', () => {
     expect(first.digests).toEqual(second.digests);
     expect(fs.readFileSync(path.join(firstDir, INVENTORY_FILENAME))).toEqual(fs.readFileSync(path.join(secondDir, INVENTORY_FILENAME)));
     expect(fs.readFileSync(path.join(firstDir, BASELINE_FILENAME))).toEqual(fs.readFileSync(path.join(secondDir, BASELINE_FILENAME)));
+    fs.rmSync(sourceDir, { recursive: true, force: true });
+    const third = replayReviewHarvest({
+      manifestPath: path.join(firstDir, SNAPSHOT_MANIFEST_FILENAME),
+      outputDir: tempDir(),
+    });
+    expect(third.digests).toEqual(first.digests);
   });
 
   it('fails closed when a referenced snapshot page is missing', async () => {

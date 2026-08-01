@@ -1,13 +1,13 @@
 {
   "blockers_per_blocking_round": {
     "histogram": {
-      "1": 10,
+      "1": 9,
       "2": 5,
-      "3": 3,
+      "3": 4,
       "4": 1,
       "5": 1
     },
-    "total_blockers": 38,
+    "total_blockers": 40,
     "total_blocking_rounds": 20
   },
   "blocking_round_distribution": {
@@ -43,11 +43,11 @@
   "generated_at": "2026-08-01T13:47:00.479Z",
   "harvester_version": "ao.review-harvester@0.1.0",
   "head_binding_coverage": {
-    "denominator": 57,
+    "denominator": 76,
     "numerator": 43,
-    "rate": 0.754386
+    "rate": 0.565789
   },
-  "normalizer_version": "ao.review-normalizer@0.1.0",
+  "normalizer_version": "ao.review-normalizer@0.1.1",
   "per_pr_rounds": [
     {
       "blocker_count": 0,
@@ -4467,7 +4467,7 @@
       ]
     },
     {
-      "blocker_count": 1,
+      "blocker_count": 3,
       "blocking_round_count": 1,
       "correction_round_count": 1,
       "first_pass_independent_review": false,
@@ -4482,7 +4482,7 @@
           "comment_refs": [
             "github-review-comment:3662897277"
           ],
-          "finding_count": 1,
+          "finding_count": 3,
           "github_actor_login": "Samsen879",
           "github_review_state": "COMMENTED",
           "head_binding": "exact",

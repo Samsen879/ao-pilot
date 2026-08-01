@@ -29,19 +29,26 @@ function assertArray(value, name) {
 export function validateSnapshotManifest(value) {
   assert(value?.schema_version === 'ao.github-review-snapshot-manifest.v1alpha1', 'snapshot schema_version');
   assertString(value?.target_repository_identity?.full_name, 'target_repository_identity.full_name');
-  assert(Number.isInteger(value?.target_repository_identity?.repository_id), 'target repository id');
+  assert(Number.isInteger(value?.target_repository_identity?.repository_id)
+    && value.target_repository_identity.repository_id > 0, 'target repository id');
   assertString(value?.selector?.merged_at_gte, 'selector.merged_at_gte');
   assertString(value?.selector?.merged_at_lt, 'selector.merged_at_lt');
   assertArray(value?.exact_pr_numbers, 'exact_pr_numbers');
+  assert(value.exact_pr_numbers.every((number, index) => Number.isInteger(number)
+    && number > 0
+    && (index === 0 || value.exact_pr_numbers[index - 1] < number)), 'exact_pr_numbers are unique and sorted');
   assert(value.enumerated_pr_count === value.exact_pr_numbers.length, 'enumerated count matches PR list');
   assertArray(value?.endpoint_pages, 'endpoint_pages');
   assertArray(value?.pull_requests, 'pull_requests');
+  assert(value.pull_requests.length === value.enumerated_pr_count, 'pull request refs match enumerated count');
+  assert(value.pull_requests.every((pr, index) => pr?.pr_number === value.exact_pr_numbers[index]), 'pull request refs match exact PR list');
   assertString(value?.harvester_version, 'harvester_version');
   for (const page of value.endpoint_pages) {
     assertString(page.request_id, 'endpoint page request_id');
     assertString(page.endpoint, 'endpoint page endpoint');
     assert(SHA256_PATTERN.test(page.body_sha256 ?? ''), 'endpoint page body_sha256');
     assertString(page.raw_path, 'endpoint page raw_path');
+    assert(!pathIsUnsafe(page.raw_path), 'endpoint page raw_path must stay within the manifest directory');
   }
   for (const pr of value.pull_requests) {
     assert(Number.isInteger(pr.pr_number), 'pull request number');
@@ -86,8 +93,29 @@ export function validateBlockInventory(value) {
   assert(value.source_coverage && typeof value.source_coverage === 'object', 'inventory source coverage');
   assert(value.protocol_marker_coverage && typeof value.protocol_marker_coverage === 'object', 'inventory protocol coverage');
   assert(value.head_binding_coverage && typeof value.head_binding_coverage === 'object', 'inventory head coverage');
+  assert(Number.isInteger(value.unbound_conversation_review_evidence_count), 'inventory unbound conversation evidence count');
+  assertArray(value.unbound_conversation_review_evidence, 'inventory unbound conversation evidence');
+  assert(value.unbound_conversation_review_evidence_count === value.unbound_conversation_review_evidence.length, 'inventory unbound conversation evidence count matches records');
+  for (const evidence of value.unbound_conversation_review_evidence) {
+    assert(evidence?.record_type === 'unbound_conversation_review_evidence', 'unbound conversation evidence record_type');
+    for (const field of ['evidence_protocol_version', 'repository', 'comment_ref', 'preservation_basis']) {
+      assertString(evidence?.[field], `unbound conversation evidence ${field}`);
+    }
+    assert(Number.isInteger(evidence?.pr_number), 'unbound conversation evidence pr_number');
+    assert(['BLOCKED', 'PASS'].includes(evidence?.verdict), 'unbound conversation evidence verdict');
+    assert(evidence?.classification === 'unknown', 'unbound conversation evidence classification');
+    assert(evidence?.head_binding === 'not_established', 'unbound conversation evidence head binding');
+    assert(SHA_PATTERN.test(evidence?.declared_head_sha ?? ''), 'unbound conversation evidence declared head');
+    assert(evidence?.github_commit_id == null, 'unbound conversation evidence github commit id');
+    assert(SHA256_PATTERN.test(evidence?.body_sha256 ?? ''), 'unbound conversation evidence body_sha256');
+  }
   value.blockers.forEach(validateBlockRecord);
   return value;
+}
+
+function pathIsUnsafe(value) {
+  const normalized = String(value).replace(/\\/g, '/');
+  return normalized.startsWith('/') || normalized.split('/').includes('..');
 }
 
 export function validateReviewRoundBaseline(value) {

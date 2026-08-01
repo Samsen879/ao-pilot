@@ -24,11 +24,15 @@ import {
   validateArtifacts,
   validateSnapshotManifest,
 } from './schemas.js';
-import { SNAPSHOT_MANIFEST_FILENAME } from './harvester.js';
+import {
+  isMergedInExactWindow,
+  SNAPSHOT_MANIFEST_FILENAME,
+} from './harvester.js';
 
 export const INVENTORY_FILENAME = 'ao.independent-review-block-inventory.v1alpha1.json';
 export const BASELINE_FILENAME = 'ao.review-round-baseline.v1alpha1.json';
-export const NORMALIZER_VERSION = 'ao.review-normalizer@0.1.0';
+export const NORMALIZER_VERSION = 'ao.review-normalizer@0.1.1';
+const CONVERSATION_EVIDENCE_PROTOCOL_VERSION = 'ao.conversation-exact-head-review-evidence.v1';
 
 const SECRET_PATTERNS = [
   /\bghp_[A-Za-z0-9]{20,}\b/,
@@ -149,14 +153,32 @@ export function loadSnapshotCorpus(manifestPath) {
   const prs = manifest.pull_requests.map((prRef) => {
     const metadataEntry = pageById.get(prRef.metadata_request_id);
     if (!metadataEntry || Array.isArray(metadataEntry.parsed)) throw new Error(`Missing PR metadata for #${prRef.pr_number}`);
+    const metadata = metadataEntry.parsed;
+    const expectedEndpoint = `/repos/${manifest.target_repository_identity.full_name}/pulls/${prRef.pr_number}`;
+    if (metadataEntry.record.endpoint !== expectedEndpoint) {
+      throw new Error(`PR metadata endpoint binding mismatch for #${prRef.pr_number}`);
+    }
+    if (Number(metadata.number) !== prRef.pr_number) {
+      throw new Error(`PR metadata number binding mismatch for #${prRef.pr_number}`);
+    }
+    if (String(metadata?.head?.sha ?? '').toLowerCase() !== prRef.head_sha.toLowerCase()) {
+      throw new Error(`PR metadata head binding mismatch for #${prRef.pr_number}`);
+    }
+    if (metadata.merged_at !== prRef.merged_at
+      || !isMergedInExactWindow(metadata, manifest.selector.merged_at_gte, manifest.selector.merged_at_lt)) {
+      throw new Error(`PR metadata merged_at binding mismatch for #${prRef.pr_number}`);
+    }
+    if ((metadata.merge_commit_sha ?? null) !== (prRef.merge_commit_sha ?? null)) {
+      throw new Error(`PR metadata merge commit binding mismatch for #${prRef.pr_number}`);
+    }
     const endpoints = prRef.endpoint_request_ids ?? {};
     const commits = requiredPages(endpoints.commits, `PR #${prRef.pr_number} commits`);
-    if (Number.isInteger(metadataEntry.parsed.commits) && commits.length !== metadataEntry.parsed.commits) {
-      throw new Error(`Incomplete commit snapshot for PR #${prRef.pr_number}: expected ${metadataEntry.parsed.commits}, found ${commits.length}`);
+    if (Number.isInteger(metadata.commits) && commits.length !== metadata.commits) {
+      throw new Error(`Incomplete commit snapshot for PR #${prRef.pr_number}: expected ${metadata.commits}, found ${commits.length}`);
     }
     return {
       ref: prRef,
-      metadata: metadataEntry.parsed,
+      metadata,
       commits,
       reviews: requiredPages(endpoints.reviews, `PR #${prRef.pr_number} reviews`),
       reviewComments: requiredPages(endpoints.review_comments, `PR #${prRef.pr_number} review comments`),
@@ -164,6 +186,10 @@ export function loadSnapshotCorpus(manifestPath) {
     };
   });
   if (prs.length !== manifest.enumerated_pr_count) throw new Error('PR corpus coverage does not match enumerated count');
+  const corpusNumbers = prs.map((source) => source.ref.pr_number);
+  if (canonicalJson(corpusNumbers) !== canonicalJson(manifest.exact_pr_numbers)) {
+    throw new Error('PR corpus identity does not match exact PR manifest');
+  }
   return { manifest, manifestPath, pageById, prs };
 }
 
@@ -204,12 +230,83 @@ function commentFinding(comment, ordinal) {
   };
 }
 
+function bodyFindingReferencesInline(finding, comments) {
+  const text = `${finding.summary ?? ''}\n${finding.detail ?? ''}`;
+  if (comments.some((comment) => {
+    const id = String(comment?.id ?? '');
+    return /^\d+$/.test(id) && new RegExp(`\\b${id}\\b`).test(text);
+  })) {
+    return true;
+  }
+  return comments.length > 0
+    && /\b(?:new|existing|see(?:\s+the)?)\s+inline\s+(?:finding|comment|thread)(?:\s+(?:below|above))?\b/i.test(text);
+}
+
+function mergeBlockingFindings(bodyFindings, inlineComments) {
+  const candidates = [
+    ...bodyFindings.filter((finding) => !bodyFindingReferencesInline(finding, inlineComments)),
+    ...inlineComments.map((comment, index) => commentFinding(comment, bodyFindings.length + index + 1)),
+  ];
+  const fingerprints = new Set();
+  return candidates
+    .filter((finding) => {
+      if (fingerprints.has(finding.finding_fingerprint)) return false;
+      fingerprints.add(finding.finding_fingerprint);
+      return true;
+    })
+    .map((finding, index) => ({ ...finding, ordinal: index + 1 }));
+}
+
+function conversationReviewEvidence(repository, prNumber, comment) {
+  if (isAutomatedActor(comment)) return null;
+  const protocol = parseIndependentReviewProtocol(comment);
+  const body = String(comment?.body ?? '').replace(/\\n/g, '\n').trim();
+  const deterministicMarker = protocol.verdict
+    && protocol.declared_head_sha
+    && /\bexact[- ]head\b/i.test(body.slice(0, 1200))
+    && /\breview\b/i.test(body.slice(0, 1200));
+  if (!deterministicMarker) return null;
+  return {
+    record_type: 'unbound_conversation_review_evidence',
+    evidence_protocol_version: CONVERSATION_EVIDENCE_PROTOCOL_VERSION,
+    repository,
+    pr_number: prNumber,
+    comment_ref: `github-issue-comment:${comment.id}`,
+    github_actor_login: comment?.user?.login ?? null,
+    verdict: protocol.verdict,
+    declared_head_sha: protocol.declared_head_sha,
+    github_commit_id: null,
+    head_binding: 'not_established',
+    classification: 'unknown',
+    review_role_basis: protocol.role_marker ? REVIEW_PROTOCOL_VERSION : 'not_established',
+    preservation_basis: 'conversation_comment_has_no_github_commit_id',
+    created_at: comment.created_at ?? null,
+    body_sha256: sha256Bytes(Buffer.from(body, 'utf8')),
+  };
+}
+
+function commitIndex(source) {
+  const result = new Map();
+  for (const [index, commit] of source.commits.entries()) {
+    const sha = String(commit?.sha ?? '').toLowerCase();
+    if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error(`Invalid commit SHA in PR #${source.metadata.number} snapshot`);
+    if (result.has(sha)) throw new Error(`Duplicate commit SHA in PR #${source.metadata.number} snapshot`);
+    result.set(sha, index);
+  }
+  return result;
+}
+
 function normalizePr(repository, source) {
   const prNumber = Number(source.metadata.number);
+  const commitPositions = commitIndex(source);
   const reviewCommentsByReview = new Map();
   let automatedSuggestionCount = 0;
   const automatedSuggestions = [];
   let automatedReviewSubmissionCount = 0;
+  const unboundConversationReviewEvidence = source.issueComments
+    .map((comment) => conversationReviewEvidence(repository, prNumber, comment))
+    .filter(Boolean)
+    .sort((left, right) => left.comment_ref.localeCompare(right.comment_ref));
   for (const comment of source.reviewComments) {
     if (isAutomatedInlineSuggestion(comment)) {
       automatedSuggestionCount += 1;
@@ -240,8 +337,8 @@ function normalizePr(repository, source) {
   }
 
   const sortedReviews = sortByTimeAndId(source.reviews);
-  let unknownCount = 0;
-  let protocolMarkerCount = 0;
+  let unknownCount = unboundConversationReviewEvidence.length;
+  let protocolMarkerCount = unboundConversationReviewEvidence.length;
   let exactHeadMarkerCount = 0;
   let sourceBlockingNotIndependentCount = 0;
   const rounds = [];
@@ -267,9 +364,9 @@ function normalizePr(repository, source) {
     const humanInlineComments = comments.filter((comment) => !isAutomatedActor(comment));
     const bodyFindings = extractBlockingFindings(review);
     const findings = material.protocol.verdict === 'BLOCKED'
-      ? (humanInlineComments.length
-        ? humanInlineComments.map((comment, index) => commentFinding(comment, index + 1))
-        : (bodyFindings.length ? bodyFindings : [fallbackFinding(review)]))
+      ? (bodyFindings.length || humanInlineComments.length
+        ? mergeBlockingFindings(bodyFindings, humanInlineComments)
+        : [fallbackFinding(review)])
       : [];
     rounds.push({
       review,
@@ -302,10 +399,12 @@ function normalizePr(repository, source) {
 
   rounds.forEach((round, roundIndex) => {
     if (round.protocol.verdict !== 'BLOCKED' || round.classification !== 'blocking') return;
+    const blockedPosition = commitPositions.get(round.protocol.commit_id);
     const laterPass = rounds.slice(roundIndex + 1).find((candidate) => (
       candidate.protocol.verdict === 'PASS'
       && candidate.protocol.head_binding === 'exact'
-      && candidate.protocol.commit_id !== round.protocol.commit_id
+      && blockedPosition != null
+      && (commitPositions.get(candidate.protocol.commit_id) ?? -1) > blockedPosition
     ));
     for (const finding of round.findings) {
       const roundId = roundRecords[roundIndex].review_round_id;
@@ -344,7 +443,12 @@ function normalizePr(repository, source) {
 
   const correctionRoundCount = rounds.filter((round, index) => (
     round.protocol.verdict === 'BLOCKED'
-    && rounds.slice(index + 1).some((candidate) => candidate.protocol.commit_id !== round.protocol.commit_id)
+    && rounds.slice(index + 1).some((candidate) => {
+      const blockedPosition = commitPositions.get(round.protocol.commit_id);
+      return candidate.protocol.head_binding === 'exact'
+        && blockedPosition != null
+        && (commitPositions.get(candidate.protocol.commit_id) ?? -1) > blockedPosition;
+    })
   )).length;
   const mergeMs = Date.parse(source.metadata.merged_at ?? '');
   const firstReviewMs = rounds.length ? Date.parse(rounds[0].review.submitted_at ?? '') : NaN;
@@ -361,6 +465,7 @@ function normalizePr(repository, source) {
     automatedSuggestionCount,
     automatedSuggestions,
     automatedReviewSubmissionCount,
+    unboundConversationReviewEvidence,
     sourceBlockingNotIndependentCount,
     correctionRoundCount,
     firstReviewToMergeSeconds,
@@ -426,6 +531,12 @@ export function normalizeSnapshotCorpus(corpus) {
       return left.comment_ref.localeCompare(right.comment_ref);
     });
   const automatedReviewSubmissionCount = normalizedPrs.reduce((sum, pr) => sum + pr.automatedReviewSubmissionCount, 0);
+  const unboundConversationReviewEvidence = normalizedPrs
+    .flatMap((pr) => pr.unboundConversationReviewEvidence)
+    .sort((left, right) => {
+      if (left.pr_number !== right.pr_number) return left.pr_number - right.pr_number;
+      return left.comment_ref.localeCompare(right.comment_ref);
+    });
   const sourceBlockingNotIndependentCount = normalizedPrs.reduce((sum, pr) => sum + pr.sourceBlockingNotIndependentCount, 0);
   const knowledgeChecks = {
     normalized_independent_review_blockers_gte_50: blockers.length >= 50,
@@ -462,6 +573,8 @@ export function normalizeSnapshotCorpus(corpus) {
     automated_inline_suggestion_count: automatedSuggestionCount,
     automated_inline_suggestions: automatedSuggestions,
     automated_review_submission_count: automatedReviewSubmissionCount,
+    unbound_conversation_review_evidence_count: unboundConversationReviewEvidence.length,
+    unbound_conversation_review_evidence: unboundConversationReviewEvidence,
     source_blocking_without_independent_role_count: sourceBlockingNotIndependentCount,
     recurring_patterns: recurringPatterns,
     blockers,
@@ -532,6 +645,22 @@ export function replayReviewHarvest({ manifestPath, outputDir }) {
   const corpus = loadSnapshotCorpus(manifestPath);
   const artifacts = normalizeSnapshotCorpus(corpus);
   fs.mkdirSync(outputDir, { recursive: true });
+  const manifestDir = path.dirname(manifestPath);
+  if (path.resolve(manifestDir) !== path.resolve(outputDir)) {
+    const rawPaths = [...new Set(artifacts.manifest.endpoint_pages.map((page) => page.raw_path))].sort();
+    for (const rawPath of rawPaths) {
+      const sourcePath = path.resolve(manifestDir, rawPath);
+      const destinationPath = path.resolve(outputDir, rawPath);
+      fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+      if (fs.existsSync(destinationPath)) {
+        const bytes = fs.readFileSync(destinationPath);
+        const expected = artifacts.manifest.endpoint_pages.find((page) => page.raw_path === rawPath).body_sha256;
+        if (sha256Bytes(bytes) !== expected) throw new Error(`Replay destination snapshot hash mismatch: ${rawPath}`);
+      } else {
+        fs.copyFileSync(sourcePath, destinationPath, fs.constants.COPYFILE_EXCL);
+      }
+    }
+  }
   writeCanonicalJson(path.join(outputDir, SNAPSHOT_MANIFEST_FILENAME), artifacts.manifest);
   writeCanonicalJson(path.join(outputDir, INVENTORY_FILENAME), artifacts.inventory);
   writeCanonicalJson(path.join(outputDir, BASELINE_FILENAME), artifacts.baseline);
