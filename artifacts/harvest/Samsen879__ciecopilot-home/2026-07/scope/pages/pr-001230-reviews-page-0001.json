@@ -1,0 +1,33 @@
+{
+  "body_sha256": "288548ad733a5670f51cf4c9b1bfd4b713aa1afe9a88bd4c27da5630cf06d325",
+  "endpoint": "/repos/Samsen879/ciecopilot-home/pulls/1230/reviews",
+  "etag": "W/\"fb282f80d99d9c31571a064ff89a184c3c634a8c54f53b4df85846aef72905b6\"",
+  "fetched_at": "2026-08-01T13:33:49.596Z",
+  "page": 1,
+  "pagination": {
+    "has_next": false,
+    "link": null
+  },
+  "parameters": {
+    "page": 1,
+    "per_page": 100
+  },
+  "raw_path": "raw/sha256/28/288548ad733a5670f51cf4c9b1bfd4b713aa1afe9a88bd4c27da5630cf06d325.json",
+  "request_id": "pr-001230-reviews-page-0001",
+  "resource": "core",
+  "response_headers": {
+    "content-type": "application/json; charset=utf-8",
+    "date": "Sat, 01 Aug 2026 13:33:49 GMT",
+    "etag": "W/\"fb282f80d99d9c31571a064ff89a184c3c634a8c54f53b4df85846aef72905b6\"",
+    "x-github-api-version-selected": "2022-11-28",
+    "x-github-media-type": "github.v3; format=json",
+    "x-github-request-id": "C688:DB013:4B1885A:4CD8E07:6A6DF5BC",
+    "x-ratelimit-limit": "5000",
+    "x-ratelimit-remaining": "4721",
+    "x-ratelimit-reset": "1785593696",
+    "x-ratelimit-resource": "core",
+    "x-ratelimit-used": "279"
+  },
+  "response_status": 200,
+  "uncompressed_byte_length": 7466
+}

@@ -51,6 +51,7 @@
     "ao:doctor:strict:pr": "node scripts/ao-doctor.js --json --strict --pr",
     "ao:eval": "node scripts/ao-eval.js",
     "ao:handoff": "node scripts/ao-handoff.js",
+    "ao:harvest:reviews": "node scripts/ao-review-harvest.js",
     "ao:init": "node scripts/ao-init.js",
     "ao:knowledge": "node scripts/ao-knowledge.js",
     "ao:lifecycle": "node scripts/ao-lifecycle.js",
