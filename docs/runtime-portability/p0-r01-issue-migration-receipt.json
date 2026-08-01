@@ -1,0 +1,557 @@
+{
+  "schema_version": "ao-pilot.issue-migration-receipt.v1",
+  "artifact_path": "docs/runtime-portability/p0-r01-issue-migration-receipt.json",
+  "repository": "Samsen879/ao-pilot",
+  "migration": "P0 Bootstrap Lane insertion",
+  "observed_main_sha": "e51bef40ccd124939b2781b14af3297e856c6f17",
+  "observed_main_tree": "67aa09d8b11a6532876353f500df7fb529e4d9b5",
+  "p0_parent": 55,
+  "p0_children": [
+    {
+      "code": "P0-R01",
+      "issue_number": 56,
+      "url": "https://github.com/Samsen879/ao-pilot/issues/56"
+    },
+    {
+      "code": "P0-R02",
+      "issue_number": 57,
+      "url": "https://github.com/Samsen879/ao-pilot/issues/57"
+    },
+    {
+      "code": "P0-R03",
+      "issue_number": 58,
+      "url": "https://github.com/Samsen879/ao-pilot/issues/58"
+    },
+    {
+      "code": "P0-R04",
+      "issue_number": 59,
+      "url": "https://github.com/Samsen879/ao-pilot/issues/59"
+    },
+    {
+      "code": "P0-R05",
+      "issue_number": 60,
+      "url": "https://github.com/Samsen879/ao-pilot/issues/60"
+    },
+    {
+      "code": "P0-R06",
+      "issue_number": 61,
+      "url": "https://github.com/Samsen879/ao-pilot/issues/61"
+    },
+    {
+      "code": "P0-R07",
+      "issue_number": 62,
+      "url": "https://github.com/Samsen879/ao-pilot/issues/62"
+    },
+    {
+      "code": "P0-R08",
+      "issue_number": 63,
+      "url": "https://github.com/Samsen879/ao-pilot/issues/63"
+    }
+  ],
+  "validation": {
+    "targeted_updates": 45,
+    "live_exact_matches": 45,
+    "intake_issues_checked": 54,
+    "heading_contract": "exactly once",
+    "serial_manifest": "P0 1/8 through 8/8; original chain 9/51 through 51/51",
+    "result": "PASS"
+  },
+  "issues": [
+    {
+      "issue_number": 7,
+      "old_position": null,
+      "new_position": null,
+      "old_predecessor": null,
+      "new_predecessor": "#55 P0 Bootstrap Lane before #8; #63 terminal before #12",
+      "old_body_sha256": "6d9adf4ee89c8d4ce1ba6d3bb75b569a211c1aad1f100bf376bc2fef2e383aa9",
+      "body_sha256": "926c2b44226d6b1fd6b64db595b746daf855d2032a356fff2bb0b00e9d92a22e",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:13:10Z"
+    },
+    {
+      "issue_number": 8,
+      "old_position": null,
+      "new_position": null,
+      "old_predecessor": "none",
+      "new_predecessor": "#63 P0-R08 terminal closeout",
+      "old_body_sha256": "218ee096f4c41a91da0156ccb8aaa465f3e82b03761bc60a2e078cf780705f11",
+      "body_sha256": "0235f7c6060e068ce5f17a01b46525aa3fcd3a5a7ac93459518ef8de644b056d",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:13:14Z"
+    },
+    {
+      "issue_number": 12,
+      "old_position": "1/43",
+      "new_position": "9/51",
+      "old_predecessor": "none — first admitted implementation task",
+      "new_predecessor": "#63 — P0-R08 terminal closeout",
+      "old_body_sha256": "6e158e7f6c29d3718c527aa4bce4fa68727a44dab9f435a0749f00f45c7ab6f8",
+      "body_sha256": "b4927ec13c28e7d307f2871b2d43e0d2083cc80aecab841423848af5f86c2631",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:13:18Z"
+    },
+    {
+      "issue_number": 13,
+      "old_position": "2/43",
+      "new_position": "10/51",
+      "old_predecessor": "#12",
+      "new_predecessor": "#12",
+      "old_body_sha256": "6837318afbb9b96df9e14b9359097514328dcf748c510504394e3925d798e3cf",
+      "body_sha256": "814f89f985e5ef7a71727151583b80ed7f772b24ee7a7e61ff466be754e35a22",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:13:24Z"
+    },
+    {
+      "issue_number": 14,
+      "old_position": "3/43",
+      "new_position": "11/51",
+      "old_predecessor": "#13",
+      "new_predecessor": "#13",
+      "old_body_sha256": "4376bc18c59430d8cc7cfac8f0f68930004f679f26641b546fd94c497cab12e8",
+      "body_sha256": "19dac9de38df553ee5d6099b68900570fdcf90fb34acedbb9faa8d98646f146c",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:13:28Z"
+    },
+    {
+      "issue_number": 15,
+      "old_position": "4/43",
+      "new_position": "12/51",
+      "old_predecessor": "#14",
+      "new_predecessor": "#14",
+      "old_body_sha256": "3073f0aaeb81327ee8513e2d38fcfa46f83a6281d724900ea8a169e43d1064ba",
+      "body_sha256": "fefb6e8ca4d0c24749d4cd1a7c380da006113da64f51f62a85ec8611ff12f31a",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:13:31Z"
+    },
+    {
+      "issue_number": 16,
+      "old_position": "5/43",
+      "new_position": "13/51",
+      "old_predecessor": "#15",
+      "new_predecessor": "#15",
+      "old_body_sha256": "ac07309aebfc47296a9f23f590d3218ccde934bf35b594f1dfeebfdb1893b7cb",
+      "body_sha256": "be82c484abaaec098b57e7ce90dfad422220c35828e6f3fd044dfce17611cacf",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:13:36Z"
+    },
+    {
+      "issue_number": 17,
+      "old_position": "6/43",
+      "new_position": "14/51",
+      "old_predecessor": "#16",
+      "new_predecessor": "#16",
+      "old_body_sha256": "de5a6306011dedf07d9dbd0c2a834815fbe8c29f1dbb67607174344bd41b9bdf",
+      "body_sha256": "66d0c4f02ad81e6d541c8f9a97aa975a3f7c0587df5505a9a83a3e9ba6cf8931",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:13:44Z"
+    },
+    {
+      "issue_number": 18,
+      "old_position": "7/43",
+      "new_position": "15/51",
+      "old_predecessor": "#17",
+      "new_predecessor": "#17",
+      "old_body_sha256": "4f0f0fc8c5a5cfad716f04c7762a53850e6f209211e3c49c4b9fe192c8da7655",
+      "body_sha256": "7a51b5bbd9214fa41d06cf77ef725babf6a92c89c68d5be9acb12c28a856df7b",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:13:49Z"
+    },
+    {
+      "issue_number": 19,
+      "old_position": "8/43",
+      "new_position": "16/51",
+      "old_predecessor": "#18",
+      "new_predecessor": "#18",
+      "old_body_sha256": "4c7e362f8b39429e825bb0eefb7a2fe5fe76ed74efbff391ea5034af1d1c3a31",
+      "body_sha256": "6f5237098f61be1538004c98d8af584fbb9e7ca56d80ca50345fece8ad7ee544",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:13:53Z"
+    },
+    {
+      "issue_number": 20,
+      "old_position": "9/43",
+      "new_position": "17/51",
+      "old_predecessor": "#19",
+      "new_predecessor": "#19",
+      "old_body_sha256": "0ae45548b654f2304da1eb95e0b955d5ae14679743a7dc143dca7ce40ccfe8ca",
+      "body_sha256": "1493fe7990f65ac667c102fcb75b2489e004ff34c4e3239093c03f1865c6e5d6",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:13:59Z"
+    },
+    {
+      "issue_number": 21,
+      "old_position": "10/43",
+      "new_position": "18/51",
+      "old_predecessor": "#20",
+      "new_predecessor": "#20",
+      "old_body_sha256": "e257b1d801ad182f3cd2b87b1daa69d1c6ed21c707bdfd96d42336656c03d6a0",
+      "body_sha256": "e8a3d500f10a80294c72d87daca2e6d12dd16d9123006d2dc92c3b46eb485a8f",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:14:04Z"
+    },
+    {
+      "issue_number": 22,
+      "old_position": "11/43",
+      "new_position": "19/51",
+      "old_predecessor": "#21",
+      "new_predecessor": "#21",
+      "old_body_sha256": "e2e32e900837f71260a5af10938f39c76d52cbd6131e19a57d02ea4c95376d92",
+      "body_sha256": "ff49d9baedfe76905dc07cd839d16a22bc33f8e0998fc46007e5921edad607c5",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:14:09Z"
+    },
+    {
+      "issue_number": 23,
+      "old_position": "12/43",
+      "new_position": "20/51",
+      "old_predecessor": "#22",
+      "new_predecessor": "#22",
+      "old_body_sha256": "facf937aa07688df24d04cf107dc8766abd17fff4d65cb7816d8a9e099e5c465",
+      "body_sha256": "5c6331bdee40bf957c21db09b012be43cd1e113bc108ea9b55fb01b553a558be",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:14:14Z"
+    },
+    {
+      "issue_number": 24,
+      "old_position": "13/43",
+      "new_position": "21/51",
+      "old_predecessor": "#23",
+      "new_predecessor": "#23",
+      "old_body_sha256": "1151a8fb90a09822150e3a7aa3e58575c6c238d5731113574373194c9f22e6f1",
+      "body_sha256": "b468fab2758057d6a4edc7ab67c43765ba1ea3325481e7039aa20ef91e980042",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:14:21Z"
+    },
+    {
+      "issue_number": 25,
+      "old_position": "14/43",
+      "new_position": "22/51",
+      "old_predecessor": "#24",
+      "new_predecessor": "#24",
+      "old_body_sha256": "7b9ecfc3fe503d7eda896af8372bce7e04b8adbca47b0acda821a9374fd29c04",
+      "body_sha256": "b7c30804ffa9669b5a26ec48edfc083b2c9e5d5d9fa08a16fa5ced12e107cca0",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:14:25Z"
+    },
+    {
+      "issue_number": 26,
+      "old_position": "15/43",
+      "new_position": "23/51",
+      "old_predecessor": "#25",
+      "new_predecessor": "#25",
+      "old_body_sha256": "354d6ab86337c347bcc2b154c99971eb9cd20649d6604f11850c7a83799395fa",
+      "body_sha256": "5998acfc3e9ef0e0bb3ea51a06b5e04d2a676f9150178387bf89888f325076b1",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:14:28Z"
+    },
+    {
+      "issue_number": 27,
+      "old_position": "16/43",
+      "new_position": "24/51",
+      "old_predecessor": "#26",
+      "new_predecessor": "#26",
+      "old_body_sha256": "32509e76ef2db54d54a72b306beb3fe8c3dd8445231c6a46ea67a6b99e8b28fe",
+      "body_sha256": "1fd8089b9e720e6af43ae0950d8085279fc7893393f2f4a43a6aaf1f797496ab",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:14:36Z"
+    },
+    {
+      "issue_number": 28,
+      "old_position": "17/43",
+      "new_position": "25/51",
+      "old_predecessor": "#27",
+      "new_predecessor": "#27",
+      "old_body_sha256": "2c99faba388c8db282a00359ae37b1a7fd006449788da3cac0a2942227ea12a3",
+      "body_sha256": "e8884688b5babc28c10f965c5a476cbb90cd39087d8a9449fa92f9fc642e7e50",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:14:40Z"
+    },
+    {
+      "issue_number": 29,
+      "old_position": "18/43",
+      "new_position": "26/51",
+      "old_predecessor": "#28",
+      "new_predecessor": "#28",
+      "old_body_sha256": "85d80a62288f678920dea7d830c35c241daf9c74f39a5c1009b6f57fa0a50941",
+      "body_sha256": "e0cfb5c25d67ea3482c6ac0ab86a1de67c693c749b16cc4187ecdc87ffc5eca8",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:14:47Z"
+    },
+    {
+      "issue_number": 30,
+      "old_position": "19/43",
+      "new_position": "27/51",
+      "old_predecessor": "#29",
+      "new_predecessor": "#29",
+      "old_body_sha256": "eb9a92c3982f7c6fcdd571efe382d2b5b36ca09443467a176df9b282f56b45b5",
+      "body_sha256": "0830bea498e90317107ca1285c4fd2b279dba6d6270ef9556722d6405010b0fd",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:14:53Z"
+    },
+    {
+      "issue_number": 31,
+      "old_position": "20/43",
+      "new_position": "28/51",
+      "old_predecessor": "#30",
+      "new_predecessor": "#30",
+      "old_body_sha256": "6cfcb42840bd74883f288230d6dfd61a3f9f8e1bf42dde326608036f1e85c828",
+      "body_sha256": "844c6bc4759f313fce304808e2b649961656fbca83e4158a3a59c499a095c8f7",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:14:57Z"
+    },
+    {
+      "issue_number": 32,
+      "old_position": "21/43",
+      "new_position": "29/51",
+      "old_predecessor": "#31",
+      "new_predecessor": "#31",
+      "old_body_sha256": "42ce43fffebe3ffa1f0e14e2a129471514aaa1c31ae2792d8a27081185d6343d",
+      "body_sha256": "f8cb9a31d4dfb202bec59d31ae24981f05f8d0758948fe6073639cd6cf6ff59e",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:15:01Z"
+    },
+    {
+      "issue_number": 33,
+      "old_position": "22/43",
+      "new_position": "30/51",
+      "old_predecessor": "#32",
+      "new_predecessor": "#32",
+      "old_body_sha256": "3f75726468122a3ef96b195c6e76c1e31529205594ac9e5157e6c3485de53fb2",
+      "body_sha256": "d40b644777619aa293d36dc8087fc6d635981a69e39e529f7b1236314f82981e",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:15:07Z"
+    },
+    {
+      "issue_number": 34,
+      "old_position": "23/43",
+      "new_position": "31/51",
+      "old_predecessor": "#33",
+      "new_predecessor": "#33",
+      "old_body_sha256": "55bf5ffc7b1eec2a9d7e8a62f75f2a56429e089bacdfcffa292387366334a59d",
+      "body_sha256": "4393291d6d952e8b9c95fb4514421b78adb5d38f63ef555d243a006262851330",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:15:10Z"
+    },
+    {
+      "issue_number": 35,
+      "old_position": "24/43",
+      "new_position": "32/51",
+      "old_predecessor": "#34",
+      "new_predecessor": "#34",
+      "old_body_sha256": "22b7ee13ef08cc52ba0f8976e7777ab7113236e85c0b20ff7c4940e224fafaa9",
+      "body_sha256": "a3ca0a1f74173226e0e043aff67663cea1a865b15b51bb6ff739fcb166fe2b35",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:15:14Z"
+    },
+    {
+      "issue_number": 36,
+      "old_position": "25/43",
+      "new_position": "33/51",
+      "old_predecessor": "#35",
+      "new_predecessor": "#35",
+      "old_body_sha256": "726ea33821bdbc0cae1c296bb83450b79a6f7897d8ac5fe38baa4cdc56a3137f",
+      "body_sha256": "1e9f6ac2e8710a181e11262b0c771e212ddf859fad9c0febad0ecfdba7290282",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:15:17Z"
+    },
+    {
+      "issue_number": 37,
+      "old_position": "26/43",
+      "new_position": "34/51",
+      "old_predecessor": "#36",
+      "new_predecessor": "#36",
+      "old_body_sha256": "12bf37fca5b19463e31a8c3916f8ca63bab97e59e44cd345e68f42fdd3ddd706",
+      "body_sha256": "6d1fcba8b9d1b415e1a1f480e12593c974b243d118d04810425a0ba2777fc6a3",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:15:20Z"
+    },
+    {
+      "issue_number": 38,
+      "old_position": "27/43",
+      "new_position": "35/51",
+      "old_predecessor": "#37",
+      "new_predecessor": "#37",
+      "old_body_sha256": "0ed9e20fd60a5ebf93e178c657317c4c93f893c803dd0f5e2dc1ec3d3818b04b",
+      "body_sha256": "d74a5a9ea411938037d4b63dc4d15f72d20e7b6c12683c4c9bddeae4ff360be2",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:15:24Z"
+    },
+    {
+      "issue_number": 39,
+      "old_position": "28/43",
+      "new_position": "36/51",
+      "old_predecessor": "#38",
+      "new_predecessor": "#38",
+      "old_body_sha256": "5faa6e9b8e19d64a530769fb2f7ee163bb3ee6e8f26da25b32a63d64410b8793",
+      "body_sha256": "ea8ff0bec56bdaa24709fea826c6aa0acd4ea05f8e9fe2919b7d5ce0fb1d8f71",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:15:27Z"
+    },
+    {
+      "issue_number": 40,
+      "old_position": "29/43",
+      "new_position": "37/51",
+      "old_predecessor": "#39",
+      "new_predecessor": "#39",
+      "old_body_sha256": "97c63a7fd8dc2b5f3999e2bc0bbee71fc0b60959168aa602db3e95443a57a4f9",
+      "body_sha256": "3eaf5b227714b8ceb5d931becabb601023b56540cb6bfbab481088418d167a7c",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:15:31Z"
+    },
+    {
+      "issue_number": 41,
+      "old_position": "30/43",
+      "new_position": "38/51",
+      "old_predecessor": "#40",
+      "new_predecessor": "#40",
+      "old_body_sha256": "895a9fcc82d272f5971b6fa745652c87f002a9e561ac7774dbd5dd226410b211",
+      "body_sha256": "96c1dd0624ec112fa99ec5f1ada8fd6eb8d4cdfbecfbccc6b0e0f74e85e979fb",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:15:34Z"
+    },
+    {
+      "issue_number": 42,
+      "old_position": "31/43",
+      "new_position": "39/51",
+      "old_predecessor": "#41",
+      "new_predecessor": "#41",
+      "old_body_sha256": "968bb33eaae17d41846810dbd6dffbfe6bb03d8ad993fea22bed2828e6265d60",
+      "body_sha256": "e69b180fa8e8eb53819abe151258187ace785f1d7d0cfec85f228e7bdb9a6877",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:15:38Z"
+    },
+    {
+      "issue_number": 43,
+      "old_position": "32/43",
+      "new_position": "40/51",
+      "old_predecessor": "#42",
+      "new_predecessor": "#42",
+      "old_body_sha256": "5d86360842410577d67f52ab6667539117a996087761799f821eb100516b9d88",
+      "body_sha256": "3f97422bb33a477fbdf4bb8fd48242367a8cd2ed03da63a5615be44413c13ae9",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:15:44Z"
+    },
+    {
+      "issue_number": 44,
+      "old_position": "33/43",
+      "new_position": "41/51",
+      "old_predecessor": "#43",
+      "new_predecessor": "#43",
+      "old_body_sha256": "1f2c73b62776272f35ec00545cd672c04a62ca1f3d1e4925d766c2d58cd4b001",
+      "body_sha256": "2ed9dda76b80a6eb8a1cb221c1c930ed23b23474455960673ce0db0748631321",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:15:49Z"
+    },
+    {
+      "issue_number": 45,
+      "old_position": "34/43",
+      "new_position": "42/51",
+      "old_predecessor": "#44",
+      "new_predecessor": "#44",
+      "old_body_sha256": "15a5fd5ed6526efdccfe052f6e0ab762eea65c9d43953b27c281731d895006c6",
+      "body_sha256": "ea63f0c881a6188f61e59234b46960ec28d598283f7f6b9432ff7b5c0386bed9",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:15:53Z"
+    },
+    {
+      "issue_number": 46,
+      "old_position": "35/43",
+      "new_position": "43/51",
+      "old_predecessor": "#45",
+      "new_predecessor": "#45",
+      "old_body_sha256": "3c929e5aca70f2dcbfedb1c6fee2ca26d0c744df18dbd60355fe10dd858d777a",
+      "body_sha256": "6c06abfdaf5deb388f373fbbaad7bda2fa88551f892f2f6c99ec4d8b86ce9df2",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:15:57Z"
+    },
+    {
+      "issue_number": 47,
+      "old_position": "36/43",
+      "new_position": "44/51",
+      "old_predecessor": "#46",
+      "new_predecessor": "#46",
+      "old_body_sha256": "9d1e3782d8ef9ce1a422a2c6e36337fa7e8d80bee0c00948990381a840e2870f",
+      "body_sha256": "f64e566de6eca9884653651f41833eb63e53034167e23e69105ee51925a77c2f",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:16:00Z"
+    },
+    {
+      "issue_number": 48,
+      "old_position": "37/43",
+      "new_position": "45/51",
+      "old_predecessor": "#47",
+      "new_predecessor": "#47",
+      "old_body_sha256": "3dbdc34a617c625d1d2e6cccce82b88f3d47349a9a03c25fb45cf10cfcd14050",
+      "body_sha256": "0cba0caa6f0b13169cff90c4b5c77f1c109e54cc57be05a19c64f21421106fc6",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:16:04Z"
+    },
+    {
+      "issue_number": 49,
+      "old_position": "38/43",
+      "new_position": "46/51",
+      "old_predecessor": "#48",
+      "new_predecessor": "#48",
+      "old_body_sha256": "3b6aba1ec6b0a15c050e35f1dd10135e969e0d0b0f80875516fc4cf5143ccea8",
+      "body_sha256": "efd0653576738c50686bb99f683fa4e5e5e2bce3f9d468bca78a7704c67b9e91",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:16:10Z"
+    },
+    {
+      "issue_number": 50,
+      "old_position": "39/43",
+      "new_position": "47/51",
+      "old_predecessor": "#49",
+      "new_predecessor": "#49",
+      "old_body_sha256": "4c97b270473a5e6c37a05de7f69bf81a2f8736fd23b2fdbec63c1fe207a5ecbd",
+      "body_sha256": "0e2acbd97d51dbb175943d1dd2a02655ea5dfd1e748b8d751438c4299a7310ad",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:16:13Z"
+    },
+    {
+      "issue_number": 51,
+      "old_position": "40/43",
+      "new_position": "48/51",
+      "old_predecessor": "#50",
+      "new_predecessor": "#50",
+      "old_body_sha256": "bc4c1aae1b0c3f47c61f80f659517039471ad860cc8af5c7d39343c39f4e18de",
+      "body_sha256": "2212f85ff0e9fe51f9b78270c9b937ebc120b091b1d85d6d2ff139dada0041ca",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:16:17Z"
+    },
+    {
+      "issue_number": 52,
+      "old_position": "41/43",
+      "new_position": "49/51",
+      "old_predecessor": "#51",
+      "new_predecessor": "#51",
+      "old_body_sha256": "bbdf184e35baad12255d160957bf7da946169037e381834b4c2afa35d7220460",
+      "body_sha256": "ce996d567796a14d8233250f7aa9acaf5c241aa7ba4e54df95e5746ce6ffbed0",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:16:21Z"
+    },
+    {
+      "issue_number": 53,
+      "old_position": "42/43",
+      "new_position": "50/51",
+      "old_predecessor": "#52",
+      "new_predecessor": "#52",
+      "old_body_sha256": "e551d958be9e3a5f49c7858d0163a199ac9c8f0cf09cb09fa215e2197dc128ae",
+      "body_sha256": "ea7d496b692c794af0e4b910567c4b15be95f5b463d0706939f330755550b1ed",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:16:24Z"
+    },
+    {
+      "issue_number": 54,
+      "old_position": "43/43",
+      "new_position": "51/51",
+      "old_predecessor": "#53",
+      "new_predecessor": "#53",
+      "old_body_sha256": "170c6ad92f6edc101dc221512e3b15884cb7f9f5a01001e8c11c3bb52fd7d07c",
+      "body_sha256": "909810a2bf97068fbf987014c04981129cab19da83ddaad06703de51541f9c30",
+      "update_result": "verified_live",
+      "live_updated_at": "2026-08-01T17:16:30Z"
+    }
+  ],
+  "github_comment": "https://github.com/Samsen879/ao-pilot/issues/56#issuecomment-5152517180"
+}

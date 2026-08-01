@@ -1,5 +1,12 @@
 # AO Pilot Canonical Consolidation and CIE Embedded AO Cutover
 
+> **Superseding operational-portability clarification (2026-08-02):** this
+> report remains authoritative for the generic source/package consolidation it
+> audited. It did not prove deterministic external runtime bootstrap or
+> fresh-workstation self-hosting. See
+> [`07-runtime-portability-erratum.md`](07-runtime-portability-erratum.md) and
+> the [P0-R01 incident baseline](../../runtime-portability/P0-R01_INCIDENT_BASELINE.md).
+
 ## 1. Executive Summary
 
 **Verdict: `PASS_WITH_EXPLICIT_LIMITATIONS`.**
