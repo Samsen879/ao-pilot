@@ -49,6 +49,23 @@ describe('P0-R01 runtime portability incident inventory', () => {
     expect(() => validateIncidentInventory(inventory)).toThrow(/local runtime commit ledger drifted/);
   });
 
+  it('fails if the frozen repository snapshot changes consistently', () => {
+    const inventory = readJson('docs/runtime-portability/p0-r01-incident-inventory.json');
+    inventory.frozen_observation.ao_pilot_main_sha =
+      'ffffffffffffffffffffffffffffffffffffffff';
+    inventory.live_observation.ao_pilot.main_sha =
+      'ffffffffffffffffffffffffffffffffffffffff';
+    expect(() => validateIncidentInventory(inventory)).toThrow(/frozen main SHA drifted/);
+  });
+
+  it('fails if an observed upstream artifact coordinate changes', () => {
+    const inventory = readJson('docs/runtime-portability/p0-r01-incident-inventory.json');
+    inventory.live_observation.official_runtime.npm_linux_x64.integrity = 'sha512-corrupt';
+    expect(() => validateIncidentInventory(inventory)).toThrow(
+      /official runtime artifact identity drifted/,
+    );
+  });
+
   it('fails if the original chain loses its exact serial or predecessor migration', () => {
     const receipt = readJson('docs/runtime-portability/p0-r01-issue-migration-receipt.json');
     const issue12 = receipt.issues.find((entry) => entry.issue_number === 12);
@@ -60,6 +77,20 @@ describe('P0-R01 runtime portability incident inventory', () => {
     const receipt = readJson('docs/runtime-portability/p0-r01-issue-migration-receipt.json');
     receipt.issues[0].issue_number = 9;
     expect(() => validateIssueMigrationReceipt(receipt)).toThrow(/migration issue sequence mismatch/);
+  });
+
+  it('fails if a migration body digest is replaced with another valid-looking digest', () => {
+    const receipt = readJson('docs/runtime-portability/p0-r01-issue-migration-receipt.json');
+    receipt.issues[0].body_sha256 = 'f'.repeat(64);
+    expect(() => validateIssueMigrationReceipt(receipt)).toThrow(
+      /migration body digest ledger drifted/,
+    );
+  });
+
+  it('fails if the special issue 7 or 8 predecessor migration changes', () => {
+    const receipt = readJson('docs/runtime-portability/p0-r01-issue-migration-receipt.json');
+    receipt.issues.find((entry) => entry.issue_number === 8).new_predecessor = '#55';
+    expect(() => validateIssueMigrationReceipt(receipt)).toThrow(/#8 predecessor migration mismatch/);
   });
 
   it('fails if package portability is promoted to runtime portability', () => {

@@ -1,11 +1,36 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 
 export const INCIDENT_SCHEMA_VERSION = 'ao.runtime-portability-incident.v1';
 export const MIGRATION_SCHEMA_VERSION = 'ao-pilot.issue-migration-receipt.v1';
 
 const SHA40 = /^[a-f0-9]{40}$/;
 const SHA64 = /^[a-f0-9]{64}$/;
+const EXPECTED_AO_PILOT_MAIN_SHA = 'e51bef40ccd124939b2781b14af3297e856c6f17';
+const EXPECTED_AO_PILOT_TREE_SHA = '67aa09d8b11a6532876353f500df7fb529e4d9b5';
+const EXPECTED_MIGRATION_BODY_LEDGER_SHA256 =
+  '37bebf141ece71ced8f02d029e5242e00fc828882e7b5cd3a07a4cbe7fc4d0e4';
+
+const EXPECTED_OFFICIAL_RUNTIME = Object.freeze({
+  canonical_repository: 'https://github.com/Untrivial-ai/agent-orchestrator',
+  main_sha: '4a907abda23db81865e594f2e00b3c0cef4cc3ee',
+  main_tree_sha: '8b9f57b938a7f0e9f5ef29a7663e748f8c1ec47a',
+  stable_tag: 'v0.11.2',
+  stable_commit: 'c5523a6d0e51251b79555b95ddc7d2be59da0f50',
+  stable_tree: '6784a292cb54c4a2031ede6cfeaee9a4bb1cd104',
+  wrapper_name: '@aoagents/ao',
+  wrapper_version: '0.10.3',
+  wrapper_bin: Object.freeze({ ao: 'bin/ao.js' }),
+  wrapper_integrity:
+    'sha512-La3w8jv2AJV0GoekWzTEav7ZaQnw1xhnZmfwooXwLVGGuX1BV6vCT56P7xzUrfRPFJ+BuGMRuSqyftMVo6JzyQ==',
+  wrapper_shasum: 'aded3adbbb5e6a18cbf19865c17a287b45e5e549',
+  linux_name: '@aoagents/ao-linux-x64',
+  linux_version: '0.10.3',
+  linux_integrity:
+    'sha512-B74xSc073V9hjIoZs860m7hbm/7rgjjuV7mkEdeVU8WaJKylBhkHit90qclaC6ol8UJw/AA1j5syLLF9RND+9A==',
+  linux_shasum: '929632edfb263e42f8cfc65bd9fd533c358d7176',
+});
 
 const EXPECTED_LOCAL_RUNTIME_COMMITS = Object.freeze([
   '44d333b5000b75b5b5b89df5df6818a3fbe7f7ce',
@@ -67,6 +92,8 @@ export function validateIncidentInventory(inventory) {
   const live = inventory?.live_observation;
   assert(SHA40.test(frozen?.ao_pilot_main_sha ?? ''), 'frozen main SHA invalid');
   assert(SHA40.test(frozen?.ao_pilot_tree_sha ?? ''), 'frozen tree SHA invalid');
+  assert(frozen.ao_pilot_main_sha === EXPECTED_AO_PILOT_MAIN_SHA, 'frozen main SHA drifted');
+  assert(frozen.ao_pilot_tree_sha === EXPECTED_AO_PILOT_TREE_SHA, 'frozen tree SHA drifted');
   assert(live?.ao_pilot?.main_sha === frozen.ao_pilot_main_sha, 'live/frozen main mismatch');
   assert(live?.ao_pilot?.main_tree_sha === frozen.ao_pilot_tree_sha, 'live/frozen tree mismatch');
   assert(frozen?.estimated_local_runtime_unique_commits === 11, 'frozen estimate must be preserved');
@@ -88,14 +115,27 @@ export function validateIncidentInventory(inventory) {
   }
 
   const official = live?.official_runtime;
-  assert(official?.canonical_repository === 'https://github.com/Untrivial-ai/agent-orchestrator', 'canonical upstream drifted');
-  assert(SHA40.test(official?.main_sha ?? ''), 'official main SHA invalid');
-  assert(official?.latest_stable_release?.tag === 'v0.11.2', 'stable release observation drifted');
-  assert(SHA40.test(official?.latest_stable_release?.commit ?? ''), 'stable commit invalid');
-  assert(official?.npm_wrapper?.name === '@aoagents/ao', 'official npm wrapper name mismatch');
-  assert(official?.npm_wrapper?.version === '0.10.3', 'official npm wrapper version mismatch');
-  assert(official?.npm_wrapper?.integrity?.startsWith('sha512-'), 'npm wrapper integrity missing');
-  assert(official?.npm_linux_x64?.integrity?.startsWith('sha512-'), 'Linux package integrity missing');
+  const observedOfficialRuntime = {
+    canonical_repository: official?.canonical_repository,
+    main_sha: official?.main_sha,
+    main_tree_sha: official?.main_tree_sha,
+    stable_tag: official?.latest_stable_release?.tag,
+    stable_commit: official?.latest_stable_release?.commit,
+    stable_tree: official?.latest_stable_release?.tree,
+    wrapper_name: official?.npm_wrapper?.name,
+    wrapper_version: official?.npm_wrapper?.version,
+    wrapper_bin: official?.npm_wrapper?.bin,
+    wrapper_integrity: official?.npm_wrapper?.integrity,
+    wrapper_shasum: official?.npm_wrapper?.shasum,
+    linux_name: official?.npm_linux_x64?.name,
+    linux_version: official?.npm_linux_x64?.version,
+    linux_integrity: official?.npm_linux_x64?.integrity,
+    linux_shasum: official?.npm_linux_x64?.shasum,
+  };
+  assert(
+    JSON.stringify(observedOfficialRuntime) === JSON.stringify(EXPECTED_OFFICIAL_RUNTIME),
+    'official runtime artifact identity drifted',
+  );
   assert(official?.selection_status === 'NOT_ESTABLISHED', 'P0-R01 must not select the runtime');
   assert(official?.selection_owner_issue === 58, 'runtime selection must remain owned by P0-R03');
 
@@ -134,12 +174,34 @@ export function validateIssueMigrationReceipt(receipt) {
       === JSON.stringify(EXPECTED_MIGRATED_ISSUES),
     'migration issue sequence mismatch',
   );
+  const migrationBodyLedger = receipt.issues.map((entry) => ({
+    issue_number: entry.issue_number,
+    old_body_sha256: entry.old_body_sha256,
+    body_sha256: entry.body_sha256,
+  }));
+  assert(
+    crypto.createHash('sha256').update(JSON.stringify(migrationBodyLedger)).digest('hex')
+      === EXPECTED_MIGRATION_BODY_LEDGER_SHA256,
+    'migration body digest ledger drifted',
+  );
 
   for (const entry of receipt.issues) {
     assert(SHA64.test(entry.old_body_sha256 ?? ''), `invalid old body digest for #${entry.issue_number}`);
     assert(SHA64.test(entry.body_sha256 ?? ''), `invalid live body digest for #${entry.issue_number}`);
     assert(entry.update_result === 'verified_live', `unverified migration result for #${entry.issue_number}`);
   }
+  const issue7 = receipt.issues.find((entry) => entry.issue_number === 7);
+  const issue8 = receipt.issues.find((entry) => entry.issue_number === 8);
+  assert(
+    issue7.old_predecessor === null
+      && issue7.new_predecessor === '#55 P0 Bootstrap Lane before #8; #63 terminal before #12',
+    '#7 predecessor migration mismatch',
+  );
+  assert(
+    issue8.old_predecessor === 'none'
+      && issue8.new_predecessor === '#63 P0-R08 terminal closeout',
+    '#8 predecessor migration mismatch',
+  );
   for (let issueNumber = 12; issueNumber <= 54; issueNumber += 1) {
     const entry = receipt.issues.find((candidate) => candidate.issue_number === issueNumber);
     assert(entry, `missing migration entry for #${issueNumber}`);
