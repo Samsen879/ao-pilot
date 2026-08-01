@@ -31,7 +31,7 @@ describe('P0-R01 runtime portability incident inventory', () => {
         intake_issues_checked: 54,
         result: 'PASS',
       },
-      documentation_files: 9,
+      documentation_files: 10,
       scope_guard: 'inventory_only',
     });
   });
@@ -42,11 +42,24 @@ describe('P0-R01 runtime portability incident inventory', () => {
     expect(() => validateIncidentInventory(inventory)).toThrow(/premature parity verdict/);
   });
 
+  it('fails if the frozen local runtime commit ledger changes', () => {
+    const inventory = readJson('docs/runtime-portability/p0-r01-incident-inventory.json');
+    inventory.live_observation.old_local_runtime.unique_commits[0].commit =
+      'ffffffffffffffffffffffffffffffffffffffff';
+    expect(() => validateIncidentInventory(inventory)).toThrow(/local runtime commit ledger drifted/);
+  });
+
   it('fails if the original chain loses its exact serial or predecessor migration', () => {
     const receipt = readJson('docs/runtime-portability/p0-r01-issue-migration-receipt.json');
     const issue12 = receipt.issues.find((entry) => entry.issue_number === 12);
     issue12.new_predecessor = '#11';
     expect(() => validateIssueMigrationReceipt(receipt)).toThrow(/#12 predecessor mismatch/);
+  });
+
+  it('fails if the migration ledger substitutes another issue for issue 7', () => {
+    const receipt = readJson('docs/runtime-portability/p0-r01-issue-migration-receipt.json');
+    receipt.issues[0].issue_number = 9;
+    expect(() => validateIssueMigrationReceipt(receipt)).toThrow(/migration issue sequence mismatch/);
   });
 
   it('fails if package portability is promoted to runtime portability', () => {

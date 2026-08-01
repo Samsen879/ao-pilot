@@ -7,6 +7,27 @@ export const MIGRATION_SCHEMA_VERSION = 'ao-pilot.issue-migration-receipt.v1';
 const SHA40 = /^[a-f0-9]{40}$/;
 const SHA64 = /^[a-f0-9]{64}$/;
 
+const EXPECTED_LOCAL_RUNTIME_COMMITS = Object.freeze([
+  '44d333b5000b75b5b5b89df5df6818a3fbe7f7ce',
+  '718da41daa762d41c6f142cd86d3b11baf761d45',
+  'd9c64fa38e55fb32280d0dcad880e646ff7f2534',
+  '26e1904163f17a7de905a8a956903ebef9563c4a',
+  'd7eb1aeebfdce3f40bef90ee4c1dd64a40e5fede',
+  '9957b8319423a5b5f6a50550c5440bcc5d40f068',
+  'a862a5d0c07ccaea5b376cd68af551b33a5a77e3',
+  '5ed0947826a66932a607d8a883a7b74ad4909393',
+  'e5a6ff03445dbf86bdff52dc42b02476f174bc35',
+  '859da6db0299a61feace4930bb1f4e221edf5f5a',
+  '1f3f32e0db9a9429380760a579858eb4ac867066',
+  '00bea6e589b4696ea7c897ea45dd15e2de78b4e7',
+]);
+
+const EXPECTED_MIGRATED_ISSUES = Object.freeze([
+  7,
+  8,
+  ...Array.from({ length: 43 }, (_, index) => index + 12),
+]);
+
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
@@ -55,6 +76,11 @@ export function validateIncidentInventory(inventory) {
   assert(local?.unique_commit_count === 12, 'live unique commit count must be 12');
   assert(local?.unique_commits?.length === local.unique_commit_count, 'unique commit ledger incomplete');
   assert(new Set(local.unique_commits.map((entry) => entry.commit)).size === 12, 'duplicate local commit');
+  assert(
+    JSON.stringify(local.unique_commits.map((entry) => entry.commit))
+      === JSON.stringify(EXPECTED_LOCAL_RUNTIME_COMMITS),
+    'local runtime commit ledger drifted',
+  );
   for (const [index, entry] of local.unique_commits.entries()) {
     assert(entry.ordinal === index + 1, `local commit ordinal mismatch at ${index + 1}`);
     assert(SHA40.test(entry.commit ?? ''), `invalid local commit SHA at ${index + 1}`);
@@ -103,6 +129,11 @@ export function validateIssueMigrationReceipt(receipt) {
   );
   assert(receipt?.issues?.length === 45, 'migration issue ledger length mismatch');
   assert(new Set(receipt.issues.map((entry) => entry.issue_number)).size === 45, 'duplicate migrated issue');
+  assert(
+    JSON.stringify(receipt.issues.map((entry) => entry.issue_number))
+      === JSON.stringify(EXPECTED_MIGRATED_ISSUES),
+    'migration issue sequence mismatch',
+  );
 
   for (const entry of receipt.issues) {
     assert(SHA64.test(entry.old_body_sha256 ?? ''), `invalid old body digest for #${entry.issue_number}`);
@@ -135,6 +166,7 @@ export function verifyRuntimePortabilityInventory(root = process.cwd()) {
   const migrationResult = validateIssueMigrationReceipt(migration);
 
   const requiredText = new Map([
+    ['docs/runtime-portability/P0-R01_INCIDENT_BASELINE.md', ['P0-R01 Runtime Portability Incident Baseline', 'Issue #12 is therefore not admitted']],
     ['README.md', ['P0 Runtime Portability Incident', 'package-level portability']],
     ['docs/AO_ARCHITECTURE.md', ['P0 Operational Portability Boundary', 'public immutable Agent Orchestrator runtime']],
     ['docs/AO_DEVELOPMENT.md', ['package-level portability only']],
