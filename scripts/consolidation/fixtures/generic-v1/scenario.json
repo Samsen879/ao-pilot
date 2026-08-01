@@ -1,0 +1,216 @@
+{
+  "schema_version": "ao.consolidation.fixture.v1",
+  "fixture_id": "generic-control-plane-parity-v1",
+  "project_id": "parity-project",
+  "timing": {
+    "created_at": "2026-04-03T10:00:00.000Z",
+    "observation_at": "2026-04-03T10:10:00.000Z",
+    "action_at": "2026-04-03T10:12:00.000Z",
+    "checkpoint_at": "2026-04-03T10:15:00.000Z",
+    "review_at": "2026-04-03T10:16:00.000Z",
+    "handoff_at": "2026-04-03T10:30:00.000Z",
+    "lease_expires_at": "2026-04-03T10:20:00.000Z",
+    "metrics_since": "2026-04-03T10:00:00.000Z",
+    "metrics_until": "2026-04-03T11:00:00.000Z"
+  },
+  "task": {
+    "task_id": "issue-44",
+    "issue_number": 44,
+    "title": "Generic consolidation parity fixture",
+    "branch_name": "feat/issue-44",
+    "worktree_path": "/tmp/parity-worker-44",
+    "owner_session_name": "worker-44",
+    "owner_session_id": "session-worker-44",
+    "pr_number": 44,
+    "head_sha": "abc123"
+  },
+  "ao_status": {
+    "project": {
+      "id": "parity-project"
+    },
+    "sessions": [
+      {
+        "name": "ao-orchestrator",
+        "id": "session-orchestrator",
+        "role": "orchestrator",
+        "branch": "runtime-parity",
+        "status": "observing",
+        "updatedAt": "2026-04-03T10:09:00.000Z"
+      },
+      {
+        "name": "worker-44",
+        "id": "session-worker-44",
+        "role": "worker",
+        "issueNumber": 44,
+        "branch": "feat/issue-44",
+        "prNumber": 44,
+        "status": "active",
+        "worktreePath": "/tmp/parity-worker-44",
+        "updatedAt": "2026-04-03T10:08:00.000Z"
+      }
+    ]
+  },
+  "github_observation": {
+    "observed_at": "2026-04-03T10:10:00.000Z",
+    "source_ok": true,
+    "source_error": null,
+    "prs": [
+      {
+        "pr_number": 44,
+        "observed_at": "2026-04-03T10:10:00.000Z",
+        "source_ok": true,
+        "source_error": null,
+        "state": "OPEN",
+        "head_branch": "feat/issue-44",
+        "head_sha": "abc123",
+        "review_status": "approved",
+        "ci_status": "failing",
+        "mergeability": "mergeable",
+        "is_draft": false,
+        "url": "https://example.test/pr/44"
+      }
+    ]
+  },
+  "local_state": {
+    "current_branch": "feat/issue-44",
+    "head_sha": "abc123",
+    "detached_head": false,
+    "upstream_branch": "origin/feat/issue-44",
+    "upstream_tracking": "present",
+    "worktree_dirty": false,
+    "staged_changes": false,
+    "unstaged_changes": false,
+    "untracked_file_count": 0,
+    "untracked_file_samples": [],
+    "ao_artifact_paths": [],
+    "git_observable": true,
+    "git_error": null
+  },
+  "policy_input": {
+    "task_id": "issue-44",
+    "pr_number": 44,
+    "action_kind": "continue_worker",
+    "action_class": "continue_worker",
+    "task_risk": "medium",
+    "tools": [
+      "ao"
+    ],
+    "mcp_servers": [],
+    "file_paths": [],
+    "workflow_paths": [],
+    "network_targets": [],
+    "secret_needs": []
+  },
+  "action": {
+    "id": "continue_worker",
+    "action_class": "continue_worker",
+    "summary": "Continue the current worker owner.",
+    "commands": [
+      "ao status -p parity-project --json"
+    ],
+    "rationale": "Ownership continuity is clear enough to continue the current worker."
+  },
+  "review": {
+    "target_head_sha": "abc123",
+    "implementation_session_name": "worker-44",
+    "implementation_session_id": "session-worker-44",
+    "reviewer_session_name": "reviewer-44",
+    "reviewer_session_id": "session-reviewer-44",
+    "verification_baseline": [
+      {
+        "category": "workspace_sanity",
+        "commands": [
+          "git status --short"
+        ]
+      }
+    ]
+  },
+  "handoff": {
+    "operator_session_name": "operator-1",
+    "operator_session_id": "session-operator-1",
+    "successor_session_name": "worker-45",
+    "successor_session_id": "session-worker-45"
+  },
+  "expectations": [
+    {
+      "path": "$.observation.source_ok",
+      "equals": true
+    },
+    {
+      "path": "$.observation.workers[0].freshness.status",
+      "equals": "fresh"
+    },
+    {
+      "path": "$.reconciliation.top_status",
+      "equals": "blocked"
+    },
+    {
+      "path": "$.doctor.top_status",
+      "equals": "blocked"
+    },
+    {
+      "path": "$.lifecycle.top_status",
+      "equals": "hold"
+    },
+    {
+      "path": "$.lifecycle.release_decision.disposition",
+      "equals": "await_ci"
+    },
+    {
+      "path": "$.policy_action.policy.decision",
+      "equals": "allow"
+    },
+    {
+      "path": "$.policy_action.action_record.status",
+      "equals": "executed"
+    },
+    {
+      "path": "$.policy_action.executed_vs_effect.external_effect_count",
+      "equals": 0
+    },
+    {
+      "path": "$.policy_action.executed_vs_effect.semantic_classification",
+      "equals": "durable_state_transition_without_external_command_effect"
+    },
+    {
+      "path": "$.checkpoint.inspection.state",
+      "equals": "valid"
+    },
+    {
+      "path": "$.checkpoint.resume.state",
+      "equals": "valid"
+    },
+    {
+      "path": "$.review.inspection.posture",
+      "equals": "review_passed"
+    },
+    {
+      "path": "$.handoff.inspection.top_status",
+      "equals": "pending_decision"
+    },
+    {
+      "path": "$.metrics.summary.measurement_count",
+      "equals": 1,
+      "scope": "canonical_only"
+    },
+    {
+      "path": "$.evaluation.harness.summary.passed_scenario_count",
+      "equals": 1,
+      "scope": "canonical_only"
+    },
+    {
+      "path": "$.evaluation.scorecard.quality_gate.status",
+      "equals": "passed",
+      "scope": "canonical_only"
+    },
+    {
+      "path": "$.migration.schema.current_version",
+      "equals": 10
+    },
+    {
+      "path": "$.migration.idempotent_replay.migrated",
+      "equals": false
+    }
+  ],
+  "expected_standalone_fingerprint": "6f81aed7a563f69bad533ebb4cb99c7c62fbf6d8cec5417806ed97e3afd9cca6"
+}

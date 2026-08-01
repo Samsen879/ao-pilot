@@ -1,11 +1,19 @@
+import {
+  BLOCKED_NOTIFICATION_DELIVERY_SEMANTICS,
+  buildBlockedNotificationIntent,
+  createBlockedNotificationWebhookTransport,
+} from './blocked-notification-transport.js';
 import { createActionRecord } from './state-contracts.js';
 import { buildAssistExecutionAttemptMetric } from './run-metrics.js';
 
 export const ASSIST_ACTION_MODEL_SCHEMA_VERSION = 'ao.control-plane.action-model.v1alpha1';
 export const ASSIST_ACTION_MODEL_FORMAT = 'ao_control_plane_action_model';
-export const ACTION_RISK_CLASSES = ['class_a', 'class_b', 'class_c'];
+export const ACTION_RISK_CLASSES = ['class_a', 'class_b', 'class_c', 'irreversible_remote_effect'];
 export const ASSIST_AUTOMATION_BOUNDARY = 'class_a_only';
 export const ASSIST_IDEMPOTENCY_MODE = 'action_status_gate';
+export const ASSIST_EFFECT_STATUSES = ['durable_only', 'attempted', 'succeeded', 'failed'];
+export const ASSIST_EXTERNAL_EFFECT_DELIVERY_SEMANTICS = 'at_least_once_with_durable_inflight_claim';
+export const AUTO_MERGE_PR_JSON_FIELDS = 'number,state,headRefOid,reviewDecision,mergeStateStatus,isDraft,statusCheckRollup,url';
 
 function resolveNow(now) {
   if (typeof now === 'function') return resolveNow(now());
@@ -81,6 +89,30 @@ const ACTION_POLICIES = {
     riskClass: 'class_a',
     phase4AssistExecutable: true,
     nonExecutableReason: 'class_a_allowlist',
+    buildPreconditions: ({ task, prNumber }) => [
+      buildTaskActivePrecondition(task),
+      buildPrScopePrecondition(prNumber),
+    ],
+  },
+  notify_human_blocked: {
+    riskClass: 'class_a',
+    phase4AssistExecutable: true,
+    nonExecutableReason: 'class_a_allowlist',
+    buildPreconditions: ({ task }) => [
+      buildTaskActivePrecondition(task),
+    ],
+  },
+  auto_merge_ready_pr: {
+    riskClass: 'irreversible_remote_effect',
+    phase4AssistExecutable: true,
+    nonExecutableReason: 'explicit_irreversible_remote_authorization_required',
+    executableReason: 'explicit_irreversible_remote_authorization_gate',
+    remoteEffect: {
+      kind: 'github_pull_request_merge',
+      reversibility: 'irreversible',
+      explicit_authorization_required: true,
+      exact_head_required: true,
+    },
     buildPreconditions: ({ task, prNumber }) => [
       buildTaskActivePrecondition(task),
       buildPrScopePrecondition(prNumber),
@@ -164,6 +196,7 @@ function buildExecutionDecision({
   phase4AssistExecutable,
   preconditions,
   nonExecutableReason,
+  executableReason = 'class_a_allowlist',
 } = {}) {
   const preconditionsSatisfied = preconditions.every((item) => item.satisfied === true);
   if (!phase4AssistExecutable) {
@@ -176,7 +209,7 @@ function buildExecutionDecision({
   return {
     executable: preconditionsSatisfied,
     reason: preconditionsSatisfied
-      ? 'class_a_allowlist'
+      ? executableReason
       : (preconditions.find((item) => item.satisfied !== true)?.code ?? 'preconditions_unsatisfied'),
   };
 }
@@ -184,6 +217,7 @@ function buildExecutionDecision({
 function resolveRollbackMode(riskClass) {
   if (riskClass === 'class_a') return 'audit_only';
   if (riskClass === 'class_b') return 'not_applicable';
+  if (riskClass === 'irreversible_remote_effect') return 'irreversible';
   return 'manual_only';
 }
 
@@ -192,9 +226,12 @@ function buildExecutionContract({
   runtimePreflightRecord,
   preconditions,
   phase4Assist,
+  remoteEffect = null,
 } = {}) {
   return {
-    automation_boundary: ASSIST_AUTOMATION_BOUNDARY,
+    automation_boundary: remoteEffect == null
+      ? ASSIST_AUTOMATION_BOUNDARY
+      : 'explicit_irreversible_remote_authorization',
     durable_policy_required: true,
     runtime_preflight_required: true,
     runtime_preflight_status: runtimePreflightRecord?.status ?? 'missing',
@@ -205,6 +242,7 @@ function buildExecutionContract({
     blocking_precondition_codes: preconditions
       .filter((item) => item?.satisfied !== true)
       .map((item) => item.code),
+    remote_effect: cloneJsonValue(remoteEffect),
   };
 }
 
@@ -234,12 +272,14 @@ export function buildAssistActionModel({
     phase4AssistExecutable: policy.phase4AssistExecutable,
     preconditions,
     nonExecutableReason: policy.nonExecutableReason,
+    executableReason: policy.executableReason,
   });
   const executionContract = buildExecutionContract({
     riskClass: policy.riskClass,
     runtimePreflightRecord,
     preconditions,
     phase4Assist,
+    remoteEffect: policy.remoteEffect ?? null,
   });
 
   return {
@@ -359,10 +399,39 @@ function resolveBlockingOverrides(repository, {
     .filter((entry) => entry.reason != null);
 }
 
+function buildEffectReceipt({
+  status,
+  kind,
+  timestamp,
+  intent = null,
+  receipt = null,
+  retryable = false,
+  attemptId = null,
+  deliverySemantics = null,
+} = {}) {
+  if (!ASSIST_EFFECT_STATUSES.includes(status)) {
+    throw new Error(`Unsupported assist effect status: ${status}`);
+  }
+
+  return {
+    status,
+    kind: String(kind ?? 'durable_state'),
+    attempted_at: ['attempted', 'succeeded', 'failed'].includes(status) ? timestamp : null,
+    completed_at: ['durable_only', 'succeeded', 'failed'].includes(status) ? timestamp : null,
+    retryable: ['attempted', 'failed'].includes(status) && retryable === true,
+    attempt_id: attemptId == null ? null : String(attemptId),
+    delivery_semantics: deliverySemantics == null ? null : String(deliverySemantics),
+    intent: cloneJsonValue(intent),
+    receipt: cloneJsonValue(receipt),
+  };
+}
+
 function buildBlockedActionRecord(record, model, timestamp, {
   reason,
   matchedOverrideIds = [],
   structural = false,
+  details = null,
+  effect = null,
 } = {}) {
   return createActionRecord({
     ...record,
@@ -379,12 +448,68 @@ function buildBlockedActionRecord(record, model, timestamp, {
         matched_override_ids: matchedOverrideIds,
         idempotency_mode: model?.execution_contract?.idempotency_mode ?? null,
         rollback_mode: model?.execution_contract?.rollback_mode ?? null,
+        details: cloneJsonValue(details),
+        effect: cloneJsonValue(effect),
       },
     },
   });
 }
 
-function buildExecutedActionRecord(record, model, timestamp) {
+function buildAttemptedActionRecord(record, model, timestamp, {
+  reason,
+  effect,
+} = {}) {
+  return createActionRecord({
+    ...record,
+    status: 'proposed',
+    updated_at: timestamp,
+    payload: {
+      ...(isPlainObject(record?.payload) ? record.payload : {}),
+      action_model: cloneJsonValue(model),
+      execution: {
+        outcome: 'effect_attempted',
+        reason,
+        attempted_at: timestamp,
+        executor: 'assist_controller',
+        idempotency_mode: model?.execution_contract?.idempotency_mode ?? null,
+        rollback_mode: model?.execution_contract?.rollback_mode ?? null,
+        effect: cloneJsonValue(effect),
+      },
+    },
+  });
+}
+
+function buildFailedEffectActionRecord(record, model, timestamp, {
+  reason,
+  details = null,
+  effect,
+} = {}) {
+  return createActionRecord({
+    ...record,
+    status: 'proposed',
+    updated_at: timestamp,
+    payload: {
+      ...(isPlainObject(record?.payload) ? record.payload : {}),
+      action_model: cloneJsonValue(model),
+      execution: {
+        outcome: 'effect_failed',
+        reason,
+        failed_at: timestamp,
+        executor: 'assist_controller',
+        idempotency_mode: model?.execution_contract?.idempotency_mode ?? null,
+        rollback_mode: model?.execution_contract?.rollback_mode ?? null,
+        details: cloneJsonValue(details),
+        effect: cloneJsonValue(effect),
+      },
+    },
+  });
+}
+
+function buildExecutedActionRecord(record, model, timestamp, {
+  reason = 'class_a_assist_execution',
+  details = null,
+  effect = null,
+} = {}) {
   return createActionRecord({
     ...record,
     status: 'executed',
@@ -394,11 +519,13 @@ function buildExecutedActionRecord(record, model, timestamp) {
       action_model: cloneJsonValue(model),
       execution: {
         outcome: 'executed',
-        reason: 'class_a_assist_execution',
+        reason,
         executed_at: timestamp,
         executor: 'assist_controller',
         idempotency_mode: model?.execution_contract?.idempotency_mode ?? null,
         rollback_mode: model?.execution_contract?.rollback_mode ?? null,
+        details: cloneJsonValue(details),
+        effect: cloneJsonValue(effect),
       },
     },
   });
@@ -444,6 +571,573 @@ function normalizeExecutionReason(record, model) {
     ?? null;
 }
 
+function buildEffectAttemptId(record, timestamp) {
+  return `${String(record?.action_id ?? 'unknown-action')}@${timestamp}`;
+}
+
+function hasUnconfirmedEffectClaim(record) {
+  return record?.status === 'proposed'
+    && record?.payload?.execution?.outcome === 'effect_attempted'
+    && record?.payload?.execution?.effect?.status === 'attempted';
+}
+
+function extractBlockedNotificationMarker(commands = []) {
+  const commandText = toStringArray(commands).join('\n');
+  return commandText.match(/<!--\s*ao:blocked-notification\s+key=[^>]+-->/)?.[0] ?? null;
+}
+
+function isCommandRunner(commandRunner) {
+  return typeof commandRunner === 'function'
+    || typeof commandRunner?.run === 'function';
+}
+
+function normalizeUpperString(value) {
+  return String(value ?? '').trim().toUpperCase();
+}
+
+function classifyFreshCiEntry(entry) {
+  const state = normalizeUpperString(entry?.state);
+  if (state) {
+    if (state === 'SUCCESS') return 'passing';
+    if (['FAILURE', 'ERROR'].includes(state)) return 'failing';
+    if (['PENDING', 'EXPECTED'].includes(state)) return 'pending';
+    return 'unknown';
+  }
+
+  const status = normalizeUpperString(entry?.status);
+  const conclusion = normalizeUpperString(entry?.conclusion);
+
+  if (['FAILURE', 'FAILED', 'ERROR'].includes(status)) return 'failing';
+  if (['QUEUED', 'IN_PROGRESS', 'PENDING', 'EXPECTED', 'REQUESTED', 'WAITING'].includes(status)) {
+    return 'pending';
+  }
+  if (status === 'SUCCESS') return 'passing';
+  if (status !== 'COMPLETED') return 'unknown';
+
+  if (['FAILURE', 'FAILED', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STALE', 'STARTUP_FAILURE'].includes(conclusion)) {
+    return 'failing';
+  }
+  if (['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(conclusion)) return 'passing';
+  return 'unknown';
+}
+
+function normalizeFreshCiStatus(statusCheckRollup) {
+  const entries = Array.isArray(statusCheckRollup) ? statusCheckRollup.filter(Boolean) : [];
+  if (!entries.length) return 'unknown';
+
+  const classifications = entries.map(classifyFreshCiEntry);
+  if (classifications.includes('failing')) return 'failing';
+  if (classifications.includes('pending')) return 'pending';
+  if (classifications.includes('unknown')) return 'unknown';
+  return classifications.every((value) => value === 'passing') ? 'passing' : 'unknown';
+}
+
+function parseJsonCommandOutput(result, label) {
+  try {
+    return {
+      ok: true,
+      value: JSON.parse(result.stdout || 'null'),
+    };
+  } catch {
+    return {
+      ok: false,
+      reason: `${label}_invalid_json`,
+      retryable: true,
+      details: {
+        stage: label,
+        status: result?.status ?? null,
+      },
+    };
+  }
+}
+
+function validateFreshAutoMergePr({ freshPr, expectedHeadSha, prNumber } = {}) {
+  const state = normalizeUpperString(freshPr?.state);
+  const reviewDecision = normalizeUpperString(freshPr?.reviewDecision);
+  const mergeStateStatus = normalizeUpperString(freshPr?.mergeStateStatus);
+  const freshHeadSha = freshPr?.headRefOid == null ? null : String(freshPr.headRefOid);
+  const ciStatus = normalizeFreshCiStatus(freshPr?.statusCheckRollup);
+
+  if (!freshHeadSha) {
+    return {
+      ok: false,
+      reason: 'auto_merge_fresh_head_missing',
+      retryable: true,
+      details: { expected_head_sha: expectedHeadSha },
+    };
+  }
+
+  if (freshHeadSha !== expectedHeadSha) {
+    return {
+      ok: false,
+      reason: 'auto_merge_head_mismatch',
+      retryable: false,
+      details: {
+        expected_head_sha: expectedHeadSha,
+        fresh_head_sha: freshHeadSha,
+      },
+    };
+  }
+
+  if (state === 'MERGED') {
+    return {
+      ok: true,
+      alreadyMerged: true,
+      reason: 'auto_merge_already_merged',
+      details: {
+        pr_number: prNumber,
+        head_sha: freshHeadSha,
+      },
+    };
+  }
+
+  if (state !== 'OPEN') {
+    return {
+      ok: false,
+      reason: 'auto_merge_pr_not_open',
+      retryable: false,
+      details: { state },
+    };
+  }
+
+  if (freshPr?.isDraft === true) {
+    return {
+      ok: false,
+      reason: 'auto_merge_draft_pr',
+      retryable: true,
+      details: { is_draft: true },
+    };
+  }
+
+  if (reviewDecision !== 'APPROVED') {
+    return {
+      ok: false,
+      reason: 'auto_merge_review_not_approved',
+      retryable: true,
+      details: { review_decision: reviewDecision },
+    };
+  }
+
+  if (ciStatus !== 'passing') {
+    return {
+      ok: false,
+      reason: 'auto_merge_ci_not_passing',
+      retryable: true,
+      details: { ci_status: ciStatus },
+    };
+  }
+
+  if (!['CLEAN', 'HAS_HOOKS'].includes(mergeStateStatus)) {
+    return {
+      ok: false,
+      reason: 'auto_merge_not_mergeable',
+      retryable: true,
+      details: { merge_state_status: mergeStateStatus },
+    };
+  }
+
+  return {
+    ok: true,
+    alreadyMerged: false,
+    reason: 'auto_merge_ready',
+    details: {
+      pr_number: prNumber,
+      head_sha: freshHeadSha,
+      merge_state_status: mergeStateStatus,
+    },
+  };
+}
+
+function sanitizeCommandReceipt({ command, args, cwd, result } = {}) {
+  return {
+    command: String(command),
+    args: toStringArray(args),
+    cwd: cwd == null ? null : String(cwd),
+    status: Number.isInteger(result?.status) ? result.status : null,
+    signal: result?.signal == null ? null : String(result.signal),
+  };
+}
+
+function normalizeCommandResult(result) {
+  if (!isPlainObject(result)) {
+    return {
+      status: null,
+      signal: null,
+      stdout: '',
+      stderr: '',
+      error: null,
+    };
+  }
+  return {
+    status: Number.isInteger(result.status) ? result.status : null,
+    signal: result.signal == null ? null : String(result.signal),
+    stdout: result.stdout == null ? '' : String(result.stdout),
+    stderr: result.stderr == null ? '' : String(result.stderr),
+    error: result.error ?? null,
+  };
+}
+
+function commandSucceeded(result) {
+  return result?.status === 0
+    && result?.signal == null
+    && result?.error == null;
+}
+
+async function runCommand(commandRunner, command, args, cwd = null) {
+  try {
+    let rawResult;
+    if (typeof commandRunner === 'function') {
+      rawResult = await commandRunner({ command, args, cwd });
+    } else if (typeof commandRunner?.run === 'function') {
+      rawResult = await commandRunner.run(command, args, cwd == null ? {} : { cwd });
+    } else {
+      throw new TypeError('A command runner must be explicitly provided');
+    }
+    const result = normalizeCommandResult(rawResult);
+    return {
+      result,
+      receipt: sanitizeCommandReceipt({ command, args, cwd, result }),
+    };
+  } catch (error) {
+    const result = {
+      status: null,
+      signal: null,
+      stdout: '',
+      stderr: '',
+      error,
+    };
+    return {
+      result,
+      receipt: {
+        ...sanitizeCommandReceipt({ command, args, cwd, result }),
+        error_name: error?.name == null ? 'Error' : String(error.name),
+      },
+    };
+  }
+}
+
+function validateAutoMergeAuthorization(record, expectedHeadSha) {
+  const authorization = isPlainObject(record?.payload?.external_effect_authorization)
+    ? record.payload.external_effect_authorization
+    : null;
+  const authorizedBy = typeof authorization?.authorized_by === 'string'
+    ? authorization.authorized_by.trim()
+    : '';
+  const authorizedAt = typeof authorization?.authorized_at === 'string'
+    ? authorization.authorized_at.trim()
+    : '';
+  const authorizedHeadSha = authorization?.expected_head_sha == null
+    ? null
+    : String(authorization.expected_head_sha);
+
+  if (
+    authorization?.status !== 'authorized'
+    || authorization?.effect_kind !== 'github_pull_request_merge'
+    || authorizedBy === ''
+    || authorizedAt === ''
+  ) {
+    return {
+      ok: false,
+      reason: 'auto_merge_explicit_authorization_required',
+      details: {
+        authorization_status: authorization?.status ?? 'missing',
+        effect_kind: authorization?.effect_kind ?? null,
+      },
+    };
+  }
+  if (authorizedHeadSha !== expectedHeadSha) {
+    return {
+      ok: false,
+      reason: 'auto_merge_authorization_head_mismatch',
+      details: {
+        expected_head_sha: expectedHeadSha,
+        authorized_head_sha: authorizedHeadSha,
+      },
+    };
+  }
+  return {
+    ok: true,
+    receipt: {
+      status: 'authorized',
+      effect_kind: 'github_pull_request_merge',
+      expected_head_sha: authorizedHeadSha,
+      authorized_by: authorizedBy,
+      authorized_at: authorizedAt,
+      authorization_id: authorization?.authorization_id == null
+        ? null
+        : String(authorization.authorization_id),
+    },
+  };
+}
+
+async function prepareAutoMergeExecution({
+  record,
+  model,
+  commandRunner,
+  commandCwd = null,
+} = {}) {
+  const prNumber = toNullablePositiveInteger(model?.pr_number);
+  if (!prNumber) {
+    return {
+      ok: false,
+      attempted: false,
+      retryable: false,
+      reason: 'auto_merge_pr_scope_required',
+      details: {},
+      command_receipts: [],
+    };
+  }
+
+  const expectedHeadSha = record?.payload?.release_decision?.expected_head_sha == null
+    ? null
+    : String(record.payload.release_decision.expected_head_sha);
+  if (!expectedHeadSha) {
+    return {
+      ok: false,
+      attempted: false,
+      retryable: false,
+      reason: 'auto_merge_expected_head_missing',
+      details: {},
+      command_receipts: [],
+    };
+  }
+
+  const authorization = validateAutoMergeAuthorization(record, expectedHeadSha);
+  if (!authorization.ok) {
+    return {
+      ok: false,
+      attempted: false,
+      retryable: true,
+      reason: authorization.reason,
+      details: authorization.details,
+      command_receipts: [],
+    };
+  }
+
+  if (!isCommandRunner(commandRunner)) {
+    return {
+      ok: false,
+      attempted: false,
+      retryable: true,
+      reason: 'auto_merge_command_runner_missing',
+      details: {},
+      command_receipts: [],
+    };
+  }
+
+  const viewCommand = await runCommand(commandRunner, 'gh', [
+    'pr',
+    'view',
+    String(prNumber),
+    '--json',
+    AUTO_MERGE_PR_JSON_FIELDS,
+  ], commandCwd);
+  const commandReceipts = [viewCommand.receipt];
+  if (!commandSucceeded(viewCommand.result)) {
+    return {
+      ok: false,
+      attempted: true,
+      retryable: true,
+      reason: 'auto_merge_pr_view_failed',
+      details: {
+        stage: 'pr_view',
+        status: viewCommand.result.status,
+        signal: viewCommand.result.signal,
+      },
+      command_receipts: commandReceipts,
+    };
+  }
+
+  const parsed = parseJsonCommandOutput(viewCommand.result, 'auto_merge_pr_view');
+  if (!parsed.ok) {
+    return {
+      ...parsed,
+      attempted: true,
+      command_receipts: commandReceipts,
+    };
+  }
+
+  const validation = validateFreshAutoMergePr({
+    freshPr: parsed.value,
+    expectedHeadSha,
+    prNumber,
+  });
+  if (!validation.ok || validation.alreadyMerged) {
+    return {
+      ...validation,
+      details: validation.ok
+        ? { ...validation.details, authorization: authorization.receipt }
+        : validation.details,
+      attempted: true,
+      command_receipts: commandReceipts,
+    };
+  }
+
+  const mergeCommand = await runCommand(commandRunner, 'gh', [
+    'pr',
+    'merge',
+    String(prNumber),
+    '--squash',
+    '--delete-branch',
+    '--match-head-commit',
+    expectedHeadSha,
+  ], commandCwd);
+  commandReceipts.push(mergeCommand.receipt);
+  const mergeSucceeded = commandSucceeded(mergeCommand.result);
+  const mergeReportedAlready = /already\s+merged/i.test(String(mergeCommand.result.stderr ?? ''));
+  const mergeCommandFailed = !mergeSucceeded && !mergeReportedAlready;
+
+  const confirmationCommand = await runCommand(commandRunner, 'gh', [
+    'pr',
+    'view',
+    String(prNumber),
+    '--json',
+    AUTO_MERGE_PR_JSON_FIELDS,
+  ], commandCwd);
+  commandReceipts.push(confirmationCommand.receipt);
+  if (!commandSucceeded(confirmationCommand.result)) {
+    return {
+      ok: false,
+      attempted: true,
+      effect_dispatched: true,
+      retryable: false,
+      reason: 'auto_merge_confirmation_view_failed',
+      details: {
+        stage: 'pr_confirmation_view',
+        status: confirmationCommand.result.status,
+        signal: confirmationCommand.result.signal,
+        merge_command_failed: mergeCommandFailed,
+      },
+      command_receipts: commandReceipts,
+    };
+  }
+
+  const confirmationParsed = parseJsonCommandOutput(
+    confirmationCommand.result,
+    'auto_merge_confirmation_view',
+  );
+  if (!confirmationParsed.ok) {
+    return {
+      ...confirmationParsed,
+      attempted: true,
+      effect_dispatched: true,
+      retryable: false,
+      command_receipts: commandReceipts,
+    };
+  }
+  const confirmedState = normalizeUpperString(confirmationParsed.value?.state);
+  const confirmedHeadSha = confirmationParsed.value?.headRefOid == null
+    ? null
+    : String(confirmationParsed.value.headRefOid);
+  if (!confirmedHeadSha || confirmedHeadSha !== expectedHeadSha) {
+    return {
+      ok: false,
+      attempted: true,
+      effect_dispatched: true,
+      retryable: false,
+      reason: confirmedHeadSha ? 'auto_merge_confirmation_head_mismatch' : 'auto_merge_confirmation_head_missing',
+      details: {
+        expected_head_sha: expectedHeadSha,
+        confirmed_head_sha: confirmedHeadSha,
+        confirmed_state: confirmedState,
+      },
+      command_receipts: commandReceipts,
+    };
+  }
+  if (confirmedState !== 'MERGED') {
+    return {
+      ok: false,
+      attempted: true,
+      effect_dispatched: true,
+      retryable: false,
+      reason: mergeReportedAlready
+        ? 'auto_merge_already_merged_not_confirmed'
+        : mergeCommandFailed
+          ? 'auto_merge_command_unconfirmed'
+          : 'auto_merge_not_confirmed',
+      details: {
+        confirmed_state: confirmedState,
+        confirmed_head_sha: confirmedHeadSha,
+        merge_command_status: mergeCommand.result.status,
+        merge_command_signal: mergeCommand.result.signal,
+      },
+      command_receipts: commandReceipts,
+    };
+  }
+
+  return {
+    ok: true,
+    attempted: true,
+    effect_dispatched: true,
+    alreadyMerged: mergeReportedAlready,
+    reason: mergeReportedAlready
+      ? 'auto_merge_already_merged'
+      : mergeCommandFailed
+        ? 'auto_merge_confirmed_after_command_failure'
+        : 'auto_merge_completed',
+    details: {
+      ...validation.details,
+      confirmed_state: confirmedState,
+      confirmed_head_sha: confirmedHeadSha,
+      merge_command_status: mergeCommand.result.status,
+      merge_command_signal: mergeCommand.result.signal,
+      authorization: authorization.receipt,
+    },
+    command_receipts: commandReceipts,
+  };
+}
+
+function sanitizeTransportReceipt(result) {
+  const normalizeToken = (value, fallback) => {
+    const normalized = value == null ? '' : String(value).trim();
+    return /^[A-Za-z0-9_.-]{1,120}$/.test(normalized) ? normalized : fallback;
+  };
+  return {
+    status: normalizeToken(result?.status, 'failed'),
+    transport: normalizeToken(result?.transport, 'custom'),
+    attempts: Number.isInteger(result?.attempts) ? result.attempts : null,
+    http_status: Number.isInteger(result?.http_status) ? result.http_status : null,
+    reason: result?.reason == null ? null : normalizeToken(result.reason, 'transport_failed'),
+    delivery_semantics: normalizeToken(result?.delivery_semantics, 'unknown'),
+    idempotency_key: result?.idempotency_key == null ? null : String(result.idempotency_key),
+  };
+}
+
+function isConfirmedBlockedNotificationReceipt(receipt, intent) {
+  return ['sent', 'succeeded'].includes(receipt?.status)
+    && Number.isInteger(receipt?.attempts)
+    && receipt.attempts > 0
+    && receipt.delivery_semantics === BLOCKED_NOTIFICATION_DELIVERY_SEMANTICS
+    && receipt.idempotency_key === intent?.delivery_id;
+}
+
+function persistEffectAttempt(repository, {
+  record,
+  model,
+  timestamp,
+  reason,
+  effect,
+} = {}) {
+  repository.upsertAction(buildAttemptedActionRecord(record, model, timestamp, {
+    reason,
+    effect,
+  }));
+  repository.appendAuditEntry({
+    entityKind: 'action',
+    entityId: record.action_id,
+    operation: 'effect_attempted',
+    actor: 'assist_controller',
+    summary: `Attempted external effect for ${record.action_id}.`,
+    details: {
+      action_id: record.action_id,
+      action_kind: record.action_kind,
+      effect_kind: effect?.kind ?? null,
+      effect_status: 'attempted',
+    },
+    recordedAt: timestamp,
+  });
+}
+
 export function summarizeAssistActionRecord(record) {
   if (!isPlainObject(record)) return null;
 
@@ -472,6 +1166,9 @@ export function summarizeAssistActionRecord(record) {
       ?? null,
     execution_outcome: record?.payload?.execution?.outcome ?? null,
     execution_reason: normalizeExecutionReason(record, model),
+    effect_status: record?.payload?.execution?.effect?.status ?? null,
+    effect_kind: record?.payload?.execution?.effect?.kind ?? null,
+    effect_retryable: record?.payload?.execution?.effect?.retryable ?? false,
     runtime_preflight_status: executionContract?.runtime_preflight_status
       ?? model?.runtime_preflight?.status
       ?? null,
@@ -488,6 +1185,9 @@ export async function executeAssistActions({
   task,
   actionIds = [],
   now = new Date().toISOString(),
+  commandRunner = null,
+  commandCwd = null,
+  blockedNotificationTransport = createBlockedNotificationWebhookTransport(),
 } = {}) {
   const timestamp = resolveNow(now);
   const uniqueActionIds = [...new Set((actionIds ?? []).map((value) => String(value)))];
@@ -503,6 +1203,35 @@ export async function executeAssistActions({
     const model = isPlainObject(record.payload?.action_model)
       ? cloneJsonValue(record.payload.action_model)
       : buildFallbackActionModel(record, controllerId, task);
+
+    if (hasUnconfirmedEffectClaim(record)) {
+      repository.appendAuditEntry({
+        entityKind: 'action',
+        entityId: record.action_id,
+        operation: 'execution_blocked',
+        actor: 'assist_controller',
+        summary: `Blocked duplicate external effect for ${record.action_id}.`,
+        details: {
+          action_id: record.action_id,
+          action_kind: record.action_kind,
+          reason: 'unconfirmed_effect_in_flight',
+          attempt_id: record.payload.execution.effect.attempt_id ?? null,
+          delivery_semantics: record.payload.execution.effect.delivery_semantics ?? null,
+        },
+        recordedAt: timestamp,
+      });
+      persistExecutionAttemptMetric(repository, {
+        controllerId,
+        task,
+        record,
+        model,
+        status: 'blocked',
+        reason: 'unconfirmed_effect_in_flight',
+        timestamp,
+      });
+      blockedActionIds.push(record.action_id);
+      continue;
+    }
 
     if (!hasDurableAllowPolicy(record)) {
       const blockedRecord = buildBlockedActionRecord(record, model, timestamp, {
@@ -621,7 +1350,325 @@ export async function executeAssistActions({
       continue;
     }
 
-    const executedRecord = buildExecutedActionRecord(record, model, timestamp);
+    let executionReason = 'class_a_assist_execution';
+    let executionDetails = null;
+    let effect = buildEffectReceipt({
+      status: 'durable_only',
+      kind: 'durable_state',
+      timestamp,
+      intent: {
+        action_kind: record.action_kind,
+      },
+      receipt: {
+        durable_action_status: 'executed',
+      },
+    });
+
+    if (record.action_kind === 'notify_human_blocked') {
+      const attemptId = buildEffectAttemptId(record, timestamp);
+      const intent = buildBlockedNotificationIntent({
+        projectId: repository.getSnapshot().state.project_id ?? null,
+        prNumber: model.pr_number ?? null,
+        actionId: record.action_id,
+        summary: record.reason ?? model.summary ?? null,
+        dedupeMarker: extractBlockedNotificationMarker(model.commands),
+        timestamp,
+      });
+      executionReason = 'blocked_notification_recorded';
+      executionDetails = {
+        notification_intent: cloneJsonValue(intent),
+      };
+
+      if (typeof blockedNotificationTransport?.sendBlockedNotification === 'function') {
+        persistEffectAttempt(repository, {
+          record,
+          model,
+          timestamp,
+          reason: 'blocked_notification_transport_attempted',
+          effect: buildEffectReceipt({
+            status: 'attempted',
+            kind: 'blocked_notification',
+            timestamp,
+            intent,
+            retryable: true,
+            attemptId,
+            deliverySemantics: ASSIST_EXTERNAL_EFFECT_DELIVERY_SEMANTICS,
+          }),
+        });
+
+        let transportResult;
+        try {
+          transportResult = await blockedNotificationTransport.sendBlockedNotification(intent);
+        } catch (error) {
+          transportResult = {
+            status: 'failed',
+            transport: 'custom',
+            attempts: 1,
+            reason: error?.name == null ? 'transport_threw' : `transport_threw_${String(error.name)}`,
+          };
+        }
+        const transportReceipt = sanitizeTransportReceipt(transportResult);
+        if (!isConfirmedBlockedNotificationReceipt(transportReceipt, intent)) {
+          effect = buildEffectReceipt({
+            status: 'failed',
+            kind: 'blocked_notification',
+            timestamp,
+            intent,
+            receipt: transportReceipt,
+            retryable: true,
+            attemptId,
+            deliverySemantics: ASSIST_EXTERNAL_EFFECT_DELIVERY_SEMANTICS,
+          });
+          const failureReason = 'blocked_notification_transport_failed';
+          repository.upsertAction(buildFailedEffectActionRecord(record, model, timestamp, {
+            reason: failureReason,
+            details: { notification_intent: cloneJsonValue(intent) },
+            effect,
+          }));
+          repository.appendAuditEntry({
+            entityKind: 'action',
+            entityId: record.action_id,
+            operation: 'effect_failed',
+            actor: 'assist_controller',
+            summary: `External effect failed for ${record.action_id}; action remains proposed for retry.`,
+            details: {
+              action_id: record.action_id,
+              action_kind: record.action_kind,
+              reason: failureReason,
+              effect: cloneJsonValue(effect),
+            },
+            recordedAt: timestamp,
+          });
+          persistExecutionAttemptMetric(repository, {
+            controllerId,
+            task,
+            record,
+            model,
+            status: 'blocked',
+            reason: failureReason,
+            timestamp,
+          });
+          blockedActionIds.push(record.action_id);
+          continue;
+        }
+
+        effect = buildEffectReceipt({
+          status: 'succeeded',
+          kind: 'blocked_notification',
+          timestamp,
+          intent,
+          receipt: transportReceipt,
+          attemptId,
+          deliverySemantics: ASSIST_EXTERNAL_EFFECT_DELIVERY_SEMANTICS,
+        });
+      } else {
+        effect = buildEffectReceipt({
+          status: 'durable_only',
+          kind: 'blocked_notification',
+          timestamp,
+          intent,
+          retryable: true,
+          attemptId,
+          deliverySemantics: ASSIST_EXTERNAL_EFFECT_DELIVERY_SEMANTICS,
+          receipt: {
+            status: 'not_configured',
+            transport: null,
+          },
+        });
+        const missingTransportReason = 'blocked_notification_transport_missing';
+        repository.upsertAction(buildBlockedActionRecord(record, model, timestamp, {
+          reason: missingTransportReason,
+          structural: false,
+          details: { notification_intent: cloneJsonValue(intent) },
+          effect,
+        }));
+        repository.appendAuditEntry({
+          entityKind: 'action',
+          entityId: record.action_id,
+          operation: 'execution_blocked',
+          actor: 'assist_controller',
+          summary: `No external notification transport is configured for ${record.action_id}.`,
+          details: {
+            action_id: record.action_id,
+            action_kind: record.action_kind,
+            reason: missingTransportReason,
+            effect: cloneJsonValue(effect),
+          },
+          recordedAt: timestamp,
+        });
+        persistExecutionAttemptMetric(repository, {
+          controllerId,
+          task,
+          record,
+          model,
+          status: 'blocked',
+          reason: missingTransportReason,
+          timestamp,
+        });
+        blockedActionIds.push(record.action_id);
+        continue;
+      }
+    }
+
+    if (record.action_kind === 'auto_merge_ready_pr') {
+      const attemptId = buildEffectAttemptId(record, timestamp);
+      const prNumber = toNullablePositiveInteger(model.pr_number);
+      const expectedHeadSha = record?.payload?.release_decision?.expected_head_sha == null
+        ? null
+        : String(record.payload.release_decision.expected_head_sha);
+      const externalAuthorization = expectedHeadSha == null
+        ? { ok: false, receipt: null }
+        : validateAutoMergeAuthorization(record, expectedHeadSha);
+      const intent = {
+        operation: 'merge_pull_request',
+        provider: 'github_cli',
+        effect_class: 'irreversible_remote_effect',
+        rollback_supported: false,
+        pr_number: prNumber,
+        expected_head_sha: expectedHeadSha,
+        authorization: cloneJsonValue(externalAuthorization.receipt ?? null),
+        cwd: commandCwd == null ? null : String(commandCwd),
+      };
+
+      if (prNumber && expectedHeadSha && externalAuthorization.ok && isCommandRunner(commandRunner)) {
+        persistEffectAttempt(repository, {
+          record,
+          model,
+          timestamp,
+          reason: 'auto_merge_attempted',
+          effect: buildEffectReceipt({
+            status: 'attempted',
+            kind: 'auto_merge',
+            timestamp,
+            intent,
+            retryable: true,
+            attemptId,
+            deliverySemantics: ASSIST_EXTERNAL_EFFECT_DELIVERY_SEMANTICS,
+          }),
+        });
+      }
+
+      const autoMergeResult = await prepareAutoMergeExecution({
+        record,
+        model,
+        commandRunner,
+        commandCwd,
+      });
+      const autoMergeReceipt = {
+        reason: autoMergeResult.reason,
+        already_merged: autoMergeResult.alreadyMerged === true,
+        command_receipts: cloneJsonValue(autoMergeResult.command_receipts ?? []),
+        result: cloneJsonValue(autoMergeResult.details ?? null),
+      };
+      if (!autoMergeResult.ok) {
+        const effectDispatched = autoMergeResult.effect_dispatched === true;
+        const failureEffect = effectDispatched
+          ? buildEffectReceipt({
+              status: 'attempted',
+              kind: 'auto_merge',
+              timestamp,
+              intent,
+              receipt: autoMergeReceipt,
+              retryable: false,
+              attemptId,
+              deliverySemantics: ASSIST_EXTERNAL_EFFECT_DELIVERY_SEMANTICS,
+            })
+          : autoMergeResult.attempted
+          ? buildEffectReceipt({
+              status: 'failed',
+              kind: 'auto_merge',
+              timestamp,
+              intent,
+              receipt: autoMergeReceipt,
+              retryable: autoMergeResult.retryable === true,
+              attemptId,
+              deliverySemantics: ASSIST_EXTERNAL_EFFECT_DELIVERY_SEMANTICS,
+            })
+          : null;
+        const failureRecord = effectDispatched
+          ? buildAttemptedActionRecord(record, model, timestamp, {
+              reason: autoMergeResult.reason,
+              effect: failureEffect,
+            })
+          : autoMergeResult.attempted !== true
+          ? buildBlockedActionRecord(record, model, timestamp, {
+              reason: autoMergeResult.reason,
+              matchedOverrideIds: [],
+              structural: autoMergeResult.retryable !== true,
+              details: autoMergeResult.details ?? null,
+              effect: failureEffect,
+            })
+          : autoMergeResult.retryable === true
+          ? buildFailedEffectActionRecord(record, model, timestamp, {
+              reason: autoMergeResult.reason,
+              details: autoMergeResult.details ?? null,
+              effect: failureEffect,
+            })
+          : buildBlockedActionRecord(record, model, timestamp, {
+              reason: autoMergeResult.reason,
+              matchedOverrideIds: [],
+              structural: true,
+              details: autoMergeResult.details ?? null,
+              effect: failureEffect,
+            });
+        repository.upsertAction(failureRecord);
+        repository.appendAuditEntry({
+          entityKind: 'action',
+          entityId: record.action_id,
+          operation: effectDispatched
+            ? 'effect_unconfirmed'
+            : autoMergeResult.attempted === true && autoMergeResult.retryable === true
+            ? 'effect_failed'
+            : 'execution_blocked',
+          actor: 'assist_controller',
+          summary: effectDispatched
+            ? `External effect result is unconfirmed for ${record.action_id}; automatic replay is blocked.`
+            : autoMergeResult.attempted === true && autoMergeResult.retryable === true
+            ? `External effect failed for ${record.action_id}; action remains proposed for retry.`
+            : `Blocked assist execution for ${record.action_id}.`,
+          details: {
+            action_id: record.action_id,
+            action_kind: record.action_kind,
+            reason: autoMergeResult.reason,
+            risk_class: model.risk_class,
+            runtime_preflight: cloneJsonValue(model.runtime_preflight ?? null),
+            effect: cloneJsonValue(failureEffect),
+            idempotency_mode: model?.execution_contract?.idempotency_mode ?? null,
+            rollback_mode: model?.execution_contract?.rollback_mode ?? null,
+          },
+          recordedAt: timestamp,
+        });
+        persistExecutionAttemptMetric(repository, {
+          controllerId,
+          task,
+          record,
+          model,
+          status: 'blocked',
+          reason: autoMergeResult.reason,
+          timestamp,
+        });
+        blockedActionIds.push(record.action_id);
+        continue;
+      }
+
+      executionReason = autoMergeResult.reason;
+      executionDetails = autoMergeResult.details ?? null;
+      effect = buildEffectReceipt({
+        status: 'succeeded',
+        kind: 'auto_merge',
+        timestamp,
+        intent,
+        receipt: autoMergeReceipt,
+        attemptId,
+        deliverySemantics: ASSIST_EXTERNAL_EFFECT_DELIVERY_SEMANTICS,
+      });
+    }
+
+    const executedRecord = buildExecutedActionRecord(record, model, timestamp, {
+      reason: executionReason,
+      details: executionDetails,
+      effect,
+    });
     repository.upsertAction(executedRecord);
     repository.appendAuditEntry({
       entityKind: 'action',
@@ -638,6 +1685,9 @@ export async function executeAssistActions({
         pr_number: model.pr_number ?? null,
         runtime_preflight: cloneJsonValue(model.runtime_preflight ?? null),
         policy_decision_id: record?.payload?.policy_decision_id ?? null,
+        execution_reason: executionReason,
+        execution_details: cloneJsonValue(executionDetails),
+        effect: cloneJsonValue(effect),
         idempotency_mode: model?.execution_contract?.idempotency_mode ?? null,
         rollback_mode: model?.execution_contract?.rollback_mode ?? null,
       },
@@ -649,7 +1699,7 @@ export async function executeAssistActions({
       record,
       model,
       status: 'executed',
-      reason: 'class_a_assist_execution',
+      reason: executionReason,
       timestamp,
     });
     executedActionIds.push(record.action_id);

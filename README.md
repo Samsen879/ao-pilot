@@ -90,10 +90,11 @@ What is reasonably implemented:
 - Handoff and checkpoint concepts for recovering interrupted agent sessions.
 - Acceptance tests for several representative lifecycle scenarios.
 - Deterministic evaluation packs, bounded metrics, scorecards, and baseline gates.
+- Explicit ESM package exports for CLI runners, contracts, repositories, engines, protocols, and providers.
 
 What is not guaranteed:
 
-- Stable public API.
+- Compatibility for modules outside the declared `package.json#exports` boundary.
 - Production deployment safety.
 - Complete documentation for external users.
 - Compatibility with every AI coding workflow.
@@ -210,7 +211,32 @@ ao-pilot controller --holder my-session --issue 42
 
 The project id is read from `ao.config.json`. A command-level `--project`
 option overrides it. Most commands support `--json` for machine-readable
-output, and the original `node scripts/ao-*.js` entrypoints remain compatible.
+output. The files below `scripts/` are package internals; downstream consumers
+must use the binary or declared library exports rather than deep imports.
+
+### Public library API
+
+The supported ESM entrypoints are:
+
+```text
+ao-pilot
+ao-pilot/cli
+ao-pilot/contracts
+ao-pilot/repository
+ao-pilot/engines
+ao-pilot/protocols
+ao-pilot/providers
+```
+
+For example:
+
+```js
+import { createStateRepository } from 'ao-pilot/repository';
+import { reconcileObservations, runControllerLoop } from 'ao-pilot/engines';
+import { createLocalCommandRunner } from 'ao-pilot/providers';
+```
+
+Undeclared paths intentionally fail with `ERR_PACKAGE_PATH_NOT_EXPORTED`.
 
 ## Architecture
 
@@ -279,7 +305,7 @@ The project provides several focused CLI entry points.
 Runs the main control loop.
 
 ```bash
-node scripts/ao-controller.js --holder <id> [options]
+ao-pilot controller --holder <id> [options]
 ```
 
 Common options:
@@ -299,9 +325,9 @@ Common options:
 Examples:
 
 ```bash
-node scripts/ao-controller.js --holder dev-session --mode observe
-node scripts/ao-controller.js --holder dev-session --mode shadow --json
-node scripts/ao-controller.js --holder dev-session --mode assist --continuous
+ao-pilot controller --holder dev-session --mode observe
+ao-pilot controller --holder dev-session --mode shadow --json
+ao-pilot controller --holder dev-session --mode assist --continuous
 ```
 
 ### `ao-reconcile`
@@ -309,15 +335,15 @@ node scripts/ao-controller.js --holder dev-session --mode assist --continuous
 Compares AO state with GitHub-facing state.
 
 ```bash
-node scripts/ao-reconcile.js [options]
+ao-pilot reconcile [options]
 ```
 
 Examples:
 
 ```bash
-node scripts/ao-reconcile.js --project my-project
-node scripts/ao-reconcile.js --pr 42 --json
-node scripts/ao-reconcile.js --pr 42 --json --strict
+ao-pilot reconcile --project my-project
+ao-pilot reconcile --pr 42 --json
+ao-pilot reconcile --pr 42 --json --strict
 ```
 
 Use this when you want to know whether AO state agrees with PR, branch, CI, and review state.
@@ -327,15 +353,15 @@ Use this when you want to know whether AO state agrees with PR, branch, CI, and 
 Runs diagnostic checks.
 
 ```bash
-node scripts/ao-doctor.js [options]
+ao-pilot doctor [options]
 ```
 
 Examples:
 
 ```bash
-node scripts/ao-doctor.js --project my-project
-node scripts/ao-doctor.js --pr 42 --json
-node scripts/ao-doctor.js --pr 42 --json --strict
+ao-pilot doctor --project my-project
+ao-pilot doctor --pr 42 --json
+ao-pilot doctor --pr 42 --json --strict
 ```
 
 Use this to surface blocked, ambiguous, orphaned, stale, or otherwise unhealthy work.
@@ -345,15 +371,15 @@ Use this to surface blocked, ambiguous, orphaned, stale, or otherwise unhealthy 
 Inspects lifecycle state and readiness.
 
 ```bash
-node scripts/ao-lifecycle.js [options]
+ao-pilot lifecycle [options]
 ```
 
 Examples:
 
 ```bash
-node scripts/ao-lifecycle.js --project my-project
-node scripts/ao-lifecycle.js --pr 42 --json
-node scripts/ao-lifecycle.js --pr 42 --json --strict
+ao-pilot lifecycle --project my-project
+ao-pilot lifecycle --pr 42 --json
+ao-pilot lifecycle --pr 42 --json --strict
 ```
 
 Use this to inspect whether a task or PR has enough continuity, CI, and review evidence to move forward.
@@ -363,7 +389,7 @@ Use this to inspect whether a task or PR has enough continuity, CI, and review e
 Manages task lifecycle records.
 
 ```bash
-node scripts/ao-manage.js <command> [options]
+ao-pilot manage <command> [options]
 ```
 
 Supported commands include:
@@ -379,7 +405,7 @@ retire
 Example:
 
 ```bash
-node scripts/ao-manage.js enroll \
+ao-pilot manage enroll \
   --project my-project \
   --issue 42 \
   --title "Fix failing parser test" \
@@ -392,7 +418,7 @@ node scripts/ao-manage.js enroll \
 Handles successor-session handoff.
 
 ```bash
-node scripts/ao-handoff.js <command> [options]
+ao-pilot handoff <command> [options]
 ```
 
 Supported commands include:
@@ -409,12 +435,12 @@ inspect
 Examples:
 
 ```bash
-node scripts/ao-handoff.js request \
+ao-pilot handoff request \
   --project my-project \
   --issue 42 \
   --successor-session next-worker
 
-node scripts/ao-handoff.js inspect \
+ao-pilot handoff inspect \
   --project my-project \
   --issue 42 \
   --json
@@ -425,8 +451,8 @@ node scripts/ao-handoff.js inspect \
 Inspects persistent AO state.
 
 ```bash
-node scripts/ao-state.js --project my-project
-node scripts/ao-state.js --project my-project --json
+ao-pilot state --project my-project
+ao-pilot state --project my-project --json
 ```
 
 ### `ao-override`
@@ -434,7 +460,7 @@ node scripts/ao-state.js --project my-project --json
 Manages explicit overrides.
 
 ```bash
-node scripts/ao-override.js <command> [options]
+ao-pilot override <command> [options]
 ```
 
 Overrides are intended for controlled operator intervention, not as a replacement for fixing state.
@@ -444,8 +470,8 @@ Overrides are intended for controlled operator intervention, not as a replacemen
 Inspects repository knowledge files and related metadata.
 
 ```bash
-node scripts/ao-knowledge.js --project my-project
-node scripts/ao-knowledge.js --project my-project --json
+ao-pilot knowledge --project my-project
+ao-pilot knowledge --project my-project --json
 ```
 
 ## How It Works
@@ -561,6 +587,10 @@ ao-pilot eval --pack all
 See [AO Evaluation](docs/AO_EVALUATION.md) for project-owned packs, replay,
 metrics windows, scorecards, and baselines.
 
+Release candidates use `npm run release:check`. See
+[AO Release](docs/AO_RELEASE.md) for the second-machine checklist, tagging, and
+npm publication boundary.
+
 The acceptance tests cover representative situations such as:
 
 - clean PR continuity;
@@ -621,7 +651,7 @@ It is probably not the right tool if you want:
 
 - a plug-and-play production agent platform;
 - a polished SaaS-style product;
-- a stable public API;
+- compatibility for undeclared package internals or deep imports;
 - a fully documented contributor experience;
 - an agent that can safely operate without human review.
 

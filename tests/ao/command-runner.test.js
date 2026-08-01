@@ -37,4 +37,20 @@ describe('local command runner provider boundary', () => {
       },
     }));
   });
+
+  it.each([
+    ['signal termination', { status: 0, signal: 'SIGTERM' }, { status: 0, signal: 'SIGTERM' }],
+    ['non-numeric status', { status: '0', signal: null }, { status: null, signal: null }],
+  ])('preserves fail-closed process evidence for %s', (_label, processResult, expected) => {
+    const runner = createLocalCommandRunner({
+      spawn: () => ({
+        stdout: '',
+        stderr: '',
+        ...processResult,
+      }),
+      baseEnv: {},
+    });
+
+    expect(runner.run('gh', ['pr', 'view', '42'])).toMatchObject(expected);
+  });
 });

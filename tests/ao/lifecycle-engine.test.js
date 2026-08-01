@@ -459,6 +459,83 @@ describe('lifecycle engine', () => {
     ]));
   });
 
+  it('selects guarded auto-merge only through the explicit release-ready policy option', () => {
+    const report = buildLifecycleReport({
+      scope: createLifecyclePrScope({
+        projectId: 'my-project',
+        prNumber: 44,
+        trigger: 'approved_and_green',
+      }),
+      reconciliationReport: buildReconciliationReport(),
+      doctorReport: buildDoctorReport(),
+      currentHeadSha: 'head-44',
+      releaseReadyAction: 'auto_merge_ready_pr',
+    });
+
+    expect(report.release_decision).toEqual({
+      disposition: 'auto_merge_ready_pr',
+      basis: ['ready_for_auto_merge'],
+      expected_head_sha: 'head-44',
+      authoritative: true,
+    });
+    expect(report.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'auto_merge_ready_pr',
+        action_class: 'merge_pr',
+      }),
+    ]));
+    expect(report.actions).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'notify_human_ready' }),
+    ]));
+  });
+
+  it('applies the independent-review gate to the opt-in auto-merge decision', () => {
+    const report = buildLifecycleReport({
+      scope: createLifecyclePrScope({
+        projectId: 'my-project',
+        prNumber: 44,
+        trigger: 'approved_and_green',
+      }),
+      reconciliationReport: buildReconciliationReport(),
+      doctorReport: buildDoctorReport(),
+      currentHeadSha: 'head-44',
+      releaseReadyAction: 'auto_merge_ready_pr',
+      reviewRequired: true,
+      reviewInspection: null,
+    });
+
+    expect(report.release_decision).toMatchObject({
+      disposition: 'await_review',
+      basis: ['review_missing'],
+    });
+    expect(report.actions).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'auto_merge_ready_pr' }),
+    ]));
+  });
+
+  it('emits a provider-neutral blocked-notification action for human gates', () => {
+    const report = buildLifecycleReport({
+      scope: createLifecyclePrScope({
+        projectId: 'my-project',
+        prNumber: 44,
+        trigger: 'changes_requested',
+      }),
+      reconciliationReport: buildReconciliationReport({
+        pr_assessments: [],
+      }),
+      doctorReport: buildDoctorReport(),
+    });
+
+    expect(report.top_status).toBe('human_gate');
+    expect(report.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'notify_human_blocked',
+        action_class: 'notify_human',
+        commands: [],
+      }),
+    ]));
+  });
+
   it('fails closed when independent review is required and no matching pass exists', () => {
     const report = buildLifecycleReport({
       scope: createLifecyclePrScope({

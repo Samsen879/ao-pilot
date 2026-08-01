@@ -10,6 +10,20 @@ import {
   getGate,
 } from './gate-model.js';
 
+export const RELEASE_READY_ACTIONS = Object.freeze({
+  NOTIFY_HUMAN: 'notify_human_ready',
+  AUTO_MERGE: 'auto_merge_ready_pr',
+});
+export const DEFAULT_RELEASE_READY_ACTION = RELEASE_READY_ACTIONS.NOTIFY_HUMAN;
+
+export function normalizeReleaseReadyAction(value = DEFAULT_RELEASE_READY_ACTION) {
+  const normalized = String(value ?? DEFAULT_RELEASE_READY_ACTION).trim();
+  if (!Object.values(RELEASE_READY_ACTIONS).includes(normalized)) {
+    throw new Error(`Unsupported release-ready action: ${value}`);
+  }
+  return normalized;
+}
+
 const RECONCILIATION_FINDING_SOURCE_AREAS = {
   no_orchestrator_session: 'ao',
   multiple_orchestrator_sessions: 'ao',
@@ -109,7 +123,10 @@ function resolveReviewGateReleaseDecision({
     return originalReleaseDecision;
   }
 
-  if (reviewRequired && normalizedReleaseDecision.disposition === 'notify_human_ready') {
+  if (
+    reviewRequired
+    && Object.values(RELEASE_READY_ACTIONS).includes(normalizedReleaseDecision.disposition)
+  ) {
     return {
       disposition: 'await_review',
       basis: ['review_missing'],
@@ -380,6 +397,8 @@ function buildReleaseDecision({
   reconciliationReport,
   doctorControlStatus,
   sourceHealth,
+  currentHeadSha = null,
+  releaseReadyAction = DEFAULT_RELEASE_READY_ACTION,
 }) {
   if (scope?.mode === 'project') {
     return {
@@ -438,8 +457,16 @@ function buildReleaseDecision({
     && reconciliationReport?.top_status === 'healthy'
     && ['approved_and_green', 'manual'].includes(scope?.trigger)
   ) {
+    if (releaseReadyAction === RELEASE_READY_ACTIONS.AUTO_MERGE) {
+      return {
+        disposition: RELEASE_READY_ACTIONS.AUTO_MERGE,
+        basis: ['ready_for_auto_merge'],
+        expected_head_sha: currentHeadSha,
+        authoritative: true,
+      };
+    }
     return {
-      disposition: 'notify_human_ready',
+      disposition: RELEASE_READY_ACTIONS.NOTIFY_HUMAN,
       basis: ['ready_for_human_notification'],
       authoritative: true,
     };
@@ -609,7 +636,7 @@ function buildLifecycleFindings({
       summary: 'Doctor diagnosis blocks lifecycle control from continuing.',
       details: ['Local continuity diagnosis must be resolved before control can proceed.'],
       evidence_refs: [],
-      action_ids: ['hold_local_control'],
+      action_ids: ['hold_local_control', 'notify_human_blocked'],
     }));
   }
 
@@ -688,6 +715,21 @@ function buildLifecycleFindings({
     }));
   }
 
+  if (releaseDecision.disposition === 'auto_merge_ready_pr') {
+    findings.push(createLifecycleFinding({
+      code: 'release_ready_auto_merge',
+      severity: 'info',
+      origin: 'lifecycle',
+      source_area: 'control',
+      subject_type: 'release_control',
+      subject_id: scope?.pr_number ?? null,
+      summary: 'PR appears ready for policy-selected automatic merge.',
+      details: releaseDecision.basis,
+      evidence_refs: [],
+      action_ids: ['auto_merge_ready_pr'],
+    }));
+  }
+
   if (releaseDecision.disposition === 'human_gate') {
     findings.push(createLifecycleFinding({
       code: 'release_control_human_gate',
@@ -699,7 +741,7 @@ function buildLifecycleFindings({
       summary: 'Release-facing judgment still requires a human.',
       details: releaseDecision.basis,
       evidence_refs: [],
-      action_ids: ['human_gate'],
+      action_ids: ['human_gate', 'notify_human_blocked'],
     }));
   }
 
@@ -743,6 +785,21 @@ function buildActionTemplates(scope) {
         `ao review-check ${projectId} --dry-run`,
       ],
       rationale: 'Human approval remains required even when the PR appears ready.',
+    },
+    notify_human_blocked: {
+      action_class: 'notify_human',
+      summary: 'Record a generic notification intent because AO is blocked.',
+      commands: [],
+      rationale: 'AO cannot safely continue without explicit human input; delivery is delegated to an injected transport.',
+    },
+    auto_merge_ready_pr: {
+      action_class: 'merge_pr',
+      summary: 'Merge the release-ready AO-managed PR.',
+      commands: [
+        `gh pr view ${prNumber} --json number,state,headRefOid,reviewDecision,mergeStateStatus,isDraft,statusCheckRollup,url`,
+        `gh pr merge ${prNumber} --squash --delete-branch`,
+      ],
+      rationale: 'The configured release-ready policy selected guarded automatic merge.',
     },
     hold_ci: {
       action_class: 'hold',
@@ -881,7 +938,9 @@ export function buildLifecycleReport({
   reviewRequired = false,
   reviewInspection = null,
   currentHeadSha = null,
+  releaseReadyAction = DEFAULT_RELEASE_READY_ACTION,
 } = {}) {
+  const normalizedReleaseReadyAction = normalizeReleaseReadyAction(releaseReadyAction);
   const sourceHealth = deriveLifecycleSourceHealth(reconciliationReport, doctorReport);
   const doctorControlStatus = deriveDoctorControlStatus(doctorReport);
   const assessment = selectSingleAssessment(scope, reconciliationReport);
@@ -897,6 +956,8 @@ export function buildLifecycleReport({
     reconciliationReport,
     doctorControlStatus,
     sourceHealth,
+    currentHeadSha,
+    releaseReadyAction: normalizedReleaseReadyAction,
   });
   const findings = [
     ...preserveReconciliationFindings(reconciliationReport),

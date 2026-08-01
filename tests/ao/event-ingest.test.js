@@ -310,4 +310,65 @@ describe('ao event ingest', () => {
       }),
     ]));
   });
+
+  it('keeps conservative delivery hints by default and supports explicit auto-merge opt-in', () => {
+    const ingestReadyPr = (releaseReadyAction) => {
+      const repository = createStateRepository({
+        repoRoot: createTempRepo(),
+        projectId: PROJECT_ID,
+      });
+      repository.upsertManagedTask(createManagedTask({
+        task_id: 'issue-120',
+        issue_number: 120,
+        title: 'Release-ready action policy',
+        branch_name: 'feat/120',
+        worktree_path: '/tmp/worker-120',
+        status: 'active',
+        created_at: '2026-03-30T09:00:00.000Z',
+        updated_at: '2026-03-30T09:00:00.000Z',
+      }));
+      repository.upsertPrBinding(createPrBinding({
+        binding_id: 'binding-issue-120-pr-120',
+        task_id: 'issue-120',
+        pr_number: 120,
+        branch_name: 'feat/120',
+        base_branch: 'main',
+        status: 'bound',
+        created_at: '2026-03-30T09:00:00.000Z',
+        updated_at: '2026-03-30T09:00:00.000Z',
+      }));
+      const snapshot = repository.getSnapshot().state;
+      ingestManagedTaskPollEvents({
+        repository,
+        task: snapshot.managed_tasks[0],
+        prBindings: snapshot.pr_bindings,
+        aoObservation: { observed_at: '2026-03-30T09:01:00.000Z', workers: [] },
+        githubObservation: {
+          observed_at: '2026-03-30T09:01:00.000Z',
+          prs: [{
+            pr_number: 120,
+            state: 'OPEN',
+            head_branch: 'feat/120',
+            head_sha: 'head-120',
+            review_status: 'approved',
+            ci_status: 'passing',
+            mergeability: 'mergeable',
+            is_draft: false,
+          }],
+        },
+        ...(releaseReadyAction == null ? {} : { releaseReadyAction }),
+        now: '2026-03-30T09:01:00.000Z',
+      });
+      return repository.getSnapshot().state.delivery_events.find((event) => event.event_family === 'pr');
+    };
+
+    expect(ingestReadyPr(null)).toMatchObject({
+      lifecycle_trigger: 'approved_and_green',
+      controller_action_hint: 'notify_human_ready',
+    });
+    expect(ingestReadyPr('auto_merge_ready_pr')).toMatchObject({
+      lifecycle_trigger: 'approved_and_green',
+      controller_action_hint: 'auto_merge_ready_pr',
+    });
+  });
 });

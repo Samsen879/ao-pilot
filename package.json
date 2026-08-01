@@ -1,21 +1,34 @@
 {
   "name": "ao-pilot",
-  "version": "0.1.0",
-  "description": "An autonomous control plane for AI coding agents — built for Codex CLI + agent-orchestrator",
+  "version": "0.2.0",
+  "description": "An independently installable control plane for AI coding agents",
   "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./cli": "./lib/cli.js",
+    "./contracts": "./lib/contracts.js",
+    "./repository": "./lib/repository.js",
+    "./engines": "./lib/engines.js",
+    "./protocols": "./lib/protocols.js",
+    "./providers": "./lib/providers.js",
+    "./package.json": "./package.json"
+  },
   "license": "MIT",
   "bin": {
     "ao-pilot": "./bin/ao-pilot.js"
   },
   "files": [
+    "CHANGELOG.md",
     "bin",
+    "lib",
     "scripts",
     "docs",
     "templates",
     "tests/ao/fixtures"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": "^20.0.0 || >=22.0.0"
   },
   "scripts": {
     "controller": "node scripts/ao-controller.js",
@@ -53,8 +66,9 @@
     "ao:smoke": "node scripts/ao/run-operator-smoke.js",
     "ao:state": "node scripts/ao-state.js",
     "ao:test:acceptance": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --runTestsByPath tests/ao/ao-lifecycle-acceptance.test.js --no-color",
-    "test": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --testPathPattern='tests/ao/' --no-color",
-    "verify:package": "node scripts/verify-package-install.js"
+    "test": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --testPathPatterns='tests/ao/' --no-color",
+    "verify:package": "node scripts/verify-package-install.js",
+    "release:check": "npm test && npm run ao:test:acceptance && npm run ao:smoke && npm run verify:package && npm audit"
   },
   "jest": {
     "testEnvironment": "node",
@@ -67,8 +81,11 @@
     "transform": {}
   },
   "devDependencies": {
-    "@jest/globals": "^29.7.0",
-    "jest": "^29.7.0"
+    "@jest/globals": "^30.4.1",
+    "jest": "^30.4.2"
+  },
+  "overrides": {
+    "brace-expansion": "5.0.8"
   },
   "keywords": [
     "ai",
@@ -82,5 +99,13 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/Samsen879/ao-pilot.git"
+  },
+  "homepage": "https://github.com/Samsen879/ao-pilot#readme",
+  "bugs": {
+    "url": "https://github.com/Samsen879/ao-pilot/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

@@ -118,6 +118,21 @@ describe('ao doctor cli', () => {
     });
   });
 
+  it('uses a configured default project in PR mode without weakening mixed-scope validation', async () => {
+    await runCli(['--pr', '44'], {
+      writeStdout: () => {},
+      writeStderr: () => {},
+    }, {
+      defaultProjectId: 'ciecopilot-home',
+    });
+
+    expect(mockRunDoctor).toHaveBeenCalledWith({
+      projectId: 'ciecopilot-home',
+      prNumber: 44,
+      cwd: process.cwd(),
+    });
+  });
+
   it('uses fixed strict exit-code mapping in human and JSON modes', async () => {
     mockRunDoctor
       .mockResolvedValueOnce({ report: buildReport({ top_status: 'warning' }) })

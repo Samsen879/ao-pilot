@@ -103,7 +103,10 @@ function renderHelp() {
   ].join('\n');
 }
 
-export async function runCli(argv, io = createDefaultIo()) {
+export async function runCli(argv, io = createDefaultIo(), {
+  cwd = process.cwd(),
+  defaultProjectId = DEFAULT_PROJECT_ID,
+} = {}) {
   const parsed = parseArgs(argv);
   if (!parsed.ok) {
     io.writeStderr(`${parsed.error}\n`);
@@ -114,6 +117,9 @@ export async function runCli(argv, io = createDefaultIo()) {
   }
 
   const { options } = parsed;
+  if (!argv.includes('--project')) {
+    options.projectId = defaultProjectId;
+  }
   if (options.help) {
     io.writeStdout(`${renderHelp()}\n`);
     return {
@@ -125,7 +131,7 @@ export async function runCli(argv, io = createDefaultIo()) {
   const { report: reconciliationReport } = await runReconciliation({
     projectId: options.projectId,
     prNumber: options.prNumber,
-    cwd: process.cwd(),
+    cwd,
   });
   const report = {
     ...reconciliationReport,

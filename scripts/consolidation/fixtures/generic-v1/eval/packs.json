@@ -1,0 +1,20 @@
+{
+  "schema_version": "ao.eval-pack-registry.v1alpha1",
+  "format": "ao_eval_pack_registry",
+  "packs": [
+    {
+      "pack_id": "all",
+      "title": "All consolidation parity scenarios",
+      "scenario_ids": [
+        "generic-shape"
+      ]
+    },
+    {
+      "pack_id": "generic-shape",
+      "title": "Generic evaluation shape",
+      "scenario_ids": [
+        "generic-shape"
+      ]
+    }
+  ]
+}

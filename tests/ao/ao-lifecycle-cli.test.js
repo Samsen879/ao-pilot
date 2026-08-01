@@ -115,6 +115,26 @@ describe('ao lifecycle cli', () => {
     });
   });
 
+  it('uses a configured default project for PR-scoped review state', async () => {
+    await runCli(['--pr', '44', '--json'], {
+      writeStdout: () => {},
+      writeStderr: () => {},
+    }, {
+      defaultProjectId: 'ciecopilot-home',
+    });
+
+    expect(mockRunDoctor).toHaveBeenCalledWith({
+      projectId: 'ciecopilot-home',
+      prNumber: 44,
+      cwd: process.cwd(),
+    });
+    expect(mockBuildLifecycleReport).toHaveBeenCalledWith(expect.objectContaining({
+      scope: expect.objectContaining({
+        project_id: 'ciecopilot-home',
+      }),
+    }));
+  });
+
   it('passes repo-local review gate context into lifecycle report building', async () => {
     mockRunDoctor.mockResolvedValue({
       reconciliationReport: {

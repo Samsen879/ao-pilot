@@ -41,6 +41,15 @@ Verify the actual npm tarball in an isolated install directory:
 npm run verify:package
 ```
 
+Run the complete release candidate gate:
+
+```bash
+npm run release:check
+```
+
+See [AO Release](AO_RELEASE.md) for second-machine verification, tagging, and
+the explicitly authorized npm publication flow.
+
 Run the bundled evaluation suite:
 
 ```bash

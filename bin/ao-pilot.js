@@ -8,6 +8,10 @@ import {
   loadAoConfig,
 } from '../scripts/ao/lib/config.js';
 
+const PACKAGE_VERSION = JSON.parse(
+  fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+).version;
+
 const COMMAND_MODULES = {
   controller: '../scripts/ao-controller.js',
   doctor: '../scripts/ao-doctor.js',
@@ -129,7 +133,7 @@ export async function runCli(argv, io = createDefaultIo(), {
     return { exitCode: 0, result: null };
   }
   if (command === '--version' || command === '-v') {
-    io.writeStdout('0.1.0\n');
+    io.writeStdout(`${PACKAGE_VERSION}\n`);
     return { exitCode: 0, result: null };
   }
   if (!(command in COMMAND_MODULES)) {
@@ -176,7 +180,10 @@ export async function runCli(argv, io = createDefaultIo(), {
       loadedConfig.path,
     );
   }
-  return commandModule.runCli(effectiveArgs, io);
+  return commandModule.runCli(effectiveArgs, io, {
+    cwd,
+    defaultProjectId: loadedConfig.config.project_id,
+  });
 }
 
 export function isDirectExecution(executedFile, currentFile) {
