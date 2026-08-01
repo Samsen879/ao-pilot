@@ -40,7 +40,7 @@ unapproved:                 0
 CIE expectation failures:   0
 ```
 
-The CIE oracle was `/home/samsen/code/ciecopilot-home` at local initial HEAD `5bb8b495…`. Its only local-only change is `agent-orchestrator.yaml`; embedded AO source matches the inventoried line for the compared modules. The migration worktree itself no longer contains a duplicate implementation after deletion.
+The CIE oracle was `<CIE_REPO>` at local initial HEAD `5bb8b495…`. Its only local-only change is `agent-orchestrator.yaml`; embedded AO source matches the inventoried line for the compared modules. The migration worktree itself no longer contains a duplicate implementation after deletion.
 
 ## Shared zero-difference behavior
 
@@ -93,7 +93,7 @@ The public-controller integration deliberately executes two stages: the first pa
 | Level | Test/command | Final evidence |
 |---|---|---|
 | unit parity | `tests/consolidation/parity-harness.test.js` | six harness contract tests, including normalization and approval fail-closed cases |
-| fixture replay parity | `node scripts/consolidation/parity-harness.js --cie-root /home/samsen/code/ciecopilot-home` | fingerprint matched; 85/85 approved; zero expectation failures |
+| fixture replay parity | `node scripts/consolidation/parity-harness.js --cie-root <CIE_REPO>` | fingerprint matched; 85/85 approved; zero expectation failures |
 | state migration/contract parity | generic-v1 migration observable plus `tests/ao/state-contracts-characterization.test.js` | schema v10/idempotent replay plus exported vocabulary, normalized metric maps, exact checkpoint task identity and object-shaped review baseline |
 | CLI contract parity | AO CLI suites + CIE consumer suite | 13-command dispatch/aliases, cwd/config identity, help/version/JSON semantics and installed-CLI state -> reconcile -> lifecycle smoke |
 | package installation | `npm run verify:package` + fresh packed consumer | public imports load from isolated install and unexported deep import is rejected |

@@ -298,7 +298,7 @@
     {
       "repository": "ao-pilot",
       "command": "npm test",
-      "cwd": "/home/samsen/code/ao-pilot",
+      "cwd": "<AO_PILOT_REPO>",
       "exit_code": 0,
       "result": "73/73 suites, 371/371 tests",
       "duration": "9.472 s Jest",
@@ -307,7 +307,7 @@
     {
       "repository": "ao-pilot",
       "command": "npm run ao:test:acceptance",
-      "cwd": "/home/samsen/code/ao-pilot",
+      "cwd": "<AO_PILOT_REPO>",
       "exit_code": 0,
       "result": "1 suite, 7/7 tests",
       "duration": "0.167 s Jest / 0.854 s wall",
@@ -316,7 +316,7 @@
     {
       "repository": "ao-pilot",
       "command": "npm run ao:smoke",
-      "cwd": "/home/samsen/code/ao-pilot",
+      "cwd": "<AO_PILOT_REPO>",
       "exit_code": 0,
       "result": "ci-failed-pr correctly reconciled blocked and lifecycle hold",
       "duration": "0.241 s wall",
@@ -325,7 +325,7 @@
     {
       "repository": "ao-pilot",
       "command": "npm run ao:eval -- --pack policy-fail-closed --json",
-      "cwd": "/home/samsen/code/ao-pilot",
+      "cwd": "<AO_PILOT_REPO>",
       "exit_code": 0,
       "result": "1/1 scenario passed; replay stable; quality gate passed",
       "duration": "0.320 s wall",
@@ -334,7 +334,7 @@
     {
       "repository": "ao-pilot",
       "command": "npm run verify:package",
-      "cwd": "/home/samsen/code/ao-pilot",
+      "cwd": "<AO_PILOT_REPO>",
       "exit_code": 0,
       "result": "149 entries; isolated packed install, 12 CLI exports, 7 core groups, eval gate and deep-import rejection passed",
       "duration": "6.3 s wall",
@@ -343,7 +343,7 @@
     {
       "repository": "ao-pilot",
       "command": "npm audit --omit=dev",
-      "cwd": "/home/samsen/code/ao-pilot",
+      "cwd": "<AO_PILOT_REPO>",
       "exit_code": 0,
       "result": "0 vulnerabilities",
       "duration": "0.424 s wall",
@@ -351,8 +351,8 @@
     },
     {
       "repository": "cross-repository",
-      "command": "node scripts/consolidation/parity-harness.js --cie-root /home/samsen/code/ciecopilot-home",
-      "cwd": "/home/samsen/code/ao-pilot",
+      "command": "node scripts/consolidation/parity-harness.js --cie-root <CIE_REPO>",
+      "cwd": "<AO_PILOT_REPO>",
       "exit_code": 0,
       "result": "fingerprint matched; 85 differences approved; 0 unapproved; 0 CIE expectation failures",
       "duration": "0.304 s wall",
@@ -361,7 +361,7 @@
     {
       "repository": "ciecopilot-home",
       "command": "npm run ao:boundary:check",
-      "cwd": "/home/samsen/code/ciecopilot-home/.worktrees/task-local--ao-consumer-cutover",
+      "cwd": "<CIE_RELEASE_WORKTREE>",
       "exit_code": 0,
       "result": "0 violations",
       "duration": "4.397 s wall",
@@ -370,7 +370,7 @@
     {
       "repository": "ciecopilot-home",
       "command": "npm run ao:test:consumer",
-      "cwd": "/home/samsen/code/ciecopilot-home/.worktrees/task-local--ao-consumer-cutover",
+      "cwd": "<CIE_RELEASE_WORKTREE>",
       "exit_code": 0,
       "result": "4/4 suites, 21/21 tests; includes installed CLI state -> reconcile -> lifecycle",
       "duration": "4.897 s Jest / 6.301 s wall",
@@ -379,7 +379,7 @@
     {
       "repository": "ciecopilot-home",
       "command": "npm run ao:smoke",
-      "cwd": "/home/samsen/code/ciecopilot-home/.worktrees/task-local--ao-consumer-cutover",
+      "cwd": "<CIE_RELEASE_WORKTREE>",
       "exit_code": 0,
       "result": "installed binary version 0.2.0",
       "duration": "0.214 s wall",
@@ -388,7 +388,7 @@
     {
       "repository": "ciecopilot-home",
       "command": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --runTestsByPath scripts/workflow/__tests__/codex-preflight.test.js scripts/workflow/__tests__/workflow-scripts.test.js --no-color",
-      "cwd": "/home/samsen/code/ciecopilot-home/.worktrees/task-local--ao-consumer-cutover",
+      "cwd": "<CIE_RELEASE_WORKTREE>",
       "exit_code": 0,
       "result": "2/2 suites, 18/18 tests",
       "duration": "2.017 s Jest / 3.718 s wall",
@@ -397,7 +397,7 @@
     {
       "repository": "ciecopilot-home",
       "command": "npm run 9709:active-issue-manifest:contract-test",
-      "cwd": "/home/samsen/code/ciecopilot-home/.worktrees/task-local--ao-consumer-cutover",
+      "cwd": "<CIE_RELEASE_WORKTREE>",
       "exit_code": 0,
       "result": "passed true; 0 errors",
       "duration": "0.281 s wall",
@@ -406,7 +406,7 @@
     {
       "repository": "ciecopilot-home",
       "command": "npm run build",
-      "cwd": "/home/samsen/code/ciecopilot-home/.worktrees/task-local--ao-consumer-cutover",
+      "cwd": "<CIE_RELEASE_WORKTREE>",
       "exit_code": 0,
       "result": "2502 modules; build passed",
       "duration": "5.54 s Vite / 6.566 s wall",
@@ -415,7 +415,7 @@
     {
       "repository": "ciecopilot-home",
       "command": "npm run lint",
-      "cwd": "/home/samsen/code/ciecopilot-home/.worktrees/task-local--ao-consumer-cutover",
+      "cwd": "<CIE_RELEASE_WORKTREE>",
       "exit_code": 1,
       "result": "47 errors, 11 warnings; identical to baseline",
       "duration": "29.972 s",
@@ -424,7 +424,7 @@
     {
       "repository": "ciecopilot-home",
       "command": "npm test -- --runInBand --no-color",
-      "cwd": "/home/samsen/code/ciecopilot-home/.worktrees/task-local--ao-consumer-cutover",
+      "cwd": "<CIE_RELEASE_WORKTREE>",
       "exit_code": 1,
       "result": "552 suites: 531 passed, 21 failed; 3892 tests: 3843 passed, 49 failed; 1 failed snapshot",
       "duration": "506.871 s Jest",
@@ -433,7 +433,7 @@
     {
       "repository": "fresh-sibling",
       "command": "npm ci --cache <isolated-cache> in AO and CIE exact git archives",
-      "cwd": "/tmp/ao-cie-exact-fb6c04f-4a5f83f-K4eJAD/{ao-pilot,ciecopilot-home}",
+      "cwd": "<TEMP_DIR>/{ao-pilot,ciecopilot-home}",
       "exit_code": 0,
       "result": "AO 292 packages / 0 vulnerabilities; CIE 804 packages / 806 audited",
       "duration": "AO 6.922 s; CIE 21.857 s",
@@ -442,7 +442,7 @@
     {
       "repository": "fresh-sibling",
       "command": "npm run ao:test:consumer",
-      "cwd": "/tmp/ao-cie-exact-fb6c04f-4a5f83f-K4eJAD/ciecopilot-home",
+      "cwd": "<TEMP_DIR>/ciecopilot-home",
       "exit_code": 0,
       "result": "4/4 suites, 21/21 tests",
       "duration": "5.067 s Jest / 6.450 s wall",
@@ -451,7 +451,7 @@
     {
       "repository": "fresh-sibling",
       "command": "npm run ao:boundary:check",
-      "cwd": "/tmp/ao-cie-exact-fb6c04f-4a5f83f-K4eJAD/ciecopilot-home",
+      "cwd": "<TEMP_DIR>/ciecopilot-home",
       "exit_code": 0,
       "result": "0 violations; canonical package root is the exact sibling AO export",
       "duration": "4.677 s wall",
@@ -460,7 +460,7 @@
     {
       "repository": "fresh-sibling",
       "command": "npm run ao:smoke",
-      "cwd": "/tmp/ao-cie-exact-fb6c04f-4a5f83f-K4eJAD/ciecopilot-home",
+      "cwd": "<TEMP_DIR>/ciecopilot-home",
       "exit_code": 0,
       "result": "installed binary version 0.2.0",
       "duration": "0.215 s wall",
@@ -469,7 +469,7 @@
     {
       "repository": "fresh-sibling",
       "command": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --runTestsByPath scripts/workflow/__tests__/workflow-scripts.test.js --no-color",
-      "cwd": "/tmp/ao-cie-exact-fb6c04f-4a5f83f-K4eJAD/ciecopilot-home",
+      "cwd": "<TEMP_DIR>/ciecopilot-home",
       "exit_code": 0,
       "result": "1/1 CIE workflow fixture suite, 7/7 tests",
       "duration": "1.78 s Jest / 2.925 s wall",
@@ -478,7 +478,7 @@
     {
       "repository": "ao-pilot-package",
       "command": "npm pack --json --cache <isolated-cache>",
-      "cwd": "/tmp/ao-cie-exact-fb6c04f-4a5f83f-K4eJAD/ao-pilot",
+      "cwd": "<TEMP_DIR>/ao-pilot",
       "exit_code": 0,
       "result": "ao-pilot 0.2.0; 140 entries; 172340 packed bytes; 889346 unpacked bytes; sha256 780d710c65683672fafe78c47f3cd4f0a106a99ad70e4094614c1bb848663fb8",
       "duration": "0.617 s wall",
@@ -487,7 +487,7 @@
     {
       "repository": "packed-isolated-cie",
       "command": "offline npm ci; npm run ao:test:consumer; npm run ao:boundary:check; workflow-scripts.test.js; public import/deep-import/binary checks",
-      "cwd": "/tmp/ao-cie-exact-fb6c04f-4a5f83f-K4eJAD/packed-isolated/ciecopilot-home",
+      "cwd": "<TEMP_DIR>/packed-isolated/ciecopilot-home",
       "exit_code": 0,
       "result": "regular tarball install with no sibling AO; 4/4 consumer suites and 21/21 tests; 0 boundary violations; workflow 1/1 suite and 7/7 tests; 7 public imports; binary 0.2.0",
       "duration": "install 10.553 s; consumer 5.75 s Jest / 7.349 s wall; boundary 4.212 s; workflow 2.663 s",
@@ -496,7 +496,7 @@
     {
       "repository": "packed-isolated-cie",
       "command": "import ao-pilot/scripts/ao/lib/state-contracts.js",
-      "cwd": "/tmp/ao-cie-exact-fb6c04f-4a5f83f-K4eJAD/packed-isolated/ciecopilot-home",
+      "cwd": "<TEMP_DIR>/packed-isolated/ciecopilot-home",
       "exit_code": 1,
       "expected_exit_code": 1,
       "result": "ERR_PACKAGE_PATH_NOT_EXPORTED",

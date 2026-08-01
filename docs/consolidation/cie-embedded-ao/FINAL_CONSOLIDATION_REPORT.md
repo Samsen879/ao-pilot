@@ -146,7 +146,7 @@ The final verification ledger records exact command, cwd, exit status, counts, d
 
 | Command | Cwd | Exit | Count / duration | Result, warning and classification |
 |---|---|---:|---|---|
-| `npm test` | `/home/samsen/code/ao-pilot` | 0 | 73/73 suites, 371/371 tests; Jest 9.472 s | passed at docs-only descendant `f9d56b3` of implementation `fb6c04f`; VM Modules experimental warning only |
+| `npm test` | `<AO_PILOT_REPO>` | 0 | 73/73 suites, 371/371 tests; Jest 9.472 s | passed at docs-only descendant `f9d56b3` of implementation `fb6c04f`; VM Modules experimental warning only |
 | `npm run ao:test:acceptance` | AO root | 0 | 1 suite, 7/7 tests; Jest 0.167 s / wall 0.854 s | lifecycle acceptance passed |
 | `npm run ao:smoke` | AO root | 0 | one `ci-failed-pr` fixture; wall 0.241 s | reconcile blocked, doctor blocked and lifecycle hold as expected |
 | `npm run ao:eval -- --pack policy-fail-closed --json` | AO root | 0 | 1/1 scenario, two stable replays; wall 0.320 s | quality gate passed; generated operator artifact was removed, ignored durable eval receipt retained |
@@ -171,11 +171,11 @@ The final verification ledger records exact command, cwd, exit status, counts, d
 
 | Command / gate | Cwd | Exit | Count / duration | Result, warning and classification |
 |---|---|---:|---|---|
-| `node scripts/consolidation/parity-harness.js --cie-root /home/samsen/code/ciecopilot-home` | AO root | 0 | 85/85 approved, 0 unapproved, 0 CIE expectation failures; wall 0.304 s | stable fingerprint `6f81aed7…` matched |
+| `node scripts/consolidation/parity-harness.js --cie-root <CIE_REPO>` | AO root | 0 | 85/85 approved, 0 unapproved, 0 CIE expectation failures; wall 0.304 s | stable fingerprint `6f81aed7…` matched |
 | fresh sibling `npm ci` and `npm run ao:test:consumer` | clean Git exports of AO `f9d56b3` / runtime `fb6c04f` and CIE `4a5f83f33` | 0 | 804 packages; consumer 4/4 suites, 21/21 tests; Jest 5.067 s / command 6.45 s | true sibling install passed; npm reported 24 dependency vulnerabilities (1 low, 5 moderate, 18 high), recorded as an important CIE dependency warning rather than an AO assertion failure |
 | fresh boundary / binary / workflow gates | same fresh CIE export | 0 | 0 boundary violations; version `0.2.0`; CIE `workflow-scripts.test.js` fixture smoke 1 suite/7 tests | no source-tree-relative package dependency or deep import |
 | `npm pack` from clean AO export | clean AO `f9d56b3` | 0 | 140 entries; 172,340 bytes; unpacked 889,346 bytes; SHA-256 `780d710c65683672fafe78c47f3cd4f0a106a99ad70e4094614c1bb848663fb8` | runtime implementation parent is exact `fb6c04f`; npm shasum `4ff477c5dc730a6a667ec10cddd36db6b29cb91c` |
-| packed isolated CIE install / public API / deep-import / workflow gates | `/tmp/ao-cie-exact-fb6c04f-4a5f83f-K4eJAD/packed-isolated/ciecopilot-home` | 0 (deep import 1 expected) | offline install 804 packages / wall 10.553 s; consumer 4/4 suites, 21/21 tests (Jest 5.75 s / wall 7.349 s); boundary 0 (4.212 s); workflow 1 suite/7 tests (2.663 s); version `0.2.0` | no sibling AO directory; installed package is a regular tarball directory; seven public imports passed; undeclared deep import failed with `ERR_PACKAGE_PATH_NOT_EXPORTED`; package-owned fixture smoke ran `state -> reconcile -> lifecycle`; restricted first install was `EPERM`, identical narrow-permission rerun passed |
+| packed isolated CIE install / public API / deep-import / workflow gates | `<TEMP_DIR>/packed-isolated/ciecopilot-home` | 0 (deep import 1 expected) | offline install 804 packages / wall 10.553 s; consumer 4/4 suites, 21/21 tests (Jest 5.75 s / wall 7.349 s); boundary 0 (4.212 s); workflow 1 suite/7 tests (2.663 s); version `0.2.0` | no sibling AO directory; installed package is a regular tarball directory; seven public imports passed; undeclared deep import failed with `ERR_PACKAGE_PATH_NOT_EXPORTED`; package-owned fixture smoke ran `state -> reconcile -> lifecycle`; restricted first install was `EPERM`, identical narrow-permission rerun passed |
 
 In addition, the first final AO full-suite attempt on `03b3951` found one real new test failure: the controller fixture expected auto merge without the newly required durable authorization. Commit `72b3b81598ed628cd83ce6883b7bea5f5f8d9f76` corrected the fixture to verify block-then-authorize behavior; it did not weaken the implementation gate.
 

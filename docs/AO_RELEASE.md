@@ -37,19 +37,18 @@ node ./bin/ao-pilot.js eval --pack policy-fail-closed
 
 ## Tag and GitHub Release
 
-After the release-hardening PR is merged:
+After the canonical consolidation PR is merged:
 
-1. replace `Unreleased` in `CHANGELOG.md` with the release date;
-2. verify `main` is clean and matches the intended release commit;
-3. create the annotated tag `v0.2.0`;
-4. push the tag;
-5. confirm the `release-check` workflow succeeds;
-6. attach the generated tarball artifact to the GitHub Release.
+1. verify `main` is clean and matches the intended release commit;
+2. create the annotated tag `v0.2.0` without moving any published tag;
+3. push the tag;
+4. confirm the `release-check` workflow succeeds;
+5. attach the generated tarball artifact to the GitHub Release.
 
 ## npm Publication
 
-The package name `ao-pilot` was unclaimed during release preparation, but that
-can change. Recheck immediately before publishing:
+Registry ownership and authentication must be verified separately immediately
+before any future npm publication:
 
 ```bash
 npm view ao-pilot

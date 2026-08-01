@@ -4,7 +4,7 @@ All notable changes to `ao-pilot` are documented here.
 
 The project follows semantic versioning while its public interfaces stabilize.
 
-## [0.2.0] - Unreleased
+## [0.2.0] - 2026-08-01
 
 ### Added
 

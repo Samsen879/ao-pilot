@@ -6,15 +6,15 @@
 
 | Repository | Repository root | Initial branch | Initial HEAD | Initial tree | Initial status | Remotes |
 |---|---|---|---|---|---|---|
-| `ao-pilot` | `/home/samsen/code/ao-pilot` | `main` | `ba36262289c105471837d5ed191ebd424d6a61f4` | `35cb2752626d4fc96c7e0daaaab781fdce6f51aa` | clean; synchronized with `origin/main` | `origin https://github.com/Samsen879/ao-pilot.git` |
-| `ciecopilot-home` | `/home/samsen/code/ciecopilot-home` | `main` | `5bb8b4951a015950396d453c7f784f5bf1708922` | `9105997031f7a305dfdddb4fc26c49cceba317ea` | clean; ahead 1, behind 9 versus `origin/main` | `origin https://github.com/Samsen879/ciecopilot-home.git` |
+| `ao-pilot` | `<AO_PILOT_REPO>` | `main` | `ba36262289c105471837d5ed191ebd424d6a61f4` | `35cb2752626d4fc96c7e0daaaab781fdce6f51aa` | clean; synchronized with `origin/main` | `origin https://github.com/Samsen879/ao-pilot.git` |
+| `ciecopilot-home` | `<CIE_REPO>` | `main` | `5bb8b4951a015950396d453c7f784f5bf1708922` | `9105997031f7a305dfdddb4fc26c49cceba317ea` | clean; ahead 1, behind 9 versus `origin/main` | `origin https://github.com/Samsen879/ciecopilot-home.git` |
 
 两个路径均由 `git rev-parse --show-toplevel` 验证为独立 Git repositories，各自拥有不同的 `.git` metadata 和 remote。没有把任一仓库嵌套为另一个仓库的一部分。
 
 `ciecopilot-home` 本地 `main` 的唯一未发布提交是 `fix(ao): resume unfinished orchestration chains`，仅修改 `agent-orchestrator.yaml`。为避免覆盖用户工作并避免把落后九个提交的本地分叉混入 migration，本任务以只读 fetch 后的 exact `origin/main` `a670ecf52688ce6653a3296aa3e4447dda3b1a75` 创建 governed task worktree：
 
 ```text
-/home/samsen/code/ciecopilot-home/.worktrees/task-local--ao-consumer-cutover
+<CIE_RELEASE_WORKTREE>
 branch: task/local-ao-consumer-cutover
 base:   a670ecf52688ce6653a3296aa3e4447dda3b1a75
 tree:   7ada769317e4b15a3026de49dd30885499059f17
@@ -51,7 +51,7 @@ tree:   7ada769317e4b15a3026de49dd30885499059f17
 
 | Command | Working directory | Exit | Count / duration | Result and classification |
 |---|---|---:|---|---|
-| `npm ci --cache /tmp/ao-pilot-consolidation-npm-cache` | AO root | 0 | 267 packages | install passed; deprecation warnings only |
+| `npm ci --cache <TEMP_DIR>/ao-pilot-consolidation-npm-cache` | AO root | 0 | 267 packages | install passed; deprecation warnings only |
 | `npm test` | AO root | 1 | 68/69 suites, 319/320 tests | sandbox environment failure: `windows-localhost-relay.test.js` could not `listen` on `127.0.0.1` (`EPERM`); no assertion failure |
 | `npm test` with local-loopback permission | AO root | 0 | 69/69 suites, 320/320 tests; 9.8 s | baseline unit suite passed |
 | `npm run ao:test:acceptance` | AO root | 0 | 1 suite, 7/7 tests; 0.197 s | acceptance passed |
@@ -60,7 +60,7 @@ tree:   7ada769317e4b15a3026de49dd30885499059f17
 | `npm run verify:package` | AO root | 1 | no test reached | sandbox environment failure: child `spawnSync npm` returned `EPERM` |
 | `npm run verify:package` with process/network permission and `/tmp` cache | AO root | 0 | 125 tar entries; unpacked size 777,822 bytes | isolated `ao-pilot@0.1.0` pack/install, init/state/eval verification passed |
 | `npm pack --dry-run --json` | AO root | 1 | no pack result | environment failure: default npm cache was read-only (`EROFS`) |
-| `npm pack --dry-run --json --cache /tmp/ao-pilot-consolidation-npm-cache` | AO root | 0 | 125 tar entries | package content enumeration passed |
+| `npm pack --dry-run --json --cache <TEMP_DIR>/ao-pilot-consolidation-npm-cache` | AO root | 0 | 125 tar entries | package content enumeration passed |
 
 The loopback and `spawnSync npm` reruns used the same checkout and tests. They distinguish sandbox restrictions from code failures; neither initial non-zero status is classified as a product defect.
 
@@ -68,7 +68,7 @@ The loopback and `spawnSync npm` reruns used the same checkout and tests. They d
 
 | Command | Working directory | Exit | Count / duration | Result and classification |
 |---|---|---:|---|---|
-| `npm ci --cache /tmp/cie-ao-consolidation-npm-cache` | CIE governed worktree | 0 | 803 packages | install passed; deprecation warnings only |
+| `npm ci --cache <TEMP_DIR>/cie-ao-consolidation-npm-cache` | CIE governed worktree | 0 | 803 packages | install passed; deprecation warnings only |
 | `npm run ao:test:acceptance` | CIE governed worktree | 0 | 1 suite, 7/7 tests; 0.448 s | embedded AO acceptance passed |
 | `npm run ao:smoke` | CIE governed worktree | 0 | one CI-failed fixture | embedded CLI smoke passed |
 | `npm test -- --runInBand --no-color` | CIE governed worktree | 1 | partial | sandbox environment failure before complete suite: Supertest could not `listen` on `0.0.0.0` (`EPERM`) |
