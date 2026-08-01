@@ -21,21 +21,22 @@ request produced a successful page artifact.
 
 ## Normalized inventory
 
-- Independent-review blockers: `38`
-- Unknown review classifications: `30`
+- Independent-review blockers: `40`
+- Unknown review classifications: `49` (`30` formal submissions plus `19`
+  unbound conversation-review evidence records)
 - Independent blocker episodes: `12`
 - Recurring patterns: `4`
-- Resolved / unresolved blockers: `33 / 5`
+- Resolved / unresolved blockers: `35 / 5`
 - Automated inline suggestions retained outside the primary corpus: `522`
 - Automated formal review submissions retained in raw snapshots: `397`
-- Protocol-marker coverage: `57/87` (`0.655172`)
-- Exact-head binding among protocol markers: `43/57` (`0.754386`)
+- Protocol-marker coverage: `76/125` (`0.608`)
+- Exact-head binding among protocol markers: `43/76` (`0.565789`)
 
 Recurring patterns meeting the three-episode rule are deterministic replay (3
 episodes), evidence custody (9), fail-closed contract (3), and semantic authority
 (3).
 
-All 38 `first_detectable_stage` values are `not_established`. This is deliberate:
+All 40 `first_detectable_stage` values are `not_established`. This is deliberate:
 the review evidence establishes where the findings were observed, but does not
 reliably establish an earlier stage under the frozen deterministic rules.
 
@@ -47,7 +48,7 @@ reliably establish an earlier stage under the frozen deterministic rules.
 - PRs with exact-head independent rounds: `23`
 - First-pass independent review: `11/23` (`0.478261`)
 - First-review-to-merge duration: min `27s`, median `776s`, p95 `6,213s`, max `6,917s`
-- Blockers per blocking round histogram: `1:10, 2:5, 3:3, 4:1, 5:1`
+- Blockers per blocking round histogram: `1:9, 2:5, 3:4, 4:1, 5:1`
 - Review-round histogram by PR: `0:348, 1:10, 2:9, 3:1, 4:3`
 - Blocking-round histogram by PR: `0:359, 1:7, 2:2, 3:3`
 - Correction-round histogram by PR: `0:360, 1:8, 3:3`
@@ -56,7 +57,7 @@ reliably establish an earlier stage under the frozen deterministic rules.
 
 | Gate | Result |
 |---|---|
-| normalized blockers >= 50 | FAIL (`38`) |
+| normalized blockers >= 50 | FAIL (`40`) |
 | independent episodes >= 10 | PASS (`12`) |
 | recurring patterns >= 3 | PASS (`4`) |
 | each recurring pattern in >= 3 episodes | PASS |
@@ -68,21 +69,23 @@ conclusion `Knowledge Track proposal may start` is not issued.
 ## Replay and validation
 
 - Snapshot manifest SHA-256: `250ce4452a5b80b9f81441e5aef0a81962c67e691877eb04e38ac4123caf827b`
-- Block inventory SHA-256: `e45368681bfc79f2a9a731d93382c931b3d347af53920580bbd454f9284dbffb`
-- Review baseline SHA-256: `d4aa201445b7304627a33b97ae2025f4ecaaa31c6ec58a53b2b7d0b2c61f9984`
-- Stable output-set digest: `79f898386a76935eda02dafd0774a1a899080954ee19d05f94a15a78d430970d`
-- Focused harvest suite: `20/20` PASS
-- Full AO suite: `74/74` suites, `391/391` tests PASS
+- Block inventory SHA-256: `1e10e8d5455e20495172640b82845cafe3571e47c364bcbf52adc83d4f8b6277`
+- Review baseline SHA-256: `f2117d31269665ae90a72bda79996cdf3f49fa035e54b73b45669b3568aa98d1`
+- Stable output-set digest: `59f90eda557f2e5bf8e12b7890b57901d51f6162a0ff2cda407bee50e23b4a56`
+- Focused harvest suite: `25/25` PASS
+- Full AO suite: `74/74` suites, `396/396` tests PASS
 - Acceptance: `7/7` PASS
 - Operator smoke: PASS
 - Package verification: PASS; raw artifacts excluded from npm package
 
 ## Coverage limitations
 
-Thirty human review submissions remain `unknown` because the frozen minimum
-role/verdict/head protocol was incomplete or absent. Fourteen protocol-marker
-submissions declared no usable full reviewed HEAD and therefore remain unbound;
-they were not promoted into exact-head rounds or primary blockers. GitHub login,
+Thirty formal human review submissions remain `unknown` because the frozen
+minimum role/verdict/head protocol was incomplete or absent. Nineteen
+deterministically marked exact-head verdicts from PR conversation comments are
+also retained as `unknown` evidence because GitHub provides no `commit_id` on
+that source. Together, 33 protocol-marker records lack exact GitHub HEAD binding;
+none was promoted into an exact-head round or primary blocker. GitHub login,
 comment timing, merge outcome, later commits, CI outcome, and bot severity labels
 were not used to fill those gaps.
 

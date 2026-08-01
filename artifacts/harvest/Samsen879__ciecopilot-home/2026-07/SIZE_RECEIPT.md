@@ -1,7 +1,7 @@
 # AO P0-A Artifact Size Receipt
 
 - Measured before `git add`: 2026-08-01
-- Run artifact total: 76,662,731 bytes
+- Run artifact total: 76,681,887 bytes
 - Raw uncompressed unique-body total: 70,671,757 bytes
 - Raw unique body count: 1,747
 - Endpoint/page reference count: 1,859
