@@ -1,0 +1,34 @@
+{
+  "body_sha256": "0a13412cdea2154c695f33bb450b35eddc68f785aa9ab38df2a9f958287e2131",
+  "endpoint": "/repos/Samsen879/ciecopilot-home/pulls/1305",
+  "etag": "W/\"76c138a9d291df346c8d2e384b38dcd11121179c2114360e0675e6461a02ddb6\"",
+  "fetched_at": "2026-08-01T13:25:59.404Z",
+  "page": 1,
+  "pagination": {
+    "has_next": false,
+    "link": null
+  },
+  "parameters": {
+    "page": 1,
+    "per_page": 100
+  },
+  "raw_path": "raw/sha256/0a/0a13412cdea2154c695f33bb450b35eddc68f785aa9ab38df2a9f958287e2131.json",
+  "request_id": "pr-001305-metadata-page-0001",
+  "resource": "core",
+  "response_headers": {
+    "content-type": "application/json; charset=utf-8",
+    "date": "Sat, 01 Aug 2026 13:25:59 GMT",
+    "etag": "W/\"76c138a9d291df346c8d2e384b38dcd11121179c2114360e0675e6461a02ddb6\"",
+    "last-modified": "Mon, 13 Jul 2026 07:27:49 GMT",
+    "x-github-api-version-selected": "2022-11-28",
+    "x-github-media-type": "github.v3; format=json",
+    "x-github-request-id": "B0B6:2DD102:4B56BC4:4D1358B:6A6DF3E6",
+    "x-ratelimit-limit": "5000",
+    "x-ratelimit-remaining": "4770",
+    "x-ratelimit-reset": "1785591151",
+    "x-ratelimit-resource": "core",
+    "x-ratelimit-used": "230"
+  },
+  "response_status": 200,
+  "uncompressed_byte_length": 18809
+}

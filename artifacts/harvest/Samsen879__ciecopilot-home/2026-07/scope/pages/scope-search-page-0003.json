@@ -1,0 +1,36 @@
+{
+  "body_sha256": "67f87d963048f5fa3c08eb34e2a2f4b16889c03490eea239eab614bcf5d31765",
+  "endpoint": "/search/issues",
+  "etag": null,
+  "fetched_at": "2026-08-01T13:24:33.845Z",
+  "page": 3,
+  "pagination": {
+    "has_next": true,
+    "link": "<https://api.github.com/search/issues?order=asc&page=2&per_page=100&q=repo%3ASamsen879%2Fciecopilot-home+is%3Apr+is%3Amerged+merged%3A2026-07-01..2026-07-31&sort=created>; rel=\"prev\", <https://api.github.com/search/issues?order=asc&page=4&per_page=100&q=repo%3ASamsen879%2Fciecopilot-home+is%3Apr+is%3Amerged+merged%3A2026-07-01..2026-07-31&sort=created>; rel=\"next\", <https://api.github.com/search/issues?order=asc&page=4&per_page=100&q=repo%3ASamsen879%2Fciecopilot-home+is%3Apr+is%3Amerged+merged%3A2026-07-01..2026-07-31&sort=created>; rel=\"last\", <https://api.github.com/search/issues?order=asc&page=1&per_page=100&q=repo%3ASamsen879%2Fciecopilot-home+is%3Apr+is%3Amerged+merged%3A2026-07-01..2026-07-31&sort=created>; rel=\"first\""
+  },
+  "parameters": {
+    "order": "asc",
+    "page": 3,
+    "per_page": 100,
+    "q": "repo:Samsen879/ciecopilot-home is:pr is:merged merged:2026-07-01..2026-07-31",
+    "sort": "created"
+  },
+  "raw_path": "raw/sha256/67/67f87d963048f5fa3c08eb34e2a2f4b16889c03490eea239eab614bcf5d31765.json",
+  "request_id": "scope-search-page-0003",
+  "resource": "search",
+  "response_headers": {
+    "content-type": "application/json; charset=utf-8",
+    "date": "Sat, 01 Aug 2026 13:24:26 GMT",
+    "link": "<https://api.github.com/search/issues?order=asc&page=2&per_page=100&q=repo%3ASamsen879%2Fciecopilot-home+is%3Apr+is%3Amerged+merged%3A2026-07-01..2026-07-31&sort=created>; rel=\"prev\", <https://api.github.com/search/issues?order=asc&page=4&per_page=100&q=repo%3ASamsen879%2Fciecopilot-home+is%3Apr+is%3Amerged+merged%3A2026-07-01..2026-07-31&sort=created>; rel=\"next\", <https://api.github.com/search/issues?order=asc&page=4&per_page=100&q=repo%3ASamsen879%2Fciecopilot-home+is%3Apr+is%3Amerged+merged%3A2026-07-01..2026-07-31&sort=created>; rel=\"last\", <https://api.github.com/search/issues?order=asc&page=1&per_page=100&q=repo%3ASamsen879%2Fciecopilot-home+is%3Apr+is%3Amerged+merged%3A2026-07-01..2026-07-31&sort=created>; rel=\"first\"",
+    "x-github-api-version-selected": "2022-11-28",
+    "x-github-media-type": "github.v3; format=json",
+    "x-github-request-id": "E7D0:35BFF7:49221A7:4ADFE6F:6A6DF389",
+    "x-ratelimit-limit": "30",
+    "x-ratelimit-remaining": "27",
+    "x-ratelimit-reset": "1785590722",
+    "x-ratelimit-resource": "search",
+    "x-ratelimit-used": "3"
+  },
+  "response_status": 200,
+  "uncompressed_byte_length": 626022
+}
