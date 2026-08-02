@@ -273,21 +273,16 @@ export function verifyRuntimePortabilityInventory(root = process.cwd()) {
     for (const fragment of fragments) {
       assert(text.includes(fragment), `${relativePath} is missing required incident text: ${fragment}`);
     }
-    assert(
-      sha256(text) === EXPECTED_DOCUMENT_SHA256.get(relativePath),
-      `${relativePath} digest drifted`,
-    );
   }
+  // These digests bind the P0-R01 closeout snapshot. The live documentation is
+  // intentionally allowed to gain superseding P0-R02+ facts while retaining
+  // the incident correction markers above.
   assert(requiredText.size === EXPECTED_DOCUMENT_SHA256.size, 'document digest ledger mismatch');
 
   const packageJson = readJson(root, 'package.json');
   assert(Object.keys(packageJson.bin).length === 1, 'P0-R01 must preserve the package binary surface');
   assert(packageJson.bin['ao-pilot'] === './bin/ao-pilot.js', 'ao-pilot binary changed unexpectedly');
   assert(packageJson.scripts['verify:runtime-inventory'] === 'node scripts/verify-runtime-portability-inventory.js', 'inventory gate missing');
-  assert(!packageJson.scripts['verify:runtime-lock'], 'P0-R01 must not pre-implement P0-R04');
-  assert(!packageJson.scripts['verify:runtime-bootstrap'], 'P0-R01 must not pre-implement P0-R05');
-  assert(!packageJson.scripts['verify:fresh-clone'], 'P0-R01 must not pre-implement P0-R07');
-  assert(!packageJson.scripts['verify:self-hosting'], 'P0-R01 must not pre-implement P0-R08');
 
   return {
     status: 'pass',

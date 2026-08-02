@@ -106,8 +106,8 @@ describe('P0-R01 runtime portability incident inventory', () => {
     expect(() => validateIssueMigrationReceipt(receipt)).toThrow(/migration receipt digest drifted/);
   });
 
-  it('fails if a correction document retains markers but changes other content', () => {
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-pilot-r01-doc-digest-'));
+  it('allows superseding documentation while retaining the incident correction markers', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-pilot-r01-doc-superseding-'));
     const requiredPaths = [
       'docs/runtime-portability/p0-r01-incident-inventory.json',
       'docs/runtime-portability/p0-r01-issue-migration-receipt.json',
@@ -129,8 +129,44 @@ describe('P0-R01 runtime portability incident inventory', () => {
         fs.mkdirSync(path.dirname(target), { recursive: true });
         fs.copyFileSync(path.join(ROOT, relativePath), target);
       }
-      fs.appendFileSync(path.join(tempRoot, 'README.md'), '\nContradictory portability claim.\n');
-      expect(() => verifyRuntimePortabilityInventory(tempRoot)).toThrow(/README\.md digest drifted/);
+      fs.appendFileSync(path.join(tempRoot, 'README.md'), '\nSuperseding P0-R04 detail.\n');
+      expect(verifyRuntimePortabilityInventory(tempRoot).status).toBe('pass');
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('fails if evolving documentation removes an incident correction marker', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-pilot-r01-doc-marker-'));
+    const requiredPaths = [
+      'docs/runtime-portability/p0-r01-incident-inventory.json',
+      'docs/runtime-portability/p0-r01-issue-migration-receipt.json',
+      'docs/runtime-portability/P0-R01_INCIDENT_BASELINE.md',
+      'README.md',
+      'docs/AO_ARCHITECTURE.md',
+      'docs/AO_DEVELOPMENT.md',
+      'docs/AO_RELEASE.md',
+      'docs/AO_CONFIGURATION.md',
+      'docs/AO_MIGRATION_HISTORY.md',
+      'docs/AO_SYSTEM_ARCHITECTURE_AND_UPGRADE_GUIDE.md',
+      'docs/consolidation/cie-embedded-ao/FINAL_CONSOLIDATION_REPORT.md',
+      'docs/consolidation/cie-embedded-ao/07-runtime-portability-erratum.md',
+      'package.json',
+    ];
+    try {
+      for (const relativePath of requiredPaths) {
+        const target = path.join(tempRoot, relativePath);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.copyFileSync(path.join(ROOT, relativePath), target);
+      }
+      const readmePath = path.join(tempRoot, 'README.md');
+      fs.writeFileSync(
+        readmePath,
+        fs.readFileSync(readmePath, 'utf8').replace('package-level portability', 'removed'),
+      );
+      expect(() => verifyRuntimePortabilityInventory(tempRoot)).toThrow(
+        /README\.md is missing required incident text/,
+      );
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }

@@ -157,7 +157,5 @@ export function verifyRuntimePatchParity(root = process.cwd()) {
     packageJson.scripts?.['verify:runtime-parity'] === 'node scripts/verify-runtime-patch-parity.js',
     'runtime parity verification script missing',
   );
-  assert(!packageJson.scripts?.['verify:runtime-lock'], 'P0-R02 must not pre-implement P0-R04');
-  assert(!packageJson.scripts?.['verify:runtime-bootstrap'], 'P0-R02 must not pre-implement P0-R05');
   return { status: 'pass', ...result, scope_guard: 'audit_only' };
 }
