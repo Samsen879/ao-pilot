@@ -13,6 +13,7 @@
   "source": {
     "repository": "https://github.com/Samsen879/ao-pilot.git",
     "admission_pr_number": 69,
+    "clone_path": "REPLACE_WITH_FRESH_CLONE_ABSOLUTE_PATH",
     "clone_head_sha": "REPLACE_WITH_40_HEX",
     "clone_tree_sha": "REPLACE_WITH_40_HEX",
     "clean_before_bootstrap": true

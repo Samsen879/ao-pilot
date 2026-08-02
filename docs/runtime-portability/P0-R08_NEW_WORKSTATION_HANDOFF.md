@@ -20,8 +20,8 @@ closed out, and cleaned. Obtain the exact admitted `main` SHA/tree from issue
 ```bash
 git clone https://github.com/Samsen879/ao-pilot.git
 cd ao-pilot
-git checkout --detach <P0-R07-EXACT-MAIN-SHA>
-test "$(git rev-parse HEAD^{tree})" = '<P0-R07-EXACT-MAIN-TREE>'
+git checkout --detach be8ea9d408920e0728ac980097db758796144714
+test "$(git rev-parse HEAD^{tree})" = '00f93b164a75af044e63532fc7ac64479a390ab9'
 npm ci
 npm run verify:runtime-lock
 ./scripts/bootstrap.sh --json

@@ -6,6 +6,8 @@ import { describe, expect, it } from '@jest/globals';
 
 import { loadRuntimeLock } from '../../scripts/ao/lib/runtime-lock.js';
 import {
+  P0_R07_ADMITTED_MAIN,
+  P0_R07_ADMITTED_TREE,
   SELF_HOSTING_RECEIPT_SCHEMA_VERSION,
   verifySelfHostingReceipt,
 } from '../../scripts/ao/lib/self-hosting-receipt.js';
@@ -28,8 +30,9 @@ function validSelfHostingReceipt() {
     source: {
       repository: 'https://github.com/Samsen879/ao-pilot.git',
       admission_pr_number: 69,
-      clone_head_sha: '1'.repeat(40),
-      clone_tree_sha: '2'.repeat(40),
+      clone_path: '/fresh/ao-pilot',
+      clone_head_sha: P0_R07_ADMITTED_MAIN,
+      clone_tree_sha: P0_R07_ADMITTED_TREE,
       clean_before_bootstrap: true,
     },
     runtime: {
@@ -194,10 +197,26 @@ describe('fresh-clone and protected self-hosting gates', () => {
     });
   });
 
+  it('supports the handoff pre-publication verification stage', () => {
+    const receipt = validSelfHostingReceipt();
+    const evidence = validEvidence(receipt);
+    delete evidence.publicationEvidence;
+    expect(verifySelfHostingReceipt(receipt, {
+      ...evidence,
+      requirePublication: false,
+    })).toMatchObject({
+      status: 'prepublication_verified',
+      admitted_main: P0_R07_ADMITTED_MAIN,
+    });
+  });
+
   it.each([
     ['manual worker substitution', (receipt) => { receipt.delivery.worker_created_by_new_ao = false; }],
     ['copied credential state', (receipt) => { receipt.environment.credentials_copied = true; }],
     ['runtime drift', (receipt) => { receipt.runtime.commit_sha = 'f'.repeat(40); }],
+    ['wrong admitted main', (receipt) => { receipt.source.clone_head_sha = 'f'.repeat(40); }],
+    ['bootstrap clone reused as worktree', (receipt) => { receipt.delivery.worker_worktree_path = receipt.source.clone_path; }],
+    ['shared Orchestrator and Worker session', (receipt) => { receipt.delivery.worker_session_id = receipt.delivery.orchestrator_session_id; }],
     ['missing exact-head review', (receipt) => { receipt.delivery.principal_pr.codex_reviews[0].head_sha = 'e'.repeat(40); }],
     ['failed cleanup', (receipt) => { receipt.cleanup.worker_worktree_removed = false; }],
   ])('fails closed for %s', (_name, mutate) => {

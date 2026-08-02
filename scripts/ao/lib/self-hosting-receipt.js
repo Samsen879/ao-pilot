@@ -1,9 +1,12 @@
 import fs from 'node:fs';
+import path from 'node:path';
 
 import { loadRuntimeLock } from './runtime-lock.js';
 
 export const SELF_HOSTING_RECEIPT_SCHEMA_VERSION = 'ao.workstation-self-hosting-receipt.v1';
 export const P0_R07_ADMISSION_PR = 69;
+export const P0_R07_ADMITTED_MAIN = 'be8ea9d408920e0728ac980097db758796144714';
+export const P0_R07_ADMITTED_TREE = '00f93b164a75af044e63532fc7ac64479a390ab9';
 export const REQUIRED_CI_CHECKS = ['fresh-clone-runtime', 'test (20)', 'test (22)'];
 
 function assert(condition, message) {
@@ -80,6 +83,7 @@ export function verifySelfHostingReceipt(receipt, {
   repositoryEvidence = null,
   githubEvidence = null,
   publicationEvidence = null,
+  requirePublication = true,
 } = {}) {
   const value = object(receipt, 'receipt');
   assert(value.schema_version === SELF_HOSTING_RECEIPT_SCHEMA_VERSION, 'Unsupported self-hosting receipt schema');
@@ -99,6 +103,10 @@ export function verifySelfHostingReceipt(receipt, {
   assert(source.admission_pr_number === P0_R07_ADMISSION_PR, 'Source is not bound to the P0-R07 admission PR');
   const sourceHead = sha(source.clone_head_sha, 'source.clone_head_sha');
   const sourceTree = sha(source.clone_tree_sha, 'source.clone_tree_sha');
+  assert(sourceHead === P0_R07_ADMITTED_MAIN, 'Fresh clone is not the exact admitted P0-R07 main');
+  assert(sourceTree === P0_R07_ADMITTED_TREE, 'Fresh clone tree is not the exact admitted P0-R07 tree');
+  const sourceClonePath = string(source.clone_path, 'source.clone_path');
+  assert(path.isAbsolute(sourceClonePath), 'source.clone_path must be absolute');
   truth(source.clean_before_bootstrap, 'source.clean_before_bootstrap');
 
   const repository = object(repositoryEvidence, 'repository evidence');
@@ -120,7 +128,7 @@ export function verifySelfHostingReceipt(receipt, {
   assert(runtime.tree_sha === runtimeLock.artifact.ref.tree_sha, 'Runtime tree does not match the committed lock');
   assert(runtime.integrity?.algorithm === runtimeLock.artifact.integrity.algorithm, 'Runtime integrity algorithm mismatch');
   assert(runtime.integrity?.digest === runtimeLock.artifact.integrity.digest, 'Runtime integrity digest mismatch');
-  string(runtime.binary_path, 'runtime.binary_path');
+  assert(path.isAbsolute(string(runtime.binary_path, 'runtime.binary_path')), 'runtime.binary_path must be absolute');
   assert(/^[0-9a-f]{64}$/.test(string(runtime.binary_sha256, 'runtime.binary_sha256')), 'Invalid runtime.binary_sha256');
   const runtimeTarget = object(runtime.target, 'runtime.target');
   const lockedTarget = runtimeLock.compatibility.platforms.find((target) => (
@@ -136,11 +144,14 @@ export function verifySelfHostingReceipt(receipt, {
 
   const delivery = object(value.delivery, 'delivery');
   assert(delivery.issue_number === 63, 'Self-hosting delivery must implement P0-R08 issue #63');
-  string(delivery.orchestrator_session_id, 'delivery.orchestrator_session_id');
-  string(delivery.worker_session_id, 'delivery.worker_session_id');
+  const orchestratorSessionId = string(delivery.orchestrator_session_id, 'delivery.orchestrator_session_id');
+  const workerSessionId = string(delivery.worker_session_id, 'delivery.worker_session_id');
+  assert(orchestratorSessionId !== workerSessionId, 'Orchestrator and Worker session IDs must be distinct');
   truth(delivery.worker_created_by_new_ao, 'delivery.worker_created_by_new_ao');
   truth(delivery.worker_created_from_issue, 'delivery.worker_created_from_issue');
-  string(delivery.worker_worktree_path, 'delivery.worker_worktree_path');
+  const workerWorktreePath = string(delivery.worker_worktree_path, 'delivery.worker_worktree_path');
+  assert(path.isAbsolute(workerWorktreePath), 'delivery.worker_worktree_path must be absolute');
+  assert(path.resolve(workerWorktreePath) !== path.resolve(sourceClonePath), 'Worker worktree must be distinct from the bootstrap clone');
   string(delivery.worker_branch, 'delivery.worker_branch');
   truth(delivery.worker_committed, 'delivery.worker_committed');
   truth(delivery.worker_pushed, 'delivery.worker_pushed');
@@ -209,17 +220,21 @@ export function verifySelfHostingReceipt(receipt, {
   truth(cleanup.worker_worktree_removed, 'cleanup.worker_worktree_removed');
   truth(cleanup.stale_ownership_absent, 'cleanup.stale_ownership_absent');
 
-  const publication = object(publicationEvidence, 'issue #63 publication evidence');
-  assert(publication.issue_number === 63, 'Receipt was not published to issue #63');
-  assert(publication.author === 'Samsen879', 'Receipt publication has the wrong author');
-  truth(publication.exact_bytes_match, 'publication.exact_bytes_match');
+  if (requirePublication) {
+    const publication = object(publicationEvidence, 'issue #63 publication evidence');
+    assert(publication.issue_number === 63, 'Receipt was not published to issue #63');
+    assert(publication.author === 'Samsen879', 'Receipt publication has the wrong author');
+    truth(publication.exact_bytes_match, 'publication.exact_bytes_match');
+  } else {
+    assert(publicationEvidence == null, 'Pre-publication verification must not accept publication evidence');
+  }
 
   const claim = object(value.claim, 'claim');
   truth(claim.workstation_self_hosting, 'claim.workstation_self_hosting');
   truth(claim.p0_r08_satisfied, 'claim.p0_r08_satisfied');
 
   return {
-    status: 'verified',
+    status: requirePublication ? 'verified' : 'prepublication_verified',
     schema_version: value.schema_version,
     issue_number: delivery.issue_number,
     runtime_ref: runtime.runtime_ref,

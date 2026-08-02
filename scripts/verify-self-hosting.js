@@ -11,7 +11,7 @@ import {
 } from './ao/lib/self-hosting-receipt.js';
 
 function usage() {
-  return 'Usage: npm run verify:self-hosting -- --receipt <path> --issue-comment-id <id> [--repository-root <path>]';
+  return 'Usage: npm run verify:self-hosting -- --receipt <path> [--issue-comment-id <id>] [--repository-root <path>]';
 }
 
 function run(command, args, { cwd = process.cwd(), timeout = 30_000 } = {}) {
@@ -139,8 +139,9 @@ if (argv.includes('--help') || argv.includes('-h')) {
   const receiptPath = receiptIndex === -1 ? null : argv[receiptIndex + 1];
   const commentId = commentIndex === -1 ? null : Number(argv[commentIndex + 1]);
   const repositoryRoot = rootIndex === -1 ? process.cwd() : argv[rootIndex + 1];
-  const expectedLength = rootIndex === -1 ? 4 : 6;
-  if (receiptPath == null || receiptPath.startsWith('-') || !Number.isSafeInteger(commentId) || commentId <= 0 || repositoryRoot == null || repositoryRoot.startsWith('-') || argv.length !== expectedLength) {
+  const expectedLength = 2 + (commentIndex === -1 ? 0 : 2) + (rootIndex === -1 ? 0 : 2);
+  const invalidComment = commentIndex !== -1 && (!Number.isSafeInteger(commentId) || commentId <= 0);
+  if (receiptPath == null || receiptPath.startsWith('-') || invalidComment || repositoryRoot == null || repositoryRoot.startsWith('-') || argv.length !== expectedLength) {
     process.stderr.write(`${usage()}\n`);
     process.exitCode = 4;
   } else {
@@ -153,7 +154,8 @@ if (argv.includes('--help') || argv.includes('-h')) {
       const evidence = collectEvidence(receipt, resolvedRepositoryRoot);
       const result = verifySelfHostingReceipt(receipt, {
         ...evidence,
-        publicationEvidence: publicationEvidence(commentId, rawReceipt, resolvedRepositoryRoot),
+        publicationEvidence: commentId == null ? null : publicationEvidence(commentId, rawReceipt, resolvedRepositoryRoot),
+        requirePublication: commentId != null,
       });
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     } catch (error) {
