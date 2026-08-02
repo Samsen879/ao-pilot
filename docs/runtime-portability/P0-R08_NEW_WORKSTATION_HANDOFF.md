@@ -50,19 +50,23 @@ session, remove the Worker worktree, and verify that no stale ownership remains.
 
 ## Receipt and protected gate
 
-Copy the template to the canonical path and replace every placeholder with
-observed evidence:
+After GitHub merge readback, exact-main replay, and cleanup, copy the template
+to a workstation-local path and replace every placeholder with observed
+evidence:
 
 ```bash
 cp docs/runtime-portability/p0-r08-workstation-self-hosting-receipt.template.json \
-  docs/runtime-portability/p0-r08-workstation-self-hosting-receipt.json
+  /tmp/p0-r08-workstation-self-hosting-receipt.json
 npm run verify:self-hosting -- \
-  --receipt docs/runtime-portability/p0-r08-workstation-self-hosting-receipt.json
+  --receipt /tmp/p0-r08-workstation-self-hosting-receipt.json
 ```
 
-Commit the completed receipt in the P0-R08 principal PR and run the manual
-`workstation-self-hosting-proof` workflow on that PR ref. A mock-only receipt,
-old-workstation execution, missing exact-head review evidence, missing merge
-readback, or leaked session/worktree/ownership must fail closed.
+Post that exact JSON to issue #63, base64-encode the same bytes, and run the
+manual `workstation-self-hosting-proof` workflow on exact post-merge `main`.
+This ordering is required because the final receipt contains merge readback,
+exact-main replay, and cleanup evidence that cannot truthfully exist inside the
+pre-merge principal PR. A mock-only receipt, old-workstation execution, missing
+exact-head review evidence, missing merge readback, or leaked
+session/worktree/ownership must fail closed.
 
 Only after #63 merges and exact-main replay passes may #12 be marked admitted.
