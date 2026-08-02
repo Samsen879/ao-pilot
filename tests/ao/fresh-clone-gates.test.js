@@ -44,6 +44,8 @@ import {
   P0_R08_TERMINAL_AO_DATA_DIR,
   P0_R08_TERMINAL_AO_RUN_FILE,
   P0_R08_TERMINAL_ROOT,
+  P0_R08_TERMINAL_RUNTIME_BINARY,
+  P0_R08_TERMINAL_RUNTIME_BINARY_SHA256,
   SELF_HOSTING_RECEIPT_SCHEMA_VERSION,
   TERMINAL_RECOVERY_CHAIN_SCHEMA_VERSION,
   assertPathResolvesWithin,
@@ -53,6 +55,12 @@ import {
 import { issueLinkedPrEvidenceFromTimeline } from '../../scripts/ao/lib/issue-linked-pr-evidence.js';
 import { parseArgs, removeTemporaryRoot } from '../../scripts/verify-fresh-clone.js';
 import { inspectWorktreeBinding } from '../../scripts/ao/lib/worktree-evidence.js';
+import {
+  ORCHESTRATOR_WORKTREE_PROVENANCE_SCHEMA_VERSION,
+  ORCHESTRATOR_WORKTREE_PUBLICATION_SCHEMA_VERSION,
+  captureOrchestratorBoundWorktreeEvidence,
+  publishOrchestratorBoundWorktreeEvidence,
+} from '../../scripts/ao/lib/orchestrator-worktree-publication.js';
 
 function validSelfHostingReceipt() {
   const runtime = loadRuntimeLock().lock;
@@ -256,6 +264,18 @@ function validSelfHostingReceipt() {
         worker_created_from_issue: true,
         worker_worktree_path: `${P0_R08_TERMINAL_AO_DATA_DIR}/worktrees/ao-pilot-remediation/ao-pilot-remediation-2`,
         worktree_evidence_comment_id: 188,
+        worktree_evidence_publication: {
+          schema_version: ORCHESTRATOR_WORKTREE_PUBLICATION_SCHEMA_VERSION,
+          comment_id: 188,
+          published_at: '2026-08-04T01:46:00.000Z',
+          read_back_at: '2026-08-04T01:47:00.000Z',
+          payload_bytes: 1234,
+          payload_sha256: 'a'.repeat(64),
+          exact_body_read_back: true,
+          orchestrator_session_id: 'or-terminal',
+          runtime_binary_path: `${P0_R08_RETRY_RUNTIME_STORE}/${runtime.runtime_ref}/linux-x64/${runtime.artifact.ref.commit_sha}/bin/ao`,
+          runtime_binary_sha256: runtime.compatibility.platforms[0].binary_sha256,
+        },
         worker_branch: 'ao/p0-r08-terminal-remediation',
         worker_committed: true,
         worker_pushed: true,
@@ -278,6 +298,7 @@ function validSelfHostingReceipt() {
             head_sha: '6'.repeat(40),
             completed_at: '2026-08-04T01:00:00.000Z',
           }],
+          finding_dispositions: [],
           post_review_2_repair: null,
           merged: true,
           merge_sha: '7'.repeat(40),
@@ -315,6 +336,10 @@ function validEvidence(receipt) {
       source_tree_sha: receipt.source.clone_tree_sha,
       terminal_source_commit_sha: receipt.terminal_remediation.source.clone_head_sha,
       terminal_source_tree_sha: receipt.terminal_remediation.source.clone_tree_sha,
+      terminal_worker_commit_sha: receipt.terminal_remediation.delivery.remediation_pr.head_sha,
+      terminal_worker_tree_sha: '9'.repeat(40),
+      terminal_source_is_ancestor: true,
+      terminal_merge_base_sha: receipt.terminal_remediation.source.clone_head_sha,
       release_check_passed: true,
     },
     githubEvidence: {
@@ -503,8 +528,11 @@ function validEvidence(receipt) {
         comment_id: receipt.terminal_remediation.delivery.worktree_evidence_comment_id,
         issue_number: 63,
         author: 'Samsen879',
+        author_association: 'OWNER',
         created_at: '2026-08-04T01:46:00.000Z',
         updated_at: '2026-08-04T01:46:00.000Z',
+        body_bytes: 1234,
+        body_sha256: 'a'.repeat(64),
         payload: {
           schema_version: 'ao.workstation-worktree-evidence.v4',
           issue_number: 63,
@@ -532,7 +560,34 @@ function validEvidence(receipt) {
             worktree_path: receipt.terminal_remediation.delivery.worker_worktree_path,
             branch: receipt.terminal_remediation.delivery.worker_branch,
             head_sha: receipt.terminal_remediation.delivery.remediation_pr.head_sha,
+            tree_sha: '9'.repeat(40),
             git_common_dir: `${P0_R08_TERMINAL_ROOT}/ao-pilot/.git`,
+          },
+          git_relationship: {
+            source_is_ancestor: true,
+            merge_base_sha: receipt.terminal_remediation.source.clone_head_sha,
+            fork_point_sha: receipt.terminal_remediation.source.clone_head_sha,
+          },
+          orchestrator_provenance: {
+            schema_version: ORCHESTRATOR_WORKTREE_PROVENANCE_SCHEMA_VERSION,
+            session_id: receipt.terminal_remediation.delivery.orchestrator_session_id,
+            worker_session_id: receipt.terminal_remediation.delivery.worker_session_id,
+            project_id: 'ao-pilot-remediation',
+            issue_number: 63,
+            kind: 'orchestrator',
+            activity_state: 'active',
+            is_terminated: false,
+            runtime_launch_id: 'launch-or-terminal',
+            runtime_binary_path: receipt.runtime.binary_path,
+            runtime_binary_sha256: receipt.runtime.binary_sha256,
+            session_get: {
+              args: ['session', 'get', receipt.terminal_remediation.delivery.orchestrator_session_id, '--json'],
+            },
+            operation: {
+              capture: true,
+              publish_issue_comment: true,
+              read_back_exact_body: true,
+            },
           },
         },
       },
@@ -563,6 +618,46 @@ function validEvidence(receipt) {
       exact_bytes_match: true,
     },
   };
+}
+
+function validPreMergeReceipt() {
+  const receipt = validSelfHostingReceipt();
+  receipt.status = 'pending';
+  receipt.terminal_recovery_chain.attempts[1].disposition = 'pending';
+  receipt.terminal_remediation.delivery.github_merge_outcome_confirmed = false;
+  receipt.terminal_remediation.delivery.remediation_pr.merged = false;
+  receipt.terminal_remediation.delivery.remediation_pr.merge_sha = null;
+  receipt.terminal_remediation.delivery.remediation_pr.merge_tree_sha = null;
+  receipt.terminal_remediation.exact_main_replay = {
+    passed: false,
+    release_check_passed: false,
+    main_sha: null,
+    tree_sha: null,
+  };
+  receipt.terminal_remediation.cleanup = {
+    orchestrator_done: false,
+    orchestrator_done_evidence_comment_id: 0,
+    orchestrator_session_stopped: false,
+    worker_session_stopped: false,
+    worker_worktree_removed: false,
+    stale_ownership_absent: false,
+  };
+  receipt.claim = {
+    workstation_self_hosting: false,
+    p0_r08_satisfied: false,
+  };
+  return receipt;
+}
+
+function validPreMergeEvidence(receipt) {
+  const evidence = validEvidence(receipt);
+  delete evidence.publicationEvidence;
+  evidence.githubEvidence.terminal_remediation_pr.merged = false;
+  evidence.githubEvidence.terminal_remediation_pr.merge_sha = null;
+  evidence.githubEvidence.terminal_remediation_pr.merge_tree_sha = null;
+  evidence.githubEvidence.terminal_remediation_pr.merged_at = null;
+  evidence.githubEvidence.terminal_orchestrator_done_capture = null;
+  return evidence;
 }
 
 describe('fresh-clone and protected self-hosting gates', () => {
@@ -639,6 +734,10 @@ describe('fresh-clone and protected self-hosting gates', () => {
     expect(handoff).toContain('comment `5157524210`');
     expect(handoff).toContain('invoke `orchestrator done`');
     expect(handoff).toContain('npm run capture:orchestrator-done');
+    expect(handoff).toContain('run publish:self-hosting-worktree');
+    expect(handoff).toContain('--orchestrator-session-id ao-pilot-remediation-1');
+    expect(handoff).toContain('--publication-receipt-out');
+    expect(handoff).toContain('--pre-merge');
     expect(handoff).not.toContain('npm run capture:self-hosting-worktree --');
 
     const bootstrapRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-bootstrap-routing-'));
@@ -762,6 +861,184 @@ describe('fresh-clone and protected self-hosting gates', () => {
     });
   });
 
+  it('executes a staged pre-merge receipt verification without post-merge claims', () => {
+    const receipt = validPreMergeReceipt();
+    expect(verifySelfHostingReceipt(receipt, {
+      ...validPreMergeEvidence(receipt),
+      requirePublication: false,
+      stage: 'pre_merge',
+    })).toMatchObject({
+      status: 'premerge_verified',
+      principal_pr: 71,
+      terminal_recovery_pr: 73,
+      worktree_evidence_comment: 188,
+      orchestrator_session_id: 'or-terminal',
+    });
+  });
+
+  it.each([
+    ['premature merge claim', (receipt) => { receipt.terminal_remediation.delivery.remediation_pr.merged = true; }],
+    ['premature replay claim', (receipt) => { receipt.terminal_remediation.exact_main_replay.passed = true; }],
+    ['premature cleanup claim', (receipt) => { receipt.terminal_remediation.cleanup.worker_worktree_removed = true; }],
+    ['premature final claim', (receipt) => { receipt.claim.workstation_self_hosting = true; }],
+    ['wrong publication Orchestrator', (receipt) => { receipt.terminal_remediation.delivery.worktree_evidence_publication.orchestrator_session_id = 'worker-terminal'; }],
+    ['missing exact readback', (receipt) => { receipt.terminal_remediation.delivery.worktree_evidence_publication.exact_body_read_back = false; }],
+  ])('pre-merge verification fails closed for %s', (_name, mutate) => {
+    const receipt = validPreMergeReceipt();
+    const evidence = validPreMergeEvidence(receipt);
+    mutate(receipt, evidence);
+    expect(() => verifySelfHostingReceipt(receipt, {
+      ...evidence,
+      requirePublication: false,
+      stage: 'pre_merge',
+    })).toThrow();
+  });
+
+  it.each([
+    ['live ancestry failure', (evidence) => { evidence.repositoryEvidence.terminal_source_is_ancestor = false; }],
+    ['live merge-base drift', (evidence) => { evidence.repositoryEvidence.terminal_merge_base_sha = 'f'.repeat(40); }],
+    ['captured fork drift', (evidence) => { evidence.githubEvidence.terminal_worktree_capture.payload.git_relationship.fork_point_sha = 'f'.repeat(40); }],
+    ['captured Worker tree drift', (evidence) => { evidence.githubEvidence.terminal_worktree_capture.payload.worker.tree_sha = 'f'.repeat(40); }],
+    ['missing Orchestrator provenance', (evidence) => { delete evidence.githubEvidence.terminal_worktree_capture.payload.orchestrator_provenance; }],
+  ])('pre-merge verification rejects %s', (_name, mutate) => {
+    const receipt = validPreMergeReceipt();
+    const evidence = validPreMergeEvidence(receipt);
+    mutate(evidence);
+    expect(() => verifySelfHostingReceipt(receipt, {
+      ...evidence,
+      requirePublication: false,
+      stage: 'pre_merge',
+    })).toThrow();
+  });
+
+  it('captures Orchestrator-bound provenance through the pinned AO session', () => {
+    const evidence = captureOrchestratorBoundWorktreeEvidence({
+      sourceRoot: '/source',
+      workerRoot: '/worker',
+      workerSessionId: 'worker-terminal',
+      orchestratorSessionId: 'or-terminal',
+      runtimeBinary: P0_R08_TERMINAL_RUNTIME_BINARY,
+      env: { AO_SESSION_ID: 'or-terminal', AO_PROJECT_ID: 'ao-pilot-remediation', AO_ISSUE_ID: '63', AO_RUNTIME_LAUNCH_ID: 'launch-or-terminal' },
+      capturedAt: '2026-08-04T01:45:00.000Z',
+      sessionGet: (_binary, args) => ({
+        session: {
+          id: 'or-terminal',
+          projectId: 'ao-pilot-remediation',
+          issueId: '63',
+          kind: 'orchestrator',
+          activity: { state: 'active' },
+          isTerminated: false,
+        },
+        args,
+      }),
+      probes: {
+        resolveRuntimeBinary: () => P0_R08_TERMINAL_RUNTIME_BINARY,
+        runtimeDigest: () => P0_R08_TERMINAL_RUNTIME_BINARY_SHA256,
+        captureWorktreeEvidence: () => ({ schema_version: 'ao.workstation-worktree-evidence.v4', issue_number: 63 }),
+      },
+    });
+
+    expect(evidence.orchestrator_provenance).toMatchObject({
+      schema_version: ORCHESTRATOR_WORKTREE_PROVENANCE_SCHEMA_VERSION,
+      session_id: 'or-terminal',
+      worker_session_id: 'worker-terminal',
+      kind: 'orchestrator',
+      runtime_launch_id: 'launch-or-terminal',
+      operation: {
+        capture: true,
+        publish_issue_comment: true,
+        read_back_exact_body: true,
+      },
+    });
+  });
+
+  it.each([
+    ['Worker shell binding', { AO_SESSION_ID: 'worker-terminal', AO_PROJECT_ID: 'ao-pilot-remediation', AO_ISSUE_ID: '63', AO_RUNTIME_LAUNCH_ID: 'launch-worker' }, 'orchestrator'],
+    ['non-Orchestrator session', { AO_SESSION_ID: 'or-terminal', AO_PROJECT_ID: 'ao-pilot-remediation', AO_ISSUE_ID: '63', AO_RUNTIME_LAUNCH_ID: 'launch-or-terminal' }, 'worker'],
+  ])('rejects Orchestrator-bound capture from %s', (_name, env, kind) => {
+    expect(() => captureOrchestratorBoundWorktreeEvidence({
+      sourceRoot: '/source',
+      workerRoot: '/worker',
+      workerSessionId: 'worker-terminal',
+      orchestratorSessionId: 'or-terminal',
+      runtimeBinary: P0_R08_TERMINAL_RUNTIME_BINARY,
+      env,
+      sessionGet: () => ({ session: {
+        id: 'or-terminal', projectId: 'ao-pilot-remediation', issueId: '63', kind,
+        activity: { state: 'active' }, isTerminated: false,
+      } }),
+      probes: {
+        resolveRuntimeBinary: () => P0_R08_TERMINAL_RUNTIME_BINARY,
+        runtimeDigest: () => P0_R08_TERMINAL_RUNTIME_BINARY_SHA256,
+        captureWorktreeEvidence: () => ({}),
+      },
+    })).toThrow();
+  });
+
+  it('publishes and reads back exact worktree evidence in one operation', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-publication-'));
+    const payloadPath = path.join(root, 'payload.json');
+    const receiptPath = path.join(root, 'publication.json');
+    const payload = { orchestrator_provenance: {
+      session_id: 'or-terminal',
+      runtime_binary_path: P0_R08_TERMINAL_RUNTIME_BINARY,
+      runtime_binary_sha256: P0_R08_TERMINAL_RUNTIME_BINARY_SHA256,
+    } };
+    try {
+      const result = publishOrchestratorBoundWorktreeEvidence({
+        payload,
+        payloadPath,
+        publicationReceiptPath: receiptPath,
+        publish: (candidate) => ({ id: 5159000000, body: fs.readFileSync(candidate, 'utf8') }),
+        readBack: () => ({
+          id: 5159000000,
+          user: { login: 'Samsen879' },
+          author_association: 'OWNER',
+          created_at: '2026-08-04T01:46:00.000Z',
+          updated_at: '2026-08-04T01:46:00.000Z',
+          body: fs.readFileSync(payloadPath, 'utf8'),
+        }),
+        readBackAt: '2026-08-04T01:47:00.000Z',
+      });
+      expect(result).toMatchObject({
+        schema_version: ORCHESTRATOR_WORKTREE_PUBLICATION_SCHEMA_VERSION,
+        comment_id: 5159000000,
+        exact_body_read_back: true,
+        orchestrator_session_id: 'or-terminal',
+      });
+      expect(JSON.parse(fs.readFileSync(receiptPath, 'utf8'))).toEqual(result);
+    } finally {
+      removeTemporaryRoot(root);
+    }
+  });
+
+  it('fails closed when Orchestrator publication readback changes the payload', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-publication-drift-'));
+    const payload = { orchestrator_provenance: {
+      session_id: 'or-terminal',
+      runtime_binary_path: P0_R08_TERMINAL_RUNTIME_BINARY,
+      runtime_binary_sha256: P0_R08_TERMINAL_RUNTIME_BINARY_SHA256,
+    } };
+    try {
+      expect(() => publishOrchestratorBoundWorktreeEvidence({
+        payload,
+        payloadPath: path.join(root, 'payload.json'),
+        publicationReceiptPath: path.join(root, 'publication.json'),
+        publish: () => ({ id: 5159000001 }),
+        readBack: () => ({
+          id: 5159000001,
+          user: { login: 'Samsen879' },
+          author_association: 'OWNER',
+          created_at: '2026-08-04T01:46:00.000Z',
+          updated_at: '2026-08-04T01:46:00.000Z',
+          body: `${JSON.stringify(payload, null, 2)}\n`,
+        }),
+      })).toThrow('readback body differs');
+    } finally {
+      removeTemporaryRoot(root);
+    }
+  });
+
   it('captures the actual independent Git worktree binding before cleanup', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-worktree-evidence-'));
     const sourceRoot = path.join(root, 'source');
@@ -798,6 +1075,38 @@ describe('fresh-clone and protected self-hosting gates', () => {
         },
       });
       expect(evidence.worker.git_common_dir).toBe(evidence.source.git_common_dir);
+      expect(evidence.worker.tree_sha).toBe(sourceTree);
+      expect(evidence.git_relationship).toEqual({
+        source_is_ancestor: true,
+        merge_base_sha: sourceHead,
+        fork_point_sha: sourceHead,
+      });
+    } finally {
+      removeTemporaryRoot(root);
+    }
+  });
+
+  it('rejects a same-clone Worker that forked before the admitted source HEAD', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-stale-fork-'));
+    const sourceRoot = path.join(root, 'source');
+    const workerRoot = path.join(root, 'worker');
+    try {
+      fs.mkdirSync(sourceRoot);
+      execFileSync('git', ['init', '--quiet'], { cwd: sourceRoot });
+      execFileSync('git', ['config', 'user.name', 'AO Test'], { cwd: sourceRoot });
+      execFileSync('git', ['config', 'user.email', 'ao-test@example.invalid'], { cwd: sourceRoot });
+      fs.writeFileSync(path.join(sourceRoot, 'fixture.txt'), 'first\n');
+      execFileSync('git', ['add', 'fixture.txt'], { cwd: sourceRoot });
+      execFileSync('git', ['commit', '--quiet', '-m', 'test: first baseline'], { cwd: sourceRoot });
+      fs.writeFileSync(path.join(sourceRoot, 'fixture.txt'), 'second\n');
+      execFileSync('git', ['commit', '--quiet', '-am', 'test: admitted baseline'], { cwd: sourceRoot });
+      execFileSync('git', ['worktree', 'add', '--quiet', '-b', 'ao/p0-r08/stale-fork', workerRoot, 'HEAD~1'], { cwd: sourceRoot });
+
+      expect(() => inspectWorktreeBinding({
+        sourceRoot,
+        workerRoot,
+        workerSessionId: 'worker-stale',
+      })).toThrow('did not fork from the admitted source HEAD');
     } finally {
       removeTemporaryRoot(root);
     }

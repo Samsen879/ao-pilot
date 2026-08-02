@@ -22,7 +22,7 @@ import {
 } from './ao/lib/self-hosting-receipt.js';
 
 function usage() {
-  return 'Usage: npm run verify:self-hosting -- --receipt <path> [--issue-comment-id <id>] [--repository-root <path>]';
+  return 'Usage: npm run verify:self-hosting -- --receipt <path> [--pre-merge] [--issue-comment-id <id>] [--repository-root <path>]';
 }
 
 function run(command, args, { cwd = process.cwd(), timeout = 30_000 } = {}) {
@@ -52,7 +52,7 @@ function pullEvidence(number, repositoryRoot) {
   return {
     number: value.number,
     merged: value.merged === true,
-    merge_sha: value.merge_commit_sha,
+    merge_sha: value.merged === true ? value.merge_commit_sha : null,
     merge_tree_sha: mergeTree,
     head_sha: value.head?.sha ?? null,
     head_ref: value.head?.ref ?? null,
@@ -128,13 +128,16 @@ function jsonIssueCommentEvidence(commentId, repositoryRoot) {
     comment_id: comment.id,
     issue_number: Number(comment.issue_url?.match(/\/issues\/(\d+)$/)?.[1] ?? 0),
     author: comment.user?.login ?? null,
+    author_association: comment.author_association ?? null,
     created_at: comment.created_at ?? null,
     updated_at: comment.updated_at ?? null,
+    body_bytes: Buffer.byteLength(comment.body ?? '', 'utf8'),
+    body_sha256: createHash('sha256').update(comment.body ?? '').digest('hex'),
     payload,
   };
 }
 
-function collectEvidence(receipt, repositoryRoot) {
+function collectEvidence(receipt, repositoryRoot, { preMerge = false } = {}) {
   const sourceHead = receipt.source.clone_head_sha;
   const terminalSourceHead = receipt.terminal_remediation.source.clone_head_sha;
   const currentMain = run('git', ['rev-parse', 'HEAD^{commit}'], { cwd: repositoryRoot });
@@ -148,6 +151,10 @@ function collectEvidence(receipt, repositoryRoot) {
   const checks = runJson('gh', ['api', `repos/Samsen879/ao-pilot/commits/${headSha}/check-runs`], { cwd: repositoryRoot });
   const remediationPr = receipt.terminal_remediation.delivery.remediation_pr.number;
   const remediationHead = receipt.terminal_remediation.delivery.remediation_pr.head_sha;
+  run('git', ['cat-file', '-e', `${remediationHead}^{commit}`], { cwd: repositoryRoot });
+  const terminalWorkerTree = run('git', ['rev-parse', `${remediationHead}^{tree}`], { cwd: repositoryRoot });
+  run('git', ['merge-base', '--is-ancestor', terminalSourceHead, remediationHead], { cwd: repositoryRoot });
+  const terminalMergeBase = run('git', ['merge-base', terminalSourceHead, remediationHead], { cwd: repositoryRoot });
   const terminalChecks = runJson('gh', ['api', `repos/Samsen879/ao-pilot/commits/${remediationHead}/check-runs`], { cwd: repositoryRoot });
   return {
     repositoryEvidence: {
@@ -157,6 +164,10 @@ function collectEvidence(receipt, repositoryRoot) {
       source_tree_sha: sourceTree,
       terminal_source_commit_sha: terminalSourceHead,
       terminal_source_tree_sha: terminalSourceTree,
+      terminal_worker_commit_sha: remediationHead,
+      terminal_worker_tree_sha: terminalWorkerTree,
+      terminal_source_is_ancestor: true,
+      terminal_merge_base_sha: terminalMergeBase,
       release_check_passed: true,
     },
     githubEvidence: {
@@ -183,7 +194,7 @@ function collectEvidence(receipt, repositoryRoot) {
       worktree_capture: jsonIssueCommentEvidence(receipt.delivery.worktree_evidence_comment_id, repositoryRoot),
       orchestrator_done_capture: jsonIssueCommentEvidence(receipt.cleanup.orchestrator_done_evidence_comment_id, repositoryRoot),
       terminal_worktree_capture: jsonIssueCommentEvidence(receipt.terminal_remediation.delivery.worktree_evidence_comment_id, repositoryRoot),
-      terminal_orchestrator_done_capture: jsonIssueCommentEvidence(receipt.terminal_remediation.cleanup.orchestrator_done_evidence_comment_id, repositoryRoot),
+      terminal_orchestrator_done_capture: preMerge ? null : jsonIssueCommentEvidence(receipt.terminal_remediation.cleanup.orchestrator_done_evidence_comment_id, repositoryRoot),
     },
   };
 }
@@ -205,12 +216,13 @@ if (argv.includes('--help') || argv.includes('-h')) {
   const receiptIndex = argv.indexOf('--receipt');
   const commentIndex = argv.indexOf('--issue-comment-id');
   const rootIndex = argv.indexOf('--repository-root');
+  const preMerge = argv.includes('--pre-merge');
   const receiptPath = receiptIndex === -1 ? null : argv[receiptIndex + 1];
   const commentId = commentIndex === -1 ? null : Number(argv[commentIndex + 1]);
   const repositoryRoot = rootIndex === -1 ? process.cwd() : argv[rootIndex + 1];
-  const expectedLength = 2 + (commentIndex === -1 ? 0 : 2) + (rootIndex === -1 ? 0 : 2);
+  const expectedLength = 2 + (preMerge ? 1 : 0) + (commentIndex === -1 ? 0 : 2) + (rootIndex === -1 ? 0 : 2);
   const invalidComment = commentIndex !== -1 && (!Number.isSafeInteger(commentId) || commentId <= 0);
-  if (receiptPath == null || receiptPath.startsWith('-') || invalidComment || repositoryRoot == null || repositoryRoot.startsWith('-') || argv.length !== expectedLength) {
+  if (receiptPath == null || receiptPath.startsWith('-') || invalidComment || (preMerge && commentId != null) || repositoryRoot == null || repositoryRoot.startsWith('-') || argv.length !== expectedLength) {
     process.stderr.write(`${usage()}\n`);
     process.exitCode = 4;
   } else {
@@ -220,11 +232,12 @@ if (argv.includes('--help') || argv.includes('-h')) {
       const rawReceipt = fs.readFileSync(resolvedReceiptPath, 'utf8');
       const receipt = loadSelfHostingReceipt(resolvedReceiptPath);
       run('npm', ['run', 'release:check'], { cwd: resolvedRepositoryRoot, timeout: 30 * 60 * 1000 });
-      const evidence = collectEvidence(receipt, resolvedRepositoryRoot);
+      const evidence = collectEvidence(receipt, resolvedRepositoryRoot, { preMerge });
       const result = verifySelfHostingReceipt(receipt, {
         ...evidence,
         publicationEvidence: commentId == null ? null : publicationEvidence(commentId, rawReceipt, resolvedRepositoryRoot),
-        requirePublication: commentId != null,
+        requirePublication: preMerge ? false : commentId != null,
+        stage: preMerge ? 'pre_merge' : 'final',
       });
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     } catch (error) {

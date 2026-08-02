@@ -193,32 +193,60 @@ No prior AO database, sessions, project, daemon, worktree, or re-engagement
 state may be read. Do not claim a remediation-specific runtime store or cache:
 neither was created or used.
 
-Before merge, run `capture:self-hosting-worktree` from the recovery Worker
-package. Its v4 payload binds the standing admission and baseline, chain
-attempt 2 and predecessor PR #72, admitted clone, fresh AO data and run paths,
-Worker session/worktree/branch/HEAD, and shared Git common directory.
-The receipt and durable completion evidence bind the reused literal runtime
-binary and digest separately. Record the resulting unedited issue
-comment in `terminal_remediation.delivery.worktree_evidence_comment_id`.
+Before merge, run `publish:self-hosting-worktree` from the active Orchestrator
+session. The command fails unless `AO_SESSION_ID` equals
+`ao-pilot-remediation-1`, the pinned AO reports that exact active session as
+the issue #63 Orchestrator, the process carries matching AO project, issue,
+session, and runtime-launch bindings, and the runtime path and digest match the
+admitted binary. It captures, publishes, and reads back the exact comment in one
+Orchestrator-bound operation; a Worker or ordinary Owner shell cannot satisfy
+the session binding. The canonical comment body is the formatted JSON with no
+trailing newline; exact readback, byte count, and SHA-256 all cover those same
+bytes. Record the comment and generated publication receipt in
+`terminal_remediation.delivery.worktree_evidence_comment_id` and
+`terminal_remediation.delivery.worktree_evidence_publication`.
+
+The v4 capture derives both source and Worker commit/tree IDs from Git. It
+requires the source HEAD/tree to equal the standing baseline, proves that
+source HEAD is an ancestor of Worker HEAD, and requires both merge base and
+fork point to equal the admitted source commit. Sharing a Git common directory
+alone is insufficient.
 
 ```bash
 SOURCE_ROOT=/home/guoqy/p0-r08-terminal-remediation/ao-pilot
 WORKER_ROOT=/home/guoqy/p0-r08-terminal-remediation/ao-state/data/worktrees/ao-pilot-remediation/ao-pilot-remediation-3
+RUNTIME_BINARY=/home/guoqy/p0-r08-retry-workstation/runtime-store/runtime.agent_orchestrator.v0_11_2_p0_1/linux-x64/711178ebe07d436db36020eb08f0c4e29613f97b/bin/ao
 AO_DATA_DIR=/home/guoqy/p0-r08-terminal-remediation/ao-state/data \
 AO_RUN_FILE=/home/guoqy/p0-r08-terminal-remediation/ao-state/running.json \
-npm --prefix "$WORKER_ROOT" run capture:self-hosting-worktree -- \
+npm --prefix "$WORKER_ROOT" run publish:self-hosting-worktree -- \
   --source-root "$SOURCE_ROOT" \
   --worker-root "$WORKER_ROOT" \
   --worker-session-id ao-pilot-remediation-3 \
-  --out /tmp/p0-r08-standing-recovery-1-worktree-evidence.json
-gh issue comment 63 --body-file /tmp/p0-r08-standing-recovery-1-worktree-evidence.json
+  --orchestrator-session-id ao-pilot-remediation-1 \
+  --runtime-binary "$RUNTIME_BINARY" \
+  --out /tmp/p0-r08-standing-recovery-1-worktree-evidence.json \
+  --publication-receipt-out /tmp/p0-r08-standing-recovery-1-worktree-publication.json
 ```
 
-The Orchestrator, not the Worker, publishes that payload and reads it back
-before merge. It must also replay the live collector for every completed
-review, verify complete finding disposition and final-head CI, and run receipt
-preflight for every field available before merge. A missing comment ID or
-readback is a blocker, never a placeholder that may pass.
+After copying the publication receipt fields into the pending v4 receipt, the
+Orchestrator must run this executable staged gate from the exact Worker HEAD:
+
+```bash
+npm --prefix "$WORKER_ROOT" run verify:self-hosting -- \
+  --receipt /tmp/p0-r08-workstation-self-hosting-receipt.json \
+  --pre-merge \
+  --repository-root "$WORKER_ROOT"
+```
+
+The `--pre-merge` mode validates the complete immutable v2 principal proof,
+standing admission, failed PR #72 chain entry and disposition, ordered live PR
+topology, all completed reviews and findings, final-head CI, Git ancestry/fork
+relationship, and Orchestrator-bound worktree publication/readback. It requires
+the active delivery, replay, cleanup, and final claims to remain explicitly
+pending. It does not require or accept a merge outcome, merged-main replay,
+Orchestrator done, cleanup, terminal receipt publication, or protected workflow
+result. A missing comment ID, incomplete readback, or premature post-merge
+claim blocks the command.
 
 After the recovery PR merges, replay `npm run release:check` on its
 exact merge SHA/tree, invoke `orchestrator done` through the literal pinned

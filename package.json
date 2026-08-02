@@ -71,6 +71,7 @@
     "bootstrap": "./scripts/bootstrap.sh",
     "capture:orchestrator-done": "node scripts/capture-orchestrator-done.js",
     "capture:self-hosting-worktree": "node scripts/capture-self-hosting-worktree.js",
+    "publish:self-hosting-worktree": "node scripts/publish-self-hosting-worktree.js",
     "test": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --testPathPatterns='tests/ao/' --no-color",
     "verify:package": "node scripts/verify-package-install.js",
     "verify:runtime-lock": "node scripts/verify-runtime-lock.js",

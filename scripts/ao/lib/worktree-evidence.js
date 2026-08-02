@@ -47,11 +47,14 @@ export function inspectWorktreeBinding({
   const sourceHead = git(sourceTopLevel, ['rev-parse', 'HEAD^{commit}']);
   const sourceTree = git(sourceTopLevel, ['rev-parse', 'HEAD^{tree}']);
   const workerHead = git(workerTopLevel, ['rev-parse', 'HEAD^{commit}']);
+  const workerTree = git(workerTopLevel, ['rev-parse', 'HEAD^{tree}']);
   const workerBranch = git(workerTopLevel, ['branch', '--show-current']);
+  const mergeBase = git(workerTopLevel, ['merge-base', sourceHead, workerHead]);
 
   assert(sourceTopLevel !== workerTopLevel, 'Worker reused the bootstrap source worktree');
   assert(sourceCommonDir === workerCommonDir, 'Worker is not an independently bound worktree of the bootstrap clone');
   assert(/^ao\//.test(workerBranch), 'Worker branch is not AO-owned');
+  assert(mergeBase === sourceHead, 'Worker did not fork from the admitted source HEAD');
 
   return {
     schema_version: WORKTREE_EVIDENCE_SCHEMA_VERSION,
@@ -68,7 +71,13 @@ export function inspectWorktreeBinding({
       worktree_path: workerTopLevel,
       branch: workerBranch,
       head_sha: workerHead,
+      tree_sha: workerTree,
       git_common_dir: workerCommonDir,
+    },
+    git_relationship: {
+      source_is_ancestor: true,
+      merge_base_sha: mergeBase,
+      fork_point_sha: mergeBase,
     },
   };
 }
@@ -77,6 +86,7 @@ export function captureWorktreeEvidence({ env = process.env, ...options }) {
   const evidence = inspectWorktreeBinding(options);
   assert(evidence.source.head_sha === P0_R08_TERMINAL_ADMITTED_MAIN, 'Source worktree is not at the admitted terminal-remediation main');
   assert(evidence.source.tree_sha === P0_R08_TERMINAL_ADMITTED_TREE, 'Source worktree tree is not the admitted terminal-remediation tree');
+  assert(evidence.git_relationship.merge_base_sha === P0_R08_TERMINAL_ADMITTED_MAIN, 'Worker merge base is not the standing-admission baseline');
   assert(path.dirname(evidence.source.clone_path) === P0_R08_TERMINAL_ROOT, 'Source worktree is outside the terminal-remediation root');
   assert(env.AO_DATA_DIR === P0_R08_TERMINAL_AO_DATA_DIR, 'AO_DATA_DIR is not terminal-remediation-specific');
   assert(env.AO_RUN_FILE === P0_R08_TERMINAL_AO_RUN_FILE, 'AO_RUN_FILE is not terminal-remediation-specific');

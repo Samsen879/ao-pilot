@@ -215,6 +215,18 @@
       "worker_created_from_issue": true,
       "worker_worktree_path": "/home/guoqy/p0-r08-terminal-remediation/ao-state/data/worktrees/ao-pilot-remediation/ao-pilot-remediation-3",
       "worktree_evidence_comment_id": 0,
+      "worktree_evidence_publication": {
+        "schema_version": "ao.workstation-orchestrator-worktree-publication.v1",
+        "comment_id": 0,
+        "published_at": "REPLACE_WITH_GITHUB_TIMESTAMP",
+        "read_back_at": "REPLACE_WITH_ISO_8601",
+        "payload_bytes": 0,
+        "payload_sha256": "REPLACE_WITH_64_HEX",
+        "exact_body_read_back": false,
+        "orchestrator_session_id": "ao-pilot-remediation-1",
+        "runtime_binary_path": "/home/guoqy/p0-r08-retry-workstation/runtime-store/runtime.agent_orchestrator.v0_11_2_p0_1/linux-x64/711178ebe07d436db36020eb08f0c4e29613f97b/bin/ao",
+        "runtime_binary_sha256": "a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34"
+      },
       "worker_branch": "ao/p0-r08-standing-recovery-1",
       "worker_committed": true,
       "worker_pushed": true,
@@ -230,17 +242,18 @@
         "reviewed_head": "REPLACE_WITH_REVIEWED_40_HEX",
         "ci_conclusion": "REPLACE_WITH_SUCCESS",
         "codex_reviews": [],
+        "finding_dispositions": [],
         "post_review_2_repair": null,
         "merged": false,
-        "merge_sha": "REPLACE_WITH_40_HEX",
-        "merge_tree_sha": "REPLACE_WITH_40_HEX"
+        "merge_sha": null,
+        "merge_tree_sha": null
       }
     },
     "exact_main_replay": {
       "passed": false,
       "release_check_passed": false,
-      "main_sha": "REPLACE_WITH_40_HEX",
-      "tree_sha": "REPLACE_WITH_40_HEX"
+      "main_sha": null,
+      "tree_sha": null
     },
     "cleanup": {
       "orchestrator_done": false,
