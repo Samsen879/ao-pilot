@@ -13,6 +13,7 @@ import { resolveManagedRuntime } from './runtime-resolver.js';
 const PACKAGE_VERSION = JSON.parse(
   fs.readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'),
 ).version;
+const DEFAULT_RUNTIME_COMMAND_TIMEOUT_MS = 15_000;
 
 function normalizeStoreRoot(value, env) {
   const configured = value ?? env.AO_PILOT_RUNTIME_STORE;
@@ -97,13 +98,17 @@ export function inspectRuntimeControl({
   platform = process.platform,
   arch = process.arch,
   aoPilotVersion = PACKAGE_VERSION,
-  runtimeLock = loadRuntimeLock().lock,
-  toolchainLock = loadBootstrapToolchainLock().lock,
+  runtimeLock = null,
+  toolchainLock = null,
   spawn = spawnSync,
 } = {}) {
   const effectiveStore = normalizeStoreRoot(storeRoot, env);
   let runtime;
+  let effectiveRuntimeLock = runtimeLock;
+  let effectiveToolchainLock = toolchainLock;
   try {
+    effectiveRuntimeLock ??= loadRuntimeLock().lock;
+    effectiveToolchainLock ??= loadBootstrapToolchainLock().lock;
     const resolution = resolveRuntimeControl({
       env,
       cwd,
@@ -111,8 +116,8 @@ export function inspectRuntimeControl({
       platform,
       arch,
       aoPilotVersion,
-      runtimeLock,
-      toolchainLock,
+      runtimeLock: effectiveRuntimeLock,
+      toolchainLock: effectiveToolchainLock,
     });
     runtime = {
       status: 'verified',
@@ -124,26 +129,26 @@ export function inspectRuntimeControl({
   } catch (error) {
     runtime = {
       status: 'blocked',
-      code: error.code ?? 'runtime_verification_failed',
+      code: error.code ?? (effectiveRuntimeLock == null ? 'runtime_lock_invalid' : 'runtime_verification_failed'),
       message: error.message,
       store_root: effectiveStore,
-      runtime_ref: runtimeLock.runtime_ref,
-      lock_digest: computeRuntimeLockDigest(runtimeLock),
+      runtime_ref: effectiveRuntimeLock?.runtime_ref ?? null,
+      lock_digest: effectiveRuntimeLock == null ? null : computeRuntimeLockDigest(effectiveRuntimeLock),
       runtime_directory: error.details?.runtime_directory ?? null,
       provenance_path: null,
       bootstrap_receipt_path: null,
       binary_path: error.details?.binary_path ?? null,
       binary_sha256: null,
-      source: {
-        repository: runtimeLock.artifact.repository,
-        version: runtimeLock.artifact.version,
-        tag: runtimeLock.artifact.ref.name,
-        tag_object_sha: runtimeLock.artifact.ref.tag_object_sha,
-        commit_sha: runtimeLock.artifact.ref.commit_sha,
-        tree_sha: runtimeLock.artifact.ref.tree_sha,
-        integrity: runtimeLock.artifact.integrity,
+      source: effectiveRuntimeLock == null ? null : {
+        repository: effectiveRuntimeLock.artifact.repository,
+        version: effectiveRuntimeLock.artifact.version,
+        tag: effectiveRuntimeLock.artifact.ref.name,
+        tag_object_sha: effectiveRuntimeLock.artifact.ref.tag_object_sha,
+        commit_sha: effectiveRuntimeLock.artifact.ref.commit_sha,
+        tree_sha: effectiveRuntimeLock.artifact.ref.tree_sha,
+        integrity: effectiveRuntimeLock.artifact.integrity,
       },
-      compatibility: runtimeLock.compatibility,
+      compatibility: effectiveRuntimeLock?.compatibility ?? null,
       path_candidate: error.details?.path_candidate ?? null,
     };
   }
@@ -164,9 +169,12 @@ export function runVerifiedRuntime(args, {
   storeRoot = null,
   stdio = 'inherit',
   spawn = spawnSync,
+  timeoutMs = DEFAULT_RUNTIME_COMMAND_TIMEOUT_MS,
 } = {}) {
   const runtime = resolveRuntimeControl({ env, cwd, storeRoot });
-  return runResolvedRuntime(runtime, args, { env, cwd, stdio, spawn });
+  return runResolvedRuntime(runtime, args, {
+    env, cwd, stdio, spawn, timeoutMs,
+  });
 }
 
 export function runResolvedRuntime(runtime, args, {
@@ -174,12 +182,14 @@ export function runResolvedRuntime(runtime, args, {
   cwd = process.cwd(),
   stdio = 'inherit',
   spawn = spawnSync,
+  timeoutMs = DEFAULT_RUNTIME_COMMAND_TIMEOUT_MS,
 } = {}) {
   const result = spawn(runtime.binary_path, args.map(String), {
     cwd,
     env,
     encoding: stdio === 'inherit' ? undefined : 'utf8',
     stdio,
+    timeout: timeoutMs,
   });
   return {
     runtime,
@@ -189,6 +199,7 @@ export function runResolvedRuntime(runtime, args, {
       stdout: result.stdout == null ? '' : String(result.stdout),
       stderr: result.stderr == null ? '' : String(result.stderr),
       error: result.error?.message ?? null,
+      error_code: result.error?.code ?? null,
     },
   };
 }

@@ -59,16 +59,28 @@
     ],
     "repair_status": "implemented_and_full_gate_verified"
   },
+  "review_2": {
+    "review_id": 4837776583,
+    "reviewed_head": "d78613925b95f1f4d499a0996ca69b105980aa16",
+    "submitted_at": "2026-08-02T08:23:14Z",
+    "final_permitted_review": true,
+    "findings": [
+      "P2_lock_loading_failures_must_be_structured",
+      "P2_status_and_stop_execution_must_be_timeout_bounded"
+    ],
+    "repair_status": "implemented_and_full_gate_verified",
+    "review_3_allowed": false
+  },
   "verification": {
     "focused_suites": 9,
-    "focused_tests": 58,
+    "focused_tests": 60,
     "full_suites": 84,
-    "full_tests": 500,
+    "full_tests": 502,
     "acceptance_tests": 7,
     "package_entries": 189,
     "dependency_vulnerabilities": 0,
     "verify_runtime_lifecycle": "verified",
-    "full_release_check": "verified_repair_head"
+    "full_release_check": "verified_review_2_repair_head"
   },
   "claim_boundary": {
     "package_portability": true,

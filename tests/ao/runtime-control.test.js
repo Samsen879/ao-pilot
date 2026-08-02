@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const mockResolveManagedRuntime = jest.fn();
 const mockVerifyReceipt = jest.fn();
+const mockLoadRuntimeLock = jest.fn();
 
 const runtimeLock = {
   runtime_ref: 'runtime.test.v1',
@@ -28,7 +29,7 @@ jest.unstable_mockModule('../../scripts/ao/lib/runtime-bootstrap.js', () => ({
   verifyRuntimeBootstrapReceipt: mockVerifyReceipt,
 }));
 jest.unstable_mockModule('../../scripts/ao/lib/runtime-lock.js', () => ({
-  loadRuntimeLock: () => ({ lock: runtimeLock }),
+  loadRuntimeLock: mockLoadRuntimeLock,
   computeRuntimeLockDigest: () => 'sha256:runtime-lock',
 }));
 jest.unstable_mockModule('../../scripts/ao/lib/runtime-bootstrap-contract.js', () => ({
@@ -65,6 +66,8 @@ describe('runtime control boundary', () => {
   beforeEach(() => {
     mockResolveManagedRuntime.mockReset();
     mockVerifyReceipt.mockReset();
+    mockLoadRuntimeLock.mockReset();
+    mockLoadRuntimeLock.mockReturnValue({ lock: runtimeLock });
     mockResolveManagedRuntime.mockReturnValue(verified);
     mockVerifyReceipt.mockReturnValue({ path: `${verified.runtime_directory}/runtime-bootstrap.json` });
   });
@@ -127,6 +130,26 @@ describe('runtime control boundary', () => {
     expect(JSON.stringify(report)).not.toContain('secret-like');
   });
 
+  it('reports a packaged runtime lock load failure instead of throwing', () => {
+    mockLoadRuntimeLock.mockImplementationOnce(() => { throw new Error('invalid runtime lock json'); });
+    const spawn = jest.fn()
+      .mockReturnValueOnce({ status: 1, stdout: '', stderr: '' })
+      .mockReturnValueOnce({ status: 1, stdout: '', stderr: '' });
+
+    const report = inspectRuntimeControl({ env: { PATH: '/safe' }, spawn });
+
+    expect(report).toMatchObject({
+      status: 'blocked',
+      runtime: {
+        status: 'blocked',
+        code: 'runtime_lock_invalid',
+        message: 'invalid runtime lock json',
+        runtime_ref: null,
+        source: null,
+      },
+    });
+  });
+
   it('executes the verified absolute runtime path and never a PATH ao', () => {
     const spawn = jest.fn().mockReturnValue({ status: 0, stdout: '', stderr: '' });
     const execution = runVerifiedRuntime(['status', '--json'], {
@@ -139,7 +162,7 @@ describe('runtime control boundary', () => {
     expect(spawn).toHaveBeenCalledWith(
       verified.binary_path,
       ['status', '--json'],
-      expect.objectContaining({ cwd: '/repo' }),
+      expect.objectContaining({ cwd: '/repo', timeout: 15_000 }),
     );
   });
 

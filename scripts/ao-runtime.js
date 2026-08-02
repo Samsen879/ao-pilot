@@ -204,6 +204,7 @@ export async function runCli(argv, io = createDefaultIo(), {
     exit_code: execution.result.status,
     signal: execution.result.signal,
     error: execution.result.error,
+    error_code: execution.result.error_code ?? null,
     ...(options.json ? {
       output: (() => {
         try { return JSON.parse(execution.result.stdout || 'null'); } catch { return execution.result.stdout; }

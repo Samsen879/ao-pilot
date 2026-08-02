@@ -149,6 +149,34 @@ describe('ao-pilot runtime lifecycle CLI', () => {
     });
   });
 
+  it('returns a structured timeout when status or stop exceeds its command bound', async () => {
+    const output = createIo();
+    const executeRuntime = jest.fn().mockReturnValue({
+      runtime,
+      result: {
+        status: null,
+        signal: 'SIGTERM',
+        stdout: '',
+        stderr: '',
+        error: 'spawnSync timed out',
+        error_code: 'ETIMEDOUT',
+      },
+    });
+
+    const result = await runCli(['status', '--json'], output.io, {
+      resolveRuntime: () => runtime,
+      executeRuntime,
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(JSON.parse(output.stdout.join(''))).toMatchObject({
+      status: 'failed',
+      exit_code: null,
+      error: 'spawnSync timed out',
+      error_code: 'ETIMEDOUT',
+    });
+  });
+
   it('fails closed and does not execute when a wrong ao shadows the runtime', async () => {
     const output = createIo();
     const executeRuntime = jest.fn();
