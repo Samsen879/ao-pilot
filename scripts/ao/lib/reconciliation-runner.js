@@ -36,9 +36,12 @@ export async function runReconciliation({
   projectId = DEFAULT_PROJECT_ID,
   prNumber = null,
   cwd = process.cwd(),
+  env = process.env,
 } = {}) {
   const aoObservation = await loadAoProjectObservation({
     projectId,
+    cwd,
+    env,
   });
   const scope = prNumber != null
     ? createPrScope(prNumber)

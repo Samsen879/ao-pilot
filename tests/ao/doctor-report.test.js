@@ -110,4 +110,33 @@ describe('doctor report', () => {
     expect(summary).toContain('key_findings: none');
     expect(summary).toContain('suggested_commands: none');
   });
+
+  it('renders runtime provenance and secret-free authentication availability', () => {
+    const summary = renderDoctorHumanSummary(buildDoctorReport({
+      runtime: {
+        status: 'verified',
+        runtime_ref: 'runtime.test.v1',
+        source: {
+          repository: 'https://github.com/example/runtime.git',
+          version: '1.2.3',
+          commit_sha: '1'.repeat(40),
+          tree_sha: '2'.repeat(40),
+          integrity: { algorithm: 'git-tree-sha1', digest: '2'.repeat(40) },
+        },
+        binary_path: '/managed/runtime/bin/ao',
+        binary_sha256: 'a'.repeat(64),
+        path_candidate: null,
+      },
+      authentication: {
+        github: { available: true, authenticated: true },
+        codex: { available: true, authenticated: false },
+      },
+    }));
+
+    expect(summary).toContain('runtime_status: verified');
+    expect(summary).toContain('runtime_commit_sha: 1111111111111111111111111111111111111111');
+    expect(summary).toContain('runtime_binary_path: /managed/runtime/bin/ao');
+    expect(summary).toContain('auth_github: available=true, authenticated=true');
+    expect(summary).toContain('auth_codex: available=true, authenticated=false');
+  });
 });

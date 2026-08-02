@@ -56,6 +56,12 @@ AO_PILOT_RUNTIME_STORE
 AO_PILOT_RUNTIME_CACHE
 ```
 
+Lifecycle and doctor commands also accept `--runtime-store <path>` when an
+explicit managed store is required. They never accept a binary path or mutable
+runtime ref override. `AO_PILOT_RUNTIME_STORE` is the only environment-level
+store selection; the selected store still has to satisfy the committed lock,
+provenance, receipt, compatibility, and binary-integrity contracts.
+
 Defaults follow XDG data/cache directories, falling back to
 `~/.local/share/ao-pilot/runtimes` and
 `~/.cache/ao-pilot/runtime-bootstrap`. Credentials and Agent Orchestrator

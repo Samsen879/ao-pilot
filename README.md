@@ -45,9 +45,10 @@ The `0.2.0` package boundary is installable, but the complete fresh-clone and
 self-hosting proof is not yet complete. P0-R04 supplies a package-owned
 [immutable runtime lock and fail-closed resolver](docs/AO_RUNTIME.md). P0-R05
 adds deterministic source/toolchain retrieval and an atomic managed bootstrap,
-but there is still no accepted `ao-pilot start` lifecycle or new-workstation
-self-hosting receipt. The system therefore must not yet claim operational
-portability.
+and P0-R06 routes doctor, observation, and lifecycle commands through the
+verified managed binary. The fresh-clone release gate and new-workstation
+self-hosting receipt are still incomplete, so the system must not yet claim
+operational portability.
 
 The package-level portability claim remains narrower and already accepted;
 runtime bootstrap and workstation self-hosting require their own evidence.
@@ -206,6 +207,25 @@ The bootstrap never invokes a PATH `ao`. It fails closed if one shadows the
 managed runtime. Use `--offline` only after the source, toolchain, and Go module
 caches have been verified by an online run; use `--reinstall` for an atomic
 clean rebuild. See [AO Runtime](docs/AO_RUNTIME.md) for paths and recovery.
+
+Inspect the exact runtime and use the managed lifecycle entrypoints:
+
+```bash
+node ./bin/ao-pilot.js runtime-path --json
+node ./bin/ao-pilot.js doctor --json
+node ./bin/ao-pilot.js start --project my-project
+node ./bin/ao-pilot.js status --project my-project --json
+node ./bin/ao-pilot.js stop --project my-project
+```
+
+Every command above verifies the committed lock, provenance, bootstrap receipt,
+compatibility, binary digest, and PATH-shadow state before runtime execution.
+`start` launches the exact managed binary's daemon entrypoint as a detached
+local service; it does not call the upstream desktop acquisition command named
+`ao start` and therefore cannot fetch a mutable desktop release.
+`doctor` reports GitHub/Codex authentication availability but never includes
+probe output or credentials. These commands establish the R06 lifecycle
+boundary, not the R07 fresh-clone gate or R08 self-hosting proof.
 
 Link the unified CLI and create a project configuration:
 
@@ -407,7 +427,10 @@ ao-pilot doctor --pr 42 --json
 ao-pilot doctor --pr 42 --json --strict
 ```
 
-Use this to surface blocked, ambiguous, orphaned, stale, or otherwise unhealthy work.
+Use this to surface blocked, ambiguous, orphaned, stale, or otherwise unhealthy
+work and to inspect the external runtime repository/version/commit/tree,
+integrity, binary path/digest, compatibility, PATH shadowing, and secret-free
+GitHub/Codex authentication availability.
 
 ### `ao-lifecycle`
 

@@ -762,13 +762,13 @@ function buildActionTemplates(scope) {
     continue_worker: {
       action_class: 'continue_worker',
       summary: 'Continue the current worker owner.',
-      commands: [`ao status -p ${projectId} --json`],
+      commands: [`ao-pilot status --project ${projectId} --json`],
       rationale: 'Ownership continuity is clear enough to continue the current worker.',
     },
     restore_worker: {
       action_class: 'restore_worker',
       summary: 'Restore the previously identified worker.',
-      commands: [`ao status -p ${projectId} --json`, reconcileCommand],
+      commands: [`ao-pilot status --project ${projectId} --json`, reconcileCommand],
       rationale: 'The prior owner is still identifiable, but continuity is stale.',
     },
     handoff_worker: {
@@ -782,7 +782,7 @@ function buildActionTemplates(scope) {
       summary: 'Notify the human that the PR appears ready.',
       commands: [
         `gh pr view ${prNumber} --json mergeable,reviewDecision,isDraft,url`,
-        `ao review-check ${projectId} --dry-run`,
+        `ao-pilot status --project ${projectId} --json`,
       ],
       rationale: 'Human approval remains required even when the PR appears ready.',
     },

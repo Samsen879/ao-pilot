@@ -6,6 +6,8 @@ import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 const mockSpawnSync = jest.fn();
 const mockExistsSync = jest.fn();
 const mockStatSync = jest.fn();
+const mockResolveRuntimeControl = jest.fn();
+const mockInspectRuntimeControl = jest.fn();
 
 jest.unstable_mockModule('node:child_process', () => ({
   spawnSync: mockSpawnSync,
@@ -15,10 +17,20 @@ jest.unstable_mockModule('node:fs', async () => {
   const actual = await jest.requireActual('node:fs');
   return {
     ...actual,
+    default: {
+      ...(actual.default ?? actual),
+      existsSync: mockExistsSync,
+      statSync: mockStatSync,
+    },
     existsSync: mockExistsSync,
     statSync: mockStatSync,
   };
 });
+
+jest.unstable_mockModule('../../scripts/ao/lib/runtime-control.js', () => ({
+  resolveRuntimeControl: mockResolveRuntimeControl,
+  inspectRuntimeControl: mockInspectRuntimeControl,
+}));
 
 const { runCli: runReconcileCli } = await import('../../scripts/ao-reconcile.js');
 const { runCli: runDoctorCli } = await import('../../scripts/ao-doctor.js');
@@ -93,8 +105,8 @@ function useScenario(name) {
   }
 
   mockSpawnSync.mockImplementation((command, args) => {
-    if (command === 'ao') {
-      expect(args).toEqual(['status', '-p', 'my-project', '--json']);
+    if (command === '/managed/runtime/bin/ao') {
+      expect(args).toEqual(['session', 'ls', '--all', '--project', 'my-project', '--json']);
       return success(fixture('ao-status.json'));
     }
 
@@ -134,7 +146,22 @@ describe('ao lifecycle acceptance', () => {
     mockSpawnSync.mockReset();
     mockExistsSync.mockReset();
     mockStatSync.mockReset();
+    mockResolveRuntimeControl.mockReset();
+    mockInspectRuntimeControl.mockReset();
     mockExistsSync.mockReturnValue(false);
+    mockResolveRuntimeControl.mockReturnValue({ binary_path: '/managed/runtime/bin/ao' });
+    mockInspectRuntimeControl.mockReturnValue({
+      status: 'verified',
+      runtime: {
+        status: 'verified',
+        runtime_ref: 'runtime.fixture.v1',
+        source: {},
+      },
+      authentication: {
+        github: { available: true, authenticated: true },
+        codex: { available: true, authenticated: true },
+      },
+    });
   });
 
   it('keeps clean continuity visible while release readiness stays ambiguous on review-pending PRs', async () => {

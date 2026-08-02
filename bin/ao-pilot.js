@@ -25,8 +25,14 @@ const COMMAND_MODULES = {
   override: '../scripts/ao-override.js',
   reconcile: '../scripts/ao-reconcile.js',
   review: '../scripts/ao-review.js',
+  'runtime-path': '../scripts/ao-runtime.js',
+  start: '../scripts/ao-runtime.js',
   state: '../scripts/ao-state.js',
+  status: '../scripts/ao-runtime.js',
+  stop: '../scripts/ao-runtime.js',
 };
+
+const RUNTIME_COMMANDS = new Set(['runtime-path', 'start', 'status', 'stop']);
 
 const PROJECT_SCOPED_COMMANDS = new Set(Object.keys(COMMAND_MODULES).filter(
   (command) => command !== 'init',
@@ -47,7 +53,11 @@ function renderHelp() {
     'Commands:',
     '  init        Create ao.config.json',
     '  controller  Run the control loop',
-    '  doctor      Diagnose current control-plane state',
+    '  doctor      Diagnose control-plane, runtime, and auth state',
+    '  start       Start the verified managed runtime daemon',
+    '  stop        Stop the verified managed runtime daemon',
+    '  status      Inspect verified managed runtime daemon status',
+    '  runtime-path Inspect exact runtime provenance and binary path',
     '  reconcile   Reconcile AO and source-control observations',
     '  lifecycle   Evaluate lifecycle readiness',
     '  manage      Manage durable tasks',
@@ -180,7 +190,10 @@ export async function runCli(argv, io = createDefaultIo(), {
       loadedConfig.path,
     );
   }
-  return commandModule.runCli(effectiveArgs, io, {
+  const delegatedArgs = RUNTIME_COMMANDS.has(command)
+    ? [command, ...effectiveArgs]
+    : effectiveArgs;
+  return commandModule.runCli(delegatedArgs, io, {
     cwd,
     defaultProjectId: loadedConfig.config.project_id,
   });

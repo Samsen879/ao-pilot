@@ -78,6 +78,32 @@ function buildControlPlaneSnapshot(overrides = {}) {
 }
 
 describe('doctor engine', () => {
+  it('preserves an explicit runtime store in runtime follow-up suggestions', () => {
+    const report = buildDoctorReport({
+      scope: createDoctorProjectScope({ projectId: 'my-project' }),
+      reconciliationReport: buildReconciliationReport({
+        findings: [{
+          code: 'no_orchestrator_session',
+          severity: 'warning',
+          subject_type: 'project',
+          subject_id: 'my-project',
+          summary: 'No orchestrator session is visible.',
+          details: [],
+          evidence_refs: [],
+        }],
+      }),
+      localState: buildLocalState(),
+      runtimeStore: "/custom/store with 'quote'",
+    });
+
+    expect(report.suggestions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'ao_runtime_status',
+        commands: ["ao-pilot status --project my-project --json --runtime-store '/custom/store with '\"'\"'quote'\"'\"''"],
+      }),
+    ]));
+  });
+
   it('preserves reconciliation findings with reconciliation origin', () => {
     const report = buildDoctorReport({
       scope: createDoctorProjectScope({ projectId: 'my-project' }),

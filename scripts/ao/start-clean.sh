@@ -3,9 +3,7 @@
 set -euo pipefail
 
 project="my-project"
-orchestrator_session="${AO_ORCHESTRATOR_SESSION:-ao-orchestrator}"
 dry_run=0
-dashboard_flag="--no-dashboard"
 
 usage() {
   cat <<'EOF'
@@ -13,8 +11,6 @@ Usage: bash scripts/ao/start-clean.sh [options]
 
 Options:
   --project <project>         AO project id. Default: my-project
-  --orchestrator <session>    Orchestrator session name. Default: ao-orchestrator
-  --with-dashboard            Start AO with dashboard enabled
   --dry-run                   Print commands without executing them
   -h, --help                  Show this help message
 EOF
@@ -38,13 +34,6 @@ while [[ $# -gt 0 ]]; do
       shift
       project="${1:?missing value for --project}"
       ;;
-    --orchestrator)
-      shift
-      orchestrator_session="${1:?missing value for --orchestrator}"
-      ;;
-    --with-dashboard)
-      dashboard_flag=""
-      ;;
     --dry-run)
       dry_run=1
       ;;
@@ -63,6 +52,7 @@ done
 
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
+pilot_command=(node "$repo_root/bin/ao-pilot.js")
 
 workflow_sync_script=""
 workflow_sync_candidates=(
@@ -90,23 +80,10 @@ for candidate in "${git_hooks_install_candidates[@]}"; do
   fi
 done
 
-printf '+ ao stop %q --purge-session || true\n' "$project"
+run_cmd "${pilot_command[@]}" runtime-path
+printf '+ node %q stop --project %q || true\n' "$repo_root/bin/ao-pilot.js" "$project"
 if [[ "$dry_run" -eq 0 ]]; then
-  ao stop "$project" --purge-session || true
-fi
-
-if [[ "$dry_run" -eq 0 ]]; then
-  echo "+ ao doctor --fix"
-  if ! ao doctor --fix; then
-    echo "+ ao update"
-    ao update
-    echo "+ ao doctor"
-    ao doctor
-  fi
-else
-  echo "+ ao doctor --fix"
-  echo "+ ao update    # fallback if doctor --fix fails"
-  echo "+ ao doctor    # re-check after update"
+  "${pilot_command[@]}" stop --project "$project" || true
 fi
 
 if [[ -n "$git_hooks_install_script" ]]; then
@@ -125,12 +102,5 @@ else
   echo "+ skip workflow baseline sync (repo-local baseline sync script not present)"
 fi
 
-if [[ -n "$dashboard_flag" ]]; then
-  run_cmd ao start "$project" "$dashboard_flag"
-else
-  run_cmd ao start "$project"
-fi
-
-run_cmd ao send "$orchestrator_session" --no-wait \
-  "Reconcile live GitHub PR, CI, and review state for this project and continue the execution chain without waiting for human input."
-run_cmd ao status -p "$project"
+run_cmd "${pilot_command[@]}" start --project "$project"
+run_cmd "${pilot_command[@]}" status --project "$project"

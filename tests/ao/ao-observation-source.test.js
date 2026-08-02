@@ -5,6 +5,7 @@ import { afterAll, beforeEach, describe, expect, it, jest } from '@jest/globals'
 const mockSpawnSync = jest.fn();
 
 jest.unstable_mockModule('node:child_process', () => ({
+  spawn: jest.fn(),
   spawnSync: mockSpawnSync,
 }));
 
@@ -12,6 +13,7 @@ const { loadAoProjectObservation } = await import('../../scripts/ao/lib/ao-obser
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OBSERVATION_FIXTURE_ROOT = path.join(__dirname, 'fixtures', 'observation-source');
 const ORIGINAL_AO_FIXTURE_ROOT = process.env.AO_FIXTURE_ROOT;
+const verifiedRuntimeResolver = () => ({ binary_path: '/managed/runtime/bin/ao' });
 
 function useObservationFixture(name) {
   process.env.AO_FIXTURE_ROOT = path.join(OBSERVATION_FIXTURE_ROOT, name);
@@ -98,7 +100,7 @@ describe('ao observation source', () => {
     expect(observation.source_error).toMatch(/invalid ao fixture payload/i);
   });
 
-  it('normalizes orchestrator and worker sessions from ao status json', async () => {
+  it('normalizes orchestrator and worker sessions from the managed session list', async () => {
     mockSpawnSync.mockReturnValueOnce({
       status: 0,
       stdout: JSON.stringify({
@@ -125,8 +127,14 @@ describe('ao observation source', () => {
     const observation = await loadAoProjectObservation({
       projectId: 'my-project',
       now: '2026-03-24T10:10:00.000Z',
+      runtimeResolver: verifiedRuntimeResolver,
     });
 
+    expect(mockSpawnSync).toHaveBeenCalledWith(
+      '/managed/runtime/bin/ao',
+      ['session', 'ls', '--all', '--project', 'my-project', '--json'],
+      expect.objectContaining({ encoding: 'utf8' }),
+    );
     expect(observation.orchestrator.session_name).toBe('ao-orchestrator');
     expect(observation.workers[0]).toMatchObject({
       session_name: 'worker-17',
@@ -134,6 +142,42 @@ describe('ao observation source', () => {
       freshness: {
         status: 'fresh',
         stale_after_ms: 900000,
+      },
+    });
+  });
+
+  it('normalizes the locked Go runtime data envelope and field names', async () => {
+    mockSpawnSync.mockReturnValueOnce({
+      status: 0,
+      stdout: JSON.stringify({
+        data: [{
+          id: 'session-9',
+          projectId: 'my-project',
+          role: 'orchestrator',
+          issueId: '61',
+          harness: 'codex',
+          status: 'running',
+          lastActivityAt: '2026-03-24T10:09:00.000Z',
+        }],
+        meta: { hiddenTerminatedCount: 0 },
+      }),
+      stderr: '',
+    });
+
+    const observation = await loadAoProjectObservation({
+      projectId: 'my-project',
+      now: '2026-03-24T10:10:00.000Z',
+      runtimeResolver: verifiedRuntimeResolver,
+    });
+
+    expect(observation).toMatchObject({
+      source_ok: true,
+      orchestrator: {
+        session_name: 'session-9',
+        session_runtime_id: 'session-9',
+        issue_number: 61,
+        agent_label: 'codex',
+        freshness: { status: 'fresh' },
       },
     });
   });
@@ -157,6 +201,7 @@ describe('ao observation source', () => {
     const observation = await loadAoProjectObservation({
       projectId: 'my-project',
       now: '2026-03-24T10:10:00.000Z',
+      runtimeResolver: verifiedRuntimeResolver,
     });
 
     expect(observation.workers[0].freshness.status).toBe('stale');
@@ -189,6 +234,7 @@ describe('ao observation source', () => {
     const observation = await loadAoProjectObservation({
       projectId: 'my-project',
       now: '2026-03-24T10:10:00.000Z',
+      runtimeResolver: verifiedRuntimeResolver,
     });
 
     expect(observation.orchestrator).toMatchObject({
@@ -231,6 +277,7 @@ describe('ao observation source', () => {
     const observation = await loadAoProjectObservation({
       projectId: 'my-project',
       now: '2026-03-24T10:10:00.000Z',
+      runtimeResolver: verifiedRuntimeResolver,
     });
 
     expect(observation.source_ok).toBe(false);
@@ -253,6 +300,7 @@ describe('ao observation source', () => {
     const observation = await loadAoProjectObservation({
       projectId: 'my-project',
       now: '2026-03-24T10:10:00.000Z',
+      runtimeResolver: verifiedRuntimeResolver,
     });
 
     expect(observation.raw_summary.session_count).toBe(2);
@@ -262,5 +310,23 @@ describe('ao observation source', () => {
       'ao-orchestrator-2',
     ]);
     expect(observation.orchestrator.session_name).toBe('ao-orchestrator');
+  });
+
+  it('fails closed without executing a PATH ao when runtime verification fails', async () => {
+    const observation = await loadAoProjectObservation({
+      projectId: 'my-project',
+      now: '2026-03-24T10:10:00.000Z',
+      runtimeResolver: () => {
+        const error = new Error('PATH contains a different ao');
+        error.code = 'runtime_path_shadowed';
+        throw error;
+      },
+    });
+
+    expect(mockSpawnSync).not.toHaveBeenCalled();
+    expect(observation).toMatchObject({
+      source_ok: false,
+      source_error: expect.stringContaining('runtime_path_shadowed'),
+    });
   });
 });

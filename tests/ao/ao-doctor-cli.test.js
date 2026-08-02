@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const mockRunDoctor = jest.fn();
 const mockRenderDoctorHumanSummary = jest.fn();
+const mockInspectRuntime = jest.fn();
 
 jest.unstable_mockModule('../../scripts/ao/lib/doctor-runner.js', () => ({
   DEFAULT_PROJECT_ID: 'my-project',
@@ -10,6 +11,9 @@ jest.unstable_mockModule('../../scripts/ao/lib/doctor-runner.js', () => ({
 
 jest.unstable_mockModule('../../scripts/ao/lib/doctor-report.js', () => ({
   renderDoctorHumanSummary: mockRenderDoctorHumanSummary,
+}));
+jest.unstable_mockModule('../../scripts/ao/lib/runtime-control.js', () => ({
+  inspectRuntimeControl: mockInspectRuntime,
 }));
 
 const { runCli } = await import('../../scripts/ao-doctor.js');
@@ -34,6 +38,7 @@ describe('ao doctor cli', () => {
   beforeEach(() => {
     mockRunDoctor.mockReset();
     mockRenderDoctorHumanSummary.mockReset();
+    mockInspectRuntime.mockReset();
 
     mockRunDoctor.mockResolvedValue({
       report: {
@@ -44,6 +49,18 @@ describe('ao doctor cli', () => {
       },
     });
     mockRenderDoctorHumanSummary.mockReturnValue('top_status: healthy');
+    mockInspectRuntime.mockReturnValue({
+      status: 'verified',
+      runtime: {
+        status: 'verified',
+        runtime_ref: 'runtime.test.v1',
+        source: {},
+      },
+      authentication: {
+        github: { available: true, authenticated: true },
+        codex: { available: true, authenticated: true },
+      },
+    });
   });
 
   it('renders project-mode human summary output', async () => {
@@ -59,6 +76,7 @@ describe('ao doctor cli', () => {
       projectId: 'my-project',
       prNumber: null,
       cwd: process.cwd(),
+      env: process.env,
     });
     expect(stdout.join('')).toContain('top_status: healthy');
   });
@@ -86,6 +104,7 @@ describe('ao doctor cli', () => {
       projectId: 'my-project',
       prNumber: 44,
       cwd: process.cwd(),
+      env: process.env,
     });
     expect(JSON.parse(stdout.join(''))).toMatchObject({
       top_status: 'warning',
@@ -130,7 +149,25 @@ describe('ao doctor cli', () => {
       projectId: 'ciecopilot-home',
       prNumber: 44,
       cwd: process.cwd(),
+      env: process.env,
     });
+  });
+
+  it('routes an explicit runtime store into reconciliation and provenance inspection', async () => {
+    await runCli(['--runtime-store', '/managed/store'], {
+      writeStdout: () => {},
+      writeStderr: () => {},
+    }, { env: { PATH: '/safe' } });
+
+    expect(mockRunDoctor).toHaveBeenCalledWith(expect.objectContaining({
+      env: {
+        PATH: '/safe',
+        AO_PILOT_RUNTIME_STORE: '/managed/store',
+      },
+    }));
+    expect(mockInspectRuntime).toHaveBeenCalledWith(expect.objectContaining({
+      storeRoot: '/managed/store',
+    }));
   });
 
   it('uses fixed strict exit-code mapping in human and JSON modes', async () => {
@@ -181,5 +218,81 @@ describe('ao doctor cli', () => {
     expect(mockRunDoctor).not.toHaveBeenCalled();
     expect(stderr.join('')).toContain('Invalid value for --pr');
     expect(stderr.join('')).toContain('Cannot use --project and --pr together');
+  });
+
+  it('promotes a shadowed managed runtime to a blocker without exposing auth output', async () => {
+    mockInspectRuntime.mockReturnValue({
+      status: 'blocked',
+      runtime: {
+        status: 'blocked',
+        code: 'runtime_path_shadowed',
+        message: 'PATH contains a different ao',
+        source: {},
+        path_candidate: '/wrong/bin/ao',
+      },
+      authentication: {
+        github: { available: true, authenticated: true },
+        codex: { available: true, authenticated: false },
+      },
+    });
+    const stdout = [];
+    const result = await runCli(['--json', '--strict'], {
+      writeStdout: (text) => stdout.push(text),
+      writeStderr: () => {},
+    });
+
+    expect(result.exitCode).toBe(21);
+    expect(JSON.parse(stdout.join(''))).toMatchObject({
+      top_status: 'blocked',
+      source_health: { runtime: 'failed' },
+      runtime: {
+        code: 'runtime_path_shadowed',
+        path_candidate: '/wrong/bin/ao',
+      },
+      authentication: {
+        codex: { available: true, authenticated: false },
+      },
+    });
+  });
+
+  it('promotes a runtime integrity failure over an ambiguous base diagnosis', async () => {
+    mockRunDoctor.mockResolvedValue({
+      report: buildReport({
+        top_status: 'ambiguous',
+        source_health: { ao: 'ok', github: 'ok' },
+        scope: { selected_pr_numbers: [] },
+      }),
+      reconciliationReport: {
+        top_status: 'ambiguous',
+        automation_disposition: 'pause',
+        findings: [],
+      },
+    });
+    mockInspectRuntime.mockReturnValue({
+      status: 'blocked',
+      runtime: {
+        status: 'blocked',
+        runtime_ref: 'runtime.test.v1',
+        code: 'runtime_path_shadowed',
+        message: 'PATH contains a different ao',
+        source: {},
+      },
+      authentication: {},
+    });
+    const stdout = [];
+
+    const result = await runCli(['--json', '--strict'], {
+      writeStdout: (text) => stdout.push(text),
+      writeStderr: () => {},
+    });
+
+    expect(result.exitCode).toBe(21);
+    expect(JSON.parse(stdout.join(''))).toMatchObject({
+      top_status: 'blocked',
+      source_health: { runtime: 'failed' },
+      findings: expect.arrayContaining([
+        expect.objectContaining({ code: 'runtime_path_shadowed', severity: 'blocker' }),
+      ]),
+    });
   });
 });

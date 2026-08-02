@@ -10,6 +10,7 @@ export function createDefaultPolicyRules() {
     policy_version: AO_POLICY_VERSION,
     allowed_tools: [
       'ao',
+      'ao-pilot',
       'bash',
       'gh',
       'git',

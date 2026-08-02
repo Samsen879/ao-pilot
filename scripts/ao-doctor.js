@@ -8,6 +8,7 @@ import {
 import { buildDecisionChainReport } from './ao/lib/decision-chain.js';
 import { createDecisionChainScope } from './ao/lib/decision-chain-contracts.js';
 import { renderDoctorHumanSummary } from './ao/lib/doctor-report.js';
+import { inspectRuntimeControl } from './ao/lib/runtime-control.js';
 import {
   DEFAULT_PROJECT_ID,
   runDoctor,
@@ -27,6 +28,7 @@ function parseArgs(argv) {
     prNumber: null,
     json: false,
     strict: false,
+    runtimeStore: null,
     help: false,
   };
 
@@ -42,6 +44,13 @@ function parseArgs(argv) {
       index += 1;
     } else if (arg === '--json') {
       options.json = true;
+    } else if (arg === '--runtime-store') {
+      const value = argv[index + 1] ?? null;
+      if (value == null || value.startsWith('-')) {
+        return { ok: false, error: 'Missing value for --runtime-store' };
+      }
+      options.runtimeStore = path.resolve(value);
+      index += 1;
     } else if (arg === '--strict') {
       options.strict = true;
     } else if (arg === '--help' || arg === '-h') {
@@ -99,6 +108,7 @@ function renderHelp() {
     '  --pr <number>            Diagnose one explicit PR scope',
     '  --json                   Print machine-readable JSON output',
     '  --strict                 Use fixed diagnose-only exit-code mapping',
+    '  --runtime-store <path>   Inspect an explicit managed runtime store',
     '  -h, --help               Show help',
   ].join('\n');
 }
@@ -106,6 +116,8 @@ function renderHelp() {
 export async function runCli(argv, io = createDefaultIo(), {
   cwd = process.cwd(),
   defaultProjectId = DEFAULT_PROJECT_ID,
+  env = process.env,
+  inspectRuntime = inspectRuntimeControl,
 } = {}) {
   const parsed = parseArgs(argv);
   if (!parsed.ok) {
@@ -132,16 +144,59 @@ export async function runCli(argv, io = createDefaultIo(), {
     projectId: options.projectId,
     prNumber: options.prNumber,
     cwd,
+    env: options.runtimeStore == null
+      ? env
+      : { ...env, AO_PILOT_RUNTIME_STORE: options.runtimeStore },
   });
+  const runtimeInspection = inspectRuntime({
+    cwd,
+    env,
+    storeRoot: options.runtimeStore,
+  });
+  const runtimeBlocked = runtimeInspection.status !== 'verified';
+  const baseTopStatus = doctorResult.report.top_status;
+  const topStatus = runtimeBlocked && ['healthy', 'warning', 'ambiguous'].includes(baseTopStatus)
+    ? 'blocked'
+    : baseTopStatus;
+  const runtimeFinding = runtimeBlocked ? [{
+    code: runtimeInspection.runtime.code,
+    severity: 'blocker',
+    origin: 'doctor',
+    source_area: 'runtime',
+    subject_type: 'runtime',
+    subject_id: runtimeInspection.runtime.runtime_ref,
+    summary: runtimeInspection.runtime.message,
+    details: [runtimeInspection.runtime.message],
+    evidence_refs: [],
+    suggestion_ids: [],
+  }] : [];
+  const sourceHealth = {
+    ...doctorResult.report.source_health,
+    runtime: runtimeBlocked ? 'failed' : 'ok',
+  };
+  const findings = [
+    ...(doctorResult.report.findings ?? []),
+    ...runtimeFinding,
+  ];
   const report = {
     ...doctorResult.report,
+    top_status: topStatus,
+    source_health: sourceHealth,
+    findings,
+    runtime: runtimeInspection.runtime,
+    authentication: runtimeInspection.authentication,
     decision_chain: buildDecisionChainReport({
       scope: createDecisionChainScope({
         projectId: options.projectId,
         prNumber: options.prNumber,
       }),
       reconciliationReport: doctorResult.reconciliationReport,
-      doctorReport: doctorResult.report,
+      doctorReport: {
+        ...doctorResult.report,
+        top_status: topStatus,
+        source_health: sourceHealth,
+        findings,
+      },
     }),
   };
 
