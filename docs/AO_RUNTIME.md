@@ -149,10 +149,12 @@ node ./bin/ao-pilot.js stop --project my-project
 The doctor reports source/version/commit/tree/integrity, compatibility, exact
 binary path/digest, shadowing, and GitHub/Codex auth availability without
 retaining command output or secrets. A missing, changed, incompatible, or
-shadowed runtime blocks lifecycle execution. P0-R06 does not prove a fresh
-clone gate, Worker delivery, or workstation self-hosting; those remain gated
-by P0-R07 and P0-R08.
+shadowed runtime blocks lifecycle execution.
 
 `npm run verify:runtime-lifecycle` checks the static exact-binary routing
-contract. It intentionally reports `live_daemon_claim: false`; live isolated
-start/status/stop coverage becomes a formal release gate in P0-R07.
+contract. `npm run verify:fresh-clone` is the separate P0-R07 live integration
+gate: exact clone, empty HOME, install, bootstrap, offline replay/reinstall,
+hostile PATH rejection, provenance-aware doctor, daemon start/status/stop, and
+bounded local worktree cleanup. It uses local/fake credential boundaries and
+therefore does not prove a GitHub Worker delivery or workstation self-hosting.
+Those remain exclusively gated by the P0-R08 receipt and manual workflow.

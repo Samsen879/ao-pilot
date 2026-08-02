@@ -46,9 +46,11 @@ self-hosting proof is not yet complete. P0-R04 supplies a package-owned
 [immutable runtime lock and fail-closed resolver](docs/AO_RUNTIME.md). P0-R05
 adds deterministic source/toolchain retrieval and an atomic managed bootstrap,
 and P0-R06 routes doctor, observation, and lifecycle commands through the
-verified managed binary. The fresh-clone release gate and new-workstation
-self-hosting receipt are still incomplete, so the system must not yet claim
-operational portability.
+verified managed binary. P0-R07 adds an empty-HOME fresh-clone release gate
+covering install, bootstrap recovery/reinstall, provenance, hostile PATH,
+daemon lifecycle, and bounded local worktree cleanup. The new-workstation
+self-hosting receipt is still incomplete, so the system must not yet claim
+workstation self-hosting or admit #12.
 
 The package-level portability claim remains narrower and already accepted;
 runtime bootstrap and workstation self-hosting require their own evidence.
@@ -64,6 +66,7 @@ The runtime identity contract can be inspected offline with:
 ```bash
 npm run verify:runtime-lock
 npm run verify:runtime-bootstrap
+npm run verify:fresh-clone
 ./scripts/bootstrap.sh --json
 ```
 
@@ -225,7 +228,20 @@ local service; it does not call the upstream desktop acquisition command named
 `ao start` and therefore cannot fetch a mutable desktop release.
 `doctor` reports GitHub/Codex authentication availability but never includes
 probe output or credentials. These commands establish the R06 lifecycle
-boundary, not the R07 fresh-clone gate or R08 self-hosting proof.
+boundary. The isolated R07 gate is:
+
+```bash
+npm run verify:fresh-clone
+```
+
+It creates and removes its own fresh clone, HOME, managed store, daemon state,
+and local worktree fixture. It uses no GitHub/Codex credentials and does not
+claim R08 self-hosting. Only the protected/manual receipt verifier may validate
+that later proof:
+
+```bash
+npm run verify:self-hosting -- --receipt <new-workstation-receipt.json>
+```
 
 Link the unified CLI and create a project configuration:
 

@@ -18,7 +18,10 @@ toolchain, builds into an atomic content-addressed store, and materializes
 provenance. P0-R06 adds secret-free authentication availability diagnostics and
 routes runtime observation/start/stop/status through the verified absolute
 binary. Start calls the locked binary's daemon entrypoint, not its mutable
-desktop acquisition path. The P0 recovery lane still treats the complete system as three explicit
+desktop acquisition path. P0-R07 verifies those boundaries in a disposable
+exact clone with empty HOME, verified offline cache replay, hostile PATH, live
+daemon lifecycle, and a bounded local worktree fixture. The P0 recovery lane
+still treats the complete system as three explicit
 layers:
 
 ```text

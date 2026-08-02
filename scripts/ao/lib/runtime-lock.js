@@ -8,6 +8,7 @@ export const DEFAULT_RUNTIME_LOCK_FILENAME = 'agent-orchestrator.lock.json';
 export const RUNTIME_ARTIFACT_KINDS = ['git_source'];
 export const RUNTIME_REF_KINDS = ['annotated_tag'];
 export const RUNTIME_INTEGRITY_ALGORITHMS = ['git-tree-sha1'];
+export const OFFICIAL_RUNTIME_PACKAGE_NAME = '@aoagents/ao';
 
 const SHA1_PATTERN = /^[0-9a-f]{40}$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
@@ -93,8 +94,12 @@ function normalizePackage(value) {
   if (packageContract.install_authority !== false) {
     throw new Error('Invalid artifact.package.install_authority');
   }
+  const name = normalizeRequiredString(packageContract.name, 'artifact.package.name');
+  if (name !== OFFICIAL_RUNTIME_PACKAGE_NAME) {
+    throw new Error(`Unsupported artifact.package.name: ${name}`);
+  }
   return {
-    name: normalizeRequiredString(packageContract.name, 'artifact.package.name'),
+    name,
     version: normalizeSemver(packageContract.version, 'artifact.package.version'),
     role: normalizeLiteral(
       packageContract.role,

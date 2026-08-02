@@ -31,3 +31,25 @@ jobs:
       - run: npm run verify:runtime-bootstrap
       - run: npm run verify:runtime-lifecycle
       - run: npm audit --omit=dev
+
+  fresh-clone-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ao-pilot-runtime-cache
+          key: ao-pilot-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('runtime/agent-orchestrator.lock.json', 'runtime/go-toolchain.lock.json') }}
+      - run: npm ci
+      - run: npm run verify:fresh-clone -- --cache "$RUNNER_TEMP/ao-pilot-runtime-cache" --receipt-out "$RUNNER_TEMP/fresh-clone-receipt.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fresh-clone-runtime-receipt
+          path: ${{ runner.temp }}/fresh-clone-receipt.json
+          if-no-files-found: error

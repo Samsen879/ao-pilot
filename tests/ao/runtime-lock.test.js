@@ -123,6 +123,14 @@ describe('runtime lock contract', () => {
     );
   });
 
+  it('rejects an ambiguous same-name ao package as runtime identity', () => {
+    const mutated = clone(loadRuntimeLock().lock);
+    mutated.artifact.package.name = 'ao';
+    expect(() => normalizeRuntimeLock(mutated)).toThrow(
+      'Unsupported artifact.package.name: ao',
+    );
+  });
+
   it('ships the lock in the package-owned runtime directory and verifies it offline', () => {
     const lockPath = getDefaultRuntimeLockPath();
     expect(fs.existsSync(lockPath)).toBe(true);

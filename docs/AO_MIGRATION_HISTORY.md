@@ -21,10 +21,16 @@ P0-R06 adds runtime-aware doctor/auth inspection, exact managed
 `start`/`stop`/`status`/`runtime-path` entrypoints, and routes AO
 observation through the verified absolute binary. It supersedes the executable
 PATH dependency in `scripts/ao/start-clean.sh` without rewriting the historical
-incident record. Fresh-clone release gating and workstation self-hosting remain
-unestablished until P0-R07 and P0-R08. The lifecycle start path invokes the
+incident record. The lifecycle start path invokes the
 locked binary's `daemon` entrypoint directly and deliberately avoids upstream's
 mutable desktop acquisition command named `ao start`.
+
+P0-R07 adds distinct package, bootstrap, lifecycle, fresh-clone, and protected
+self-hosting gates. The fresh-clone gate performs a credential-free exact-clone
+install/bootstrap/doctor/daemon/worktree smoke in bounded isolated state and
+uploads a machine-readable CI receipt. This establishes the release gate only;
+workstation self-hosting remains unestablished until P0-R08 is executed by the
+newly bootstrapped AO and its strict receipt passes the manual verifier.
 
 ## Independent product baseline
 
