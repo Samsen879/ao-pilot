@@ -11,8 +11,10 @@ self-hosting claim may be made and the original AO Upgrade chain remains
 blocked. `verify:package` verifies only the tarball, public imports, package CLI,
 bundled evaluation, and presence of the package-owned runtime lock.
 `verify:runtime-lock` separately verifies the immutable identity, provenance,
-build, binary-path, and compatibility contract. Neither gate bootstraps, starts,
-or stops the external Agent Orchestrator runtime. See the
+build, binary-path, and compatibility contract. `verify:runtime-bootstrap`
+validates the official toolchain lock and formal bootstrap entrypoint; an
+explicit `./scripts/bootstrap.sh` performs the managed install. No current gate
+starts or stops the external Agent Orchestrator runtime. See the
 [incident baseline](runtime-portability/P0-R01_INCIDENT_BASELINE.md).
 
 ## Release Candidate Checks
@@ -25,7 +27,7 @@ npm pack --dry-run
 
 The release check runs the full test suite, lifecycle acceptance suite,
 operator smoke, isolated tarball installation, bundled evaluation pack,
-runtime-lock verification, and full dependency audit.
+runtime-lock and bootstrap-contract verification, and full dependency audit.
 
 Confirm version consistency:
 
@@ -50,6 +52,24 @@ node ./bin/ao-pilot.js eval --pack policy-fail-closed
 This recipe is not a runtime bootstrap and is not a self-hosting acceptance
 test. The runtime-bootstrap, fresh-clone, and protected workstation gates are
 separate P0 deliverables.
+
+## Runtime Bootstrap Gate
+
+On supported Linux x64/arm64 hosts with Git, curl, and tar:
+
+```bash
+npm run verify:runtime-bootstrap
+./scripts/bootstrap.sh --json
+./scripts/bootstrap.sh --offline --json
+./scripts/bootstrap.sh --offline --reinstall --json
+```
+
+The first install verifies the exact annotated Git tag object, commit, tree,
+official Go archive SHA-256, final binary SHA-256, and compatibility contract.
+The second proves idempotent reuse; the third performs an atomic clean rebuild
+from verified caches. A PATH-shadowing `ao` makes the command fail closed and
+is never used. This gate still does not establish OR/Worker lifecycle or
+self-hosting.
 
 ## Tag and GitHub Release
 

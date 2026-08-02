@@ -15,8 +15,11 @@ npm run verify:runtime-lock
 The verifier emits the lock schema and digest together with the public source,
 upstream identity, version, annotated tag object, commit, tree integrity, build
 contract, binary path, and compatibility range. This is an offline structural
-gate. P0-R05 owns public retrieval, source-object verification, managed-store
-installation, and provenance materialization.
+gate. Validate the separate official Go archive lock and formal entrypoint with:
+
+```bash
+npm run verify:runtime-bootstrap
+```
 
 ## Canonical runtime
 
@@ -71,9 +74,60 @@ The final item makes shadowing visible and prevents accidental fallback to a
 same-name package. Lifecycle commands added by P0-R06 must invoke only the
 verified absolute managed binary path returned by this resolver.
 
+## Deterministic managed bootstrap
+
+Run the formal entrypoint from a clone or installed package:
+
+```bash
+./scripts/bootstrap.sh --json
+```
+
+The bootstrap:
+
+1. validates the runtime lock and `runtime/go-toolchain.lock.json`;
+2. fetches only the locked annotated tag from the public fork into an isolated
+   content-addressed bare cache and verifies tag object, commit, tree, and Git
+   object integrity;
+3. downloads the matching official Go 1.25.7 Linux archive over HTTPS and
+   verifies its committed SHA-256 before every extraction;
+4. uses isolated Git/Go homes and never searches an old runtime checkout;
+5. builds with the exact locked command, `GOTOOLCHAIN=local`, `CGO_ENABLED=0`,
+   and a target-specific cache;
+6. verifies the final binary against the platform digest in the runtime lock;
+7. writes read-only `runtime-provenance.json` and `runtime-bootstrap.json`;
+8. atomically promotes the staged runtime, then re-runs the resolver.
+
+Default locations are:
+
+```text
+store: ${XDG_DATA_HOME:-$HOME/.local/share}/ao-pilot/runtimes
+cache: ${XDG_CACHE_HOME:-$HOME/.cache}/ao-pilot/runtime-bootstrap
+```
+
+Use `--store`/`--cache` or `AO_PILOT_RUNTIME_STORE`/
+`AO_PILOT_RUNTIME_CACHE` to choose explicit roots. The store identity is
+`runtime_ref / OS-architecture / commit`. Neither root contains credentials,
+sessions, leases, or copied Agent Orchestrator state.
+
+### Recovery and reinstall
+
+- A second run is idempotent and returns `reused` only after full resolver
+  verification.
+- `--offline` forbids public Git fetches and downloads. It succeeds only from
+  verified source/toolchain/module caches; the final locked binary digest still
+  authenticates the result.
+- `--reinstall` builds in a new staging directory and atomically replaces the
+  previous target only after the candidate passes integrity checks. A failed
+  build preserves the prior verified runtime.
+- Bootstrap locks bind PID and Linux process-start identity. A live owner blocks
+  concurrency; a dead owner permits bounded cleanup of only its matching
+  staging and partial-cache paths.
+- Managed symlinks, corrupt caches, wrong digests, unsupported platforms, and
+  a shadowing PATH `ao` all fail closed with machine-readable diagnostics.
+
 ## Boundary with later P0 gates
 
-This contract establishes deterministic identity and resolution. It does not
-yet install Go, clone/build the runtime, create the managed provenance file,
-start the OR, or prove self-hosting. Those claims remain gated by P0-R05 through
-P0-R08.
+The lock plus bootstrap now establish deterministic identity, retrieval,
+build, installation, cache reuse, and resolution. They do not start the OR,
+create Workers, exercise GitHub delivery, or prove workstation self-hosting.
+Those claims remain gated by P0-R06 through P0-R08.

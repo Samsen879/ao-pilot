@@ -1,0 +1,24 @@
+{
+  "schema_version": "ao.runtime-bootstrap-toolchain.v1",
+  "name": "go",
+  "version": "1.25.7",
+  "distribution": "https://go.dev/dl/",
+  "platforms": [
+    {
+      "os": "linux",
+      "arch": "x64",
+      "goarch": "amd64",
+      "filename": "go1.25.7.linux-amd64.tar.gz",
+      "url": "https://go.dev/dl/go1.25.7.linux-amd64.tar.gz",
+      "sha256": "12e6d6a191091ae27dc31f6efc630e3a3b8ba409baf3573d955b196fdf086005"
+    },
+    {
+      "os": "linux",
+      "arch": "arm64",
+      "goarch": "arm64",
+      "filename": "go1.25.7.linux-arm64.tar.gz",
+      "url": "https://go.dev/dl/go1.25.7.linux-arm64.tar.gz",
+      "sha256": "ba611a53534135a81067240eff9508cd7e256c560edd5d8c2fef54f083c07129"
+    }
+  ]
+}

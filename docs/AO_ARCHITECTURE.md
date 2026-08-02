@@ -12,8 +12,10 @@ worktree creation, or model execution itself.
 The package/control-plane boundary and the external runtime boundary are
 different. `ao-pilot@0.2.0` can be packed and installed. Its package-owned
 [runtime lock and resolver](AO_RUNTIME.md) now bind and verify the canonical
-runtime identity, provenance, managed binary integrity, and compatibility, but
-the package does not yet bootstrap, authenticate, start, or stop that runtime.
+runtime identity, provenance, managed binary integrity, and compatibility.
+The P0-R05 bootstrap retrieves the exact public Git object and checksummed Go
+toolchain, builds into an atomic content-addressed store, and materializes
+provenance. The package does not yet authenticate, start, or stop that runtime.
 The P0 recovery lane therefore treats the complete system as three explicit
 layers:
 

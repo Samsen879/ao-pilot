@@ -27,4 +27,6 @@ jobs:
       - run: npm test
       - run: npm run ao:test:acceptance
       - run: npm run verify:package
+      - run: npm run verify:runtime-lock
+      - run: npm run verify:runtime-bootstrap
       - run: npm audit --omit=dev

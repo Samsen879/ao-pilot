@@ -1,0 +1,60 @@
+{
+  "schema_version": "ao-pilot.p0-r05-bootstrap-evidence.v1",
+  "issue": 60,
+  "admission": {
+    "main_sha": "a40c6b0a07d6af57ff64e0660b77ef72e6777f2f",
+    "tree_sha": "1ae8eb9ab04c5d1880db042f2c93a2f558d01cc8"
+  },
+  "runtime": {
+    "runtime_ref": "runtime.agent_orchestrator.v0_11_2_p0_1",
+    "lock_digest": "sha256:54853697a5e2078fb236de210d5b7c1c936034a6554da06b60e17f5f9dc0fb36",
+    "repository": "https://github.com/Samsen879/agent-orchestrator.git",
+    "tag": "ao-pilot-runtime-v0.11.2-p0.1",
+    "tag_object_sha": "06ba07935cbacb7ff304779a2c1060ce98778200",
+    "commit_sha": "711178ebe07d436db36020eb08f0c4e29613f97b",
+    "tree_sha": "479fba6fd44f251f0c66fafc5cb5d638a6ff590a",
+    "linux_x64_binary_sha256": "a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34"
+  },
+  "toolchain": {
+    "lock_digest": "sha256:63d54820310fcec0e7eed145bb365f052c3e5e623c51398ee1750243a815ff73",
+    "name": "go",
+    "version": "1.25.7",
+    "linux_x64_archive_sha256": "12e6d6a191091ae27dc31f6efc630e3a3b8ba409baf3573d955b196fdf086005",
+    "linux_arm64_archive_sha256": "ba611a53534135a81067240eff9508cd7e256c560edd5d8c2fef54f083c07129"
+  },
+  "isolated_live_bootstrap": {
+    "performed_at": "2026-08-02T06:43:56.615Z",
+    "workspace_kind": "bounded_tmp_store_and_cache",
+    "old_runtime_checkout_read": false,
+    "old_agent_orchestrator_state_read": false,
+    "credential_copy_performed": false,
+    "global_npm_link_used": false,
+    "public_source_fetch_and_build": "PASS",
+    "path_shadow_probe": {
+      "result": "FAIL_CLOSED_AFTER_MANAGED_INSTALL",
+      "shadow_binary": "/home/samsen/.nvm/versions/node/v22.22.1/bin/ao",
+      "shadow_binary_adopted": false
+    },
+    "sanitized_path_offline_reuse": "PASS",
+    "verified_cache_offline_reinstall": "PASS",
+    "interrupted_bootstrap_recovery": "PASS",
+    "final_provenance_sha256": "3299ffa5703c3b5e85f86822d19b47ccacb6e310c0c635c325e9fad3cf9ef013",
+    "final_bootstrap_receipt_sha256": "b66699344eb3ec0c1a0f4f9797f030c9d67c803eb2601a06f4d5e20d1abb8dba"
+  },
+  "release_gate": {
+    "test_suites": "81/81",
+    "tests": "476/476",
+    "acceptance": "7/7",
+    "operator_smoke": "PASS",
+    "package_entries": 185,
+    "runtime_lock": "PASS",
+    "runtime_bootstrap_contract": "PASS",
+    "dependency_audit_vulnerabilities": 0
+  },
+  "claim_boundary": {
+    "runtime_bootstrap": "ESTABLISHED_FOR_R05",
+    "runtime_lifecycle": "NOT_ESTABLISHED_UNTIL_R06",
+    "fresh_clone_gate": "NOT_ESTABLISHED_UNTIL_R07",
+    "workstation_self_hosting": "NOT_ESTABLISHED_UNTIL_R08"
+  }
+}

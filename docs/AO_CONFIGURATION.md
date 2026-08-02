@@ -47,9 +47,20 @@ external runtime is installed. The package-owned
 [runtime lock](AO_RUNTIME.md) separately binds the public repository, upstream
 package identity, version, annotated tag object, commit, tree integrity, build
 contract, managed binary path, and compatibility range. `PATH` order and old
-HOME checkouts are never runtime authority. P0-R05 still owns deterministic
-installation and provenance materialization; the incident limitations remain
-frozen in [P0-R01](runtime-portability/P0-R01_INCIDENT_BASELINE.md).
+HOME checkouts are never runtime authority. `./scripts/bootstrap.sh` installs
+that exact runtime and materializes provenance. Override its content-addressed
+locations only with explicit paths or these environment variables:
+
+```text
+AO_PILOT_RUNTIME_STORE
+AO_PILOT_RUNTIME_CACHE
+```
+
+Defaults follow XDG data/cache directories, falling back to
+`~/.local/share/ao-pilot/runtimes` and
+`~/.cache/ao-pilot/runtime-bootstrap`. Credentials and Agent Orchestrator
+session state are never copied into either location. The incident limitations
+remain frozen in [P0-R01](runtime-portability/P0-R01_INCIDENT_BASELINE.md).
 
 Command-line `--project` values override the configured project. PR-scoped
 doctor, lifecycle, and reconciliation commands retain their explicit PR scope.

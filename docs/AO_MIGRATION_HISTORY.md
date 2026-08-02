@@ -10,6 +10,13 @@ fresh-clone runtime recovery and self-hosting remain blocked until P0-R08. The
 full frozen/live ledger is in
 [P0-R01](runtime-portability/P0-R01_INCIDENT_BASELINE.md).
 
+P0-R04 added the immutable runtime/provenance lock. P0-R05 adds the formal
+`scripts/bootstrap.sh` entrypoint, an official Go archive lock, public exact-tag
+source retrieval, atomic managed installation, interrupted-run recovery,
+verified offline cache reuse, and clean reinstall. This advances bootstrap
+portability but does not supersede the P0-R06 lifecycle, P0-R07 fresh-clone
+gate, or P0-R08 self-hosting requirements.
+
 ## Independent product baseline
 
 The public repository baseline removes documentation-contract tests that
