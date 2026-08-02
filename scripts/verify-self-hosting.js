@@ -93,6 +93,24 @@ function reviewFindingEvidence(principalPr, repositoryRoot) {
     }));
 }
 
+function worktreeCaptureEvidence(commentId, repositoryRoot) {
+  const comment = runJson('gh', ['api', `repos/Samsen879/ao-pilot/issues/comments/${commentId}`], { cwd: repositoryRoot });
+  let payload = null;
+  try {
+    payload = JSON.parse(comment.body ?? '');
+  } catch {
+    // The receipt verifier reports the bounded payload error.
+  }
+  return {
+    comment_id: comment.id,
+    issue_number: Number(comment.issue_url?.match(/\/issues\/(\d+)$/)?.[1] ?? 0),
+    author: comment.user?.login ?? null,
+    created_at: comment.created_at ?? null,
+    updated_at: comment.updated_at ?? null,
+    payload,
+  };
+}
+
 function collectEvidence(receipt, repositoryRoot) {
   const sourceHead = receipt.source.clone_head_sha;
   const currentMain = run('git', ['rev-parse', 'HEAD^{commit}'], { cwd: repositoryRoot });
@@ -116,6 +134,7 @@ function collectEvidence(receipt, repositoryRoot) {
       check_runs: checks.check_runs.map((check) => ({ name: check.name, conclusion: check.conclusion })),
       codex_reviews: codexReviewEvidence(principalPr, repositoryRoot),
       review_findings: reviewFindingEvidence(principalPr, repositoryRoot),
+      worktree_capture: worktreeCaptureEvidence(receipt.delivery.worktree_evidence_comment_id, repositoryRoot),
     },
   };
 }

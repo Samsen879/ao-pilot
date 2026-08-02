@@ -74,9 +74,29 @@ observed by the AO session.
 
 The AO must then observe the principal PR, required CI, and no more than two
 GitHub Codex Reviews. Review repairs remain in the same Worker/worktree/PR. The
-AO may merge only under the issue's review policy and green required CI, must
-re-read the GitHub merge outcome, replay the merge SHA on exact main, stop the
-session, remove the Worker worktree, and verify that no stale ownership remains.
+AO may merge only under the issue's review policy and green required CI. After
+the final merge-candidate HEAD is known, but before merge or worktree cleanup, capture
+the actual Git binding and publish the exact generated JSON to issue #63:
+
+```bash
+npm run capture:self-hosting-worktree -- \
+  --source-root "$PWD" \
+  --worker-root '<WORKER-WORKTREE-ABSOLUTE-PATH>' \
+  --worker-session-id '<WORKER-SESSION-ID>' \
+  --out /tmp/p0-r08-worktree-evidence.json
+gh issue comment 63 --body-file /tmp/p0-r08-worktree-evidence.json
+```
+
+Record that comment's database ID in `delivery.worktree_evidence_comment_id`.
+The capture command fails unless the source is the admitted R07 commit/tree and
+the Worker is a distinct AO branch worktree sharing the source Git common
+directory. The final verifier fetches this live pre-cleanup evidence and binds
+its source path, Worker path/session/branch/HEAD, and Git relationship to the
+receipt and principal PR.
+
+The AO must then re-read the GitHub merge outcome, replay the merge SHA on exact
+main, stop the session, remove the Worker worktree, and verify that no stale
+ownership remains.
 
 ## Receipt and protected gate
 

@@ -48,6 +48,7 @@
     "worker_created_by_new_ao": false,
     "worker_created_from_issue": false,
     "worker_worktree_path": "REPLACE_WITH_WORKTREE_PATH",
+    "worktree_evidence_comment_id": 0,
     "worker_branch": "ao/REPLACE_WITH_TASK_BRANCH",
     "worker_committed": false,
     "worker_pushed": false,

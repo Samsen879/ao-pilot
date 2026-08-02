@@ -7,6 +7,7 @@ export const SELF_HOSTING_RECEIPT_SCHEMA_VERSION = 'ao.workstation-self-hosting-
 export const P0_R07_ADMISSION_PR = 69;
 export const P0_R07_ADMITTED_MAIN = 'be8ea9d408920e0728ac980097db758796144714';
 export const P0_R07_ADMITTED_TREE = '00f93b164a75af044e63532fc7ac64479a390ab9';
+export const WORKTREE_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-worktree-evidence.v1';
 export const REQUIRED_CI_CHECKS = ['fresh-clone-runtime', 'test (20)', 'test (22)'];
 
 function assert(condition, message) {
@@ -151,7 +152,8 @@ export function verifySelfHostingReceipt(receipt, {
   truth(delivery.worker_created_from_issue, 'delivery.worker_created_from_issue');
   const workerWorktreePath = string(delivery.worker_worktree_path, 'delivery.worker_worktree_path');
   assert(path.isAbsolute(workerWorktreePath), 'delivery.worker_worktree_path must be absolute');
-  assert(path.resolve(workerWorktreePath) !== path.resolve(sourceClonePath), 'Worker worktree must be distinct from the bootstrap clone');
+  const worktreeEvidenceCommentId = Number(delivery.worktree_evidence_comment_id);
+  assert(Number.isSafeInteger(worktreeEvidenceCommentId) && worktreeEvidenceCommentId > 0, 'Invalid delivery.worktree_evidence_comment_id');
   string(delivery.worker_branch, 'delivery.worker_branch');
   truth(delivery.worker_committed, 'delivery.worker_committed');
   truth(delivery.worker_pushed, 'delivery.worker_pushed');
@@ -204,6 +206,33 @@ export function verifySelfHostingReceipt(receipt, {
   for (const review of reviews) {
     assert(Date.parse(review.completed_at) <= Date.parse(mergedAt), `Codex Review attempt ${review.attempt} completed after merge`);
   }
+
+  const worktreeCapture = object(github.worktree_capture, 'GitHub worktree capture evidence');
+  assert(worktreeCapture.comment_id === worktreeEvidenceCommentId, 'Worktree evidence comment ID mismatch');
+  assert(worktreeCapture.issue_number === 63, 'Worktree evidence was not published to issue #63');
+  assert(worktreeCapture.author === 'Samsen879', 'Worktree evidence has the wrong author');
+  const worktreeEvidencePublishedAt = timestamp(worktreeCapture.created_at, 'worktree evidence comment created_at');
+  assert(worktreeCapture.updated_at === worktreeEvidencePublishedAt, 'Worktree evidence comment was edited after publication');
+  const captured = object(worktreeCapture.payload, 'worktree capture payload');
+  assert(captured.schema_version === WORKTREE_EVIDENCE_SCHEMA_VERSION, 'Unsupported worktree evidence schema');
+  assert(captured.issue_number === 63, 'Worktree evidence does not target issue #63');
+  const capturedAt = timestamp(captured.captured_at, 'worktree evidence captured_at');
+  assert(Date.parse(capturedAt) <= Date.parse(worktreeEvidencePublishedAt), 'Worktree evidence was published before Git capture completed');
+  assert(Date.parse(worktreeEvidencePublishedAt) <= Date.parse(mergedAt), 'Worktree evidence was published after merge');
+  assert(Date.parse(capturedAt) <= Date.parse(mergedAt), 'Worktree evidence was captured after merge');
+  const capturedSource = object(captured.source, 'captured source worktree');
+  assert(capturedSource.clone_path === sourceClonePath, 'Receipt source path does not match captured Git evidence');
+  assert(capturedSource.head_sha === sourceHead, 'Captured source HEAD does not match the admitted main');
+  assert(capturedSource.tree_sha === sourceTree, 'Captured source tree does not match the admitted tree');
+  assert(path.isAbsolute(string(capturedSource.git_common_dir, 'captured source git_common_dir')), 'Captured source git common directory must be absolute');
+  const capturedWorker = object(captured.worker, 'captured Worker worktree');
+  assert(capturedWorker.session_id === workerSessionId, 'Captured Worker session does not match the receipt');
+  assert(capturedWorker.worktree_path === workerWorktreePath, 'Receipt Worker path does not match captured Git evidence');
+  assert(capturedWorker.branch === delivery.worker_branch, 'Captured Worker branch does not match the receipt');
+  assert(capturedWorker.head_sha === finalHead, 'Captured Worker HEAD does not match the principal PR');
+  assert(path.isAbsolute(string(capturedWorker.git_common_dir, 'captured Worker git_common_dir')), 'Captured Worker git common directory must be absolute');
+  assert(path.resolve(capturedWorker.worktree_path) !== path.resolve(capturedSource.clone_path), 'Captured Worker worktree is not distinct from the bootstrap clone');
+  assert(capturedWorker.git_common_dir === capturedSource.git_common_dir, 'Captured Worker is not bound to the bootstrap clone');
 
   const replay = object(value.exact_main_replay, 'exact_main_replay');
   truth(replay.passed, 'exact_main_replay.passed');
