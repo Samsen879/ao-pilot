@@ -6,14 +6,15 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 
 import {
-  ownerExactHeadReviewRequests,
-  submittedCodexReviewEvidence,
+  collectCodexReviewEvidence,
 } from './ao/lib/codex-review-evidence.js';
 import { issueLinkedPrEvidenceFromTimeline } from './ao/lib/issue-linked-pr-evidence.js';
 import {
   loadSelfHostingReceipt,
   P0_R08_RETRY_ADMISSION_COMMENT,
   P0_R08_RETRY_ADMISSION_PR,
+  P0_R08_PRINCIPAL_PR,
+  P0_R08_TERMINAL_ADMISSION_COMMENT,
   verifySelfHostingReceipt,
 } from './ao/lib/self-hosting-receipt.js';
 
@@ -41,21 +42,29 @@ function runJson(command, args, options) {
 
 function pullEvidence(number, repositoryRoot) {
   const value = runJson('gh', ['api', `repos/Samsen879/ao-pilot/pulls/${number}`], { cwd: repositoryRoot });
+  const body = value.body ?? '';
+  const mergeTree = value.merged === true && value.merge_commit_sha != null
+    ? runJson('gh', ['api', `repos/Samsen879/ao-pilot/git/commits/${value.merge_commit_sha}`], { cwd: repositoryRoot }).tree?.sha ?? null
+    : null;
   return {
     number: value.number,
     merged: value.merged === true,
     merge_sha: value.merge_commit_sha,
+    merge_tree_sha: mergeTree,
     head_sha: value.head?.sha ?? null,
     head_ref: value.head?.ref ?? null,
     base_ref: value.base?.ref ?? null,
     merged_at: value.merged_at ?? null,
     created_at: value.created_at ?? null,
-    linked_issue_63: /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#63\b/i.test(value.body ?? ''),
+    linked_issue_63: /(^|\s)#63\b/.test(body),
+    auto_closes_issue_63: /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#63\b/i.test(body),
+    binds_terminal_admission: /\b5158225894\b/.test(body) && /terminal[- ]remediation/i.test(body),
+    binds_principal_pr_71: /(?:\bPR\s*#71\b|\bprincipal[^\n]*#71\b)/i.test(body),
   };
 }
 
-function retryAdmissionEvidence(repositoryRoot) {
-  const comment = runJson('gh', ['api', `repos/Samsen879/ao-pilot/issues/comments/${P0_R08_RETRY_ADMISSION_COMMENT}`], { cwd: repositoryRoot });
+function admissionEvidence(commentId, repositoryRoot) {
+  const comment = runJson('gh', ['api', `repos/Samsen879/ao-pilot/issues/comments/${commentId}`], { cwd: repositoryRoot });
   return {
     comment_id: comment.id,
     issue_number: Number(comment.issue_url?.match(/\/issues\/(\d+)$/)?.[1] ?? 0),
@@ -68,32 +77,13 @@ function retryAdmissionEvidence(repositoryRoot) {
 }
 
 function codexReviewEvidence(principalPr, repositoryRoot) {
-  const requestComments = ownerExactHeadReviewRequests(
-    runJson('gh', ['api', `repos/Samsen879/ao-pilot/issues/${principalPr}/comments?per_page=100`], { cwd: repositoryRoot }),
-  );
-  const submitted = submittedCodexReviewEvidence(
-    runJson('gh', ['api', `repos/Samsen879/ao-pilot/pulls/${principalPr}/reviews`], { cwd: repositoryRoot }),
-    requestComments,
-  );
-  const clean = requestComments.map((comment) => {
-    const reactions = runJson('gh', ['api', `repos/Samsen879/ao-pilot/issues/comments/${comment.id}/reactions`], { cwd: repositoryRoot });
-    const reaction = reactions.find((item) => (
-      item.user?.login === 'chatgpt-codex-connector[bot]'
-      && item.content === '+1'
-      && Date.parse(item.created_at) >= Date.parse(comment.requested_at)
-    ));
-    return {
-      kind: 'clean_reaction',
-      evidence_id: comment.comment_id,
-      request_comment_id: comment.comment_id,
-      request_valid: true,
-      head_sha: comment.head_sha,
-      completed_at: reaction?.created_at ?? null,
-      actor: reaction?.user?.login ?? null,
-      completed: reaction != null,
-    };
-  }).filter((review) => review.completed);
-  return [...submitted, ...clean];
+  return collectCodexReviewEvidence({
+    comments: runJson('gh', ['api', `repos/Samsen879/ao-pilot/issues/${principalPr}/comments?per_page=100`], { cwd: repositoryRoot }),
+    reviews: runJson('gh', ['api', `repos/Samsen879/ao-pilot/pulls/${principalPr}/reviews`], { cwd: repositoryRoot }),
+    reactionsForComment(commentId) {
+      return runJson('gh', ['api', `repos/Samsen879/ao-pilot/issues/comments/${commentId}/reactions`], { cwd: repositoryRoot });
+    },
+  });
 }
 
 function issueLinkedPrEvidence(repositoryRoot) {
@@ -141,31 +131,50 @@ function jsonIssueCommentEvidence(commentId, repositoryRoot) {
 
 function collectEvidence(receipt, repositoryRoot) {
   const sourceHead = receipt.source.clone_head_sha;
+  const terminalSourceHead = receipt.terminal_remediation.source.clone_head_sha;
   const currentMain = run('git', ['rev-parse', 'HEAD^{commit}'], { cwd: repositoryRoot });
   const currentTree = run('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repositoryRoot });
   run('git', ['cat-file', '-e', `${sourceHead}^{commit}`], { cwd: repositoryRoot });
   const sourceTree = run('git', ['rev-parse', `${sourceHead}^{tree}`], { cwd: repositoryRoot });
+  run('git', ['cat-file', '-e', `${terminalSourceHead}^{commit}`], { cwd: repositoryRoot });
+  const terminalSourceTree = run('git', ['rev-parse', `${terminalSourceHead}^{tree}`], { cwd: repositoryRoot });
   const principalPr = receipt.delivery.principal_pr.number;
   const headSha = receipt.delivery.principal_pr.head_sha;
   const checks = runJson('gh', ['api', `repos/Samsen879/ao-pilot/commits/${headSha}/check-runs`], { cwd: repositoryRoot });
+  const remediationPr = receipt.terminal_remediation.delivery.remediation_pr.number;
+  const remediationHead = receipt.terminal_remediation.delivery.remediation_pr.head_sha;
+  const terminalChecks = runJson('gh', ['api', `repos/Samsen879/ao-pilot/commits/${remediationHead}/check-runs`], { cwd: repositoryRoot });
   return {
     repositoryEvidence: {
       current_main_sha: currentMain,
       current_main_tree_sha: currentTree,
       source_commit_sha: sourceHead,
       source_tree_sha: sourceTree,
+      terminal_source_commit_sha: terminalSourceHead,
+      terminal_source_tree_sha: terminalSourceTree,
       release_check_passed: true,
     },
     githubEvidence: {
+      issue_63: (() => {
+        const issue = runJson('gh', ['api', 'repos/Samsen879/ao-pilot/issues/63'], { cwd: repositoryRoot });
+        return { number: issue.number, state: issue.state };
+      })(),
       admission_pr: pullEvidence(P0_R08_RETRY_ADMISSION_PR, repositoryRoot),
-      retry_admission: retryAdmissionEvidence(repositoryRoot),
-      principal_pr: pullEvidence(principalPr, repositoryRoot),
+      retry_admission: admissionEvidence(P0_R08_RETRY_ADMISSION_COMMENT, repositoryRoot),
+      principal_pr: pullEvidence(P0_R08_PRINCIPAL_PR, repositoryRoot),
+      terminal_remediation_admission: admissionEvidence(P0_R08_TERMINAL_ADMISSION_COMMENT, repositoryRoot),
+      terminal_remediation_pr: pullEvidence(remediationPr, repositoryRoot),
       issue_linked_prs: issueLinkedPrEvidence(repositoryRoot),
       check_runs: checks.check_runs.map((check) => ({ name: check.name, conclusion: check.conclusion })),
       codex_reviews: codexReviewEvidence(principalPr, repositoryRoot),
+      terminal_check_runs: terminalChecks.check_runs.map((check) => ({ name: check.name, conclusion: check.conclusion })),
+      terminal_codex_reviews: codexReviewEvidence(remediationPr, repositoryRoot),
       review_findings: reviewFindingEvidence(principalPr, repositoryRoot),
+      terminal_review_findings: reviewFindingEvidence(remediationPr, repositoryRoot),
       worktree_capture: jsonIssueCommentEvidence(receipt.delivery.worktree_evidence_comment_id, repositoryRoot),
       orchestrator_done_capture: jsonIssueCommentEvidence(receipt.cleanup.orchestrator_done_evidence_comment_id, repositoryRoot),
+      terminal_worktree_capture: jsonIssueCommentEvidence(receipt.terminal_remediation.delivery.worktree_evidence_comment_id, repositoryRoot),
+      terminal_orchestrator_done_capture: jsonIssueCommentEvidence(receipt.terminal_remediation.cleanup.orchestrator_done_evidence_comment_id, repositoryRoot),
     },
   };
 }

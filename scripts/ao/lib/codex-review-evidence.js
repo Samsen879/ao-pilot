@@ -41,3 +41,35 @@ export function submittedCodexReviewEvidence(reviews, requests) {
       };
     });
 }
+
+export function collectCodexReviewEvidence({ comments, reviews, reactionsForComment }) {
+  const requests = ownerExactHeadReviewRequests(comments);
+  const submitted = submittedCodexReviewEvidence(reviews, requests);
+  const completedSubmitted = submitted.filter((review) => review.completed === true);
+  const completedRequestIds = new Set(completedSubmitted.map((review) => review.request_comment_id));
+  const clean = [];
+
+  for (const comment of requests) {
+    if (completedRequestIds.has(comment.comment_id)) continue;
+    const reactions = reactionsForComment(comment.comment_id);
+    if (!Array.isArray(reactions)) throw new Error(`Invalid reactions for review request ${comment.comment_id}`);
+    const reaction = reactions.find((item) => (
+      item?.user?.login === 'chatgpt-codex-connector[bot]'
+      && item.content === '+1'
+      && Date.parse(item.created_at) >= Date.parse(comment.requested_at)
+    ));
+    if (reaction == null) continue;
+    clean.push({
+      kind: 'clean_reaction',
+      evidence_id: comment.comment_id,
+      request_comment_id: comment.comment_id,
+      request_valid: true,
+      head_sha: comment.head_sha,
+      completed_at: reaction.created_at,
+      actor: reaction.user.login,
+      completed: true,
+    });
+  }
+
+  return [...completedSubmitted, ...clean];
+}
