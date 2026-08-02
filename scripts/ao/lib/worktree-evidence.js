@@ -3,11 +3,16 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import {
-  P0_R07_ADMITTED_MAIN,
-  P0_R07_ADMITTED_TREE,
+  P0_R08_RETRY_AO_DATA_DIR,
+  P0_R08_RETRY_AO_RUN_FILE,
+  P0_R08_RETRY_ADMITTED_MAIN,
+  P0_R08_RETRY_ADMITTED_TREE,
+  P0_R08_RETRY_ROOT,
+  P0_R08_RETRY_RUNTIME_CACHE,
+  P0_R08_RETRY_RUNTIME_STORE,
 } from './self-hosting-receipt.js';
 
-export const WORKTREE_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-worktree-evidence.v1';
+export const WORKTREE_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-worktree-evidence.v2';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -68,9 +73,23 @@ export function inspectWorktreeBinding({
   };
 }
 
-export function captureWorktreeEvidence(options) {
+export function captureWorktreeEvidence({ env = process.env, ...options }) {
   const evidence = inspectWorktreeBinding(options);
-  assert(evidence.source.head_sha === P0_R07_ADMITTED_MAIN, 'Source worktree is not at the admitted P0-R07 main');
-  assert(evidence.source.tree_sha === P0_R07_ADMITTED_TREE, 'Source worktree tree is not the admitted P0-R07 tree');
-  return evidence;
+  assert(evidence.source.head_sha === P0_R08_RETRY_ADMITTED_MAIN, 'Source worktree is not at the admitted P0-R08 retry main');
+  assert(evidence.source.tree_sha === P0_R08_RETRY_ADMITTED_TREE, 'Source worktree tree is not the admitted P0-R08 retry tree');
+  assert(path.dirname(evidence.source.clone_path) === P0_R08_RETRY_ROOT, 'Source worktree is outside the retry root');
+  assert(env.AO_DATA_DIR === P0_R08_RETRY_AO_DATA_DIR, 'AO_DATA_DIR is not retry-specific');
+  assert(env.AO_RUN_FILE === P0_R08_RETRY_AO_RUN_FILE, 'AO_RUN_FILE is not retry-specific');
+  assert(env.AO_PILOT_RUNTIME_STORE === P0_R08_RETRY_RUNTIME_STORE, 'Runtime store is not retry-specific');
+  assert(env.AO_PILOT_RUNTIME_CACHE === P0_R08_RETRY_RUNTIME_CACHE, 'Runtime cache is not retry-specific');
+  return {
+    ...evidence,
+    isolation: {
+      retry_root: P0_R08_RETRY_ROOT,
+      ao_data_dir: env.AO_DATA_DIR,
+      ao_run_file: env.AO_RUN_FILE,
+      runtime_store: env.AO_PILOT_RUNTIME_STORE,
+      runtime_cache: env.AO_PILOT_RUNTIME_CACHE,
+    },
+  };
 }
