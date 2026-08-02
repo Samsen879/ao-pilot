@@ -58,7 +58,7 @@ separate P0 deliverables.
 
 ## Runtime Bootstrap Gate
 
-On supported Linux x64/arm64 hosts with Git, curl, and tar:
+On supported Linux x64/arm64 hosts with Git, curl, tar, and gzip:
 
 ```bash
 npm run verify:runtime-bootstrap

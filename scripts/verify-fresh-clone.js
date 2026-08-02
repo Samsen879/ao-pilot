@@ -103,6 +103,7 @@ function createSafeToolPath(root, env = process.env) {
     git: findExecutable('git', env),
     curl: findExecutable('curl', env),
     tar: findExecutable('tar', env),
+    gzip: findExecutable('gzip', env),
     dirname: findExecutable('dirname', env),
     sh: findExecutable('sh', env),
   };

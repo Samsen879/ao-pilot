@@ -175,7 +175,7 @@ The project is built around a few assumptions:
 - Node.js 20+
 - npm
 - Git
-- `curl` and `tar` for the checksummed Go toolchain bootstrap
+- `curl`, `tar`, and `gzip` for the checksummed Go toolchain bootstrap
 - tmux
 - GitHub CLI (`gh`)
 - A repository/workflow where AO-style agent sessions are expected to operate

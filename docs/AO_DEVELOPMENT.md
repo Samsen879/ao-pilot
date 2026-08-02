@@ -5,7 +5,7 @@
 - Node.js 20 or newer
 - npm
 - Git
-- `curl` and `tar` for runtime bootstrap
+- `curl`, `tar`, and `gzip` for runtime bootstrap
 - `gh`, authenticated when live GitHub observation is required
 - the package-managed runtime when live agent observation is required
 
