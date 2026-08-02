@@ -116,7 +116,7 @@ function verifyCompletedCodexReviews(receiptReviews, liveReviews) {
   const normalized = receiptReviews.map((review, index) => {
     const item = object(review, `codex_reviews[${index}]`);
     assert(item.attempt === index + 1, `Invalid codex_reviews[${index}].attempt`);
-    assert(['submitted_review', 'clean_reaction'].includes(item.kind), `Invalid codex_reviews[${index}].kind`);
+    assert(['submitted_review', 'clean_comment', 'clean_reaction'].includes(item.kind), `Invalid codex_reviews[${index}].kind`);
     const normalizedItem = {
       attempt: item.attempt,
       kind: item.kind,

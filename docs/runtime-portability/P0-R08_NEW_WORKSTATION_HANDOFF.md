@@ -197,6 +197,16 @@ post-admission remediation PR, its reviews/CI/merge SHA/tree, and requires the
 verifier checkout to equal the resulting exact current main. Any additional
 post-admission issue-linked delivery fails closed.
 
+A connector clean completion may also be an unedited issue comment authored
+through the `chatgpt-codex-connector` GitHub App whose body begins exactly
+`Codex Review: Didn't find any major issues. :+1:` and contains one reviewed
+commit abbreviation of at least 10 hexadecimal characters. The verifier calls
+this `clean_comment` evidence and accepts it only when the abbreviation maps
+uniquely to one earlier unedited Owner exact-head request. Generic connector
+comments, setup/errors, edited comments, non-App impersonations, ambiguous
+abbreviations, and unrelated heads remain non-evidence and cannot suppress the
+request-comment reaction lookup.
+
 ## Receipt and protected gate
 
 After GitHub merge readback, exact-main replay, and cleanup, copy the template

@@ -8,6 +8,7 @@ import { describe, expect, it } from '@jest/globals';
 import {
   ownerExactHeadReviewRequests,
   submittedCodexReviewEvidence,
+  cleanCodexReviewCommentEvidence,
   collectCodexReviewEvidence,
 } from '../../scripts/ao/lib/codex-review-evidence.js';
 import { loadRuntimeLock } from '../../scripts/ao/lib/runtime-lock.js';
@@ -799,6 +800,73 @@ describe('fresh-clone and protected self-hosting gates', () => {
     })]);
   });
 
+  it('collects the exact live PR #72 connector clean-comment completion without a reaction lookup', () => {
+    const head = '0724ab9882846314e39845292ab86ef4aefb3c2b';
+    const comments = [{
+      id: 5158376025,
+      user: { login: 'Samsen879' },
+      author_association: 'OWNER',
+      body: `Review request\n\nExact head: ${head}`,
+      created_at: '2026-08-02T14:00:08Z',
+      updated_at: '2026-08-02T14:00:08Z',
+    }, {
+      id: 5158396828,
+      user: { login: 'chatgpt-codex-connector[bot]' },
+      performed_via_github_app: { slug: 'chatgpt-codex-connector' },
+      body: "Codex Review: Didn't find any major issues. :+1:\n\n**Reviewed commit:** `0724ab9882`\n\n<details>clean completion details</details>",
+      created_at: '2026-08-02T14:03:57Z',
+      updated_at: '2026-08-02T14:03:57Z',
+    }];
+    comments[0].body = `@${'codex'} review\n\nExact head: ${head}`;
+    const evidence = collectCodexReviewEvidence({
+      comments,
+      reviews: [],
+      reactionsForComment() {
+        throw new Error('reaction lookup must be suppressed by completed clean-comment evidence');
+      },
+    });
+
+    expect(evidence).toEqual([{
+      kind: 'clean_comment',
+      evidence_id: 5158396828,
+      request_comment_id: 5158376025,
+      request_valid: true,
+      head_sha: head,
+      completed_at: '2026-08-02T14:03:57Z',
+      actor: 'chatgpt-codex-connector[bot]',
+      completed: true,
+    }]);
+  });
+
+  it.each([
+    ['wrong actor', (comment) => { comment.user.login = 'Samsen879'; }],
+    ['missing connector app provenance', (comment) => { comment.performed_via_github_app = null; }],
+    ['edited completion', (comment) => { comment.updated_at = '2026-08-02T14:04:00Z'; }],
+    ['generic connector body', (comment) => { comment.body = 'Review completed successfully.'; }],
+    ['too-short reviewed commit', (comment) => { comment.body = "Codex Review: Didn't find any major issues. :+1:\n\n**Reviewed commit:** `0724ab988`"; }],
+    ['unrelated reviewed commit', (comment) => { comment.body = "Codex Review: Didn't find any major issues. :+1:\n\n**Reviewed commit:** `fffffffffff`"; }],
+  ])('rejects clean-comment evidence with %s before reaction collection', (_name, mutate) => {
+    const head = '0724ab9882846314e39845292ab86ef4aefb3c2b';
+    const requests = ownerExactHeadReviewRequests([{
+      id: 5158376025,
+      user: { login: 'Samsen879' },
+      author_association: 'OWNER',
+      body: `@${'codex'} review\n\nExact head: ${head}`,
+      created_at: '2026-08-02T14:00:08Z',
+      updated_at: '2026-08-02T14:00:08Z',
+    }]);
+    const comment = {
+      id: 5158396828,
+      user: { login: 'chatgpt-codex-connector[bot]' },
+      performed_via_github_app: { slug: 'chatgpt-codex-connector' },
+      body: "Codex Review: Didn't find any major issues. :+1:\n\n**Reviewed commit:** `0724ab9882`",
+      created_at: '2026-08-02T14:03:57Z',
+      updated_at: '2026-08-02T14:03:57Z',
+    };
+    mutate(comment);
+    expect(cleanCodexReviewCommentEvidence([comment], requests)).toEqual([]);
+  });
+
   it('rejects the observed generic connector review object before reaction lookup', () => {
     const head = 'd04a4d132fd236e3b5e0a97552de6d5ae496d921';
     const lookedUp = [];
@@ -849,6 +917,13 @@ describe('fresh-clone and protected self-hosting gates', () => {
 
     evidence.githubEvidence.codex_reviews[0].head_sha = 'f'.repeat(40);
     expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('head mismatch');
+  });
+
+  it('accepts an exact-head connector clean-comment completion in the receipt', () => {
+    const receipt = validSelfHostingReceipt();
+    receipt.terminal_remediation.delivery.remediation_pr.codex_reviews[0].kind = 'clean_comment';
+    const evidence = validEvidence(receipt);
+    expect(verifySelfHostingReceipt(receipt, evidence)).toMatchObject({ terminal_review_count: 1 });
   });
 
   it.each([

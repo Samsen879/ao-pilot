@@ -79,7 +79,7 @@
       "codex_reviews": [
         {
           "attempt": 1,
-          "kind": "REPLACE_WITH_SUBMITTED_REVIEW_OR_CLEAN_REACTION",
+          "kind": "REPLACE_WITH_SUBMITTED_REVIEW_CLEAN_COMMENT_OR_CLEAN_REACTION",
           "evidence_id": 0,
           "request_comment_id": 0,
           "head_sha": "REPLACE_WITH_40_HEX",
