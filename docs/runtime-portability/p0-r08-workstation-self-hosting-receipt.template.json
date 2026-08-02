@@ -12,6 +12,7 @@
   },
   "source": {
     "repository": "https://github.com/Samsen879/ao-pilot.git",
+    "admission_pr_number": 69,
     "clone_head_sha": "REPLACE_WITH_40_HEX",
     "clone_tree_sha": "REPLACE_WITH_40_HEX",
     "clean_before_bootstrap": true
@@ -37,24 +38,47 @@
   },
   "delivery": {
     "issue_number": 63,
+    "orchestrator_session_id": "REPLACE_WITH_OR_SESSION_ID",
+    "worker_session_id": "REPLACE_WITH_WORKER_SESSION_ID",
     "worker_created_by_new_ao": false,
+    "worker_created_from_issue": false,
     "worker_worktree_path": "REPLACE_WITH_WORKTREE_PATH",
+    "worker_branch": "REPLACE_WITH_TASK_BRANCH",
+    "worker_committed": false,
+    "worker_pushed": false,
+    "worker_opened_pr": false,
+    "orchestrator_observed_ci": false,
+    "orchestrator_observed_codex_review": false,
+    "review_repairs_same_worker_pr": false,
+    "github_merge_outcome_confirmed": false,
     "principal_pr": {
       "number": 0,
       "url": "REPLACE_WITH_PR_URL",
-      "reviewed_head": "REPLACE_WITH_40_HEX",
+      "head_sha": "REPLACE_WITH_40_HEX",
+      "reviewed_head": "REPLACE_WITH_REVIEWED_40_HEX",
       "ci_conclusion": "REPLACE_WITH_SUCCESS",
-      "codex_reviews": [],
+      "codex_reviews": [
+        {
+          "attempt": 1,
+          "kind": "REPLACE_WITH_SUBMITTED_REVIEW_OR_CLEAN_REACTION",
+          "evidence_id": 0,
+          "head_sha": "REPLACE_WITH_40_HEX",
+          "completed_at": "REPLACE_WITH_GITHUB_TIMESTAMP"
+        }
+      ],
       "merged": false,
       "merge_sha": "REPLACE_WITH_40_HEX"
     }
   },
   "exact_main_replay": {
     "passed": false,
-    "main_sha": "REPLACE_WITH_40_HEX"
+    "release_check_passed": false,
+    "main_sha": "REPLACE_WITH_40_HEX",
+    "tree_sha": "REPLACE_WITH_40_HEX"
   },
   "cleanup": {
-    "session_stopped": false,
+    "orchestrator_session_stopped": false,
+    "worker_session_stopped": false,
     "worker_worktree_removed": false,
     "stale_ownership_absent": false
   },

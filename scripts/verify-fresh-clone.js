@@ -34,6 +34,7 @@ export function parseArgs(argv) {
     cacheRoot: null,
     tempRoot: os.tmpdir(),
     receiptOut: null,
+    expectedHead: null,
     keepOnFailure: false,
     help: false,
   };
@@ -53,6 +54,10 @@ export function parseArgs(argv) {
       index += 1;
     } else if (argument === '--receipt-out') {
       options.receiptOut = path.resolve(requiredValue(argv, index, argument));
+      index += 1;
+    } else if (argument === '--expected-head') {
+      options.expectedHead = requiredValue(argv, index, argument).toLowerCase();
+      if (!/^[0-9a-f]{40}$/.test(options.expectedHead)) fail('fresh_clone_usage', 'Invalid value for --expected-head');
       index += 1;
     } else if (argument === '--keep-on-failure') {
       options.keepOnFailure = true;
@@ -75,6 +80,7 @@ function usage() {
     '  --cache <path>         Reusable verified runtime cache',
     '  --temp-root <path>     Parent for the isolated workspace',
     '  --receipt-out <path>   Persist the machine-readable gate receipt',
+    '  --expected-head <sha>  Require the cloned exact commit (CI binding)',
     '  --keep-on-failure      Retain the isolated workspace for diagnosis',
     '  -h, --help             Show this help',
   ].join('\n');
@@ -261,6 +267,7 @@ export async function verifyFreshClone(options, {
   const cacheRoot = options.cacheRoot ?? path.join(root, 'runtime-cache');
   const fixtureWorktree = path.join(root, 'worker-worktree-fixture');
   let started = false;
+  let runtimeStopRequired = false;
   let passed = false;
   let env;
   let node;
@@ -280,6 +287,12 @@ export async function verifyFreshClone(options, {
     const sourceTree = run(git, ['rev-parse', 'HEAD^{tree}'], { cwd: cloneRoot, env }).stdout.trim();
     if (!/^[0-9a-f]{40}$/.test(sourceHead) || !/^[0-9a-f]{40}$/.test(sourceTree)) {
       fail('fresh_clone_source_invalid', 'Fresh clone did not resolve an exact commit and tree');
+    }
+    if (options.expectedHead != null && sourceHead !== options.expectedHead) {
+      fail('fresh_clone_head_mismatch', 'Fresh clone does not match the required exact HEAD', {
+        expected: options.expectedHead,
+        observed: sourceHead,
+      });
     }
 
     run(npm, ['ci'], { cwd: cloneRoot, env });
@@ -349,6 +362,7 @@ export async function verifyFreshClone(options, {
     }));
     assertEqual(runtimePath.status, 'verified', 'fresh_clone_runtime_not_verified', 'Runtime provenance did not verify');
 
+    runtimeStopRequired = true;
     const start = parseJsonOutput(run(node, [cli, 'start', '--runtime-store', storeRoot, '--json'], {
       cwd: cloneRoot,
       env,
@@ -394,6 +408,7 @@ export async function verifyFreshClone(options, {
     }));
     assertEqual(stop.status, 'completed', 'fresh_clone_stop_failed', 'Verified runtime daemon did not stop');
     started = false;
+    runtimeStopRequired = false;
     const stoppedStatus = run(node, [cli, 'status', '--runtime-store', storeRoot, '--json'], {
       cwd: cloneRoot,
       env,
@@ -492,7 +507,7 @@ export async function verifyFreshClone(options, {
     passed = true;
     return receipt;
   } finally {
-    if (started && node != null && env != null && fs.existsSync(cloneRoot)) {
+    if ((started || runtimeStopRequired) && node != null && env != null && fs.existsSync(cloneRoot)) {
       run(node, [path.join(cloneRoot, 'bin', 'ao-pilot.js'), 'stop', '--runtime-store', storeRoot, '--json'], {
         cwd: cloneRoot,
         env,

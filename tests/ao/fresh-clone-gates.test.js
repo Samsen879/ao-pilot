@@ -27,6 +27,7 @@ function validSelfHostingReceipt() {
     },
     source: {
       repository: 'https://github.com/Samsen879/ao-pilot.git',
+      admission_pr_number: 69,
       clone_head_sha: '1'.repeat(40),
       clone_tree_sha: '2'.repeat(40),
       clean_before_bootstrap: true,
@@ -49,30 +50,86 @@ function validSelfHostingReceipt() {
     },
     delivery: {
       issue_number: 63,
+      orchestrator_session_id: 'or-r08',
+      worker_session_id: 'worker-r08',
       worker_created_by_new_ao: true,
+      worker_created_from_issue: true,
       worker_worktree_path: '/fresh/ao-pilot/.worktrees/p0-r08-self-hosting',
+      worker_branch: 'ao/p0-r08/worker',
+      worker_committed: true,
+      worker_pushed: true,
+      worker_opened_pr: true,
+      orchestrator_observed_ci: true,
+      orchestrator_observed_codex_review: true,
+      review_repairs_same_worker_pr: true,
+      github_merge_outcome_confirmed: true,
       principal_pr: {
         number: 70,
         url: 'https://github.com/Samsen879/ao-pilot/pull/70',
+        head_sha: '3'.repeat(40),
         reviewed_head: '3'.repeat(40),
         ci_conclusion: 'success',
-        codex_reviews: [{ id: 1, head_sha: '3'.repeat(40) }],
+        codex_reviews: [{
+          attempt: 1,
+          kind: 'submitted_review',
+          evidence_id: 101,
+          head_sha: '3'.repeat(40),
+          completed_at: '2026-08-03T01:00:00.000Z',
+        }],
         merged: true,
         merge_sha: '4'.repeat(40),
       },
     },
     exact_main_replay: {
       passed: true,
+      release_check_passed: true,
       main_sha: '4'.repeat(40),
+      tree_sha: '5'.repeat(40),
     },
     cleanup: {
-      session_stopped: true,
+      orchestrator_session_stopped: true,
+      worker_session_stopped: true,
       worker_worktree_removed: true,
       stale_ownership_absent: true,
     },
     claim: {
       workstation_self_hosting: true,
       p0_r08_satisfied: true,
+    },
+  };
+}
+
+function validEvidence(receipt) {
+  return {
+    repositoryEvidence: {
+      current_main_sha: receipt.delivery.principal_pr.merge_sha,
+      current_main_tree_sha: receipt.exact_main_replay.tree_sha,
+      source_commit_sha: receipt.source.clone_head_sha,
+      source_tree_sha: receipt.source.clone_tree_sha,
+    },
+    githubEvidence: {
+      admission_pr: {
+        number: 69,
+        merged: true,
+        merge_sha: receipt.source.clone_head_sha,
+        base_ref: 'main',
+      },
+      principal_pr: {
+        number: receipt.delivery.principal_pr.number,
+        merged: true,
+        merge_sha: receipt.delivery.principal_pr.merge_sha,
+        head_sha: receipt.delivery.principal_pr.head_sha,
+        base_ref: 'main',
+      },
+      check_runs: ['fresh-clone-runtime', 'test (20)', 'test (22)'].map((name) => ({ name, conclusion: 'success' })),
+      codex_reviews: receipt.delivery.principal_pr.codex_reviews.map((review) => ({
+        kind: review.kind,
+        evidence_id: review.evidence_id,
+        head_sha: review.head_sha,
+        completed_at: review.completed_at,
+        actor: 'chatgpt-codex-connector[bot]',
+        completed: true,
+      })),
     },
   };
 }
@@ -84,16 +141,22 @@ describe('fresh-clone and protected self-hosting gates', () => {
       '--ref', 'a'.repeat(40),
       '--cache', '/tmp/verified-cache',
       '--receipt-out', '/tmp/receipt.json',
+      '--expected-head', 'b'.repeat(40),
     ])).toMatchObject({
       source: 'https://github.com/Samsen879/ao-pilot.git',
       ref: 'a'.repeat(40),
       cacheRoot: '/tmp/verified-cache',
       receiptOut: '/tmp/receipt.json',
+      expectedHead: 'b'.repeat(40),
     });
   });
 
   it('rejects unknown fresh-clone options before any command executes', () => {
     expect(() => parseArgs(['--trust-path-ao'])).toThrow('Unknown argument');
+  });
+
+  it('rejects a non-immutable expected CI head', () => {
+    expect(() => parseArgs(['--expected-head', 'main'])).toThrow('Invalid value for --expected-head');
   });
 
   it('cleans verifier-owned read-only module-cache directories', () => {
@@ -110,7 +173,8 @@ describe('fresh-clone and protected self-hosting gates', () => {
   });
 
   it('accepts a complete AO-created new-workstation receipt', () => {
-    expect(verifySelfHostingReceipt(validSelfHostingReceipt())).toMatchObject({
+    const receipt = validSelfHostingReceipt();
+    expect(verifySelfHostingReceipt(receipt, validEvidence(receipt))).toMatchObject({
       status: 'verified',
       issue_number: 63,
       principal_pr: 70,
@@ -127,6 +191,20 @@ describe('fresh-clone and protected self-hosting gates', () => {
   ])('fails closed for %s', (_name, mutate) => {
     const receipt = validSelfHostingReceipt();
     mutate(receipt);
-    expect(() => verifySelfHostingReceipt(receipt)).toThrow();
+    expect(() => verifySelfHostingReceipt(receipt, validEvidence(receipt))).toThrow();
+  });
+
+  it('rejects fabricated or incomplete Codex Review evidence', () => {
+    const receipt = validSelfHostingReceipt();
+    const evidence = validEvidence(receipt);
+    evidence.githubEvidence.codex_reviews[0].completed = false;
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('not completed');
+  });
+
+  it('rejects an unrelated source commit and tree', () => {
+    const receipt = validSelfHostingReceipt();
+    const evidence = validEvidence(receipt);
+    evidence.repositoryEvidence.source_tree_sha = 'f'.repeat(40);
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('commit-to-tree');
   });
 });

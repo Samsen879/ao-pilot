@@ -47,7 +47,7 @@ jobs:
           path: ${{ runner.temp }}/ao-pilot-runtime-cache
           key: ao-pilot-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('runtime/agent-orchestrator.lock.json', 'runtime/go-toolchain.lock.json') }}
       - run: npm ci
-      - run: npm run verify:fresh-clone -- --cache "$RUNNER_TEMP/ao-pilot-runtime-cache" --receipt-out "$RUNNER_TEMP/fresh-clone-receipt.json"
+      - run: npm run verify:fresh-clone -- --expected-head "$GITHUB_SHA" --cache "$RUNNER_TEMP/ao-pilot-runtime-cache" --receipt-out "$RUNNER_TEMP/fresh-clone-receipt.json"
       - uses: actions/upload-artifact@v4
         with:
           name: fresh-clone-runtime-receipt

@@ -6,10 +6,10 @@
     "tree_sha": "b96a519f8c9cc8606a26656ae5d0fb28fde6482f"
   },
   "implementation_validation": {
-    "head_sha": "a8935a969f3db04843023ff84518fac184253ab0",
-    "tree_sha": "ebecfd1bc690bcb0fedac97f26ac060e40b8c0e9",
-    "performed_at": "2026-08-02T08:49:37.260Z",
-    "source_mode": "exact_local_git_clone",
+    "head_sha": "abbef91c665da7ce888f5a9848836c774e1d726a",
+    "tree_sha": "22c92ef4e8f5c35cdfb8a191ae7633082e4782da",
+    "performed_at": "2026-08-02T08:58:33.305Z",
+    "source_mode": "exact_public_github_clone",
     "empty_home": true,
     "npm_ci": "PASS",
     "runtime_missing_fail_closed": "runtime_missing",
@@ -23,6 +23,13 @@
     "daemon_start_status_stop": "PASS",
     "local_worktree_create_cleanup": "PASS",
     "isolated_state_cleanup": "PASS"
+  },
+  "final_head_binding": {
+    "authority": "fresh-clone-runtime GitHub Actions artifact",
+    "workflow": ".github/workflows/ci.yml",
+    "assertion": "receipt.source.head_sha equals GITHUB_SHA",
+    "artifact": "fresh-clone-runtime-receipt",
+    "reason": "a committed file cannot contain the hash of the commit that contains itself; the required CI artifact binds every candidate and merged HEAD without self-reference"
   },
   "runtime": {
     "runtime_ref": "runtime.agent_orchestrator.v0_11_2_p0_1",
