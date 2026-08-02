@@ -51,6 +51,41 @@ function canonicalAbsolutePath(value, field) {
   return normalized;
 }
 
+export function resolvePathThroughFilesystem(value, field = 'path') {
+  const candidate = canonicalAbsolutePath(value, field);
+  const missing = [];
+  let existing = candidate;
+  while (true) {
+    try {
+      fs.lstatSync(existing);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') {
+        throw new Error(`Unable to resolve ${field} through the filesystem: ${error.message}`);
+      }
+      const parent = path.dirname(existing);
+      assert(parent !== existing, `Unable to find an existing parent for ${field}`);
+      missing.unshift(path.basename(existing));
+      existing = parent;
+      continue;
+    }
+    try {
+      const resolved = fs.realpathSync.native(existing);
+      return path.resolve(resolved, ...missing);
+    } catch (error) {
+      throw new Error(`Unable to resolve ${field} through the filesystem: ${error.message}`);
+    }
+  }
+}
+
+export function assertPathResolvesWithin(root, candidate, field = 'path') {
+  const canonicalRoot = canonicalAbsolutePath(root, `${field} root`);
+  const resolvedRoot = resolvePathThroughFilesystem(canonicalRoot, `${field} root`);
+  assert(resolvedRoot === canonicalRoot, `${field} root must resolve to its canonical filesystem location`);
+  const resolvedCandidate = resolvePathThroughFilesystem(candidate, field);
+  assert(pathWithin(resolvedRoot, resolvedCandidate), `${field} filesystem target escapes the retry root`);
+  return resolvedCandidate;
+}
+
 function pathWithin(root, candidate) {
   const relative = path.relative(root, candidate);
   return relative !== '' && !relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative);
@@ -133,8 +168,11 @@ export function verifySelfHostingReceipt(receipt, {
   assert(aoRunFile === P0_R08_RETRY_AO_RUN_FILE, 'AO_RUN_FILE is not retry-specific');
   assert(runtimeStore === P0_R08_RETRY_RUNTIME_STORE, 'Runtime store is not retry-specific');
   assert(runtimeCache === P0_R08_RETRY_RUNTIME_CACHE, 'Runtime cache is not retry-specific');
+  const resolvedRetryRoot = resolvePathThroughFilesystem(retryRoot, 'environment.retry_root');
+  assert(resolvedRetryRoot === retryRoot, 'Retry root must resolve to the owner-admitted workstation root');
   for (const [field, candidate] of [['AO_DATA_DIR', aoDataDir], ['AO_RUN_FILE', aoRunFile], ['runtime store', runtimeStore], ['runtime cache', runtimeCache]]) {
     assert(pathWithin(retryRoot, candidate), `${field} escapes the retry root`);
+    assertPathResolvesWithin(retryRoot, candidate, field);
   }
 
   const source = object(value.source, 'source');
@@ -146,6 +184,7 @@ export function verifySelfHostingReceipt(receipt, {
   assert(sourceTree === P0_R08_RETRY_ADMITTED_TREE, 'Fresh clone tree is not the exact admitted P0-R08 retry tree');
   const sourceClonePath = canonicalAbsolutePath(source.clone_path, 'source.clone_path');
   assert(sourceClonePath === `${retryRoot}/ao-pilot`, 'Source clone is not the admitted retry clone');
+  assertPathResolvesWithin(retryRoot, sourceClonePath, 'Source clone');
   truth(source.clean_before_bootstrap, 'source.clean_before_bootstrap');
 
   const retryAdmission = object(value.retry_admission, 'retry_admission');
@@ -194,6 +233,7 @@ export function verifySelfHostingReceipt(receipt, {
   assert(lockedTarget.binary_sha256 === runtime.binary_sha256, 'Runtime binary digest does not match the workstation target');
   const expectedRuntimeBinary = `${runtimeStore}/${runtime.runtime_ref}/${runtimeTarget.os}-${runtimeTarget.arch}/${runtime.commit_sha}/bin/ao`;
   assert(runtimeBinaryPath === expectedRuntimeBinary, 'Runtime binary is not in the retry-specific managed store');
+  assertPathResolvesWithin(retryRoot, runtimeBinaryPath, 'Runtime binary');
 
   const bootstrap = object(value.bootstrap, 'bootstrap');
   assert(bootstrap.command === './scripts/bootstrap.sh', 'Unexpected bootstrap command');
@@ -209,6 +249,7 @@ export function verifySelfHostingReceipt(receipt, {
   truth(delivery.worker_created_from_issue, 'delivery.worker_created_from_issue');
   const workerWorktreePath = canonicalAbsolutePath(delivery.worker_worktree_path, 'delivery.worker_worktree_path');
   assert(pathWithin(`${aoDataDir}/worktrees/ao-pilot`, workerWorktreePath), 'Worker worktree is outside retry-specific AO_DATA_DIR');
+  assertPathResolvesWithin(retryRoot, workerWorktreePath, 'Worker worktree');
   const worktreeEvidenceCommentId = Number(delivery.worktree_evidence_comment_id);
   assert(Number.isSafeInteger(worktreeEvidenceCommentId) && worktreeEvidenceCommentId > 0, 'Invalid delivery.worktree_evidence_comment_id');
   string(delivery.worker_branch, 'delivery.worker_branch');
@@ -236,6 +277,7 @@ export function verifySelfHostingReceipt(receipt, {
   assert(Array.isArray(github.issue_linked_prs), 'Live issue-linked PR evidence is unavailable');
   const postAdmissionLinkedPrs = github.issue_linked_prs.filter((linkedPr) => {
     const item = object(linkedPr, 'issue-linked PR');
+    assert(item.repository === 'Samsen879/ao-pilot', 'Issue-linked PR evidence is from an external repository');
     assert(Number.isSafeInteger(item.number) && item.number > 0, 'Invalid issue-linked PR number');
     const createdAt = timestamp(item.created_at, `issue-linked PR #${item.number} created_at`);
     return item.number !== P0_R08_RETRY_ADMISSION_PR && Date.parse(createdAt) >= Date.parse(retryAdmittedAt);
@@ -294,7 +336,8 @@ export function verifySelfHostingReceipt(receipt, {
   assert(capturedSource.clone_path === sourceClonePath, 'Receipt source path does not match captured Git evidence');
   assert(capturedSource.head_sha === sourceHead, 'Captured source HEAD does not match the retry-admitted main');
   assert(capturedSource.tree_sha === sourceTree, 'Captured source tree does not match the retry-admitted tree');
-  assert(path.isAbsolute(string(capturedSource.git_common_dir, 'captured source git_common_dir')), 'Captured source git common directory must be absolute');
+  const capturedSourceGitCommonDir = canonicalAbsolutePath(capturedSource.git_common_dir, 'captured source git_common_dir');
+  assertPathResolvesWithin(retryRoot, capturedSourceGitCommonDir, 'Captured source git common directory');
   const capturedIsolation = object(captured.isolation, 'captured retry isolation');
   assert(capturedIsolation.retry_root === retryRoot, 'Captured retry root does not match the receipt');
   assert(capturedIsolation.ao_data_dir === aoDataDir, 'Captured AO_DATA_DIR does not match the receipt');
@@ -306,9 +349,10 @@ export function verifySelfHostingReceipt(receipt, {
   assert(capturedWorker.worktree_path === workerWorktreePath, 'Receipt Worker path does not match captured Git evidence');
   assert(capturedWorker.branch === delivery.worker_branch, 'Captured Worker branch does not match the receipt');
   assert(capturedWorker.head_sha === finalHead, 'Captured Worker HEAD does not match the principal PR');
-  assert(path.isAbsolute(string(capturedWorker.git_common_dir, 'captured Worker git_common_dir')), 'Captured Worker git common directory must be absolute');
+  const capturedWorkerGitCommonDir = canonicalAbsolutePath(capturedWorker.git_common_dir, 'captured Worker git_common_dir');
+  assertPathResolvesWithin(retryRoot, capturedWorkerGitCommonDir, 'Captured Worker git common directory');
   assert(path.resolve(capturedWorker.worktree_path) !== path.resolve(capturedSource.clone_path), 'Captured Worker worktree is not distinct from the bootstrap clone');
-  assert(capturedWorker.git_common_dir === capturedSource.git_common_dir, 'Captured Worker is not bound to the bootstrap clone');
+  assert(capturedWorkerGitCommonDir === capturedSourceGitCommonDir, 'Captured Worker is not bound to the bootstrap clone');
 
   const replay = object(value.exact_main_replay, 'exact_main_replay');
   truth(replay.passed, 'exact_main_replay.passed');

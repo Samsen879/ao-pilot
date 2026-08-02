@@ -9,6 +9,7 @@ import {
   ownerExactHeadReviewRequests,
   submittedCodexReviewEvidence,
 } from './ao/lib/codex-review-evidence.js';
+import { issueLinkedPrEvidenceFromTimeline } from './ao/lib/issue-linked-pr-evidence.js';
 import {
   loadSelfHostingReceipt,
   P0_R08_RETRY_ADMISSION_COMMENT,
@@ -96,22 +97,10 @@ function codexReviewEvidence(principalPr, repositoryRoot) {
 }
 
 function issueLinkedPrEvidence(repositoryRoot) {
-  const query = 'query { repository(owner:"Samsen879", name:"ao-pilot") { issue(number:63) { timelineItems(first:100, itemTypes:[CROSS_REFERENCED_EVENT]) { pageInfo { hasNextPage } nodes { ... on CrossReferencedEvent { source { __typename ... on PullRequest { number url createdAt headRefName baseRefName } } } } } } } }';
+  const query = 'query { repository(owner:"Samsen879", name:"ao-pilot") { issue(number:63) { timelineItems(first:100, itemTypes:[CROSS_REFERENCED_EVENT]) { pageInfo { hasNextPage } nodes { ... on CrossReferencedEvent { source { __typename ... on PullRequest { repository { nameWithOwner } number url createdAt headRefName baseRefName } } } } } } } }';
   const timeline = runJson('gh', ['api', 'graphql', '-f', `query=${query}`], { cwd: repositoryRoot })
     .data.repository.issue.timelineItems;
-  if (timeline.pageInfo.hasNextPage) throw new Error('Issue-linked PR evidence exceeds the bounded GraphQL page');
-  const linked = new Map();
-  for (const event of timeline.nodes) {
-    if (event.source?.__typename !== 'PullRequest') continue;
-    linked.set(event.source.number, {
-      number: event.source.number,
-      url: event.source.url,
-      created_at: event.source.createdAt,
-      head_ref: event.source.headRefName,
-      base_ref: event.source.baseRefName,
-    });
-  }
-  return [...linked.values()];
+  return issueLinkedPrEvidenceFromTimeline(timeline);
 }
 
 function reviewFindingEvidence(principalPr, repositoryRoot) {

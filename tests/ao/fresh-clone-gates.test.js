@@ -26,8 +26,11 @@ import {
   P0_R08_RETRY_RUNTIME_CACHE,
   P0_R08_RETRY_RUNTIME_STORE,
   SELF_HOSTING_RECEIPT_SCHEMA_VERSION,
+  assertPathResolvesWithin,
+  resolvePathThroughFilesystem,
   verifySelfHostingReceipt,
 } from '../../scripts/ao/lib/self-hosting-receipt.js';
+import { issueLinkedPrEvidenceFromTimeline } from '../../scripts/ao/lib/issue-linked-pr-evidence.js';
 import { parseArgs, removeTemporaryRoot } from '../../scripts/verify-fresh-clone.js';
 import { inspectWorktreeBinding } from '../../scripts/ao/lib/worktree-evidence.js';
 
@@ -176,6 +179,7 @@ function validEvidence(receipt) {
         linked_issue_63: true,
       },
       issue_linked_prs: [{
+        repository: 'Samsen879/ao-pilot',
         number: receipt.delivery.principal_pr.number,
         url: receipt.delivery.principal_pr.url,
         created_at: '2026-08-02T12:00:00.000Z',
@@ -599,6 +603,31 @@ describe('fresh-clone and protected self-hosting gates', () => {
     expect(() => verifySelfHostingReceipt(receipt, validEvidence(receipt))).toThrow();
   });
 
+  it('resolves a not-yet-existing retry path through its nearest existing parent', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-path-parent-'));
+    try {
+      expect(resolvePathThroughFilesystem(path.join(root, 'missing', 'cache')))
+        .toBe(path.join(fs.realpathSync(root), 'missing', 'cache'));
+    } finally {
+      removeTemporaryRoot(root);
+    }
+  });
+
+  it('exposes a symlinked retry path target instead of trusting its admitted spelling', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-path-root-'));
+    const external = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-path-external-'));
+    try {
+      fs.symlinkSync(external, path.join(root, 'cache'));
+      expect(resolvePathThroughFilesystem(path.join(root, 'cache', 'missing')))
+        .toBe(path.join(fs.realpathSync(external), 'missing'));
+      expect(() => assertPathResolvesWithin(root, path.join(root, 'cache', 'missing'), 'runtime cache'))
+        .toThrow('runtime cache filesystem target escapes the retry root');
+    } finally {
+      removeTemporaryRoot(root);
+      removeTemporaryRoot(external);
+    }
+  });
+
   it('rejects captured Worker environment paths that disagree with the receipt', () => {
     const receipt = validSelfHostingReceipt();
     const evidence = validEvidence(receipt);
@@ -610,6 +639,7 @@ describe('fresh-clone and protected self-hosting gates', () => {
     const receipt = validSelfHostingReceipt();
     const evidence = validEvidence(receipt);
     evidence.githubEvidence.issue_linked_prs.push({
+      repository: 'Samsen879/ao-pilot',
       number: 72,
       url: 'https://github.com/Samsen879/ao-pilot/pull/72',
       created_at: '2026-08-02T12:30:00.000Z',
@@ -617,6 +647,34 @@ describe('fresh-clone and protected self-hosting gates', () => {
       base_ref: 'main',
     });
     expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('exactly one post-admission retry principal PR');
+  });
+
+  it('excludes cross-referenced pull requests from external repositories before dedupe and count', () => {
+    const timeline = {
+      pageInfo: { hasNextPage: false },
+      nodes: [{ source: {
+        __typename: 'PullRequest',
+        repository: { nameWithOwner: 'external/fork' },
+        number: 71,
+        url: 'https://github.com/external/fork/pull/71',
+        createdAt: '2026-08-02T12:30:00.000Z',
+        headRefName: 'unrelated',
+        baseRefName: 'main',
+      } }, { source: {
+        __typename: 'PullRequest',
+        repository: { nameWithOwner: 'Samsen879/ao-pilot' },
+        number: 71,
+        url: 'https://github.com/Samsen879/ao-pilot/pull/71',
+        createdAt: '2026-08-02T12:00:00.000Z',
+        headRefName: 'ao/p0-r08-retry-worker',
+        baseRefName: 'main',
+      } }],
+    };
+
+    expect(issueLinkedPrEvidenceFromTimeline(timeline)).toEqual([expect.objectContaining({
+      repository: 'Samsen879/ao-pilot',
+      number: 71,
+    })]);
   });
 
   it.each([
