@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   resolveRuntimeControl,
-  runVerifiedRuntime,
+  runResolvedRuntime,
   startVerifiedRuntimeDaemon,
 } from './ao/lib/runtime-control.js';
 
@@ -106,7 +106,7 @@ export async function runCli(argv, io = createDefaultIo(), {
   cwd = process.cwd(),
   env = process.env,
   resolveRuntime = resolveRuntimeControl,
-  executeRuntime = runVerifiedRuntime,
+  executeRuntime = runResolvedRuntime,
   startDaemon = startVerifiedRuntimeDaemon,
 } = {}) {
   let options;
@@ -174,12 +174,28 @@ export async function runCli(argv, io = createDefaultIo(), {
     else io.writeStdout(`runtime_status: ${result.status}\n`);
     return { exitCode: result.exit_code, report };
   }
-  const execution = executeRuntime(runtimeArgs, {
-    cwd,
-    env,
-    storeRoot: options.storeRoot,
-    stdio: options.json ? ['ignore', 'pipe', 'pipe'] : 'inherit',
-  });
+  let execution;
+  try {
+    execution = executeRuntime(runtime, runtimeArgs, {
+      cwd,
+      env,
+      stdio: options.json ? ['ignore', 'pipe', 'pipe'] : 'inherit',
+    });
+  } catch (error) {
+    const failure = {
+      status: 'blocked',
+      operation: options.operation,
+      code: error.code ?? 'runtime_execution_failed',
+      message: error.message,
+      details: error.details ?? {},
+    };
+    io.writeStderr(`${options.json ? JSON.stringify(failure, null, 2) : [
+      'runtime_status: blocked',
+      `code: ${failure.code}`,
+      `message: ${failure.message}`,
+    ].join('\n')}\n`);
+    return { exitCode: 2, report: failure };
+  }
   const report = {
     status: execution.result.status === 0 ? 'completed' : 'failed',
     operation: options.operation,

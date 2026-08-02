@@ -155,7 +155,7 @@ export async function runCli(argv, io = createDefaultIo(), {
   });
   const runtimeBlocked = runtimeInspection.status !== 'verified';
   const baseTopStatus = doctorResult.report.top_status;
-  const topStatus = runtimeBlocked && ['healthy', 'warning'].includes(baseTopStatus)
+  const topStatus = runtimeBlocked && ['healthy', 'warning', 'ambiguous'].includes(baseTopStatus)
     ? 'blocked'
     : baseTopStatus;
   const runtimeFinding = runtimeBlocked ? [{

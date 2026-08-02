@@ -254,4 +254,45 @@ describe('ao doctor cli', () => {
       },
     });
   });
+
+  it('promotes a runtime integrity failure over an ambiguous base diagnosis', async () => {
+    mockRunDoctor.mockResolvedValue({
+      report: buildReport({
+        top_status: 'ambiguous',
+        source_health: { ao: 'ok', github: 'ok' },
+        scope: { selected_pr_numbers: [] },
+      }),
+      reconciliationReport: {
+        top_status: 'ambiguous',
+        automation_disposition: 'pause',
+        findings: [],
+      },
+    });
+    mockInspectRuntime.mockReturnValue({
+      status: 'blocked',
+      runtime: {
+        status: 'blocked',
+        runtime_ref: 'runtime.test.v1',
+        code: 'runtime_path_shadowed',
+        message: 'PATH contains a different ao',
+        source: {},
+      },
+      authentication: {},
+    });
+    const stdout = [];
+
+    const result = await runCli(['--json', '--strict'], {
+      writeStdout: (text) => stdout.push(text),
+      writeStderr: () => {},
+    });
+
+    expect(result.exitCode).toBe(21);
+    expect(JSON.parse(stdout.join(''))).toMatchObject({
+      top_status: 'blocked',
+      source_health: { runtime: 'failed' },
+      findings: expect.arrayContaining([
+        expect.objectContaining({ code: 'runtime_path_shadowed', severity: 'blocker' }),
+      ]),
+    });
+  });
 });

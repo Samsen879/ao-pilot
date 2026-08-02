@@ -80,9 +80,9 @@ for candidate in "${git_hooks_install_candidates[@]}"; do
   fi
 done
 
+run_cmd "${pilot_command[@]}" runtime-path
 printf '+ node %q stop --project %q || true\n' "$repo_root/bin/ao-pilot.js" "$project"
 if [[ "$dry_run" -eq 0 ]]; then
-  "${pilot_command[@]}" runtime-path
   "${pilot_command[@]}" stop --project "$project" || true
 fi
 

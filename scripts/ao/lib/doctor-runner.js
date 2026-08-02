@@ -56,6 +56,7 @@ export async function runDoctor({
     reconciliationReport,
     localState,
     controlPlaneSnapshot,
+    runtimeStore: env.AO_PILOT_RUNTIME_STORE ?? null,
   });
 
   return {

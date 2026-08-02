@@ -166,6 +166,15 @@ export function runVerifiedRuntime(args, {
   spawn = spawnSync,
 } = {}) {
   const runtime = resolveRuntimeControl({ env, cwd, storeRoot });
+  return runResolvedRuntime(runtime, args, { env, cwd, stdio, spawn });
+}
+
+export function runResolvedRuntime(runtime, args, {
+  env = process.env,
+  cwd = process.cwd(),
+  stdio = 'inherit',
+  spawn = spawnSync,
+} = {}) {
   const result = spawn(runtime.binary_path, args.map(String), {
     cwd,
     env,
@@ -194,12 +203,18 @@ function daemonReady(result) {
   }
 }
 
-function statusProbe(runtime, { cwd, env, syncSpawn }) {
+function statusProbe(runtime, {
+  cwd,
+  env,
+  syncSpawn,
+  timeoutMs,
+}) {
   return syncSpawn(runtime.binary_path, ['status', '--json'], {
     cwd,
     env,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: timeoutMs,
   });
 }
 
@@ -211,8 +226,16 @@ export async function startVerifiedRuntimeDaemon(runtime, {
   timeoutMs = 10_000,
   pollIntervalMs = 100,
   delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  now = () => Date.now(),
 } = {}) {
-  const before = statusProbe(runtime, { cwd, env, syncSpawn });
+  const deadline = now() + timeoutMs;
+  const probe = () => statusProbe(runtime, {
+    cwd,
+    env,
+    syncSpawn,
+    timeoutMs: Math.max(1, deadline - now()),
+  });
+  const before = probe();
   if (daemonReady(before)) {
     return {
       status: 'already_running',
@@ -220,22 +243,44 @@ export async function startVerifiedRuntimeDaemon(runtime, {
       daemon_status: JSON.parse(before.stdout),
     };
   }
+  if (now() >= deadline) {
+    return {
+      status: 'failed',
+      exit_code: 2,
+      error: 'verified runtime status probe exceeded the startup timeout',
+      last_status_exit_code: Number.isInteger(before?.status) ? before.status : null,
+    };
+  }
 
   let spawnError = null;
+  let childExited = false;
   let childExitCode = null;
-  const child = childSpawn(runtime.binary_path, ['daemon'], {
-    cwd,
-    env,
-    detached: true,
-    stdio: 'ignore',
-  });
+  let childExitSignal = null;
+  let child;
+  try {
+    child = childSpawn(runtime.binary_path, ['daemon'], {
+      cwd,
+      env,
+      detached: true,
+      stdio: 'ignore',
+    });
+  } catch (error) {
+    return {
+      status: 'failed',
+      exit_code: 2,
+      error: error.message,
+    };
+  }
   child.once?.('error', (error) => { spawnError = error; });
-  child.once?.('exit', (code) => { childExitCode = code; });
+  child.once?.('exit', (code, signal) => {
+    childExited = true;
+    childExitCode = code;
+    childExitSignal = signal;
+  });
   child.unref?.();
 
-  const deadline = Date.now() + timeoutMs;
   let lastProbe = before;
-  while (Date.now() < deadline) {
+  while (now() < deadline) {
     await delay(pollIntervalMs);
     if (spawnError) {
       return {
@@ -244,14 +289,15 @@ export async function startVerifiedRuntimeDaemon(runtime, {
         error: spawnError.message,
       };
     }
-    if (childExitCode != null) {
+    if (childExited) {
       return {
         status: 'failed',
         exit_code: 2,
-        error: `verified runtime daemon exited before readiness (exit ${childExitCode})`,
+        error: `verified runtime daemon exited before readiness (${childExitCode == null ? `signal ${childExitSignal ?? 'unknown'}` : `exit ${childExitCode}`})`,
       };
     }
-    lastProbe = statusProbe(runtime, { cwd, env, syncSpawn });
+    if (now() >= deadline) break;
+    lastProbe = probe();
     if (daemonReady(lastProbe)) {
       return {
         status: 'started',

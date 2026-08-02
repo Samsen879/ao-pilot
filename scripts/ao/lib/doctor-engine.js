@@ -24,8 +24,15 @@ const RECONCILIATION_FINDING_SOURCE_AREAS = {
   release_readiness_ambiguous: 'cross_source',
 };
 
-function buildSuggestionTemplates(scope) {
+function shellQuote(value) {
+  return `'${String(value).replaceAll("'", `'"'"'`)}'`;
+}
+
+function buildSuggestionTemplates(scope, { runtimeStore = null } = {}) {
   const projectId = scope?.project_id ?? 'my-project';
+  const runtimeStoreArgument = runtimeStore == null || String(runtimeStore).trim() === ''
+    ? ''
+    : ` --runtime-store ${shellQuote(String(runtimeStore).trim())}`;
   const reconcileCommand = scope?.mode === 'pr' && Number.isInteger(scope?.pr_number)
     ? `node scripts/ao-reconcile.js --pr ${scope.pr_number} --json --strict`
     : `node scripts/ao-reconcile.js --project ${projectId} --json`;
@@ -34,7 +41,7 @@ function buildSuggestionTemplates(scope) {
     ao_runtime_status: {
       action_class: 'runtime_check',
       summary: 'Inspect AO runtime status.',
-      commands: [`ao-pilot status --project ${projectId} --json`],
+      commands: [`ao-pilot status --project ${projectId} --json${runtimeStoreArgument}`],
       rationale: 'AO runtime visibility or continuity needs direct inspection.',
     },
     ao_artifact_review: {
@@ -648,8 +655,8 @@ function buildDoctorOnlyFindings({
   ];
 }
 
-function buildSuggestions(findings, scope) {
-  const suggestionTemplates = buildSuggestionTemplates(scope);
+function buildSuggestions(findings, scope, options = {}) {
+  const suggestionTemplates = buildSuggestionTemplates(scope, options);
   const ids = [...new Set(findings.flatMap((finding) => finding.suggestion_ids ?? []))];
 
   return ids
@@ -683,6 +690,7 @@ export function buildDoctorReport({
   reconciliationReport,
   localState,
   controlPlaneSnapshot = null,
+  runtimeStore = null,
 } = {}) {
   const projectId = scope?.project_id ?? reconciliationReport?.project_id ?? 'unknown-project';
   const sourceHealth = deriveSourceHealth(reconciliationReport, localState);
@@ -696,7 +704,7 @@ export function buildDoctorReport({
     controlPlaneSnapshot,
   });
   const findings = [...reconciliationFindings, ...doctorFindings];
-  const suggestions = buildSuggestions(findings, scope);
+  const suggestions = buildSuggestions(findings, scope, { runtimeStore });
 
   return {
     schema_version: DOCTOR_SCHEMA_VERSION,

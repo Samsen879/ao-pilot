@@ -13,6 +13,7 @@ describe('start-clean managed runtime routing', () => {
     });
 
     expect(result.status).toBe(0);
+    expect(result.stdout).toContain('bin/ao-pilot.js runtime-path');
     expect(result.stdout).toContain('bin/ao-pilot.js stop --project portable');
     expect(result.stdout).toContain('bin/ao-pilot.js start --project portable');
     expect(result.stdout).toContain('bin/ao-pilot.js status --project portable');

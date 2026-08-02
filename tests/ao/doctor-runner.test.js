@@ -121,6 +121,7 @@ describe('doctor runner', () => {
           checkpoints: [],
         },
       },
+      runtimeStore: null,
     });
     expect(result).toEqual({
       scope: {

@@ -189,4 +189,46 @@ describe('runtime control boundary', () => {
     expect(result.status).toBe('already_running');
     expect(childSpawn).not.toHaveBeenCalled();
   });
+
+  it('bounds the initial status probe by the remaining startup timeout', async () => {
+    const syncSpawn = jest.fn().mockReturnValue({
+      status: null,
+      stdout: '',
+      stderr: '',
+      error: { code: 'ETIMEDOUT' },
+    });
+    const childSpawn = jest.fn();
+    const now = jest.fn()
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(10_000);
+
+    const result = await startVerifiedRuntimeDaemon(verified, {
+      syncSpawn,
+      childSpawn,
+      timeoutMs: 10_000,
+      now,
+    });
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      exit_code: 2,
+      error: expect.stringContaining('status probe exceeded'),
+    });
+    expect(syncSpawn).toHaveBeenCalledWith(
+      verified.binary_path,
+      ['status', '--json'],
+      expect.objectContaining({ timeout: 10_000 }),
+    );
+    expect(childSpawn).not.toHaveBeenCalled();
+  });
+
+  it('returns structured failure when daemon spawn throws synchronously', async () => {
+    const syncSpawn = jest.fn().mockReturnValue({ status: 1, stdout: '', stderr: '' });
+    const childSpawn = jest.fn(() => { throw new Error('spawn denied'); });
+
+    const result = await startVerifiedRuntimeDaemon(verified, { syncSpawn, childSpawn });
+
+    expect(result).toMatchObject({ status: 'failed', exit_code: 2, error: 'spawn denied' });
+  });
 });

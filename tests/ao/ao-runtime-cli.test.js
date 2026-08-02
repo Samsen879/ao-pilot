@@ -101,6 +101,54 @@ describe('ao-pilot runtime lifecycle CLI', () => {
     expect(() => parseRuntimeArgs(['status', '--watch'])).toThrow('Unknown argument');
   });
 
+  it('executes status from the already verified runtime without a second resolution', async () => {
+    const output = createIo();
+    const resolveRuntime = jest.fn().mockReturnValue(runtime);
+    const executeRuntime = jest.fn().mockReturnValue({
+      runtime,
+      result: {
+        status: 0,
+        signal: null,
+        stdout: '{"state":"ready"}',
+        stderr: '',
+        error: null,
+      },
+    });
+
+    const result = await runCli(['status', '--json'], output.io, {
+      resolveRuntime,
+      executeRuntime,
+      cwd: '/repo',
+      env: { PATH: '/safe' },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(resolveRuntime).toHaveBeenCalledTimes(1);
+    expect(executeRuntime).toHaveBeenCalledWith(
+      runtime,
+      ['status', '--json'],
+      expect.objectContaining({ cwd: '/repo', env: { PATH: '/safe' } }),
+    );
+  });
+
+  it('returns a structured blocker if resolved execution throws', async () => {
+    const output = createIo();
+    const error = Object.assign(new Error('binary changed after verification'), {
+      code: 'runtime_binary_integrity_mismatch',
+    });
+
+    const result = await runCli(['stop', '--json'], output.io, {
+      resolveRuntime: () => runtime,
+      executeRuntime: () => { throw error; },
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(JSON.parse(output.stderr.join(''))).toMatchObject({
+      status: 'blocked',
+      code: 'runtime_binary_integrity_mismatch',
+    });
+  });
+
   it('fails closed and does not execute when a wrong ao shadows the runtime', async () => {
     const output = createIo();
     const executeRuntime = jest.fn();

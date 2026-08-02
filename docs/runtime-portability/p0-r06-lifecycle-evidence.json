@@ -46,16 +46,29 @@
     "exit_code": 2,
     "candidate_executed": false
   },
+  "review_1": {
+    "review_id": 4837731635,
+    "reviewed_head": "a8b777b80624e996074718ee73a1cda197cef984",
+    "submitted_at": "2026-08-02T08:06:07Z",
+    "findings": [
+      "P1_runtime_blocker_must_override_ambiguous",
+      "P1_status_probe_must_be_timeout_bounded",
+      "P2_second_runtime_resolution_must_not_escape_structured_failure",
+      "P2_start_clean_dry_run_must_include_runtime_path",
+      "P2_doctor_suggestion_must_preserve_runtime_store"
+    ],
+    "repair_status": "implemented_and_full_gate_verified"
+  },
   "verification": {
     "focused_suites": 9,
-    "focused_tests": 44,
+    "focused_tests": 58,
     "full_suites": 84,
-    "full_tests": 494,
+    "full_tests": 500,
     "acceptance_tests": 7,
     "package_entries": 189,
     "dependency_vulnerabilities": 0,
     "verify_runtime_lifecycle": "verified",
-    "full_release_check": "verified"
+    "full_release_check": "verified_repair_head"
   },
   "claim_boundary": {
     "package_portability": true,
