@@ -305,15 +305,20 @@ function acquireBootstrapLock({
       recoveredProcessIds.push(owner.pid);
     }
     removeManagedPath(storeRoot, lockPath);
-    for (const entry of fs.readdirSync(targetParent)) {
-      if (!entry.startsWith(stagePrefix)) continue;
-      const candidate = path.join(targetParent, entry);
-      removeManagedPath(storeRoot, candidate);
-    }
     if (!claim()) {
       fail('bootstrap_in_progress', 'Another runtime bootstrap acquired the recovered target', {
         lock_path: lockPath,
       });
+    }
+    // The recovered lock is ours before any cleanup occurs. Restrict cleanup
+    // to the verified dead owner's PID so a racing live owner can never lose
+    // its staging directory.
+    if (Number.isSafeInteger(owner?.pid) && owner.pid > 0) {
+      const recoveredStagePrefix = `${stagePrefix}${owner.pid}-`;
+      for (const entry of fs.readdirSync(targetParent)) {
+        if (!entry.startsWith(recoveredStagePrefix)) continue;
+        removeManagedPath(storeRoot, path.join(targetParent, entry));
+      }
     }
     recovered = true;
   }
@@ -339,6 +344,57 @@ function acquireBootstrapLock({
       removeManagedPath(storeRoot, lockPath);
     },
   };
+}
+
+function recoverInterruptedPromotion({
+  storeRoot,
+  runtimeDirectory,
+  recoveredProcessIds,
+  verifyRuntime,
+}) {
+  if (recoveredProcessIds.length === 0) return { recoveredBackup: false };
+  const parent = path.dirname(runtimeDirectory);
+  const basename = path.basename(runtimeDirectory);
+  const backups = fs.readdirSync(parent).filter((entry) => {
+    const match = new RegExp(`^${basename}\\.backup-(\\d+)-[a-f0-9]+$`).exec(entry);
+    return match != null && recoveredProcessIds.includes(Number(match[1]));
+  });
+  if (backups.length > 1) {
+    fail('bootstrap_recovery_ambiguous', 'Multiple interrupted runtime backups require inspection', {
+      backup_paths: backups.map((entry) => path.join(parent, entry)),
+    });
+  }
+  if (backups.length === 0) return { recoveredBackup: false };
+  const backupPath = path.join(parent, backups[0]);
+  assertNoSymlinkBelow(storeRoot, backupPath);
+
+  if (fs.existsSync(runtimeDirectory)) {
+    try {
+      verifyRuntime();
+    } catch (error) {
+      fail('bootstrap_recovery_ambiguous', 'Interrupted promotion has an invalid target and a preserved backup', {
+        runtime_directory: runtimeDirectory,
+        backup_path: backupPath,
+        cause_code: error.code ?? error.name,
+        cause: error.message,
+      });
+    }
+    removeManagedPath(storeRoot, backupPath);
+    return { recoveredBackup: true, restored: false };
+  }
+
+  fs.renameSync(backupPath, runtimeDirectory);
+  try {
+    verifyRuntime();
+  } catch (error) {
+    fs.renameSync(runtimeDirectory, backupPath);
+    fail('bootstrap_backup_invalid', 'Interrupted runtime backup failed verification', {
+      backup_path: backupPath,
+      cause_code: error.code ?? error.name,
+      cause: error.message,
+    });
+  }
+  return { recoveredBackup: true, restored: true };
 }
 
 function gitEnvironment(env, isolatedHome) {
@@ -804,48 +860,6 @@ export async function bootstrapManagedRuntime({
   const targetParent = path.dirname(runtimeDirectory);
   ensureManagedDirectory(normalizedStore, targetParent);
 
-  if (fs.existsSync(runtimeDirectory) && !reinstall) {
-    let verified;
-    try {
-      verified = resolveInternal({
-        lock: runtimeLock,
-        toolchainLock,
-        storeRoot: normalizedStore,
-        platform,
-        arch,
-        aoPilotVersion,
-      });
-    } catch (error) {
-      fail('runtime_existing_invalid', 'Existing managed runtime is invalid; use --reinstall', {
-        runtime_directory: runtimeDirectory,
-        cause_code: error.code ?? error.name,
-        cause: error.message,
-      });
-    }
-    const pathVerified = {
-      ...resolveManagedRuntime({
-        lock: runtimeLock,
-        storeRoot: normalizedStore,
-        platform,
-        arch,
-        aoPilotVersion,
-        env,
-        cwd,
-      }),
-      bootstrap_receipt_path: verified.bootstrap_receipt_path,
-    };
-    return {
-      status: 'reused',
-      offline,
-      reinstall,
-      recovered_interrupted_bootstrap: false,
-      store_root: normalizedStore,
-      cache_root: normalizedCache,
-      runtime: pathVerified,
-      internal_verification: verified.status,
-    };
-  }
-
   const lock = acquireBootstrapLock({
     storeRoot: normalizedStore,
     targetParent,
@@ -865,6 +879,54 @@ export async function bootstrapManagedRuntime({
   let installed = false;
   let installationCommitted = false;
   try {
+    const verifyInstalledRuntime = () => resolveInternal({
+      lock: runtimeLock,
+      toolchainLock,
+      storeRoot: normalizedStore,
+      platform,
+      arch,
+      aoPilotVersion,
+    });
+    const promotionRecovery = recoverInterruptedPromotion({
+      storeRoot: normalizedStore,
+      runtimeDirectory,
+      recoveredProcessIds: lock.recoveredProcessIds,
+      verifyRuntime: verifyInstalledRuntime,
+    });
+    if (fs.existsSync(runtimeDirectory) && !reinstall) {
+      let verified;
+      try {
+        verified = verifyInstalledRuntime();
+      } catch (error) {
+        fail('runtime_existing_invalid', 'Existing managed runtime is invalid; use --reinstall', {
+          runtime_directory: runtimeDirectory,
+          cause_code: error.code ?? error.name,
+          cause: error.message,
+        });
+      }
+      const pathVerified = {
+        ...resolveManagedRuntime({
+          lock: runtimeLock,
+          storeRoot: normalizedStore,
+          platform,
+          arch,
+          aoPilotVersion,
+          env,
+          cwd,
+        }),
+        bootstrap_receipt_path: verified.bootstrap_receipt_path,
+      };
+      return {
+        status: 'reused',
+        offline,
+        reinstall,
+        recovered_interrupted_bootstrap: lock.recovered || promotionRecovery.recoveredBackup,
+        store_root: normalizedStore,
+        cache_root: normalizedCache,
+        runtime: pathVerified,
+        internal_verification: verified.status,
+      };
+    }
     ensureManagedDirectory(normalizedStore, runtimeStage);
     const sourceCache = ensureSourceCache({
       run,

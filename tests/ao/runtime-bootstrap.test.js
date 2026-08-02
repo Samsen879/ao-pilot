@@ -230,20 +230,43 @@ describe('deterministic runtime bootstrap', () => {
     const parent = path.dirname(runtimeDirectory);
     const commit = fixture.runtimeLock.artifact.ref.commit_sha;
     const lockPath = path.join(parent, `.bootstrap-${commit}.lock`);
-    const staleStage = path.join(parent, `.staging-${commit}-stale`);
+    const staleStage = path.join(parent, `.staging-${commit}-999999-deadbeef`);
+    const unrelatedLiveStage = path.join(parent, `.staging-${commit}-123456-cafebabe`);
     const staleSourcePartial = `${fixture.sourceCache}.partial-999999-deadbeef`;
     const staleToolchainPartial = `${fixture.archiveCache}.partial-999999-deadbeef`;
     fs.mkdirSync(lockPath, { recursive: true });
     fs.writeFileSync(path.join(lockPath, 'owner.json'), JSON.stringify({ pid: 999999 }));
     fs.mkdirSync(staleStage);
+    fs.mkdirSync(unrelatedLiveStage);
     fs.mkdirSync(staleSourcePartial);
     fs.writeFileSync(staleToolchainPartial, 'partial');
 
-    const report = await bootstrap(fixture, { processAlive: () => false });
+    const report = await bootstrap(fixture, { processAlive: (pid) => pid === 123456 });
     expect(report.recovered_interrupted_bootstrap).toBe(true);
     expect(fs.existsSync(staleStage)).toBe(false);
+    expect(fs.existsSync(unrelatedLiveStage)).toBe(true);
     expect(fs.existsSync(staleSourcePartial)).toBe(false);
     expect(fs.existsSync(staleToolchainPartial)).toBe(false);
+  });
+
+  it('restores a verified backup left by an interrupted promotion', async () => {
+    const fixture = createFixture();
+    const installed = await bootstrap(fixture);
+    const runtimeDirectory = installed.runtime.runtime_directory;
+    const parent = path.dirname(runtimeDirectory);
+    const commit = fixture.runtimeLock.artifact.ref.commit_sha;
+    const lockPath = path.join(parent, `.bootstrap-${commit}.lock`);
+    const backupPath = `${runtimeDirectory}.backup-999999-deadbeef`;
+    fs.mkdirSync(lockPath, { recursive: true });
+    fs.writeFileSync(path.join(lockPath, 'owner.json'), JSON.stringify({ pid: 999999 }));
+    fs.renameSync(runtimeDirectory, backupPath);
+
+    const recovered = await bootstrap(fixture, { processAlive: () => false });
+    expect(recovered.status).toBe('reused');
+    expect(recovered.recovered_interrupted_bootstrap).toBe(true);
+    expect(fs.existsSync(runtimeDirectory)).toBe(true);
+    expect(fs.existsSync(backupPath)).toBe(false);
+    expect(fs.readFileSync(recovered.runtime.binary_path, 'utf8')).toBe(binaryContent);
   });
 
   it('fails closed while another bootstrap owner is alive', async () => {

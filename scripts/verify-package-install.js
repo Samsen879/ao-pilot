@@ -140,9 +140,9 @@ try {
     'node_modules',
     'ao-pilot',
     'scripts',
-    'bootstrap.sh',
+    'bootstrap-runtime.js',
   );
-  run(bootstrapPath, ['--help'], { cwd: installRoot });
+  run(process.execPath, [bootstrapPath, '--help'], { cwd: installRoot });
   const versionResult = run(binPath, ['--version'], {
     cwd: installRoot,
     shell: process.platform === 'win32',

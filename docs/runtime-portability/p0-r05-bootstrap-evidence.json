@@ -43,7 +43,7 @@
   },
   "release_gate": {
     "test_suites": "81/81",
-    "tests": "476/476",
+    "tests": "477/477",
     "acceptance": "7/7",
     "operator_smoke": "PASS",
     "package_entries": 185,
