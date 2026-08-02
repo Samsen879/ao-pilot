@@ -1,5 +1,5 @@
 {
-  "schema_version": "ao.workstation-self-hosting-receipt.v3",
+  "schema_version": "ao.workstation-self-hosting-receipt.v4",
   "status": "pending",
   "performed_at": "REPLACE_WITH_ISO_8601",
   "environment": {
@@ -105,14 +105,91 @@
     "worker_worktree_removed": false,
     "stale_ownership_absent": false
   },
+  "terminal_recovery_chain": {
+    "schema_version": "ao.workstation-terminal-recovery-chain.v1",
+    "standing_admission": {
+      "issue_number": 63,
+      "comment_id": 5158510418,
+      "comment_body_bytes": 3712,
+      "comment_body_sha256": "431e128a4ffe100b1a74a327778796480513f6fd06a5ab9a8df5c2e5c5df1284",
+      "created_at": "2026-08-02T14:24:49Z",
+      "updated_at": "2026-08-02T14:24:49Z",
+      "principal_pr_number": 71,
+      "max_additional_recovery_attempts": 2,
+      "admitted_main_sha": "59cdf7c0ddfedfe4438eaeeff485146534fae287",
+      "admitted_tree_sha": "044f49e5fe8cbfe2382001436d1e060b9bbb0e07"
+    },
+    "attempts": [
+      {
+        "attempt": 1,
+        "kind": "terminal_recovery_delivery",
+        "disposition": "failed_premerge_gates",
+        "admission": {
+          "comment_id": 5158225894,
+          "comment_body_sha256": "24fbc151586ef2e841f2b5979ef14f05f387a71ef3b5aed9a554245704658a61",
+          "admitted_main_sha": "6d3bf2879d76cd6ab304b0040f1be2c88c294e66",
+          "admitted_tree_sha": "dafe190179199b0b3dbcf16f4e91c1bc714bae4b"
+        },
+        "pr": {
+          "number": 72,
+          "url": "https://github.com/Samsen879/ao-pilot/pull/72",
+          "head_sha": "054cf5f648bb72b94ee4cdd1b17e64515db9031f",
+          "reviewed_head": "054cf5f648bb72b94ee4cdd1b17e64515db9031f",
+          "codex_reviews": [
+            {
+              "attempt": 1,
+              "kind": "clean_comment",
+              "evidence_id": 5158396828,
+              "request_comment_id": 5158376025,
+              "head_sha": "0724ab9882846314e39845292ab86ef4aefb3c2b",
+              "completed_at": "2026-08-02T14:03:57Z"
+            },
+            {
+              "attempt": 2,
+              "kind": "clean_comment",
+              "evidence_id": 5158456834,
+              "request_comment_id": 5158426324,
+              "head_sha": "054cf5f648bb72b94ee4cdd1b17e64515db9031f",
+              "completed_at": "2026-08-02T14:15:06Z"
+            }
+          ],
+          "merge_sha": "59cdf7c0ddfedfe4438eaeeff485146534fae287",
+          "merge_tree_sha": "044f49e5fe8cbfe2382001436d1e060b9bbb0e07",
+          "merged_at": "2026-08-02T14:15:52Z"
+        },
+        "failure": {
+          "disposition_comment_id": 5158533683,
+          "disposition_comment_body_sha256": "850ee6631986731684666fa1fc379835497d740fcd72ac725065ac10f542e487",
+          "disposition_created_at": "2026-08-02T14:29:13Z",
+          "disposition_updated_at": "2026-08-02T14:29:13Z",
+          "collector_review_2_recognized": false,
+          "premerge_worktree_evidence_published": false,
+          "terminal_receipt_published": false,
+          "reason_codes": [
+            "review_2_clean_comment_unrecognized",
+            "premerge_worktree_evidence_missing"
+          ]
+        }
+      },
+      {
+        "attempt": 2,
+        "kind": "terminal_recovery_delivery",
+        "disposition": "pending",
+        "predecessor_pr_number": 72,
+        "admission_comment_id": 5158510418,
+        "pr_number": 0,
+        "worktree_evidence_comment_id": 0
+      }
+    ]
+  },
   "terminal_remediation": {
     "admission": {
       "issue_number": 63,
-      "comment_id": 5158225894,
-      "comment_body_sha256": "24fbc151586ef2e841f2b5979ef14f05f387a71ef3b5aed9a554245704658a61",
+      "comment_id": 5158510418,
+      "comment_body_sha256": "431e128a4ffe100b1a74a327778796480513f6fd06a5ab9a8df5c2e5c5df1284",
       "principal_pr_number": 71,
-      "admitted_main_sha": "6d3bf2879d76cd6ab304b0040f1be2c88c294e66",
-      "admitted_tree_sha": "dafe190179199b0b3dbcf16f4e91c1bc714bae4b"
+      "admitted_main_sha": "59cdf7c0ddfedfe4438eaeeff485146534fae287",
+      "admitted_tree_sha": "044f49e5fe8cbfe2382001436d1e060b9bbb0e07"
     },
     "environment": {
       "kind": "isolated_terminal_remediation",
@@ -127,18 +204,18 @@
     "source": {
       "repository": "https://github.com/Samsen879/ao-pilot.git",
       "clone_path": "/home/guoqy/p0-r08-terminal-remediation/ao-pilot",
-      "clone_head_sha": "6d3bf2879d76cd6ab304b0040f1be2c88c294e66",
-      "clone_tree_sha": "dafe190179199b0b3dbcf16f4e91c1bc714bae4b",
+      "clone_head_sha": "59cdf7c0ddfedfe4438eaeeff485146534fae287",
+      "clone_tree_sha": "044f49e5fe8cbfe2382001436d1e060b9bbb0e07",
       "clean_before_bootstrap": true
     },
     "delivery": {
       "orchestrator_session_id": "ao-pilot-remediation-1",
-      "worker_session_id": "ao-pilot-remediation-2",
+      "worker_session_id": "ao-pilot-remediation-3",
       "worker_created_by_new_ao": true,
       "worker_created_from_issue": true,
-      "worker_worktree_path": "/home/guoqy/p0-r08-terminal-remediation/ao-state/data/worktrees/ao-pilot-remediation/ao-pilot-remediation-2",
+      "worker_worktree_path": "/home/guoqy/p0-r08-terminal-remediation/ao-state/data/worktrees/ao-pilot-remediation/ao-pilot-remediation-3",
       "worktree_evidence_comment_id": 0,
-      "worker_branch": "ao/p0-r08-terminal-remediation",
+      "worker_branch": "ao/p0-r08-standing-recovery-1",
       "worker_committed": true,
       "worker_pushed": true,
       "worker_opened_pr": true,

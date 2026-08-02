@@ -2,8 +2,8 @@
 
 > Historical principal-proof record: the retry procedure below produced sole
 > principal PR #71 and its immutable v2 evidence. Do not rerun it. The
-> Owner-authorized terminal-remediation addendum later in this document is the
-> only active delivery procedure, and the v3 receipt retains this entire v2
+> Owner-authorized standing terminal-recovery addendum later in this document
+> is the only active delivery procedure, and the v4 receipt retains this entire v2
 > proof as its first layer.
 
 This handoff is the owner-authorized P0-R08 retry admitted by issue #63 comment
@@ -153,16 +153,31 @@ to the receipt. Only then stop both sessions, remove the Worker worktree and
 retry task branches, clean the project/session state, stop the daemon, and
 verify that no active re-engagement or other stale ownership remains.
 
-## Owner-authorized terminal-remediation addendum
+## Owner-authorized ordered terminal-recovery addendum
 
-Issue #63 comment `5158225894` (exact UTF-8 body SHA-256
-`24fbc151586ef2e841f2b5979ef14f05f387a71ef3b5aed9a554245704658a61`)
-admits exactly one additional non-principal terminal-remediation PR from main
-`6d3bf2879d76cd6ab304b0040f1be2c88c294e66` / tree
-`dafe190179199b0b3dbcf16f4e91c1bc714bae4b`. PR #71 remains the sole
-principal delivery. The additional PR body must link #63, identify itself as
-terminal remediation to admission comment `5158225894` and PR #71, and must
-not contain `Closes #63`, `Fixes #63`, or equivalent auto-close wording.
+The first terminal admission in issue #63 comment `5158225894` produced PR
+#72. That PR merged as `59cdf7c0ddfedfe4438eaeeff485146534fae287` /
+tree `044f49e5fe8cbfe2382001436d1e060b9bbb0e07`, but it is an immutable
+failed terminal attempt: its strict collector missed Review 2 comment
+`5158456834`, and no immutable pre-merge worktree evidence was published.
+Owner comment `5158533683` records that fail-closed disposition. PR #72 must
+never be rewritten as a successful proof.
+
+Unedited Owner comment `5158510418`, created and last updated at
+`2026-08-02T14:24:49Z`, is the standing terminal-recovery admission. Its exact
+JSON body string is 3,712 UTF-8 bytes with SHA-256
+`431e128a4ffe100b1a74a327778796480513f6fd06a5ab9a8df5c2e5c5df1284`.
+It admits at most two additional sequential non-principal recovery attempts
+from exact main `59cdf7c0ddfedfe4438eaeeff485146534fae287` / tree
+`044f49e5fe8cbfe2382001436d1e060b9bbb0e07`. This document covers attempt 1
+under that standing authority (ordered recovery-chain attempt 2 after failed
+PR #72). PR #71 remains the sole principal delivery.
+
+The recovery PR body must link issue #63, standing admission comment
+`5158510418`, sole principal PR #71, and failed chain attempt PR #72. It must
+not contain `Closes #63`, `Fixes #63`, `Resolves #63`, or equivalent
+auto-close wording. No unrelated or unordered issue-linked delivery is
+allowed.
 
 This run uses the fresh clone and isolated AO state below:
 
@@ -178,28 +193,51 @@ No prior AO database, sessions, project, daemon, worktree, or re-engagement
 state may be read. Do not claim a remediation-specific runtime store or cache:
 neither was created or used.
 
-Before merge, run `capture:self-hosting-worktree` from the remediation Worker
-package. Its v3 payload binds the admitted remediation clone, fresh AO data and
-run paths, Worker session/worktree/branch/HEAD, and shared Git common directory.
+Before merge, run `capture:self-hosting-worktree` from the recovery Worker
+package. Its v4 payload binds the standing admission and baseline, chain
+attempt 2 and predecessor PR #72, admitted clone, fresh AO data and run paths,
+Worker session/worktree/branch/HEAD, and shared Git common directory.
 The receipt and durable completion evidence bind the reused literal runtime
 binary and digest separately. Record the resulting unedited issue
 comment in `terminal_remediation.delivery.worktree_evidence_comment_id`.
 
-After the one remediation PR merges, replay `npm run release:check` on its
+```bash
+SOURCE_ROOT=/home/guoqy/p0-r08-terminal-remediation/ao-pilot
+WORKER_ROOT=/home/guoqy/p0-r08-terminal-remediation/ao-state/data/worktrees/ao-pilot-remediation/ao-pilot-remediation-3
+AO_DATA_DIR=/home/guoqy/p0-r08-terminal-remediation/ao-state/data \
+AO_RUN_FILE=/home/guoqy/p0-r08-terminal-remediation/ao-state/running.json \
+npm --prefix "$WORKER_ROOT" run capture:self-hosting-worktree -- \
+  --source-root "$SOURCE_ROOT" \
+  --worker-root "$WORKER_ROOT" \
+  --worker-session-id ao-pilot-remediation-3 \
+  --out /tmp/p0-r08-standing-recovery-1-worktree-evidence.json
+gh issue comment 63 --body-file /tmp/p0-r08-standing-recovery-1-worktree-evidence.json
+```
+
+The Orchestrator, not the Worker, publishes that payload and reads it back
+before merge. It must also replay the live collector for every completed
+review, verify complete finding disposition and final-head CI, and run receipt
+preflight for every field available before merge. A missing comment ID or
+readback is a blocker, never a placeholder that may pass.
+
+After the recovery PR merges, replay `npm run release:check` on its
 exact merge SHA/tree, invoke `orchestrator done` through the literal pinned
 binary, publish that command evidence, and clean only the remediation AO
 sessions/worktrees/branches/project/daemon state. Record those facts under
 `terminal_remediation.exact_main_replay` and `terminal_remediation.cleanup`.
-The final v3 verifier preserves and revalidates the original v2 admission,
+The final v4 verifier preserves and revalidates the original v2 admission,
 principal PR #71, comments `5157857462` and `5157899599`, and cleanup proof;
-then it independently validates the terminal admission, exactly one
-post-admission remediation PR, its reviews/CI/merge SHA/tree, and requires the
-verifier checkout to equal the resulting exact current main. Any additional
-post-admission issue-linked delivery fails closed.
+then it independently validates the exact two-entry ordered recovery chain:
+failed PR #72 plus this recovery delivery. It binds the standing admission,
+the PR #72 failure disposition and both PR #72 reviews, exactly one
+post-standing-admission recovery PR, that PR's reviews/CI/merge SHA/tree, and
+requires the verifier checkout to equal resulting exact current main. Any
+additional, omitted, duplicated, or reordered delivery fails closed.
 
 A connector clean completion may also be an unedited issue comment authored
 through the `chatgpt-codex-connector` GitHub App whose body begins exactly
-`Codex Review: Didn't find any major issues. :+1:` and contains one reviewed
+either `Codex Review: Didn't find any major issues. :+1:` or
+`Codex Review: Didn't find any major issues. You're on a roll.` and contains one reviewed
 commit abbreviation of at least 10 hexadecimal characters. The verifier calls
 this `clean_comment` evidence and accepts it only when the abbreviation maps
 uniquely to one earlier unedited Owner exact-head request. Generic connector

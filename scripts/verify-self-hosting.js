@@ -13,6 +13,9 @@ import {
   loadSelfHostingReceipt,
   P0_R08_RETRY_ADMISSION_COMMENT,
   P0_R08_RETRY_ADMISSION_PR,
+  P0_R08_FAILED_TERMINAL_DISPOSITION_COMMENT,
+  P0_R08_FAILED_TERMINAL_PR,
+  P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT,
   P0_R08_PRINCIPAL_PR,
   P0_R08_TERMINAL_ADMISSION_COMMENT,
   verifySelfHostingReceipt,
@@ -58,8 +61,9 @@ function pullEvidence(number, repositoryRoot) {
     created_at: value.created_at ?? null,
     linked_issue_63: /(^|\s)#63\b/.test(body),
     auto_closes_issue_63: /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#63\b/i.test(body),
-    binds_terminal_admission: /\b5158225894\b/.test(body) && /terminal[- ]remediation/i.test(body),
+    binds_terminal_admission: /\b5158510418\b/.test(body) && /terminal[- ]recovery/i.test(body),
     binds_principal_pr_71: /(?:\bPR\s*#71\b|\bprincipal[^\n]*#71\b)/i.test(body),
+    binds_failed_terminal_pr_72: /(?:\bPR\s*#72\b|\bfailed[^\n]*#72\b)/i.test(body),
   };
 }
 
@@ -72,6 +76,7 @@ function admissionEvidence(commentId, repositoryRoot) {
     author_association: comment.author_association ?? null,
     created_at: comment.created_at ?? null,
     updated_at: comment.updated_at ?? null,
+    body_bytes: Buffer.byteLength(comment.body ?? '', 'utf8'),
     body_sha256: createHash('sha256').update(comment.body ?? '').digest('hex'),
   };
 }
@@ -162,11 +167,15 @@ function collectEvidence(receipt, repositoryRoot) {
       admission_pr: pullEvidence(P0_R08_RETRY_ADMISSION_PR, repositoryRoot),
       retry_admission: admissionEvidence(P0_R08_RETRY_ADMISSION_COMMENT, repositoryRoot),
       principal_pr: pullEvidence(P0_R08_PRINCIPAL_PR, repositoryRoot),
+      first_terminal_admission: admissionEvidence(P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT, repositoryRoot),
+      failed_terminal_pr: pullEvidence(P0_R08_FAILED_TERMINAL_PR, repositoryRoot),
+      failed_terminal_disposition: admissionEvidence(P0_R08_FAILED_TERMINAL_DISPOSITION_COMMENT, repositoryRoot),
       terminal_remediation_admission: admissionEvidence(P0_R08_TERMINAL_ADMISSION_COMMENT, repositoryRoot),
       terminal_remediation_pr: pullEvidence(remediationPr, repositoryRoot),
       issue_linked_prs: issueLinkedPrEvidence(repositoryRoot),
       check_runs: checks.check_runs.map((check) => ({ name: check.name, conclusion: check.conclusion })),
       codex_reviews: codexReviewEvidence(principalPr, repositoryRoot),
+      failed_terminal_codex_reviews: codexReviewEvidence(P0_R08_FAILED_TERMINAL_PR, repositoryRoot),
       terminal_check_runs: terminalChecks.check_runs.map((check) => ({ name: check.name, conclusion: check.conclusion })),
       terminal_codex_reviews: codexReviewEvidence(remediationPr, repositoryRoot),
       review_findings: reviewFindingEvidence(principalPr, repositoryRoot),

@@ -7,10 +7,12 @@ import {
   P0_R08_TERMINAL_AO_RUN_FILE,
   P0_R08_TERMINAL_ADMITTED_MAIN,
   P0_R08_TERMINAL_ADMITTED_TREE,
+  P0_R08_FAILED_TERMINAL_PR,
+  P0_R08_TERMINAL_ADMISSION_COMMENT,
   P0_R08_TERMINAL_ROOT,
 } from './self-hosting-receipt.js';
 
-export const WORKTREE_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-worktree-evidence.v3';
+export const WORKTREE_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-worktree-evidence.v4';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -84,6 +86,13 @@ export function captureWorktreeEvidence({ env = process.env, ...options }) {
       remediation_root: P0_R08_TERMINAL_ROOT,
       ao_data_dir: env.AO_DATA_DIR,
       ao_run_file: env.AO_RUN_FILE,
+    },
+    recovery_chain: {
+      standing_admission_comment_id: P0_R08_TERMINAL_ADMISSION_COMMENT,
+      attempt: 2,
+      prior_attempt_pr_number: P0_R08_FAILED_TERMINAL_PR,
+      admitted_main_sha: P0_R08_TERMINAL_ADMITTED_MAIN,
+      admitted_tree_sha: P0_R08_TERMINAL_ADMITTED_TREE,
     },
   };
 }
