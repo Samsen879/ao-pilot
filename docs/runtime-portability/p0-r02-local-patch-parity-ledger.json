@@ -1,0 +1,292 @@
+{
+  "schema_version": "ao.runtime-patch-parity.v1",
+  "policy_ref": "policy.ao_runtime_portability_recovery.v1",
+  "issue": 57,
+  "recorded_at": "2026-08-02T02:45:26+08:00",
+  "audit_scope": {
+    "old_checkout": "/home/samsen/.local/share/agent-orchestrator-src",
+    "mode": "read_only",
+    "old_head": "00bea6e589b4696ea7c897ea45dd15e2de78b4e7",
+    "old_tree": "9499d49334b3ba8b3da60ea653483a1a0d00377a",
+    "old_stale_origin_main": "a99aedf9a889f023477cfb1696b73f3c74fa0e79",
+    "unique_commit_count": 12,
+    "patch_transfer_prohibited": true
+  },
+  "official_observation": {
+    "canonical_repository": "https://github.com/Untrivial-ai/agent-orchestrator",
+    "main_commit": "20dbad5f68d3bf905c4a38df12aa42716c8d360f",
+    "main_tree": "ad025e3fd6e2085878fc6d2deb1fa1dc72f9ad9a",
+    "latest_stable_tag": "v0.11.2",
+    "latest_stable_commit": "c5523a6d0e51251b79555b95ddc7d2be59da0f50",
+    "latest_stable_tree": "6784a292cb54c4a2031ede6cfeaee9a4bb1cd104",
+    "npm_wrapper": {
+      "name": "@aoagents/ao",
+      "version": "0.10.3",
+      "integrity": "sha512-La3w8jv2AJV0GoekWzTEav7ZaQnw1xhnZmfwooXwLVGGuX1BV6vCT56P7xzUrfRPFJ+BuGMRuSqyftMVo6JzyQ==",
+      "shasum": "aded3adbbb5e6a18cbf19865c17a287b45e5e549",
+      "bin": {
+        "ao": "bin/ao.js"
+      }
+    },
+    "npm_linux_x64": {
+      "name": "@aoagents/ao-linux-x64",
+      "version": "0.10.3",
+      "integrity": "sha512-B74xSc073V9hjIoZs860m7hbm/7rgjjuV7mkEdeVU8WaJKylBhkHit90qclaC6ol8UJw/AA1j5syLLF9RND+9A==",
+      "shasum": "929632edfb263e42f8cfc65bd9fd533c358d7176"
+    }
+  },
+  "comparison_method": {
+    "exact_patch_id": "git patch-id --stable plus git cherry against official main and v0.11.2",
+    "semantic_review": "changed behavior and tests compared with the official Go runtime at v0.11.2 and live main",
+    "exact_patch_result": "all 12 local patch IDs remain unique because upstream replaced the TypeScript runtime with a Go implementation",
+    "classification_vocabulary": [
+      "adopted",
+      "equivalent",
+      "obsolete",
+      "still-required",
+      "conflicting"
+    ]
+  },
+  "summary": {
+    "adopted": 8,
+    "equivalent": 1,
+    "obsolete": 2,
+    "still-required": 1,
+    "conflicting": 0,
+    "current_main_conflicting_reverts": 5,
+    "verdict": "Do not bulk migrate. Port only the tmux permission-denied liveness correction onto a supported public baseline; prefer the stable re-engagement implementation over the reverted current-main behavior."
+  },
+  "commits": [
+    {
+      "ordinal": 1,
+      "commit": "44d333b5000b75b5b5b89df5df6818a3fbe7f7ce",
+      "patch_id": "fe1a342d49c25c9fa7904be8c7ac97a4baa2d134",
+      "subject": "Handle tmux liveness check failures under sandboxing",
+      "classification": "still-required",
+      "stable_relation": "missing",
+      "main_relation": "missing",
+      "capability": "A tmux permission or socket-access failure is unknown liveness and must not be reported as a missing session.",
+      "evidence": [
+        "v0.11.2:backend/internal/adapters/runtime/tmux/tmux.go#IsAlive",
+        "v0.11.2:backend/internal/adapters/runtime/tmux/tmux.go#sessionMissingOutput",
+        "main:backend/internal/adapters/runtime/tmux/tmux_test.go#TestIsAliveReportsOtherExitFailuresAsProbeErrors"
+      ],
+      "minimum_experiment": {
+        "input": "error connecting to /tmp/tmux-1000/default (Operation not permitted)",
+        "official_predicate": "sessionMissingOutput",
+        "observed_predicate_result": true,
+        "official_is_alive_result": "false,nil",
+        "required_result": "false,error",
+        "reason": "The official predicate matches every 'error connecting' string, including permission denial, so the reaper receives false proof of death."
+      },
+      "migration_action": "Port a narrow Go predicate/test change; do not cherry-pick the TypeScript commit."
+    },
+    {
+      "ordinal": 2,
+      "commit": "718da41daa762d41c6f142cd86d3b11baf761d45",
+      "patch_id": "3d1fc27fedb1391fb8e6dbde20018527c68adf81",
+      "subject": "Keep Codex orchestrators running autonomously",
+      "classification": "adopted",
+      "stable_relation": "adopted_by_79a70e82f_durable_reengagement",
+      "main_relation": "conflicting_revert_ef4d6c124",
+      "capability": "Route coordination back to an idle orchestrator without granting new authority.",
+      "evidence": [
+        "v0.11.2:backend/internal/orchestratorloop/manager.go",
+        "v0.11.2:backend/internal/orchestratorloop/manager_test.go",
+        "upstream commit 79a70e82f",
+        "upstream main revert ef4d6c124"
+      ],
+      "migration_action": "Use the stable durable implementation; do not port the old reaction engine."
+    },
+    {
+      "ordinal": 3,
+      "commit": "d9c64fa38e55fb32280d0dcad880e646ff7f2534",
+      "patch_id": "1a6bf9581c2fb594e28546ac2fc7c6310259c7a8",
+      "subject": "Repeat sustained idle reactions on cadence",
+      "classification": "adopted",
+      "stable_relation": "superseded_by_durable_bounded_retry_and_backoff_in_79a70e82f",
+      "main_relation": "conflicting_revert_ef4d6c124",
+      "capability": "Repeat an idle-orchestrator continuation signal without an unbounded retry loop.",
+      "evidence": [
+        "v0.11.2:backend/internal/orchestratorloop/manager.go#attempt",
+        "v0.11.2:backend/internal/orchestratorloop/manager.go#backoff",
+        "v0.11.2:backend/internal/orchestratorloop/manager_test.go"
+      ],
+      "migration_action": "Retain the stable bounded retry model; do not port repeatEvery."
+    },
+    {
+      "ordinal": 4,
+      "commit": "26e1904163f17a7de905a8a956903ebef9563c4a",
+      "patch_id": "9ad495465700c67bd29e2b9cc7bdfa26cdb7505d",
+      "subject": "Slow idle reaction retries to eight minutes",
+      "classification": "obsolete",
+      "stable_relation": "superseded_by_10m_initial_delay_exponential_backoff_and_3_attempt_ceiling",
+      "main_relation": "feature_removed_with_ef4d6c124",
+      "capability": "Avoid noisy rapid idle retries.",
+      "evidence": [
+        "v0.11.2:backend/internal/orchestratorloop/manager.go#DefaultInitialDelay",
+        "v0.11.2:backend/internal/orchestratorloop/manager.go#DefaultMaxBackoff",
+        "v0.11.2:backend/internal/orchestratorloop/manager.go#DefaultMaxAttempts"
+      ],
+      "migration_action": "Do not port the literal eight-minute constant."
+    },
+    {
+      "ordinal": 5,
+      "commit": "d7eb1aeebfdce3f40bef90ee4c1dd64a40e5fede",
+      "patch_id": "92be482c0e765906ea676bb0e7b45043c3834f4c",
+      "subject": "Stop idle nudges after all work is complete",
+      "classification": "adopted",
+      "stable_relation": "superseded_by_explicit_durable_completion_and_exhaustion_in_79a70e82f",
+      "main_relation": "conflicting_revert_ef4d6c124",
+      "capability": "Stop repeated coordination messages after terminal completion.",
+      "evidence": [
+        "v0.11.2:backend/internal/orchestratorloop/manager.go#Complete",
+        "v0.11.2:backend/internal/cli/orchestrator.go#orchestrator-done",
+        "v0.11.2:backend/internal/storage/sqlite/migrations/0038_orchestrator_reengagement.sql"
+      ],
+      "migration_action": "Use explicit durable completion and bounded exhaustion instead of worker-list heuristics."
+    },
+    {
+      "ordinal": 6,
+      "commit": "9957b8319423a5b5f6a50550c5440bcc5d40f068",
+      "patch_id": "0fcc43382acdadf8d00558e7945f62ae6da4943e",
+      "subject": "Avoid codex tmux paste corruption on long sends",
+      "classification": "adopted",
+      "stable_relation": "superseded_by_e8674961f_chunked_literal_send_enter_delay_and_guarded_confirmation",
+      "main_relation": "retained_and_further_hardened",
+      "capability": "Deliver long or multiline prompts without losing the submission Enter.",
+      "evidence": [
+        "v0.11.2:backend/internal/adapters/runtime/tmux/tmux.go#SendMessage",
+        "v0.11.2:backend/internal/session_manager/manager.go#Send",
+        "upstream commit e8674961f"
+      ],
+      "migration_action": "Use the official chunk, delay, confirmation, and permission-dialog guards."
+    },
+    {
+      "ordinal": 7,
+      "commit": "a862a5d0c07ccaea5b376cd68af551b33a5a77e3",
+      "patch_id": "d9bf47671ef1ece7bfdafe40f15f935f59e9f5dc",
+      "subject": "Preserve idle session status from metadata",
+      "classification": "adopted",
+      "stable_relation": "native_durable_activity_state",
+      "main_relation": "retained",
+      "capability": "Persist idle as a first-class session/activity state.",
+      "evidence": [
+        "v0.11.2:backend/internal/domain/activity.go",
+        "v0.11.2:backend/internal/domain/status.go",
+        "v0.11.2:backend/internal/storage/sqlite/migrations/0001_init.sql"
+      ],
+      "migration_action": "No port required."
+    },
+    {
+      "ordinal": 8,
+      "commit": "5ed0947826a66932a607d8a883a7b74ad4909393",
+      "patch_id": "685e3b292d869ee1e68fe30bd3ae0e7f44a5afdb",
+      "subject": "fix: reconcile ao session branch and ci state",
+      "classification": "adopted",
+      "stable_relation": "native_session_branch_ci_rollup_and_review_thread_observation",
+      "main_relation": "retained_and_extended",
+      "capability": "Keep session branch and GitHub CI/review state aligned with live repository facts.",
+      "evidence": [
+        "v0.11.2:backend/internal/domain/pr.go",
+        "v0.11.2:backend/internal/adapters/scm/github/provider.go",
+        "v0.11.2:backend/internal/adapters/scm/github/observer_provider.go",
+        "v0.11.2:backend/internal/storage/sqlite/queries/sessions.sql"
+      ],
+      "migration_action": "No port required."
+    },
+    {
+      "ordinal": 9,
+      "commit": "e5a6ff03445dbf86bdff52dc42b02476f174bc35",
+      "patch_id": "2127ccf55a6a34e845303a5ed1f912c5014004d8",
+      "subject": "fix(cli): clarify AO running lock permission errors",
+      "classification": "obsolete",
+      "stable_relation": "running_json_lock_removed_by_go_daemon_architecture",
+      "main_relation": "not_applicable",
+      "capability": "Distinguish lock contention from permission failure.",
+      "evidence": [
+        "v0.11.2:backend/internal/cli/client.go",
+        "v0.11.2:backend/internal/daemon/daemon.go",
+        "v0.11.2:backend/internal/runfile"
+      ],
+      "migration_action": "Do not recreate the retired TypeScript running.json lock."
+    },
+    {
+      "ordinal": 10,
+      "commit": "859da6db0299a61feace4930bb1f4e221edf5f5a",
+      "patch_id": "45d19c973b7601b7d261ef5912e8719e903ede96",
+      "subject": "fix: harden local AO runtime lifecycle",
+      "classification": "equivalent",
+      "stable_relation": "capability_reimplemented_in_go_daemon_cli_session_runtime_and_scm_layers",
+      "main_relation": "retained_and_extended",
+      "capability": "Bound startup readiness, shutdown, process cleanup, session cleanup, and GitHub delivery state.",
+      "evidence": [
+        "v0.11.2:backend/internal/cli/start.go",
+        "v0.11.2:backend/internal/cli/stop.go",
+        "v0.11.2:backend/internal/daemon/daemon.go",
+        "v0.11.2:backend/internal/session_manager/manager.go",
+        "v0.11.2:backend/internal/adapters/runtime/tmux/tmux.go",
+        "v0.11.2:backend/internal/adapters/scm/github/provider.go"
+      ],
+      "migration_action": "Retain the Go architecture; extract only independently missing safety behavior."
+    },
+    {
+      "ordinal": 11,
+      "commit": "1f3f32e0db9a9429380760a579858eb4ac867066",
+      "patch_id": "5f9517bc784dcd47b68e4d2a14daf10029ce47cb",
+      "subject": "fix: make worker startup and stuck detection fail closed",
+      "classification": "adopted",
+      "stable_relation": "native_seed_transaction_binary_preflight_runtime_facts_and_worktree_guards",
+      "main_relation": "retained_and_extended",
+      "capability": "Do not report a worker started or stuck when workspace, binary, runtime, or observation evidence is incomplete.",
+      "evidence": [
+        "v0.11.2:backend/internal/session_manager/manager.go#Spawn",
+        "v0.11.2:backend/internal/lifecycle/manager.go#ApplyRuntimeObservation",
+        "v0.11.2:backend/internal/observe/reaper/reaper.go",
+        "v0.11.2:backend/internal/adapters/workspace/gitworktree/workspace.go"
+      ],
+      "migration_action": "No wholesale port; preserve official fail-closed transaction and observation model."
+    },
+    {
+      "ordinal": 12,
+      "commit": "00bea6e589b4696ea7c897ea45dd15e2de78b4e7",
+      "patch_id": "69b45d50f7b5341178484827458f6c10f1f669c9",
+      "subject": "fix: resume orchestration after terminal worker epochs",
+      "classification": "adopted",
+      "stable_relation": "superseded_by_durable_idle_orchestrator_reengagement_in_79a70e82f",
+      "main_relation": "conflicting_revert_ef4d6c124",
+      "capability": "Wake the orchestrator after a worker epoch so closeout or a serial successor can be handled.",
+      "evidence": [
+        "v0.11.2:backend/internal/orchestratorloop/manager.go#Tick",
+        "v0.11.2:backend/internal/orchestratorloop/manager.go#reengagementMessage",
+        "v0.11.2:backend/internal/orchestratorloop/manager_test.go"
+      ],
+      "migration_action": "Use the stable durable loop; do not port the old all-complete fingerprint implementation."
+    }
+  ],
+  "r03_input": {
+    "official_stable_sufficient": false,
+    "reason": "v0.11.2 has the required durable re-engagement model but retains the tmux permission-denied liveness misclassification.",
+    "required_public_delta": [
+      {
+        "source_local_commit": "44d333b5000b75b5b5b89df5df6818a3fbe7f7ce",
+        "target": "supported Go runtime",
+        "change": "Classify only missing tmux session/socket cases as dead; return an error for permission-denied or otherwise unclassifiable probe failures.",
+        "tests": [
+          "missing session returns false,nil",
+          "missing tmux server/socket returns false,nil",
+          "Operation not permitted returns false,error"
+        ]
+      }
+    ],
+    "fork_required": true,
+    "bulk_migration_allowed": false,
+    "runtime_selection_deferred_to_issue": 58
+  },
+  "limitations": [
+    "Go was not installed on the audit workstation, so upstream Go tests were not executed in R02.",
+    "The source-level minimum experiment is sufficient to identify the predicate defect, but R03 must execute the ported Go unit test and build in a clean fork clone before selecting an artifact.",
+    "No old runtime state, credentials, sessions, leases, worktrees, or package links were copied.",
+    "No commit from the old checkout was pushed or cherry-picked."
+  ]
+}
