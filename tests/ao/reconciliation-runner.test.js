@@ -54,6 +54,8 @@ describe('reconciliation runner', () => {
 
     expect(mockLoadAoProjectObservation).toHaveBeenCalledWith({
       projectId: 'my-project',
+      cwd: process.cwd(),
+      env: process.env,
     });
     expect(mockLoadGitHubObservationSet).toHaveBeenCalledWith({
       scope: expect.objectContaining({

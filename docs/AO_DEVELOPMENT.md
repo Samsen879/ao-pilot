@@ -57,7 +57,15 @@ npm run verify:runtime-bootstrap
 `verify:runtime-lock` proves the offline runtime identity contract, while
 `verify:runtime-bootstrap` validates the toolchain lock and packaged entrypoint.
 The explicit `bootstrap.sh` invocation performs installation. None of these
-starts an OR or Worker.
+package/bootstrap verification commands starts an OR or Worker. P0-R06
+lifecycle paths can be inspected with `node ./bin/ao-pilot.js runtime-path
+--json`; lifecycle execution fails closed on missing, changed, incompatible,
+or shadowed runtime state.
+
+Run `npm run verify:runtime-lifecycle` after changing runtime-aware doctor,
+observation, start/stop/status, or `scripts/ao/start-clean.sh`. The managed
+start path launches the locked binary's `daemon` command directly and must not
+be replaced with upstream's desktop acquisition command named `ao start`.
 
 Run the complete release candidate gate:
 

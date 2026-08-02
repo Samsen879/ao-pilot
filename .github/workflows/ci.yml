@@ -29,4 +29,5 @@ jobs:
       - run: npm run verify:package
       - run: npm run verify:runtime-lock
       - run: npm run verify:runtime-bootstrap
+      - run: npm run verify:runtime-lifecycle
       - run: npm audit --omit=dev

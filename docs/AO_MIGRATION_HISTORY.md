@@ -17,6 +17,15 @@ verified offline cache reuse, and clean reinstall. This advances bootstrap
 portability but does not supersede the P0-R06 lifecycle, P0-R07 fresh-clone
 gate, or P0-R08 self-hosting requirements.
 
+P0-R06 adds runtime-aware doctor/auth inspection, exact managed
+`start`/`stop`/`status`/`runtime-path` entrypoints, and routes AO
+observation through the verified absolute binary. It supersedes the executable
+PATH dependency in `scripts/ao/start-clean.sh` without rewriting the historical
+incident record. Fresh-clone release gating and workstation self-hosting remain
+unestablished until P0-R07 and P0-R08. The lifecycle start path invokes the
+locked binary's `daemon` entrypoint directly and deliberately avoids upstream's
+mutable desktop acquisition command named `ao start`.
+
 ## Independent product baseline
 
 The public repository baseline removes documentation-contract tests that

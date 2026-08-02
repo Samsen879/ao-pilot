@@ -20,8 +20,9 @@ source_documents:
 > bounded P0 runtime portability recovery in issue #55. More importantly, prior
 > operational success on the old workstation does not prove fresh-clone
 > portability. `ao-pilot@0.2.0` is package-portable; P0-R04/P0-R05 add the
-> locked external runtime and deterministic managed bootstrap, but lifecycle
-> and self-hosting remain unproven. The authoritative correction is
+> locked external runtime and deterministic managed bootstrap, and P0-R06 adds
+> verified lifecycle entrypoints. Fresh-clone gating and self-hosting remain
+> unproven. The authoritative correction is
 > [P0-R01](runtime-portability/P0-R01_INCIDENT_BASELINE.md), and the original
 > #12–#54 chain is blocked until P0-R08 closes.
 
@@ -434,7 +435,8 @@ AO 可以读取 repository knowledge，并从项目配置中识别 setup、verif
 | 命令 | 主要用途 |
 |---|---|
 | `controller` | 持续执行 observe、reconcile、decision 和 assist loop |
-| `doctor` | 检查 owner、worktree、PR、provider 等健康问题 |
+| `doctor` | 检查 owner、worktree、PR、provider，以及 runtime provenance/integrity/auth availability |
+| `start` / `stop` / `status` / `runtime-path` | 只通过 verified managed runtime 控制或检查 Agent Orchestrator |
 | `reconcile` | 比较 AO state、runtime 与 GitHub live state |
 | `lifecycle` | 判断 task/PR 当前推进阶段和 release posture |
 | `manage` | enroll、resume、pause 或 retire managed task |

@@ -135,6 +135,14 @@ try {
     cwd: installRoot,
     shell: process.platform === 'win32',
   });
+  run(binPath, ['start', '--help'], {
+    cwd: installRoot,
+    shell: process.platform === 'win32',
+  });
+  run(binPath, ['runtime-path', '--help'], {
+    cwd: installRoot,
+    shell: process.platform === 'win32',
+  });
   const bootstrapPath = path.join(
     installRoot,
     'node_modules',

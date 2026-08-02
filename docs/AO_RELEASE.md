@@ -13,8 +13,9 @@ bundled evaluation, and presence of the package-owned runtime lock.
 `verify:runtime-lock` separately verifies the immutable identity, provenance,
 build, binary-path, and compatibility contract. `verify:runtime-bootstrap`
 validates the official toolchain lock and formal bootstrap entrypoint; an
-explicit `./scripts/bootstrap.sh` performs the managed install. No current gate
-starts or stops the external Agent Orchestrator runtime. See the
+explicit `./scripts/bootstrap.sh` performs the managed install. P0-R06 provides
+verified doctor/start/stop/status/runtime-path entrypoints, but P0-R07 has not
+yet established the empty-HOME fresh-clone runtime smoke release gate. See the
 [incident baseline](runtime-portability/P0-R01_INCIDENT_BASELINE.md).
 
 ## Release Candidate Checks
@@ -27,7 +28,8 @@ npm pack --dry-run
 
 The release check runs the full test suite, lifecycle acceptance suite,
 operator smoke, isolated tarball installation, bundled evaluation pack,
-runtime-lock and bootstrap-contract verification, and full dependency audit.
+runtime-lock, bootstrap-contract, exact lifecycle-routing verification, and
+full dependency audit.
 
 Confirm version consistency:
 
@@ -68,8 +70,14 @@ The first install verifies the exact annotated Git tag object, commit, tree,
 official Go archive SHA-256, final binary SHA-256, and compatibility contract.
 The second proves idempotent reuse; the third performs an atomic clean rebuild
 from verified caches. A PATH-shadowing `ao` makes the command fail closed and
-is never used. This gate still does not establish OR/Worker lifecycle or
-self-hosting.
+is never used. P0-R06 lifecycle entrypoints may be inspected separately with
+`node ./bin/ao-pilot.js runtime-path --json`; this bootstrap gate still does not
+establish fresh-clone OR/Worker lifecycle or self-hosting.
+
+`npm run verify:runtime-lifecycle` verifies that lifecycle and observation
+routing use the exact resolved binary and that `start-clean.sh` contains no
+direct PATH `ao` execution. It is a contract gate, not the R07 isolated live
+daemon smoke or the R08 self-hosting receipt.
 
 ## Tag and GitHub Release
 

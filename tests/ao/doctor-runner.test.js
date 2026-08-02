@@ -83,6 +83,8 @@ describe('doctor runner', () => {
     expect(mockRunReconciliation).toHaveBeenCalledWith({
       projectId: 'my-project',
       prNumber: null,
+      cwd: '/home/user/my-project',
+      env: process.env,
     });
     expect(mockEnsureRuntimePreflights).toHaveBeenCalledWith({
       cwd: '/home/user/my-project',
@@ -183,6 +185,8 @@ describe('doctor runner', () => {
     expect(mockRunReconciliation).toHaveBeenCalledWith({
       projectId: 'my-project',
       prNumber: 44,
+      cwd: '/home/user/my-project',
+      env: process.env,
     });
     expect(result.scope).toEqual({
       mode: 'pr',

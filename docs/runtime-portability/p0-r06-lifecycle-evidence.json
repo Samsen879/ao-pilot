@@ -1,0 +1,69 @@
+{
+  "schema_version": "ao.runtime-portability.p0-r06-evidence.v1",
+  "issue": 61,
+  "admission": {
+    "main_sha": "2c75dc7bd88a314e910bea9b3bae7354b21caf8b",
+    "tree_sha": "b18aacd07277f29a609084ee61ea3f55a92c25ae"
+  },
+  "runtime": {
+    "runtime_ref": "runtime.agent_orchestrator.v0_11_2_p0_1",
+    "lock_digest": "sha256:54853697a5e2078fb236de210d5b7c1c936034a6554da06b60e17f5f9dc0fb36",
+    "repository": "https://github.com/Samsen879/agent-orchestrator.git",
+    "version": "0.11.2-p0.1",
+    "tag": "ao-pilot-runtime-v0.11.2-p0.1",
+    "commit_sha": "711178ebe07d436db36020eb08f0c4e29613f97b",
+    "tree_sha": "479fba6fd44f251f0c66fafc5cb5d638a6ff590a",
+    "binary_sha256_linux_x64": "a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34"
+  },
+  "lifecycle_contract": {
+    "start": ["daemon"],
+    "status": ["status", "--json"],
+    "stop": ["stop", "--json"],
+    "observation": ["session", "ls", "--all", "--project", "<project-id>", "--json"],
+    "desktop_acquisition_command_allowed": false,
+    "path_resolved_ao_allowed": false
+  },
+  "isolated_live_validation": {
+    "observed_at": "2026-08-02T07:48:57.009Z",
+    "home_isolated": true,
+    "old_runtime_state_read": false,
+    "credential_state_copied": false,
+    "path_ao_present": false,
+    "bootstrap_status": "installed",
+    "start_status": "started",
+    "daemon_state": "ready",
+    "status_exit_code": 0,
+    "doctor_runtime_status": "verified",
+    "doctor_ao_source_health": "ok",
+    "doctor_github_authenticated": false,
+    "doctor_codex_authenticated": false,
+    "stop_status": "completed",
+    "stop_exit_code": 0
+  },
+  "shadowing_validation": {
+    "path_candidate": "/home/samsen/.nvm/versions/node/v22.22.1/bin/ao",
+    "result_code": "runtime_path_shadowed",
+    "exit_code": 2,
+    "candidate_executed": false
+  },
+  "verification": {
+    "focused_suites": 9,
+    "focused_tests": 44,
+    "full_suites": 84,
+    "full_tests": 494,
+    "acceptance_tests": 7,
+    "package_entries": 189,
+    "dependency_vulnerabilities": 0,
+    "verify_runtime_lifecycle": "verified",
+    "full_release_check": "verified"
+  },
+  "claim_boundary": {
+    "package_portability": true,
+    "runtime_lifecycle_contract": true,
+    "isolated_daemon_start_status_stop": true,
+    "fresh_clone_release_gate": false,
+    "workstation_self_hosting": false,
+    "p0_r08_admitted": false,
+    "issue_12_admitted": false
+  }
+}

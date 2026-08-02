@@ -15,8 +15,10 @@ different. `ao-pilot@0.2.0` can be packed and installed. Its package-owned
 runtime identity, provenance, managed binary integrity, and compatibility.
 The P0-R05 bootstrap retrieves the exact public Git object and checksummed Go
 toolchain, builds into an atomic content-addressed store, and materializes
-provenance. The package does not yet authenticate, start, or stop that runtime.
-The P0 recovery lane therefore treats the complete system as three explicit
+provenance. P0-R06 adds secret-free authentication availability diagnostics and
+routes runtime observation/start/stop/status through the verified absolute
+binary. Start calls the locked binary's daemon entrypoint, not its mutable
+desktop acquisition path. The P0 recovery lane still treats the complete system as three explicit
 layers:
 
 ```text

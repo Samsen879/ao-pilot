@@ -71,8 +71,12 @@ mechanism. It fails closed on:
 - a different executable named `ao` appearing first on `PATH`.
 
 The final item makes shadowing visible and prevents accidental fallback to a
-same-name package. Lifecycle commands added by P0-R06 must invoke only the
-verified absolute managed binary path returned by this resolver.
+same-name package. P0-R06 lifecycle commands invoke only the verified absolute
+managed binary path returned by this resolver. Reconciliation uses that same
+path for runtime status observation and never falls back to a PATH command.
+Runtime observation uses `ao session ls --all --project <id> --json` from that
+binary. Runtime daemon start invokes its `daemon` entrypoint directly; the
+upstream `ao start` desktop download/open path is outside this contract.
 
 ## Deterministic managed bootstrap
 
@@ -121,13 +125,34 @@ sessions, leases, or copied Agent Orchestrator state.
   build preserves the prior verified runtime.
 - Bootstrap locks bind PID and Linux process-start identity. A live owner blocks
   concurrency; a dead owner permits bounded cleanup of only its matching
-  staging and partial-cache paths.
+  staging and partial-cache paths. Promotion backups belonging to that verified
+  dead owner are restored and re-verified when the target is missing; ambiguous
+  target/backup combinations fail closed.
 - Managed symlinks, corrupt caches, wrong digests, unsupported platforms, and
   a shadowing PATH `ao` all fail closed with machine-readable diagnostics.
 
 ## Boundary with later P0 gates
 
 The lock plus bootstrap now establish deterministic identity, retrieval,
-build, installation, cache reuse, and resolution. They do not start the OR,
-create Workers, exercise GitHub delivery, or prove workstation self-hosting.
-Those claims remain gated by P0-R06 through P0-R08.
+build, installation, cache reuse, and resolution. P0-R06 adds runtime-aware
+doctor output and verified `start`, `stop`, `status`, and
+`runtime-path` entrypoints:
+
+```bash
+node ./bin/ao-pilot.js runtime-path --json
+node ./bin/ao-pilot.js doctor --json
+node ./bin/ao-pilot.js start --project my-project
+node ./bin/ao-pilot.js status --project my-project --json
+node ./bin/ao-pilot.js stop --project my-project
+```
+
+The doctor reports source/version/commit/tree/integrity, compatibility, exact
+binary path/digest, shadowing, and GitHub/Codex auth availability without
+retaining command output or secrets. A missing, changed, incompatible, or
+shadowed runtime blocks lifecycle execution. P0-R06 does not prove a fresh
+clone gate, Worker delivery, or workstation self-hosting; those remain gated
+by P0-R07 and P0-R08.
+
+`npm run verify:runtime-lifecycle` checks the static exact-binary routing
+contract. It intentionally reports `live_daemon_claim: false`; live isolated
+start/status/stop coverage becomes a formal release gate in P0-R07.

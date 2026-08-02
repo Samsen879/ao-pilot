@@ -34,6 +34,7 @@ export async function runDoctor({
   projectId = DEFAULT_PROJECT_ID,
   prNumber = null,
   cwd = process.cwd(),
+  env = process.env,
 } = {}) {
   const scope = prNumber != null
     ? createDoctorPrScope({ projectId, prNumber })
@@ -42,6 +43,8 @@ export async function runDoctor({
   const { report: reconciliationReport } = await runReconciliation({
     projectId,
     prNumber,
+    cwd,
+    env,
   });
   const localState = await loadDoctorLocalState({ cwd });
   const controlPlaneSnapshot = loadControlPlaneSnapshot({

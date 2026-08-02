@@ -34,7 +34,7 @@ function buildSuggestionTemplates(scope) {
     ao_runtime_status: {
       action_class: 'runtime_check',
       summary: 'Inspect AO runtime status.',
-      commands: [`ao status -p ${projectId} --json`],
+      commands: [`ao-pilot status --project ${projectId} --json`],
       rationale: 'AO runtime visibility or continuity needs direct inspection.',
     },
     ao_artifact_review: {

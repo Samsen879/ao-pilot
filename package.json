@@ -73,9 +73,10 @@
     "verify:package": "node scripts/verify-package-install.js",
     "verify:runtime-lock": "node scripts/verify-runtime-lock.js",
     "verify:runtime-bootstrap": "node scripts/verify-runtime-bootstrap.js",
+    "verify:runtime-lifecycle": "node scripts/verify-runtime-lifecycle.js",
     "verify:runtime-inventory": "node scripts/verify-runtime-portability-inventory.js",
     "verify:runtime-parity": "node scripts/verify-runtime-patch-parity.js",
-    "release:check": "npm test && npm run ao:test:acceptance && npm run ao:smoke && npm run verify:package && npm run verify:runtime-lock && npm run verify:runtime-bootstrap && npm audit"
+    "release:check": "npm test && npm run ao:test:acceptance && npm run ao:smoke && npm run verify:package && npm run verify:runtime-lock && npm run verify:runtime-bootstrap && npm run verify:runtime-lifecycle && npm audit"
   },
   "jest": {
     "testEnvironment": "node",

@@ -1,5 +1,6 @@
 import { readAoFixture } from './fixture-support.js';
 import { LOCAL_COMMAND_RUNNER } from './providers/command-runner.js';
+import { resolveRuntimeControl } from './runtime-control.js';
 
 export const DEFAULT_FRESHNESS_THRESHOLD_MS = 15 * 60 * 1000;
 
@@ -110,12 +111,14 @@ function classifyFreshness(lastSeenAt, now, staleAfterMs = DEFAULT_FRESHNESS_THR
 
 function normalizeSession(session, now, staleAfterMs) {
   const normalizedSession = isRecord(session) ? session : {};
-  const lastSeenAt = normalizedSession.updatedAt
+  const lastSeenAt = normalizedSession.lastActivityAt
+    ?? normalizedSession.activity?.lastActivityAt
+    ?? normalizedSession.updatedAt
     ?? normalizedSession.lastSeenAt
     ?? normalizedSession.observedAt
     ?? parseRelativeLastActivity(normalizedSession.lastActivity, now)
     ?? null;
-  const issueNumber = normalizedSession.issueNumber ?? normalizedSession.issue ?? null;
+  const issueNumber = normalizedSession.issueId ?? normalizedSession.issueNumber ?? normalizedSession.issue ?? null;
   const lifecycleState = normalizedSession.lifecycleState ?? normalizedSession.status ?? null;
   const linkageBasis = [];
   if (normalizedSession.prNumber != null) linkageBasis.push('session_pr_number');
@@ -124,14 +127,14 @@ function normalizeSession(session, now, staleAfterMs) {
   if (!linkageBasis.length) linkageBasis.push('unknown');
 
   return {
-    session_name: String(normalizedSession.name ?? normalizedSession.sessionName ?? 'unknown-session'),
+    session_name: String(normalizedSession.displayName ?? normalizedSession.name ?? normalizedSession.sessionName ?? normalizedSession.id ?? 'unknown-session'),
     session_runtime_id: normalizedSession.id != null ? String(normalizedSession.id) : String(normalizedSession.name ?? normalizedSession.sessionName ?? 'unknown-session'),
     session_role: normalizedSession.role === 'orchestrator' || normalizedSession.role === 'worker' ? normalizedSession.role : 'unknown',
     issue_number: normalizeInteger(issueNumber),
     branch_name: normalizedSession.branch != null ? String(normalizedSession.branch) : null,
     pr_number: normalizeInteger(normalizedSession.prNumber),
     lifecycle_state: lifecycleState != null ? String(lifecycleState) : null,
-    agent_label: normalizedSession.agent != null ? String(normalizedSession.agent) : null,
+    agent_label: normalizedSession.harness ?? normalizedSession.agent ?? null,
     observed_owner_hint: normalizedSession.ownerHint != null ? String(normalizedSession.ownerHint) : null,
     linkage_basis: linkageBasis,
     worktree_path: normalizedSession.worktreePath != null ? String(normalizedSession.worktreePath) : null,
@@ -174,7 +177,14 @@ function normalizeAoPayload(parsed, errorPrefix) {
     };
   }
 
-  throw new Error(`${errorPrefix} payload: expected a top-level array or an object with a sessions array`);
+  if (isRecord(parsed) && Array.isArray(parsed.data)) {
+    return {
+      project_id: null,
+      sessions: parsed.data,
+    };
+  }
+
+  throw new Error(`${errorPrefix} payload: expected a top-level array or an object with a sessions/data array`);
 }
 
 function buildObservationFromPayload({
@@ -215,9 +225,12 @@ function buildObservationFromPayload({
 
 export async function loadAoProjectObservation({
   projectId,
+  cwd = process.cwd(),
+  env = process.env,
   now = new Date().toISOString(),
   staleAfterMs = DEFAULT_FRESHNESS_THRESHOLD_MS,
   commandRunner = LOCAL_COMMAND_RUNNER,
+  runtimeResolver = resolveRuntimeControl,
 } = {}) {
   const fixture = readAoFixture('ao-status.json');
   if (fixture) {
@@ -237,12 +250,24 @@ export async function loadAoProjectObservation({
     });
   }
 
-  const result = commandRunner.run('ao', ['status', '-p', projectId, '--json'], {
+  let runtime;
+  try {
+    runtime = runtimeResolver({ cwd, env });
+  } catch (error) {
+    return buildEmptyObservation(
+      projectId,
+      now,
+      `runtime verification failed (${error.code ?? 'runtime_verification_failed'}): ${error.message}`,
+    );
+  }
+
+  const result = commandRunner.run(runtime.binary_path, ['session', 'ls', '--all', '--project', projectId, '--json'], {
     encoding: 'utf8',
+    env,
   });
 
   if (result.status !== 0) {
-    const errorMessage = (result.stderr || result.stdout || 'ao status failed').trim();
+    const errorMessage = (result.stderr || result.stdout || 'managed ao session ls failed').trim();
     return buildEmptyObservation(projectId, now, errorMessage);
   }
 

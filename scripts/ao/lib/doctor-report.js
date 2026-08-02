@@ -35,9 +35,25 @@ function summarizeSuggestedCommands(suggestions) {
 }
 
 export function renderDoctorHumanSummary(report) {
+  const runtime = report.runtime ?? {};
+  const githubAuth = report.authentication?.github ?? {};
+  const codexAuth = report.authentication?.codex ?? {};
   return [
     `top_status: ${report.top_status}`,
-    `source_health: reconciliation=${report.source_health.reconciliation}, ao=${report.source_health.ao}, github=${report.source_health.github}, git=${report.source_health.git}, worktree=${report.source_health.worktree}`,
+    `source_health: reconciliation=${report.source_health.reconciliation}, ao=${report.source_health.ao}, github=${report.source_health.github}, git=${report.source_health.git}, worktree=${report.source_health.worktree}, runtime=${report.source_health.runtime ?? 'not_checked'}`,
+    `runtime_status: ${runtime.status ?? 'not_checked'}`,
+    `runtime_ref: ${runtime.runtime_ref ?? 'none'}`,
+    `runtime_repository: ${runtime.source?.repository ?? 'none'}`,
+    `runtime_version: ${runtime.source?.version ?? 'none'}`,
+    `runtime_commit_sha: ${runtime.source?.commit_sha ?? 'none'}`,
+    `runtime_tree_sha: ${runtime.source?.tree_sha ?? 'none'}`,
+    `runtime_integrity: ${runtime.source?.integrity == null ? 'none' : `${runtime.source.integrity.algorithm}:${runtime.source.integrity.digest}`}`,
+    `runtime_binary_path: ${runtime.binary_path ?? 'none'}`,
+    `runtime_binary_sha256: ${runtime.binary_sha256 ?? 'none'}`,
+    `runtime_compatibility: ao-pilot>=${runtime.compatibility?.ao_pilot?.minimum_version ?? 'none'}, ao-pilot<${runtime.compatibility?.ao_pilot?.maximum_exclusive_version ?? 'none'}`,
+    `runtime_path_candidate: ${runtime.path_candidate ?? 'none'}`,
+    `auth_github: available=${String(githubAuth.available ?? false)}, authenticated=${String(githubAuth.authenticated ?? false)}`,
+    `auth_codex: available=${String(codexAuth.available ?? false)}, authenticated=${String(codexAuth.authenticated ?? false)}`,
     `reconciliation_top_status: ${report.reconciliation_summary.top_status ?? 'none'}`,
     `reconciliation_targets: ${formatList(report.reconciliation_summary.selected_pr_numbers)}`,
     `current_branch: ${report.local_state.current_branch ?? 'none'}`,
