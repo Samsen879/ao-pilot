@@ -26,7 +26,7 @@ function realGitPath(repositoryRoot, gitPath) {
   return fs.realpathSync(absolute);
 }
 
-export function captureWorktreeEvidence({
+export function inspectWorktreeBinding({
   sourceRoot,
   workerRoot,
   workerSessionId,
@@ -44,8 +44,6 @@ export function captureWorktreeEvidence({
   const workerHead = git(workerTopLevel, ['rev-parse', 'HEAD^{commit}']);
   const workerBranch = git(workerTopLevel, ['branch', '--show-current']);
 
-  assert(sourceHead === P0_R07_ADMITTED_MAIN, 'Source worktree is not at the admitted P0-R07 main');
-  assert(sourceTree === P0_R07_ADMITTED_TREE, 'Source worktree tree is not the admitted P0-R07 tree');
   assert(sourceTopLevel !== workerTopLevel, 'Worker reused the bootstrap source worktree');
   assert(sourceCommonDir === workerCommonDir, 'Worker is not an independently bound worktree of the bootstrap clone');
   assert(/^ao\//.test(workerBranch), 'Worker branch is not AO-owned');
@@ -68,4 +66,11 @@ export function captureWorktreeEvidence({
       git_common_dir: workerCommonDir,
     },
   };
+}
+
+export function captureWorktreeEvidence(options) {
+  const evidence = inspectWorktreeBinding(options);
+  assert(evidence.source.head_sha === P0_R07_ADMITTED_MAIN, 'Source worktree is not at the admitted P0-R07 main');
+  assert(evidence.source.tree_sha === P0_R07_ADMITTED_TREE, 'Source worktree tree is not the admitted P0-R07 tree');
+  return evidence;
 }

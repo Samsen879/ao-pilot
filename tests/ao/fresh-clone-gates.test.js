@@ -13,7 +13,7 @@ import {
   verifySelfHostingReceipt,
 } from '../../scripts/ao/lib/self-hosting-receipt.js';
 import { parseArgs, removeTemporaryRoot } from '../../scripts/verify-fresh-clone.js';
-import { captureWorktreeEvidence } from '../../scripts/ao/lib/worktree-evidence.js';
+import { inspectWorktreeBinding } from '../../scripts/ao/lib/worktree-evidence.js';
 
 function validSelfHostingReceipt() {
   const runtime = loadRuntimeLock().lock;
@@ -243,10 +243,17 @@ describe('fresh-clone and protected self-hosting gates', () => {
     const sourceRoot = path.join(root, 'source');
     const workerRoot = path.join(root, 'worker');
     try {
-      execFileSync('git', ['clone', '--quiet', process.cwd(), sourceRoot]);
-      execFileSync('git', ['checkout', '--quiet', P0_R07_ADMITTED_MAIN], { cwd: sourceRoot });
+      fs.mkdirSync(sourceRoot);
+      execFileSync('git', ['init', '--quiet'], { cwd: sourceRoot });
+      execFileSync('git', ['config', 'user.name', 'AO Test'], { cwd: sourceRoot });
+      execFileSync('git', ['config', 'user.email', 'ao-test@example.invalid'], { cwd: sourceRoot });
+      fs.writeFileSync(path.join(sourceRoot, 'fixture.txt'), 'worktree evidence fixture\n');
+      execFileSync('git', ['add', 'fixture.txt'], { cwd: sourceRoot });
+      execFileSync('git', ['commit', '--quiet', '-m', 'test: seed worktree evidence'], { cwd: sourceRoot });
+      const sourceHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: sourceRoot, encoding: 'utf8' }).trim();
+      const sourceTree = execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: sourceRoot, encoding: 'utf8' }).trim();
       execFileSync('git', ['worktree', 'add', '--quiet', '-b', 'ao/p0-r08/evidence-test', workerRoot], { cwd: sourceRoot });
-      const evidence = captureWorktreeEvidence({
+      const evidence = inspectWorktreeBinding({
         sourceRoot,
         workerRoot,
         workerSessionId: 'worker-r08',
@@ -256,14 +263,14 @@ describe('fresh-clone and protected self-hosting gates', () => {
         schema_version: 'ao.workstation-worktree-evidence.v1',
         source: {
           clone_path: fs.realpathSync(sourceRoot),
-          head_sha: P0_R07_ADMITTED_MAIN,
-          tree_sha: P0_R07_ADMITTED_TREE,
+          head_sha: sourceHead,
+          tree_sha: sourceTree,
         },
         worker: {
           session_id: 'worker-r08',
           worktree_path: fs.realpathSync(workerRoot),
           branch: 'ao/p0-r08/evidence-test',
-          head_sha: P0_R07_ADMITTED_MAIN,
+          head_sha: sourceHead,
         },
       });
       expect(evidence.worker.git_common_dir).toBe(evidence.source.git_common_dir);
