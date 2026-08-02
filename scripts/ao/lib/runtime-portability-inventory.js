@@ -70,6 +70,12 @@ const EXPECTED_DOCUMENT_SHA256 = new Map([
   ['docs/consolidation/cie-embedded-ao/07-runtime-portability-erratum.md', 'd31728fbe5243af609c7a2dfa58001cd59bd0271a7000a3b6849abc9468499d6'],
 ]);
 
+const IMMUTABLE_EVIDENCE_DOCUMENTS = new Set([
+  'docs/runtime-portability/P0-R01_INCIDENT_BASELINE.md',
+  'docs/consolidation/cie-embedded-ao/FINAL_CONSOLIDATION_REPORT.md',
+  'docs/consolidation/cie-embedded-ao/07-runtime-portability-erratum.md',
+]);
+
 function sha256(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
@@ -273,10 +279,16 @@ export function verifyRuntimePortabilityInventory(root = process.cwd()) {
     for (const fragment of fragments) {
       assert(text.includes(fragment), `${relativePath} is missing required incident text: ${fragment}`);
     }
+    if (IMMUTABLE_EVIDENCE_DOCUMENTS.has(relativePath)) {
+      assert(
+        sha256(text) === EXPECTED_DOCUMENT_SHA256.get(relativePath),
+        `${relativePath} immutable evidence digest drifted`,
+      );
+    }
   }
-  // These digests bind the P0-R01 closeout snapshot. The live documentation is
-  // intentionally allowed to gain superseding P0-R02+ facts while retaining
-  // the incident correction markers above.
+  // The full ledger binds the P0-R01 closeout snapshot. Immutable incident and
+  // consolidation evidence remains digest-checked above; live documentation
+  // may gain superseding P0-R02+ facts while retaining the correction markers.
   assert(requiredText.size === EXPECTED_DOCUMENT_SHA256.size, 'document digest ledger mismatch');
 
   const packageJson = readJson(root, 'package.json');

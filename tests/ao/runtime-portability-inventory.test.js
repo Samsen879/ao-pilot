@@ -136,6 +136,42 @@ describe('P0-R01 runtime portability incident inventory', () => {
     }
   });
 
+  it.each([
+    'docs/runtime-portability/P0-R01_INCIDENT_BASELINE.md',
+    'docs/consolidation/cie-embedded-ao/FINAL_CONSOLIDATION_REPORT.md',
+    'docs/consolidation/cie-embedded-ao/07-runtime-portability-erratum.md',
+  ])('keeps immutable evidence digest-checked: %s', (immutablePath) => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-pilot-r01-immutable-doc-'));
+    const requiredPaths = [
+      'docs/runtime-portability/p0-r01-incident-inventory.json',
+      'docs/runtime-portability/p0-r01-issue-migration-receipt.json',
+      'docs/runtime-portability/P0-R01_INCIDENT_BASELINE.md',
+      'README.md',
+      'docs/AO_ARCHITECTURE.md',
+      'docs/AO_DEVELOPMENT.md',
+      'docs/AO_RELEASE.md',
+      'docs/AO_CONFIGURATION.md',
+      'docs/AO_MIGRATION_HISTORY.md',
+      'docs/AO_SYSTEM_ARCHITECTURE_AND_UPGRADE_GUIDE.md',
+      'docs/consolidation/cie-embedded-ao/FINAL_CONSOLIDATION_REPORT.md',
+      'docs/consolidation/cie-embedded-ao/07-runtime-portability-erratum.md',
+      'package.json',
+    ];
+    try {
+      for (const relativePath of requiredPaths) {
+        const target = path.join(tempRoot, relativePath);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.copyFileSync(path.join(ROOT, relativePath), target);
+      }
+      fs.appendFileSync(path.join(tempRoot, immutablePath), '\nUnauthorized historical rewrite.\n');
+      expect(() => verifyRuntimePortabilityInventory(tempRoot)).toThrow(
+        /immutable evidence digest drifted/,
+      );
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it('fails if evolving documentation removes an incident correction marker', () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-pilot-r01-doc-marker-'));
     const requiredPaths = [

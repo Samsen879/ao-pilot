@@ -223,6 +223,26 @@ describe('deterministic managed runtime resolver', () => {
     }));
   });
 
+  it.each(['', `${path.delimiter}/usr/bin`, `/usr/bin${path.delimiter}`])(
+    'treats an empty PATH component in %j as the working directory',
+    (pathValue) => {
+      const fixture = createVerifiedFixture();
+      const workingDirectory = createTempDir('ao-runtime-path-cwd-');
+      const shadowPath = path.join(workingDirectory, 'ao');
+      writeExecutable(shadowPath, '#!/bin/sh\necho wrong\n');
+
+      expect(() => resolveFixture(fixture, {
+        cwd: workingDirectory,
+        env: { PATH: pathValue },
+      })).toThrow(expect.objectContaining({
+        code: 'runtime_path_shadowed',
+        details: expect.objectContaining({
+          path_candidate: shadowPath,
+        }),
+      }));
+    },
+  );
+
   it('rejects a symlink in an intermediate managed directory', () => {
     const fixture = createVerifiedFixture();
     const binDirectory = path.dirname(fixture.binaryPath);

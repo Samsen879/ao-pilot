@@ -204,10 +204,12 @@ function isRegularFileWithoutSymlink(filePath) {
   }
 }
 
-function findFirstPathBinary(binaryName, pathValue) {
+function findFirstPathBinary(binaryName, pathValue, cwd) {
   for (const entry of String(pathValue ?? '').split(path.delimiter)) {
-    if (!entry) continue;
-    const candidate = path.resolve(entry, binaryName);
+    // POSIX shells interpret an empty PATH component as the current working
+    // directory. Mirror that lookup exactly so a leading, trailing, or doubled
+    // delimiter cannot hide a shadowing binary from the provenance guard.
+    const candidate = path.resolve(entry || cwd, binaryName);
     if (isPathExecutable(candidate)) return candidate;
   }
   return null;
@@ -275,6 +277,7 @@ export function resolveManagedRuntime({
   platform = process.platform,
   arch = process.arch,
   env = process.env,
+  cwd = process.cwd(),
 } = {}) {
   const normalizedLock = normalizeRuntimeLock(lock);
   assertCompatibility(normalizedLock, { platform, arch, aoPilotVersion });
@@ -287,7 +290,7 @@ export function resolveManagedRuntime({
   const provenancePath = path.join(runtimeDirectory, RUNTIME_PROVENANCE_FILENAME);
   assertNoManagedSymlink({ storeRoot, targetPath: provenancePath });
   if (!isRegularFileWithoutSymlink(provenancePath)) {
-    const pathCandidate = findFirstPathBinary(normalizedLock.binary.name, env.PATH);
+    const pathCandidate = findFirstPathBinary(normalizedLock.binary.name, env.PATH, cwd);
     fail('runtime_missing', 'Managed runtime provenance is missing', {
       runtime_directory: runtimeDirectory,
       path_candidate: pathCandidate,
@@ -325,7 +328,7 @@ export function resolveManagedRuntime({
     });
   }
 
-  const pathCandidate = findFirstPathBinary(normalizedLock.binary.name, env.PATH);
+  const pathCandidate = findFirstPathBinary(normalizedLock.binary.name, env.PATH, cwd);
   if (pathCandidate && realpath(pathCandidate) !== realpath(binaryPath)) {
     fail('runtime_path_shadowed', 'PATH contains a different binary with the locked runtime name', {
       binary_path: binaryPath,
