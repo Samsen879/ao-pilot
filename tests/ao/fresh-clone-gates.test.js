@@ -1,15 +1,19 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 import { describe, expect, it } from '@jest/globals';
 
 import { loadRuntimeLock } from '../../scripts/ao/lib/runtime-lock.js';
 import {
+  P0_R07_ADMITTED_MAIN,
+  P0_R07_ADMITTED_TREE,
   SELF_HOSTING_RECEIPT_SCHEMA_VERSION,
   verifySelfHostingReceipt,
 } from '../../scripts/ao/lib/self-hosting-receipt.js';
 import { parseArgs, removeTemporaryRoot } from '../../scripts/verify-fresh-clone.js';
+import { inspectWorktreeBinding } from '../../scripts/ao/lib/worktree-evidence.js';
 
 function validSelfHostingReceipt() {
   const runtime = loadRuntimeLock().lock;
@@ -28,8 +32,9 @@ function validSelfHostingReceipt() {
     source: {
       repository: 'https://github.com/Samsen879/ao-pilot.git',
       admission_pr_number: 69,
-      clone_head_sha: '1'.repeat(40),
-      clone_tree_sha: '2'.repeat(40),
+      clone_path: '/fresh/ao-pilot',
+      clone_head_sha: P0_R07_ADMITTED_MAIN,
+      clone_tree_sha: P0_R07_ADMITTED_TREE,
       clean_before_bootstrap: true,
     },
     runtime: {
@@ -56,6 +61,7 @@ function validSelfHostingReceipt() {
       worker_created_by_new_ao: true,
       worker_created_from_issue: true,
       worker_worktree_path: '/fresh/ao-pilot/.worktrees/p0-r08-self-hosting',
+      worktree_evidence_comment_id: 88,
       worker_branch: 'ao/p0-r08/worker',
       worker_committed: true,
       worker_pushed: true,
@@ -137,6 +143,31 @@ function validEvidence(receipt) {
         completed: true,
       })),
       review_findings: [],
+      worktree_capture: {
+        comment_id: receipt.delivery.worktree_evidence_comment_id,
+        issue_number: 63,
+        author: 'Samsen879',
+        created_at: '2026-08-03T01:46:00.000Z',
+        updated_at: '2026-08-03T01:46:00.000Z',
+        payload: {
+          schema_version: 'ao.workstation-worktree-evidence.v1',
+          issue_number: 63,
+          captured_at: '2026-08-03T01:45:00.000Z',
+          source: {
+            clone_path: receipt.source.clone_path,
+            head_sha: receipt.source.clone_head_sha,
+            tree_sha: receipt.source.clone_tree_sha,
+            git_common_dir: '/fresh/ao-pilot/.git',
+          },
+          worker: {
+            session_id: receipt.delivery.worker_session_id,
+            worktree_path: receipt.delivery.worker_worktree_path,
+            branch: receipt.delivery.worker_branch,
+            head_sha: receipt.delivery.principal_pr.head_sha,
+            git_common_dir: '/fresh/ao-pilot/.git',
+          },
+        },
+      },
     },
     publicationEvidence: {
       issue_number: 63,
@@ -147,6 +178,33 @@ function validEvidence(receipt) {
 }
 
 describe('fresh-clone and protected self-hosting gates', () => {
+  it('routes pre-merge worktree capture through the Worker package', () => {
+    const handoff = fs.readFileSync(
+      'docs/runtime-portability/P0-R08_NEW_WORKSTATION_HANDOFF.md',
+      'utf8',
+    );
+    expect(handoff).toContain('BOOTSTRAP_CLONE_ROOT="$(pwd -P)"');
+    expect(handoff).toContain("WORKER_WORKTREE_ROOT='<WORKER-WORKTREE-ABSOLUTE-PATH>'");
+    expect(handoff).toContain('npm --prefix "$WORKER_WORKTREE_ROOT" run capture:self-hosting-worktree');
+    expect(handoff).toContain('--source-root "$BOOTSTRAP_CLONE_ROOT"');
+    expect(handoff).not.toContain('npm run capture:self-hosting-worktree --');
+
+    const bootstrapRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-bootstrap-routing-'));
+    try {
+      const output = execFileSync('npm', [
+        '--prefix', process.cwd(),
+        'run', 'capture:self-hosting-worktree',
+        '--', '--help',
+      ], {
+        cwd: bootstrapRoot,
+        encoding: 'utf8',
+      });
+      expect(output).toContain('Usage: npm run capture:self-hosting-worktree');
+    } finally {
+      removeTemporaryRoot(bootstrapRoot);
+    }
+  });
+
   it('parses bounded fresh-clone orchestration options', () => {
     expect(parseArgs([
       '--source', 'https://github.com/Samsen879/ao-pilot.git',
@@ -194,16 +252,94 @@ describe('fresh-clone and protected self-hosting gates', () => {
     });
   });
 
+  it('supports the handoff pre-publication verification stage', () => {
+    const receipt = validSelfHostingReceipt();
+    const evidence = validEvidence(receipt);
+    delete evidence.publicationEvidence;
+    expect(verifySelfHostingReceipt(receipt, {
+      ...evidence,
+      requirePublication: false,
+    })).toMatchObject({
+      status: 'prepublication_verified',
+      admitted_main: P0_R07_ADMITTED_MAIN,
+    });
+  });
+
+  it('captures the actual independent Git worktree binding before cleanup', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-worktree-evidence-'));
+    const sourceRoot = path.join(root, 'source');
+    const workerRoot = path.join(root, 'worker');
+    try {
+      fs.mkdirSync(sourceRoot);
+      execFileSync('git', ['init', '--quiet'], { cwd: sourceRoot });
+      execFileSync('git', ['config', 'user.name', 'AO Test'], { cwd: sourceRoot });
+      execFileSync('git', ['config', 'user.email', 'ao-test@example.invalid'], { cwd: sourceRoot });
+      fs.writeFileSync(path.join(sourceRoot, 'fixture.txt'), 'worktree evidence fixture\n');
+      execFileSync('git', ['add', 'fixture.txt'], { cwd: sourceRoot });
+      execFileSync('git', ['commit', '--quiet', '-m', 'test: seed worktree evidence'], { cwd: sourceRoot });
+      const sourceHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: sourceRoot, encoding: 'utf8' }).trim();
+      const sourceTree = execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: sourceRoot, encoding: 'utf8' }).trim();
+      execFileSync('git', ['worktree', 'add', '--quiet', '-b', 'ao/p0-r08/evidence-test', workerRoot], { cwd: sourceRoot });
+      const evidence = inspectWorktreeBinding({
+        sourceRoot,
+        workerRoot,
+        workerSessionId: 'worker-r08',
+        capturedAt: '2026-08-03T01:45:00.000Z',
+      });
+      expect(evidence).toMatchObject({
+        schema_version: 'ao.workstation-worktree-evidence.v1',
+        source: {
+          clone_path: fs.realpathSync(sourceRoot),
+          head_sha: sourceHead,
+          tree_sha: sourceTree,
+        },
+        worker: {
+          session_id: 'worker-r08',
+          worktree_path: fs.realpathSync(workerRoot),
+          branch: 'ao/p0-r08/evidence-test',
+          head_sha: sourceHead,
+        },
+      });
+      expect(evidence.worker.git_common_dir).toBe(evidence.source.git_common_dir);
+    } finally {
+      removeTemporaryRoot(root);
+    }
+  });
+
   it.each([
     ['manual worker substitution', (receipt) => { receipt.delivery.worker_created_by_new_ao = false; }],
     ['copied credential state', (receipt) => { receipt.environment.credentials_copied = true; }],
     ['runtime drift', (receipt) => { receipt.runtime.commit_sha = 'f'.repeat(40); }],
+    ['wrong admitted main', (receipt) => { receipt.source.clone_head_sha = 'f'.repeat(40); }],
+    ['shared Orchestrator and Worker session', (receipt) => { receipt.delivery.worker_session_id = receipt.delivery.orchestrator_session_id; }],
     ['missing exact-head review', (receipt) => { receipt.delivery.principal_pr.codex_reviews[0].head_sha = 'e'.repeat(40); }],
     ['failed cleanup', (receipt) => { receipt.cleanup.worker_worktree_removed = false; }],
   ])('fails closed for %s', (_name, mutate) => {
     const receipt = validSelfHostingReceipt();
     mutate(receipt);
     expect(() => verifySelfHostingReceipt(receipt, validEvidence(receipt))).toThrow();
+  });
+
+  it('rejects receipt-controlled paths that disagree with pre-cleanup Git evidence', () => {
+    const receipt = validSelfHostingReceipt();
+    const evidence = validEvidence(receipt);
+    receipt.delivery.worker_worktree_path = '/fabricated/different-worktree';
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('captured Git evidence');
+  });
+
+  it('rejects a receipt-controlled source path that disagrees with pre-cleanup Git evidence', () => {
+    const receipt = validSelfHostingReceipt();
+    const evidence = validEvidence(receipt);
+    receipt.source.clone_path = '/fabricated/bootstrap-clone';
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('captured Git evidence');
+  });
+
+  it('rejects captured evidence that reuses the bootstrap worktree', () => {
+    const receipt = validSelfHostingReceipt();
+    const evidence = validEvidence(receipt);
+    evidence.githubEvidence.worktree_capture.payload.worker.worktree_path = receipt.source.clone_path;
+    receipt.delivery.worker_worktree_path = receipt.source.clone_path;
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('not distinct');
   });
 
   it('rejects fabricated or incomplete Codex Review evidence', () => {

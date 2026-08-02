@@ -20,8 +20,8 @@ closed out, and cleaned. Obtain the exact admitted `main` SHA/tree from issue
 ```bash
 git clone https://github.com/Samsen879/ao-pilot.git
 cd ao-pilot
-git checkout --detach <P0-R07-EXACT-MAIN-SHA>
-test "$(git rev-parse HEAD^{tree})" = '<P0-R07-EXACT-MAIN-TREE>'
+git checkout --detach be8ea9d408920e0728ac980097db758796144714
+test "$(git rev-parse HEAD^{tree})" = '00f93b164a75af044e63532fc7ac64479a390ab9'
 npm ci
 npm run verify:runtime-lock
 ./scripts/bootstrap.sh --json
@@ -74,9 +74,33 @@ observed by the AO session.
 
 The AO must then observe the principal PR, required CI, and no more than two
 GitHub Codex Reviews. Review repairs remain in the same Worker/worktree/PR. The
-AO may merge only under the issue's review policy and green required CI, must
-re-read the GitHub merge outcome, replay the merge SHA on exact main, stop the
-session, remove the Worker worktree, and verify that no stale ownership remains.
+AO may merge only under the issue's review policy and green required CI. After
+the final merge-candidate HEAD is known, but before merge or worktree cleanup, capture
+the actual Git binding and publish the exact generated JSON to issue #63:
+
+```bash
+BOOTSTRAP_CLONE_ROOT="$(pwd -P)"
+WORKER_WORKTREE_ROOT='<WORKER-WORKTREE-ABSOLUTE-PATH>'
+npm --prefix "$WORKER_WORKTREE_ROOT" run capture:self-hosting-worktree -- \
+  --source-root "$BOOTSTRAP_CLONE_ROOT" \
+  --worker-root "$WORKER_WORKTREE_ROOT" \
+  --worker-session-id '<WORKER-SESSION-ID>' \
+  --out /tmp/p0-r08-worktree-evidence.json
+gh issue comment 63 --body-file /tmp/p0-r08-worktree-evidence.json
+```
+
+Record that comment's database ID in `delivery.worktree_evidence_comment_id`.
+The capture command fails unless the source is the admitted R07 commit/tree and
+the Worker is a distinct AO branch worktree sharing the source Git common
+directory. `npm --prefix` is required because the capture package exists in the
+unmerged Worker HEAD, not in the detached admitted bootstrap clone. The final
+verifier fetches this live pre-cleanup evidence and binds its source path,
+Worker path/session/branch/HEAD, and Git relationship to the receipt and
+principal PR.
+
+The AO must then re-read the GitHub merge outcome, replay the merge SHA on exact
+main, stop the session, remove the Worker worktree, and verify that no stale
+ownership remains.
 
 ## Receipt and protected gate
 

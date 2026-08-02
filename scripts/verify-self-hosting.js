@@ -11,7 +11,7 @@ import {
 } from './ao/lib/self-hosting-receipt.js';
 
 function usage() {
-  return 'Usage: npm run verify:self-hosting -- --receipt <path> --issue-comment-id <id> [--repository-root <path>]';
+  return 'Usage: npm run verify:self-hosting -- --receipt <path> [--issue-comment-id <id>] [--repository-root <path>]';
 }
 
 function run(command, args, { cwd = process.cwd(), timeout = 30_000 } = {}) {
@@ -93,6 +93,24 @@ function reviewFindingEvidence(principalPr, repositoryRoot) {
     }));
 }
 
+function worktreeCaptureEvidence(commentId, repositoryRoot) {
+  const comment = runJson('gh', ['api', `repos/Samsen879/ao-pilot/issues/comments/${commentId}`], { cwd: repositoryRoot });
+  let payload = null;
+  try {
+    payload = JSON.parse(comment.body ?? '');
+  } catch {
+    // The receipt verifier reports the bounded payload error.
+  }
+  return {
+    comment_id: comment.id,
+    issue_number: Number(comment.issue_url?.match(/\/issues\/(\d+)$/)?.[1] ?? 0),
+    author: comment.user?.login ?? null,
+    created_at: comment.created_at ?? null,
+    updated_at: comment.updated_at ?? null,
+    payload,
+  };
+}
+
 function collectEvidence(receipt, repositoryRoot) {
   const sourceHead = receipt.source.clone_head_sha;
   const currentMain = run('git', ['rev-parse', 'HEAD^{commit}'], { cwd: repositoryRoot });
@@ -116,6 +134,7 @@ function collectEvidence(receipt, repositoryRoot) {
       check_runs: checks.check_runs.map((check) => ({ name: check.name, conclusion: check.conclusion })),
       codex_reviews: codexReviewEvidence(principalPr, repositoryRoot),
       review_findings: reviewFindingEvidence(principalPr, repositoryRoot),
+      worktree_capture: worktreeCaptureEvidence(receipt.delivery.worktree_evidence_comment_id, repositoryRoot),
     },
   };
 }
@@ -139,8 +158,9 @@ if (argv.includes('--help') || argv.includes('-h')) {
   const receiptPath = receiptIndex === -1 ? null : argv[receiptIndex + 1];
   const commentId = commentIndex === -1 ? null : Number(argv[commentIndex + 1]);
   const repositoryRoot = rootIndex === -1 ? process.cwd() : argv[rootIndex + 1];
-  const expectedLength = rootIndex === -1 ? 4 : 6;
-  if (receiptPath == null || receiptPath.startsWith('-') || !Number.isSafeInteger(commentId) || commentId <= 0 || repositoryRoot == null || repositoryRoot.startsWith('-') || argv.length !== expectedLength) {
+  const expectedLength = 2 + (commentIndex === -1 ? 0 : 2) + (rootIndex === -1 ? 0 : 2);
+  const invalidComment = commentIndex !== -1 && (!Number.isSafeInteger(commentId) || commentId <= 0);
+  if (receiptPath == null || receiptPath.startsWith('-') || invalidComment || repositoryRoot == null || repositoryRoot.startsWith('-') || argv.length !== expectedLength) {
     process.stderr.write(`${usage()}\n`);
     process.exitCode = 4;
   } else {
@@ -153,7 +173,8 @@ if (argv.includes('--help') || argv.includes('-h')) {
       const evidence = collectEvidence(receipt, resolvedRepositoryRoot);
       const result = verifySelfHostingReceipt(receipt, {
         ...evidence,
-        publicationEvidence: publicationEvidence(commentId, rawReceipt, resolvedRepositoryRoot),
+        publicationEvidence: commentId == null ? null : publicationEvidence(commentId, rawReceipt, resolvedRepositoryRoot),
+        requirePublication: commentId != null,
       });
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     } catch (error) {
