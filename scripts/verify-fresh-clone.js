@@ -113,6 +113,29 @@ function createSafeToolPath(root, env = process.env) {
   return { directory, tools };
 }
 
+function makeTemporaryTreeWritable(target) {
+  const stat = fs.lstatSync(target);
+  if (stat.isSymbolicLink()) return;
+  if (stat.isDirectory()) {
+    fs.chmodSync(target, 0o700);
+    for (const entry of fs.readdirSync(target)) {
+      makeTemporaryTreeWritable(path.join(target, entry));
+    }
+    return;
+  }
+  fs.chmodSync(target, 0o600);
+}
+
+export function removeTemporaryRoot(root) {
+  try {
+    fs.rmSync(root, { recursive: true, force: true });
+  } catch (error) {
+    if (!['EACCES', 'EPERM'].includes(error?.code) || !fs.existsSync(root)) throw error;
+    makeTemporaryTreeWritable(root);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 function isolatedEnvironment(root, safePath, cacheRoot, inherited = process.env) {
   const home = path.join(root, 'home');
   const xdg = {
@@ -477,7 +500,7 @@ export async function verifyFreshClone(options, {
         timeout: 30_000,
       });
     }
-    if (passed || !options.keepOnFailure) fs.rmSync(root, { recursive: true, force: true });
+    if (passed || !options.keepOnFailure) removeTemporaryRoot(root);
   }
 }
 

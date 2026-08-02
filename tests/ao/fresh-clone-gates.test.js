@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import { describe, expect, it } from '@jest/globals';
 
 import { loadRuntimeLock } from '../../scripts/ao/lib/runtime-lock.js';
@@ -5,7 +9,7 @@ import {
   SELF_HOSTING_RECEIPT_SCHEMA_VERSION,
   verifySelfHostingReceipt,
 } from '../../scripts/ao/lib/self-hosting-receipt.js';
-import { parseArgs } from '../../scripts/verify-fresh-clone.js';
+import { parseArgs, removeTemporaryRoot } from '../../scripts/verify-fresh-clone.js';
 
 function validSelfHostingReceipt() {
   const runtime = loadRuntimeLock().lock;
@@ -90,6 +94,19 @@ describe('fresh-clone and protected self-hosting gates', () => {
 
   it('rejects unknown fresh-clone options before any command executes', () => {
     expect(() => parseArgs(['--trust-path-ao'])).toThrow('Unknown argument');
+  });
+
+  it('cleans verifier-owned read-only module-cache directories', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-fresh-cleanup-test-'));
+    const readonly = path.join(root, 'module', '.github');
+    fs.mkdirSync(readonly, { recursive: true });
+    fs.writeFileSync(path.join(readonly, 'fixture'), 'read-only\n');
+    fs.chmodSync(readonly, 0o500);
+    fs.chmodSync(path.dirname(readonly), 0o500);
+
+    removeTemporaryRoot(root);
+
+    expect(fs.existsSync(root)).toBe(false);
   });
 
   it('accepts a complete AO-created new-workstation receipt', () => {
