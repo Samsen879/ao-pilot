@@ -19,10 +19,11 @@ source_documents:
 > field describes this earlier design snapshot; the Owner later authorized the
 > bounded P0 runtime portability recovery in issue #55. More importantly, prior
 > operational success on the old workstation does not prove fresh-clone
-> portability. `ao-pilot@0.2.0` is package-portable but the external runtime is
-> not yet locked, bootstrapped, or self-hosting-proven. The authoritative
-> correction is [P0-R01](runtime-portability/P0-R01_INCIDENT_BASELINE.md), and
-> the original #12–#54 chain is blocked until P0-R08 closes.
+> portability. `ao-pilot@0.2.0` is package-portable; P0-R04/P0-R05 add the
+> locked external runtime and deterministic managed bootstrap, but lifecycle
+> and self-hosting remain unproven. The authoritative correction is
+> [P0-R01](runtime-portability/P0-R01_INCIDENT_BASELINE.md), and the original
+> #12–#54 chain is blocked until P0-R08 closes.
 
 > 这是一份面向非资深技术人员的系统说明书。它不替代底层 contract，也不授权开始实施。它的任务是用一套连贯的语言说明：AO 原来是什么、已经能做什么、真实项目中如何运行、为什么仍要升级，以及升级完成后整个系统会变成什么样。
 

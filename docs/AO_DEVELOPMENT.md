@@ -5,22 +5,24 @@
 - Node.js 20 or newer
 - npm
 - Git
+- `curl` and `tar` for runtime bootstrap
 - `gh`, authenticated when live GitHub observation is required
-- an `ao` compatible runtime when live agent observation is required
+- the package-managed runtime when live agent observation is required
 
-The final bullet is not yet a reproducible installation contract. During the
-P0 recovery, do not satisfy it with an arbitrary PATH binary, an npm package
+Do not satisfy the final bullet with an arbitrary PATH binary, an npm package
 whose provenance is unknown, or a hidden HOME checkout. `npm ci`, `npm test`,
 and `verify:package` exercise the control-plane package only. The immutable
-[runtime lock](AO_RUNTIME.md) establishes identity and deterministic resolution;
-P0-R05 still owns installation. The incident and dependency inventory are
-recorded in [P0-R01](runtime-portability/P0-R01_INCIDENT_BASELINE.md).
+[runtime lock and bootstrap](AO_RUNTIME.md) establish deterministic identity,
+retrieval, build, installation, and resolution. The incident and dependency
+inventory remain recorded in
+[P0-R01](runtime-portability/P0-R01_INCIDENT_BASELINE.md).
 
 ## Clean Install
 
 ```bash
 npm ci
 npm test
+./scripts/bootstrap.sh --json
 ```
 
 Install the command locally and create a project configuration:
@@ -48,11 +50,14 @@ Verify the actual npm tarball in an isolated install directory:
 ```bash
 npm run verify:package
 npm run verify:runtime-lock
+npm run verify:runtime-bootstrap
 ```
 
 `verify:package` proves package-level portability only;
-`verify:runtime-lock` proves the offline runtime identity contract. They do not
-install or run an Agent Orchestrator daemon, OR, or Worker.
+`verify:runtime-lock` proves the offline runtime identity contract, while
+`verify:runtime-bootstrap` validates the toolchain lock and packaged entrypoint.
+The explicit `bootstrap.sh` invocation performs installation. None of these
+starts an OR or Worker.
 
 Run the complete release candidate gate:
 

@@ -41,13 +41,16 @@ The core question behind this project is:
 
 ## P0 Runtime Portability Incident
 
-The `0.2.0` package boundary is installable, but a fresh clone cannot yet
-recover the complete Agent Orchestrator runtime. There is no `ao-pilot start`,
-no deterministic runtime bootstrap, and the current `scripts/ao/start-clean.sh`
-can select an unverified `ao` from `PATH`. P0-R04 now supplies a package-owned
-[immutable runtime lock and fail-closed resolver](docs/AO_RUNTIME.md), but that
-identity contract does not install or start the runtime. The system therefore
-still has package-level portability only.
+The `0.2.0` package boundary is installable, but the complete fresh-clone and
+self-hosting proof is not yet complete. P0-R04 supplies a package-owned
+[immutable runtime lock and fail-closed resolver](docs/AO_RUNTIME.md). P0-R05
+adds deterministic source/toolchain retrieval and an atomic managed bootstrap,
+but there is still no accepted `ao-pilot start` lifecycle or new-workstation
+self-hosting receipt. The system therefore must not yet claim operational
+portability.
+
+The package-level portability claim remains narrower and already accepted;
+runtime bootstrap and workstation self-hosting require their own evidence.
 
 Therefore package installation, control-plane installation, external runtime
 installation, user-provided GitHub/Codex credentials, runtime bootstrap, and
@@ -59,6 +62,8 @@ The runtime identity contract can be inspected offline with:
 
 ```bash
 npm run verify:runtime-lock
+npm run verify:runtime-bootstrap
+./scripts/bootstrap.sh --json
 ```
 
 ## Why This Exists
@@ -159,13 +164,14 @@ The project is built around a few assumptions:
 
 ### Prerequisites
 
-> **P0 limitation:** the commands below install and exercise `ao-pilot` only.
-> They do not install or verify the external Agent Orchestrator runtime and do
-> not constitute a self-hosting proof.
+> **P0 limitation:** package installation and runtime bootstrap are separate.
+> The bootstrap below installs and verifies the external runtime, but it does
+> not start an OR or constitute the P0-R08 workstation self-hosting proof.
 
 - Node.js 20+
 - npm
 - Git
+- `curl` and `tar` for the checksummed Go toolchain bootstrap
 - tmux
 - GitHub CLI (`gh`)
 - A repository/workflow where AO-style agent sessions are expected to operate
@@ -189,6 +195,17 @@ For a reproducible install after the lockfile is present:
 ```bash
 npm ci
 ```
+
+Bootstrap the exact public runtime into the content-addressed managed store:
+
+```bash
+./scripts/bootstrap.sh --json
+```
+
+The bootstrap never invokes a PATH `ao`. It fails closed if one shadows the
+managed runtime. Use `--offline` only after the source, toolchain, and Go module
+caches have been verified by an online run; use `--reinstall` for an atomic
+clean rebuild. See [AO Runtime](docs/AO_RUNTIME.md) for paths and recovery.
 
 Link the unified CLI and create a project configuration:
 

@@ -80,6 +80,7 @@ try {
       'const coreChecks = [',
       "  ['contracts.createPrScope', contracts.createPrScope],",
       "  ['contracts.loadRuntimeLock', contracts.loadRuntimeLock],",
+      "  ['contracts.loadBootstrapToolchainLock', contracts.loadBootstrapToolchainLock],",
       "  ['repository.createStateRepository', repository.createStateRepository],",
       "  ['engines.reconcileObservations', engines.reconcileObservations],",
       "  ['engines.executeAssistActions', engines.executeAssistActions],",
@@ -87,6 +88,7 @@ try {
       "  ['providers.createLocalCommandRunner', providers.createLocalCommandRunner],",
       "  ['providers.createBlockedNotificationWebhookTransport', providers.createBlockedNotificationWebhookTransport],",
       "  ['providers.resolveManagedRuntime', providers.resolveManagedRuntime],",
+      "  ['providers.bootstrapManagedRuntime', providers.bootstrapManagedRuntime],",
       '];',
       'for (const [name, value] of coreChecks) {',
       "  if (typeof value !== 'function') throw new Error(`Missing public core export: ${name}`);",
@@ -133,6 +135,14 @@ try {
     cwd: installRoot,
     shell: process.platform === 'win32',
   });
+  const bootstrapPath = path.join(
+    installRoot,
+    'node_modules',
+    'ao-pilot',
+    'scripts',
+    'bootstrap-runtime.js',
+  );
+  run(process.execPath, [bootstrapPath, '--help'], { cwd: installRoot });
   const versionResult = run(binPath, ['--version'], {
     cwd: installRoot,
     shell: process.platform === 'win32',

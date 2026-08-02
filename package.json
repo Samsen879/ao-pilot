@@ -68,12 +68,14 @@
     "ao:smoke": "node scripts/ao/run-operator-smoke.js",
     "ao:state": "node scripts/ao-state.js",
     "ao:test:acceptance": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --runTestsByPath tests/ao/ao-lifecycle-acceptance.test.js --no-color",
+    "bootstrap": "./scripts/bootstrap.sh",
     "test": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --testPathPatterns='tests/ao/' --no-color",
     "verify:package": "node scripts/verify-package-install.js",
     "verify:runtime-lock": "node scripts/verify-runtime-lock.js",
+    "verify:runtime-bootstrap": "node scripts/verify-runtime-bootstrap.js",
     "verify:runtime-inventory": "node scripts/verify-runtime-portability-inventory.js",
     "verify:runtime-parity": "node scripts/verify-runtime-patch-parity.js",
-    "release:check": "npm test && npm run ao:test:acceptance && npm run ao:smoke && npm run verify:package && npm run verify:runtime-lock && npm audit"
+    "release:check": "npm test && npm run ao:test:acceptance && npm run ao:smoke && npm run verify:package && npm run verify:runtime-lock && npm run verify:runtime-bootstrap && npm audit"
   },
   "jest": {
     "testEnvironment": "node",
