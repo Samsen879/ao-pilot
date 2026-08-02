@@ -5,6 +5,10 @@ import { execFileSync } from 'node:child_process';
 
 import { describe, expect, it } from '@jest/globals';
 
+import {
+  ownerExactHeadReviewRequests,
+  submittedCodexReviewEvidence,
+} from '../../scripts/ao/lib/codex-review-evidence.js';
 import { loadRuntimeLock } from '../../scripts/ao/lib/runtime-lock.js';
 import {
   ORCHESTRATOR_DONE_EVIDENCE_SCHEMA_VERSION,
@@ -513,6 +517,38 @@ describe('fresh-clone and protected self-hosting gates', () => {
     const evidence = validEvidence(receipt);
     mutate(receipt, evidence);
     expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow();
+  });
+
+  it('preserves generic connector review objects as non-attempt audit evidence', () => {
+    const head = '3'.repeat(40);
+    const requests = ownerExactHeadReviewRequests([{
+      id: 99,
+      user: { login: 'Samsen879' },
+      author_association: 'OWNER',
+      body: `@codex review\n\nTarget HEAD: ${head}`,
+      created_at: '2026-08-03T00:00:00.000Z',
+      updated_at: '2026-08-03T00:00:00.000Z',
+    }]);
+    const evidence = submittedCodexReviewEvidence([{
+      id: 101,
+      user: { login: 'chatgpt-codex-connector[bot]' },
+      body: '### Codex Review\n\nFindings follow.',
+      commit_id: head,
+      submitted_at: '2026-08-03T00:01:00.000Z',
+      state: 'COMMENTED',
+    }, {
+      id: 102,
+      user: { login: 'chatgpt-codex-connector[bot]' },
+      body: '',
+      commit_id: head,
+      submitted_at: '2026-08-03T00:02:00.000Z',
+      state: 'COMMENTED',
+    }], requests);
+
+    expect(evidence).toEqual([
+      expect.objectContaining({ evidence_id: 101, request_valid: true, formal_review: true, completed: true }),
+      expect.objectContaining({ evidence_id: 102, request_valid: true, formal_review: false, completed: false }),
+    ]);
   });
 
   it('does not count a request, connector setup/error comment, or generic bot comment as review evidence', () => {

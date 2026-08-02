@@ -6,6 +6,10 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 
 import {
+  ownerExactHeadReviewRequests,
+  submittedCodexReviewEvidence,
+} from './ao/lib/codex-review-evidence.js';
+import {
   loadSelfHostingReceipt,
   P0_R08_RETRY_ADMISSION_COMMENT,
   P0_R08_RETRY_ADMISSION_PR,
@@ -63,40 +67,13 @@ function retryAdmissionEvidence(repositoryRoot) {
 }
 
 function codexReviewEvidence(principalPr, repositoryRoot) {
-  const requestComments = runJson('gh', ['api', `repos/Samsen879/ao-pilot/issues/${principalPr}/comments?per_page=100`], { cwd: repositoryRoot })
-    .filter((comment) => (
-      comment.user?.login === 'Samsen879'
-      && comment.author_association === 'OWNER'
-      && comment.body?.trimStart().startsWith('@codex review')
-      && comment.created_at === comment.updated_at
-    ))
-    .map((comment) => {
-      const matches = comment.body.match(/\b[0-9a-f]{40}\b/gi) ?? [];
-      return {
-        comment_id: comment.id,
-        head_sha: matches.length === 1 ? matches[0].toLowerCase() : null,
-        requested_at: comment.created_at,
-      };
-    })
-    .filter((comment) => comment.head_sha != null);
-  const submitted = runJson('gh', ['api', `repos/Samsen879/ao-pilot/pulls/${principalPr}/reviews`], { cwd: repositoryRoot })
-    .filter((review) => review.user?.login === 'chatgpt-codex-connector[bot]')
-    .map((review) => {
-      const matchingRequests = requestComments.filter((comment) => (
-        comment.head_sha === review.commit_id?.toLowerCase()
-        && Date.parse(comment.requested_at) <= Date.parse(review.submitted_at)
-      ));
-      return {
-        kind: 'submitted_review',
-        evidence_id: review.id,
-        request_comment_id: matchingRequests.length === 1 ? matchingRequests[0].comment_id : null,
-        request_valid: matchingRequests.length === 1,
-        head_sha: review.commit_id,
-        completed_at: review.submitted_at,
-        actor: review.user.login,
-        completed: review.submitted_at != null && ['COMMENTED', 'APPROVED', 'CHANGES_REQUESTED'].includes(review.state),
-      };
-    });
+  const requestComments = ownerExactHeadReviewRequests(
+    runJson('gh', ['api', `repos/Samsen879/ao-pilot/issues/${principalPr}/comments?per_page=100`], { cwd: repositoryRoot }),
+  );
+  const submitted = submittedCodexReviewEvidence(
+    runJson('gh', ['api', `repos/Samsen879/ao-pilot/pulls/${principalPr}/reviews`], { cwd: repositoryRoot }),
+    requestComments,
+  );
   const clean = requestComments.map((comment) => {
     const reactions = runJson('gh', ['api', `repos/Samsen879/ao-pilot/issues/comments/${comment.id}/reactions`], { cwd: repositoryRoot });
     const reaction = reactions.find((item) => (
