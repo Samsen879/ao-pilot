@@ -67,8 +67,16 @@ describe('runtime lock contract', () => {
     });
     expect(loaded.lock.build.command).toContain('{binary_path}');
     expect(loaded.lock.compatibility.platforms).toEqual([
-      { os: 'linux', arch: 'x64' },
-      { os: 'linux', arch: 'arm64' },
+      {
+        os: 'linux',
+        arch: 'x64',
+        binary_sha256: 'a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34',
+      },
+      {
+        os: 'linux',
+        arch: 'arm64',
+        binary_sha256: '132164dc29349ea2082d77d6758b3617be81c7cfcf27d3f0ba9a88d65a88c752',
+      },
     ]);
   });
 
@@ -131,5 +139,43 @@ describe('runtime lock contract', () => {
         tree_sha: '479fba6fd44f251f0c66fafc5cb5d638a6ff590a',
       },
     });
+  });
+
+  it('binds platform digests to two byte-identical exact-source builds', () => {
+    const { lock } = loadRuntimeLock();
+    const receipt = JSON.parse(fs.readFileSync(path.join(
+      process.cwd(),
+      'docs',
+      'runtime-portability',
+      'p0-r04-binary-digest-receipt.json',
+    ), 'utf8'));
+
+    expect(receipt).toMatchObject({
+      schema_version: 'ao.runtime-binary-digest-receipt.v1',
+      source: {
+        repository: lock.artifact.repository,
+        tag: lock.artifact.ref.name,
+        tag_object_sha: lock.artifact.ref.tag_object_sha,
+        commit_sha: lock.artifact.ref.commit_sha,
+        tree_sha: lock.artifact.ref.tree_sha,
+      },
+      toolchain: {
+        name: lock.build.toolchain.name,
+        version: lock.build.toolchain.version,
+        archive_sha256: '12e6d6a191091ae27dc31f6efc630e3a3b8ba409baf3573d955b196fdf086005',
+      },
+    });
+    expect(receipt.targets).toHaveLength(lock.compatibility.platforms.length);
+    for (const target of receipt.targets) {
+      const lockedTarget = lock.compatibility.platforms.find((item) => (
+        item.os === target.os && item.arch === target.arch
+      ));
+      expect(lockedTarget).toBeDefined();
+      expect(target.byte_identical).toBe(true);
+      expect(target.run_sha256).toEqual([
+        lockedTarget.binary_sha256,
+        lockedTarget.binary_sha256,
+      ]);
+    }
   });
 });

@@ -55,11 +55,13 @@
     "platforms": [
       {
         "os": "linux",
-        "arch": "x64"
+        "arch": "x64",
+        "binary_sha256": "a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34"
       },
       {
         "os": "linux",
-        "arch": "arm64"
+        "arch": "arm64",
+        "binary_sha256": "132164dc29349ea2082d77d6758b3617be81c7cfcf27d3f0ba9a88d65a88c752"
       }
     ]
   }

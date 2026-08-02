@@ -10,6 +10,7 @@ export const RUNTIME_REF_KINDS = ['annotated_tag'];
 export const RUNTIME_INTEGRITY_ALGORITHMS = ['git-tree-sha1'];
 
 const SHA1_PATTERN = /^[0-9a-f]{40}$/;
+const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const RUNTIME_REF_PATTERN = /^[A-Za-z0-9._-]+$/;
 const RELATIVE_PATH_PATTERN = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/;
@@ -50,6 +51,12 @@ function normalizeLiteral(value, fieldName, allowedValues) {
 function normalizeSha1(value, fieldName) {
   const normalized = normalizeRequiredString(value, fieldName).toLowerCase();
   if (!SHA1_PATTERN.test(normalized)) throw new Error(`Invalid ${fieldName}`);
+  return normalized;
+}
+
+function normalizeSha256(value, fieldName) {
+  const normalized = normalizeRequiredString(value, fieldName).toLowerCase();
+  if (!SHA256_PATTERN.test(normalized)) throw new Error(`Invalid ${fieldName}`);
   return normalized;
 }
 
@@ -222,13 +229,21 @@ function normalizeCompatibility(value) {
   }
   const platforms = compatibility.platforms.map((item, index) => {
     const platform = assertPlainObject(item, `compatibility.platforms[${index}]`);
-    assertExactKeys(platform, `compatibility.platforms[${index}]`, ['os', 'arch']);
+    assertExactKeys(platform, `compatibility.platforms[${index}]`, [
+      'os',
+      'arch',
+      'binary_sha256',
+    ]);
     return {
       os: normalizeLiteral(platform.os, `compatibility.platforms[${index}].os`, ['linux']),
       arch: normalizeLiteral(
         platform.arch,
         `compatibility.platforms[${index}].arch`,
         ['x64', 'arm64'],
+      ),
+      binary_sha256: normalizeSha256(
+        platform.binary_sha256,
+        `compatibility.platforms[${index}].binary_sha256`,
       ),
     };
   });

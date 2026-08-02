@@ -22,14 +22,40 @@ function fail(code, message, details = {}) {
 }
 
 function parseVersion(value, fieldName) {
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?$/.exec(String(value));
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(String(value));
   if (!match) fail('runtime_compatibility_invalid', `Invalid ${fieldName}`, { value });
-  return match.slice(1).map(Number);
+  const prerelease = match[4] == null ? null : match[4].split('.').map((identifier) => {
+    if (/^\d+$/.test(identifier)) {
+      if (identifier.length > 1 && identifier.startsWith('0')) {
+        fail('runtime_compatibility_invalid', `Invalid ${fieldName}`, { value });
+      }
+      return Number(identifier);
+    }
+    return identifier;
+  });
+  return {
+    core: match.slice(1, 4).map(Number),
+    prerelease,
+  };
 }
 
 function compareVersions(left, right) {
   for (let index = 0; index < 3; index += 1) {
-    if (left[index] !== right[index]) return left[index] - right[index];
+    if (left.core[index] !== right.core[index]) return left.core[index] - right.core[index];
+  }
+  if (left.prerelease == null && right.prerelease == null) return 0;
+  if (left.prerelease == null) return 1;
+  if (right.prerelease == null) return -1;
+  const length = Math.max(left.prerelease.length, right.prerelease.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftIdentifier = left.prerelease[index];
+    const rightIdentifier = right.prerelease[index];
+    if (leftIdentifier == null) return -1;
+    if (rightIdentifier == null) return 1;
+    if (leftIdentifier === rightIdentifier) continue;
+    if (typeof leftIdentifier === 'number' && typeof rightIdentifier === 'string') return -1;
+    if (typeof leftIdentifier === 'string' && typeof rightIdentifier === 'number') return 1;
+    return leftIdentifier < rightIdentifier ? -1 : 1;
   }
   return 0;
 }
@@ -78,11 +104,33 @@ function fileSha256(filePath) {
   return hash.digest('hex');
 }
 
-function sameJson(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map((item) => canonicalize(item));
+  if (value == null || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]),
+  );
 }
 
-function assertProvenance(lock, provenance) {
+function sameJson(left, right) {
+  return JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right));
+}
+
+function getTargetContract(lock, platform, arch) {
+  const target = lock.compatibility.platforms.find((item) => (
+    item.os === platform && item.arch === arch
+  ));
+  if (!target) {
+    fail('runtime_platform_incompatible', 'Runtime is incompatible with this platform', {
+      platform,
+      arch,
+    });
+  }
+  return target;
+}
+
+function assertProvenance(lock, provenance, { platform, arch }) {
+  const target = getTargetContract(lock, platform, arch);
   const expectedDigest = computeRuntimeLockDigest(lock);
   if (provenance.runtime_ref !== lock.runtime_ref) {
     fail('runtime_ref_mismatch', 'Runtime provenance ref does not match the lock');
@@ -98,6 +146,9 @@ function assertProvenance(lock, provenance) {
   }
   if (provenance.artifact.ref?.kind !== 'annotated_tag') {
     fail('runtime_mutable_ref', 'Runtime provenance is not anchored to an annotated tag');
+  }
+  if (provenance.artifact.ref?.name !== lock.artifact.ref.name) {
+    fail('runtime_tag_mismatch', 'Runtime provenance tag name does not match the lock');
   }
   if (provenance.artifact.ref?.tag_object_sha !== lock.artifact.ref.tag_object_sha) {
     fail('runtime_tag_mismatch', 'Runtime provenance tag object does not match the lock');
@@ -118,12 +169,27 @@ function assertProvenance(lock, provenance) {
   if (!sameJson(provenance.compatibility, lock.compatibility)) {
     fail('runtime_compatibility_mismatch', 'Runtime compatibility contract does not match the lock');
   }
+  if (!sameJson(provenance.target, target)) {
+    fail('runtime_target_mismatch', 'Runtime provenance target does not match this platform');
+  }
+  if (provenance.binary.sha256 !== target.binary_sha256) {
+    fail('runtime_binary_expected_digest_mismatch', 'Runtime provenance binary digest is not lock-authorized');
+  }
 }
 
-function isExecutable(filePath) {
+function isManagedExecutable(filePath) {
   try {
     const stat = fs.lstatSync(filePath);
     return stat.isFile() && !stat.isSymbolicLink() && (stat.mode & 0o111) !== 0;
+  } catch {
+    return false;
+  }
+}
+
+function isPathExecutable(filePath) {
+  try {
+    const stat = fs.statSync(filePath);
+    return stat.isFile() && (stat.mode & 0o111) !== 0;
   } catch {
     return false;
   }
@@ -142,9 +208,42 @@ function findFirstPathBinary(binaryName, pathValue) {
   for (const entry of String(pathValue ?? '').split(path.delimiter)) {
     if (!entry) continue;
     const candidate = path.resolve(entry, binaryName);
-    if (isExecutable(candidate)) return candidate;
+    if (isPathExecutable(candidate)) return candidate;
   }
   return null;
+}
+
+function assertNoManagedSymlink({ storeRoot, targetPath }) {
+  const resolvedRoot = path.resolve(storeRoot);
+  const resolvedTarget = path.resolve(targetPath);
+  const relativeTarget = path.relative(resolvedRoot, resolvedTarget);
+  if (relativeTarget.startsWith('..') || path.isAbsolute(relativeTarget)) {
+    fail('runtime_managed_path_invalid', 'Managed runtime path escapes the store root', {
+      store_root: resolvedRoot,
+      target_path: resolvedTarget,
+    });
+  }
+  const candidates = [resolvedRoot];
+  let current = resolvedRoot;
+  for (const component of relativeTarget.split(path.sep).filter(Boolean)) {
+    current = path.join(current, component);
+    candidates.push(current);
+  }
+  for (const candidate of candidates) {
+    try {
+      if (fs.lstatSync(candidate).isSymbolicLink()) {
+        fail('runtime_managed_path_symlink', 'Managed runtime path contains a symlink', {
+          path: candidate,
+        });
+      }
+    } catch (error) {
+      if (error instanceof RuntimeResolutionError) throw error;
+      if (error?.code === 'ENOENT') break;
+      fail('runtime_managed_path_invalid', `Unable to inspect managed path: ${error.message}`, {
+        path: candidate,
+      });
+    }
+  }
 }
 
 function realpath(filePath) {
@@ -155,14 +254,16 @@ function realpath(filePath) {
   }
 }
 
-export function getManagedRuntimeDirectory({ lock, storeRoot } = {}) {
+export function getManagedRuntimeDirectory({ lock, storeRoot, platform, arch } = {}) {
   const normalizedLock = normalizeRuntimeLock(lock);
   if (typeof storeRoot !== 'string' || storeRoot.trim() === '') {
     throw new Error('Invalid storeRoot');
   }
+  getTargetContract(normalizedLock, platform, arch);
   return path.resolve(
     storeRoot,
     normalizedLock.runtime_ref,
+    `${platform}-${arch}`,
     normalizedLock.artifact.ref.commit_sha,
   );
 }
@@ -180,8 +281,11 @@ export function resolveManagedRuntime({
   const runtimeDirectory = getManagedRuntimeDirectory({
     lock: normalizedLock,
     storeRoot,
+    platform,
+    arch,
   });
   const provenancePath = path.join(runtimeDirectory, RUNTIME_PROVENANCE_FILENAME);
+  assertNoManagedSymlink({ storeRoot, targetPath: provenancePath });
   if (!isRegularFileWithoutSymlink(provenancePath)) {
     const pathCandidate = findFirstPathBinary(normalizedLock.binary.name, env.PATH);
     fail('runtime_missing', 'Managed runtime provenance is missing', {
@@ -199,22 +303,24 @@ export function resolveManagedRuntime({
     if (error instanceof RuntimeResolutionError) throw error;
     fail('runtime_provenance_invalid', error.message, { path: provenancePath });
   }
-  assertProvenance(normalizedLock, provenance);
+  assertProvenance(normalizedLock, provenance, { platform, arch });
 
   const binaryPath = path.resolve(runtimeDirectory, normalizedLock.binary.relative_path);
   if (!binaryPath.startsWith(`${runtimeDirectory}${path.sep}`)) {
     fail('runtime_binary_path_invalid', 'Runtime binary escapes the managed runtime directory');
   }
-  if (!isExecutable(binaryPath)) {
+  assertNoManagedSymlink({ storeRoot, targetPath: binaryPath });
+  if (!isManagedExecutable(binaryPath)) {
     fail('runtime_binary_missing', 'Locked runtime binary is missing or not executable', {
       binary_path: binaryPath,
     });
   }
   const observedSha256 = fileSha256(binaryPath);
-  if (observedSha256 !== provenance.binary.sha256) {
+  const expectedSha256 = getTargetContract(normalizedLock, platform, arch).binary_sha256;
+  if (observedSha256 !== expectedSha256 || observedSha256 !== provenance.binary.sha256) {
     fail('runtime_binary_integrity_mismatch', 'Runtime binary SHA-256 does not match provenance', {
       binary_path: binaryPath,
-      expected_sha256: provenance.binary.sha256,
+      expected_sha256: expectedSha256,
       observed_sha256: observedSha256,
     });
   }

@@ -30,7 +30,10 @@ installation, and provenance materialization.
 - tree/integrity: `479fba6fd44f251f0c66fafc5cb5d638a6ff590a`
 - source toolchain: Go `1.25.7`, `CGO_ENABLED=0`
 - managed binary relative path: `bin/ao`
-- admitted platform scope: Linux `x64` and `arm64`
+- Linux x64 expected binary SHA-256:
+  `a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34`
+- Linux arm64 expected binary SHA-256:
+  `132164dc29349ea2082d77d6758b3617be81c7cfcf27d3f0ba9a88d65a88c752`
 - ao-pilot compatibility: `>=0.2.0` and `<0.3.0`
 
 No GitHub Release or npm publication is implied by this source lock.
@@ -45,17 +48,22 @@ bound to:
 - the runtime ref and exact public repository;
 - version, annotated tag object, commit, tree, and tree integrity;
 - the binary name and managed relative path;
-- the installed binary SHA-256;
+- the target OS/architecture and installed binary SHA-256;
 - the exact compatibility contract.
 
 The deterministic resolver requires an explicit managed-store root and derives
-the runtime directory from the runtime ref and commit SHA. It does not search
-`PATH` as an installation mechanism. It fails closed on:
+the runtime directory from the runtime ref, target OS/architecture, and commit
+SHA. Each platform's expected binary SHA-256 is authenticated by the committed
+lock rather than trusted from the writable provenance file. Repeated clean
+builds with the locked Go toolchain produced byte-identical binaries for both
+admitted targets. The resolver does not search `PATH` as an installation
+mechanism. It fails closed on:
 
 - absent or malformed managed provenance;
 - an unknown repository or mutable ref;
 - version, tag, commit, tree, or integrity mismatch;
 - a missing, non-executable, or modified binary;
+- a platform collision or any symlink within the managed runtime path;
 - incompatible ao-pilot, OS, or architecture versions;
 - a different executable named `ao` appearing first on `PATH`.
 

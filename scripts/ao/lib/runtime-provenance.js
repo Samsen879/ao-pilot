@@ -36,13 +36,24 @@ export function createRuntimeProvenance({
   lock,
   binary_sha256,
   installed_at,
+  platform,
+  arch,
 } = {}) {
   const normalizedLock = normalizeRuntimeLock(lock);
+  const normalizedBinarySha256 = normalizeSha256(binary_sha256, 'binary_sha256');
+  const target = normalizedLock.compatibility.platforms.find((item) => (
+    item.os === platform && item.arch === arch
+  ));
+  if (!target) throw new Error('Invalid runtime provenance target');
+  if (normalizedBinarySha256 !== target.binary_sha256) {
+    throw new Error('Runtime binary SHA-256 does not match the locked platform digest');
+  }
   return {
     schema_version: RUNTIME_PROVENANCE_SCHEMA_VERSION,
     runtime_ref: normalizedLock.runtime_ref,
     lock_digest: computeRuntimeLockDigest(normalizedLock),
     installed_at: normalizeTimestamp(installed_at),
+    target: cloneJsonValue(target),
     artifact: {
       repository: normalizedLock.artifact.repository,
       version: normalizedLock.artifact.version,
@@ -52,7 +63,7 @@ export function createRuntimeProvenance({
     binary: {
       name: normalizedLock.binary.name,
       relative_path: normalizedLock.binary.relative_path,
-      sha256: normalizeSha256(binary_sha256, 'binary_sha256'),
+      sha256: normalizedBinarySha256,
     },
     compatibility: cloneJsonValue(normalizedLock.compatibility),
   };
@@ -62,6 +73,9 @@ export function normalizeRuntimeProvenance(value) {
   if (!isPlainObject(value)) throw new Error('Invalid runtime provenance');
   if (value.schema_version !== RUNTIME_PROVENANCE_SCHEMA_VERSION) {
     throw new Error(`Unsupported runtime provenance schema: ${String(value.schema_version)}`);
+  }
+  if (!isPlainObject(value.target)) {
+    throw new Error('Invalid runtime provenance target');
   }
   if (!isPlainObject(value.artifact) || !isPlainObject(value.artifact.ref)) {
     throw new Error('Invalid runtime provenance artifact');
@@ -77,6 +91,14 @@ export function normalizeRuntimeProvenance(value) {
     runtime_ref: normalizeRequiredString(value.runtime_ref, 'runtime_ref'),
     lock_digest: normalizeRequiredString(value.lock_digest, 'lock_digest'),
     installed_at: normalizeTimestamp(value.installed_at),
+    target: {
+      os: normalizeRequiredString(value.target.os, 'target.os'),
+      arch: normalizeRequiredString(value.target.arch, 'target.arch'),
+      binary_sha256: normalizeSha256(
+        value.target.binary_sha256,
+        'target.binary_sha256',
+      ),
+    },
     artifact: cloneJsonValue(value.artifact),
     binary: {
       name: normalizeRequiredString(value.binary.name, 'binary.name'),
