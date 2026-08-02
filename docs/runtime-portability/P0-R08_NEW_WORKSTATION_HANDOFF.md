@@ -79,9 +79,11 @@ the final merge-candidate HEAD is known, but before merge or worktree cleanup, c
 the actual Git binding and publish the exact generated JSON to issue #63:
 
 ```bash
-npm run capture:self-hosting-worktree -- \
-  --source-root "$PWD" \
-  --worker-root '<WORKER-WORKTREE-ABSOLUTE-PATH>' \
+BOOTSTRAP_CLONE_ROOT="$(pwd -P)"
+WORKER_WORKTREE_ROOT='<WORKER-WORKTREE-ABSOLUTE-PATH>'
+npm --prefix "$WORKER_WORKTREE_ROOT" run capture:self-hosting-worktree -- \
+  --source-root "$BOOTSTRAP_CLONE_ROOT" \
+  --worker-root "$WORKER_WORKTREE_ROOT" \
   --worker-session-id '<WORKER-SESSION-ID>' \
   --out /tmp/p0-r08-worktree-evidence.json
 gh issue comment 63 --body-file /tmp/p0-r08-worktree-evidence.json
@@ -90,9 +92,11 @@ gh issue comment 63 --body-file /tmp/p0-r08-worktree-evidence.json
 Record that comment's database ID in `delivery.worktree_evidence_comment_id`.
 The capture command fails unless the source is the admitted R07 commit/tree and
 the Worker is a distinct AO branch worktree sharing the source Git common
-directory. The final verifier fetches this live pre-cleanup evidence and binds
-its source path, Worker path/session/branch/HEAD, and Git relationship to the
-receipt and principal PR.
+directory. `npm --prefix` is required because the capture package exists in the
+unmerged Worker HEAD, not in the detached admitted bootstrap clone. The final
+verifier fetches this live pre-cleanup evidence and binds its source path,
+Worker path/session/branch/HEAD, and Git relationship to the receipt and
+principal PR.
 
 The AO must then re-read the GitHub merge outcome, replay the merge SHA on exact
 main, stop the session, remove the Worker worktree, and verify that no stale

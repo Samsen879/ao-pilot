@@ -178,6 +178,33 @@ function validEvidence(receipt) {
 }
 
 describe('fresh-clone and protected self-hosting gates', () => {
+  it('routes pre-merge worktree capture through the Worker package', () => {
+    const handoff = fs.readFileSync(
+      'docs/runtime-portability/P0-R08_NEW_WORKSTATION_HANDOFF.md',
+      'utf8',
+    );
+    expect(handoff).toContain('BOOTSTRAP_CLONE_ROOT="$(pwd -P)"');
+    expect(handoff).toContain("WORKER_WORKTREE_ROOT='<WORKER-WORKTREE-ABSOLUTE-PATH>'");
+    expect(handoff).toContain('npm --prefix "$WORKER_WORKTREE_ROOT" run capture:self-hosting-worktree');
+    expect(handoff).toContain('--source-root "$BOOTSTRAP_CLONE_ROOT"');
+    expect(handoff).not.toContain('npm run capture:self-hosting-worktree --');
+
+    const bootstrapRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-bootstrap-routing-'));
+    try {
+      const output = execFileSync('npm', [
+        '--prefix', process.cwd(),
+        'run', 'capture:self-hosting-worktree',
+        '--', '--help',
+      ], {
+        cwd: bootstrapRoot,
+        encoding: 'utf8',
+      });
+      expect(output).toContain('Usage: npm run capture:self-hosting-worktree');
+    } finally {
+      removeTemporaryRoot(bootstrapRoot);
+    }
+  });
+
   it('parses bounded fresh-clone orchestration options', () => {
     expect(parseArgs([
       '--source', 'https://github.com/Samsen879/ao-pilot.git',
