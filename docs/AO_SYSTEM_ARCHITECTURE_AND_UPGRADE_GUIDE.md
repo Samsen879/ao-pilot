@@ -21,8 +21,9 @@ source_documents:
 > operational success on the old workstation does not prove fresh-clone
 > portability. `ao-pilot@0.2.0` is package-portable; P0-R04/P0-R05 add the
 > locked external runtime and deterministic managed bootstrap, and P0-R06 adds
-> verified lifecycle entrypoints. Fresh-clone gating and self-hosting remain
-> unproven. The authoritative correction is
+> verified lifecycle entrypoints. P0-R07 adds an empty-HOME exact-clone runtime
+> smoke and release gate. New-workstation AO-created Worker/GitHub delivery and
+> self-hosting remain unproven until P0-R08. The authoritative correction is
 > [P0-R01](runtime-portability/P0-R01_INCIDENT_BASELINE.md), and the original
 > #12–#54 chain is blocked until P0-R08 closes.
 

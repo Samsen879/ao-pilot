@@ -1,0 +1,38 @@
+name: workstation-self-hosting-proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      receipt_base64:
+        description: Base64-encoded final P0-R08 workstation receipt JSON
+        required: true
+      receipt_comment_id:
+        description: Issue #63 comment ID containing the exact receipt JSON bytes
+        required: true
+
+permissions:
+  contents: read
+  checks: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  verify-self-hosting-receipt:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Materialize bounded workstation receipt
+        env:
+          RECEIPT_BASE64: ${{ inputs.receipt_base64 }}
+        run: node -e "require('node:fs').writeFileSync(process.env.RUNNER_TEMP + '/p0-r08-receipt.json', Buffer.from(process.env.RECEIPT_BASE64, 'base64'))"
+      - run: npm run verify:self-hosting -- --receipt "$RUNNER_TEMP/p0-r08-receipt.json" --issue-comment-id "${{ inputs.receipt_comment_id }}" --repository-root "$GITHUB_WORKSPACE"

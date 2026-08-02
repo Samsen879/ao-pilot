@@ -67,6 +67,10 @@ Defaults follow XDG data/cache directories, falling back to
 `~/.cache/ao-pilot/runtime-bootstrap`. Credentials and Agent Orchestrator
 session state are never copied into either location. The incident limitations
 remain frozen in [P0-R01](runtime-portability/P0-R01_INCIDENT_BASELINE.md).
+The R07 `verify:fresh-clone` gate overrides HOME/XDG/store/cache with bounded
+temporary paths and sanitizes PATH so no host `ao` can become authority. It
+preserves only explicitly selected network trust variables and never copies
+GitHub or Codex credential state.
 
 Command-line `--project` values override the configured project. PR-scoped
 doctor, lifecycle, and reconciliation commands retain their explicit PR scope.

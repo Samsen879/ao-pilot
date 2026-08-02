@@ -14,8 +14,9 @@ bundled evaluation, and presence of the package-owned runtime lock.
 build, binary-path, and compatibility contract. `verify:runtime-bootstrap`
 validates the official toolchain lock and formal bootstrap entrypoint; an
 explicit `./scripts/bootstrap.sh` performs the managed install. P0-R06 provides
-verified doctor/start/stop/status/runtime-path entrypoints, but P0-R07 has not
-yet established the empty-HOME fresh-clone runtime smoke release gate. See the
+verified doctor/start/stop/status/runtime-path entrypoints. P0-R07 adds the
+empty-HOME `verify:fresh-clone` runtime smoke release gate. It does not satisfy
+the protected P0-R08 AO-created Worker/GitHub delivery proof. See the
 [incident baseline](runtime-portability/P0-R01_INCIDENT_BASELINE.md).
 
 ## Release Candidate Checks
@@ -28,8 +29,8 @@ npm pack --dry-run
 
 The release check runs the full test suite, lifecycle acceptance suite,
 operator smoke, isolated tarball installation, bundled evaluation pack,
-runtime-lock, bootstrap-contract, exact lifecycle-routing verification, and
-full dependency audit.
+runtime-lock, bootstrap-contract, exact lifecycle-routing verification,
+isolated fresh-clone runtime smoke, and full dependency audit.
 
 Confirm version consistency:
 
@@ -57,7 +58,7 @@ separate P0 deliverables.
 
 ## Runtime Bootstrap Gate
 
-On supported Linux x64/arm64 hosts with Git, curl, and tar:
+On supported Linux x64/arm64 hosts with Git, curl, tar, and gzip:
 
 ```bash
 npm run verify:runtime-bootstrap
@@ -76,8 +77,33 @@ establish fresh-clone OR/Worker lifecycle or self-hosting.
 
 `npm run verify:runtime-lifecycle` verifies that lifecycle and observation
 routing use the exact resolved binary and that `start-clean.sh` contains no
-direct PATH `ao` execution. It is a contract gate, not the R07 isolated live
-daemon smoke or the R08 self-hosting receipt.
+direct PATH `ao` execution.
+
+## Fresh-clone Runtime Gate
+
+On a supported Linux target:
+
+```bash
+npm run verify:fresh-clone
+```
+
+The gate creates an exact detached clone and empty HOME, runs `npm ci`, proves
+missing-runtime fail-closed behavior, installs the public pinned runtime,
+recovers a bounded interrupted-bootstrap fixture, replays and reinstalls from
+verified offline cache, rejects a hostile `node_modules/.bin/ao` without
+executing it, verifies provenance with doctor, starts/statuses/stops the daemon,
+and creates/removes a local Worker-worktree fixture. CI stores its JSON receipt
+as `fresh-clone-runtime-receipt`.
+
+This credential-free local-adapter gate cannot satisfy P0-R08. The latter is a
+manual workflow that validates an AO-created new-workstation receipt:
+
+```bash
+npm run verify:self-hosting -- --receipt docs/runtime-portability/p0-r08-workstation-self-hosting-receipt.json
+```
+
+The command deliberately fails until a real new-workstation AO has created the
+Worker, delivered and merged its PR, replayed exact main, and cleaned its state.
 
 ## Tag and GitHub Release
 
