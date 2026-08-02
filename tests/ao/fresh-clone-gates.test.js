@@ -42,6 +42,7 @@ function validSelfHostingReceipt() {
       integrity: runtime.artifact.integrity,
       binary_path: '/isolated/runtime/bin/ao',
       binary_sha256: runtime.compatibility.platforms[0].binary_sha256,
+      target: { os: 'linux', arch: 'x64' },
     },
     bootstrap: {
       command: './scripts/bootstrap.sh',
@@ -76,6 +77,7 @@ function validSelfHostingReceipt() {
           head_sha: '3'.repeat(40),
           completed_at: '2026-08-03T01:00:00.000Z',
         }],
+        post_review_2_repair: null,
         merged: true,
         merge_sha: '4'.repeat(40),
       },
@@ -106,6 +108,7 @@ function validEvidence(receipt) {
       current_main_tree_sha: receipt.exact_main_replay.tree_sha,
       source_commit_sha: receipt.source.clone_head_sha,
       source_tree_sha: receipt.source.clone_tree_sha,
+      release_check_passed: true,
     },
     githubEvidence: {
       admission_pr: {
@@ -119,7 +122,10 @@ function validEvidence(receipt) {
         merged: true,
         merge_sha: receipt.delivery.principal_pr.merge_sha,
         head_sha: receipt.delivery.principal_pr.head_sha,
+        head_ref: receipt.delivery.worker_branch,
         base_ref: 'main',
+        merged_at: '2026-08-03T02:00:00.000Z',
+        linked_issue_63: true,
       },
       check_runs: ['fresh-clone-runtime', 'test (20)', 'test (22)'].map((name) => ({ name, conclusion: 'success' })),
       codex_reviews: receipt.delivery.principal_pr.codex_reviews.map((review) => ({
@@ -130,6 +136,12 @@ function validEvidence(receipt) {
         actor: 'chatgpt-codex-connector[bot]',
         completed: true,
       })),
+      review_findings: [],
+    },
+    publicationEvidence: {
+      issue_number: 63,
+      author: 'Samsen879',
+      exact_bytes_match: true,
     },
   };
 }
@@ -206,5 +218,44 @@ describe('fresh-clone and protected self-hosting gates', () => {
     const evidence = validEvidence(receipt);
     evidence.repositoryEvidence.source_tree_sha = 'f'.repeat(40);
     expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('commit-to-tree');
+  });
+
+  it('allows only the authorized Review-2 finding repair exception for a later final HEAD', () => {
+    const receipt = validSelfHostingReceipt();
+    receipt.delivery.principal_pr.codex_reviews.push({
+      attempt: 2,
+      kind: 'submitted_review',
+      evidence_id: 202,
+      head_sha: '6'.repeat(40),
+      completed_at: '2026-08-03T01:30:00.000Z',
+    });
+    receipt.delivery.principal_pr.reviewed_head = '6'.repeat(40);
+    receipt.delivery.principal_pr.head_sha = '7'.repeat(40);
+    receipt.delivery.principal_pr.post_review_2_repair = {
+      authorization_ref: 'https://github.com/Samsen879/ao-pilot/issues/55',
+      final_head_sha: '7'.repeat(40),
+      finding_comment_ids: [303],
+    };
+    const evidence = validEvidence(receipt);
+    evidence.githubEvidence.review_findings = [{ comment_id: 303, review_id: 202, resolved: true }];
+    expect(verifySelfHostingReceipt(receipt, evidence)).toMatchObject({
+      status: 'verified',
+      reviewed_head: '6'.repeat(40),
+      review_count: 2,
+    });
+  });
+
+  it('rejects review completion after the GitHub merge time', () => {
+    const receipt = validSelfHostingReceipt();
+    const evidence = validEvidence(receipt);
+    evidence.githubEvidence.principal_pr.merged_at = '2026-08-03T00:30:00.000Z';
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('completed after merge');
+  });
+
+  it('rejects a receipt not published byte-for-byte to issue #63', () => {
+    const receipt = validSelfHostingReceipt();
+    const evidence = validEvidence(receipt);
+    evidence.publicationEvidence.exact_bytes_match = false;
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('exact_bytes_match');
   });
 });

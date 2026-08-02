@@ -29,7 +29,11 @@
       "digest": "479fba6fd44f251f0c66fafc5cb5d638a6ff590a"
     },
     "binary_path": "REPLACE_WITH_MANAGED_ABSOLUTE_PATH",
-    "binary_sha256": "REPLACE_WITH_LOCKED_64_HEX"
+    "binary_sha256": "REPLACE_WITH_LOCKED_64_HEX",
+    "target": {
+      "os": "linux",
+      "arch": "REPLACE_WITH_X64_OR_ARM64"
+    }
   },
   "bootstrap": {
     "command": "./scripts/bootstrap.sh",
@@ -43,7 +47,7 @@
     "worker_created_by_new_ao": false,
     "worker_created_from_issue": false,
     "worker_worktree_path": "REPLACE_WITH_WORKTREE_PATH",
-    "worker_branch": "REPLACE_WITH_TASK_BRANCH",
+    "worker_branch": "ao/REPLACE_WITH_TASK_BRANCH",
     "worker_committed": false,
     "worker_pushed": false,
     "worker_opened_pr": false,
@@ -66,6 +70,7 @@
           "completed_at": "REPLACE_WITH_GITHUB_TIMESTAMP"
         }
       ],
+      "post_review_2_repair": null,
       "merged": false,
       "merge_sha": "REPLACE_WITH_40_HEX"
     }

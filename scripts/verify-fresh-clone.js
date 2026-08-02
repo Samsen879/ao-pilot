@@ -368,7 +368,11 @@ export async function verifyFreshClone(options, {
       env,
       timeout: 30_000,
     }));
-    if (!['started', 'already_running'].includes(start.status)) {
+    if (start.status === 'already_running') {
+      runtimeStopRequired = false;
+      fail('fresh_clone_daemon_preexisting', 'Isolated HOME already had a reachable runtime daemon; refusing to stop a daemon this gate did not create');
+    }
+    if (start.status !== 'started') {
       fail('fresh_clone_start_failed', 'Verified runtime daemon did not start', { status: start.status });
     }
     started = true;

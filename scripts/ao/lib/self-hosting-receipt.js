@@ -79,6 +79,7 @@ export function verifySelfHostingReceipt(receipt, {
   runtimeLock = loadRuntimeLock().lock,
   repositoryEvidence = null,
   githubEvidence = null,
+  publicationEvidence = null,
 } = {}) {
   const value = object(receipt, 'receipt');
   assert(value.schema_version === SELF_HOSTING_RECEIPT_SCHEMA_VERSION, 'Unsupported self-hosting receipt schema');
@@ -121,7 +122,12 @@ export function verifySelfHostingReceipt(receipt, {
   assert(runtime.integrity?.digest === runtimeLock.artifact.integrity.digest, 'Runtime integrity digest mismatch');
   string(runtime.binary_path, 'runtime.binary_path');
   assert(/^[0-9a-f]{64}$/.test(string(runtime.binary_sha256, 'runtime.binary_sha256')), 'Invalid runtime.binary_sha256');
-  assert(runtimeLock.compatibility.platforms.some((target) => target.binary_sha256 === runtime.binary_sha256), 'Runtime binary digest is not locked');
+  const runtimeTarget = object(runtime.target, 'runtime.target');
+  const lockedTarget = runtimeLock.compatibility.platforms.find((target) => (
+    target.os === runtimeTarget.os && target.arch === runtimeTarget.arch
+  ));
+  assert(lockedTarget != null, 'Runtime target is not supported by the lock');
+  assert(lockedTarget.binary_sha256 === runtime.binary_sha256, 'Runtime binary digest does not match the workstation target');
 
   const bootstrap = object(value.bootstrap, 'bootstrap');
   assert(bootstrap.command === './scripts/bootstrap.sh', 'Unexpected bootstrap command');
@@ -149,6 +155,9 @@ export function verifySelfHostingReceipt(receipt, {
   const livePrincipalPr = object(github.principal_pr, 'GitHub principal PR');
   assert(principalPr.number === livePrincipalPr.number, 'Principal PR number does not match GitHub');
   assert(principalPr.url === `https://github.com/Samsen879/ao-pilot/pull/${principalPr.number}`, 'Invalid principal PR URL');
+  assert(/^ao\//.test(delivery.worker_branch), 'Worker branch is not AO-owned');
+  assert(livePrincipalPr.head_ref === delivery.worker_branch, 'Live PR branch does not match the Worker branch');
+  assert(livePrincipalPr.linked_issue_63 === true, 'Live PR is not authoritatively linked to issue #63');
   const finalHead = sha(principalPr.head_sha, 'delivery.principal_pr.head_sha');
   assert(livePrincipalPr.head_sha === finalHead, 'Principal PR final HEAD does not match GitHub');
   assert(livePrincipalPr.base_ref === 'main', 'Principal PR did not target main');
@@ -158,16 +167,37 @@ export function verifySelfHostingReceipt(receipt, {
     assert(github.check_runs.some((check) => check.name === checkName && check.conclusion === 'success'), `Required CI is not green: ${checkName}`);
   }
   const reviews = verifyCompletedCodexReviews(principalPr.codex_reviews, github.codex_reviews);
-  assert(reviews.some((review) => review.head_sha === principalPr.reviewed_head), 'No completed Codex Review binds the declared reviewed HEAD');
-  sha(principalPr.reviewed_head, 'delivery.principal_pr.reviewed_head');
+  const reviewedHead = sha(principalPr.reviewed_head, 'delivery.principal_pr.reviewed_head');
+  assert(reviews.at(-1).head_sha === reviewedHead, 'Declared reviewed HEAD is not the final completed review target');
+  if (finalHead !== reviewedHead) {
+    const repair = object(principalPr.post_review_2_repair, 'delivery.principal_pr.post_review_2_repair');
+    assert(reviews.length === 2 && reviews.at(-1).kind === 'submitted_review', 'Unreviewed final HEAD is allowed only after Review 2 findings');
+    assert(repair.authorization_ref === 'https://github.com/Samsen879/ao-pilot/issues/55', 'Post-Review-2 repair lacks the Owner policy authorization');
+    assert(sha(repair.final_head_sha, 'post_review_2_repair.final_head_sha') === finalHead, 'Post-Review-2 repair does not bind the final HEAD');
+    assert(Array.isArray(repair.finding_comment_ids) && repair.finding_comment_ids.length > 0, 'Post-Review-2 repair has no finding IDs');
+    assert(Array.isArray(github.review_findings), 'Live review finding evidence is unavailable');
+    const liveFindings = github.review_findings.filter((finding) => finding.review_id === reviews.at(-1).evidence_id);
+    assert(liveFindings.length === repair.finding_comment_ids.length, 'Post-Review-2 finding evidence is incomplete');
+    for (const findingId of repair.finding_comment_ids) {
+      const liveFinding = liveFindings.find((finding) => finding.comment_id === findingId);
+      assert(liveFinding != null && liveFinding.resolved === true, `Review 2 finding is unresolved or missing: ${findingId}`);
+    }
+  } else {
+    assert(principalPr.post_review_2_repair == null, 'Unexpected post-Review-2 repair claim');
+  }
   truth(principalPr.merged, 'delivery.principal_pr.merged');
   assert(livePrincipalPr.merged === true, 'Principal PR is not merged on GitHub');
   const mergeSha = sha(principalPr.merge_sha, 'delivery.principal_pr.merge_sha');
   assert(livePrincipalPr.merge_sha === mergeSha, 'Principal PR merge SHA does not match GitHub');
+  const mergedAt = timestamp(livePrincipalPr.merged_at, 'GitHub principal PR merged_at');
+  for (const review of reviews) {
+    assert(Date.parse(review.completed_at) <= Date.parse(mergedAt), `Codex Review attempt ${review.attempt} completed after merge`);
+  }
 
   const replay = object(value.exact_main_replay, 'exact_main_replay');
   truth(replay.passed, 'exact_main_replay.passed');
   truth(replay.release_check_passed, 'exact_main_replay.release_check_passed');
+  truth(repository.release_check_passed, 'repository evidence release_check_passed');
   assert(sha(replay.main_sha, 'exact_main_replay.main_sha') === mergeSha, 'Exact-main replay is not bound to the merge SHA');
   const replayTree = sha(replay.tree_sha, 'exact_main_replay.tree_sha');
   assert(repository.current_main_sha === mergeSha, 'Verifier checkout is not exact post-merge main');
@@ -178,6 +208,11 @@ export function verifySelfHostingReceipt(receipt, {
   truth(cleanup.worker_session_stopped, 'cleanup.worker_session_stopped');
   truth(cleanup.worker_worktree_removed, 'cleanup.worker_worktree_removed');
   truth(cleanup.stale_ownership_absent, 'cleanup.stale_ownership_absent');
+
+  const publication = object(publicationEvidence, 'issue #63 publication evidence');
+  assert(publication.issue_number === 63, 'Receipt was not published to issue #63');
+  assert(publication.author === 'Samsen879', 'Receipt publication has the wrong author');
+  truth(publication.exact_bytes_match, 'publication.exact_bytes_match');
 
   const claim = object(value.claim, 'claim');
   truth(claim.workstation_self_hosting, 'claim.workstation_self_hosting');

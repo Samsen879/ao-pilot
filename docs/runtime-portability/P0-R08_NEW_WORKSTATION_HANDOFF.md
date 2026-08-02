@@ -32,7 +32,9 @@ node ./bin/ao-pilot.js start --project ao-pilot
 
 Record the bootstrap and doctor provenance without credentials. The source,
 tag object, commit, tree, lock digest, binary digest, and absolute binary path
-must match the committed locks.
+must match the committed locks. Record the actual runtime target as
+`linux/x64` or `linux/arm64`; the receipt verifier binds the binary digest to
+that exact tuple.
 
 ## AO-created delivery
 
@@ -89,8 +91,17 @@ npm run verify:self-hosting -- \
   --receipt /tmp/p0-r08-workstation-self-hosting-receipt.json
 ```
 
-Post that exact JSON to issue #63, base64-encode the same bytes, and run the
-manual `workstation-self-hosting-proof` workflow on exact post-merge `main`.
+Post that exact JSON as the entire body of one issue #63 comment, record the
+comment database ID, base64-encode the same bytes, and run the manual
+`workstation-self-hosting-proof` workflow on exact post-merge `main`:
+
+```bash
+gh issue comment 63 --body-file /tmp/p0-r08-workstation-self-hosting-receipt.json
+npm run verify:self-hosting -- \
+  --receipt /tmp/p0-r08-workstation-self-hosting-receipt.json \
+  --issue-comment-id <ISSUE-63-COMMENT-ID> \
+  --repository-root "$PWD"
+```
 This ordering is required because the final receipt contains merge readback,
 exact-main replay, and cleanup evidence that cannot truthfully exist inside the
 pre-merge principal PR. A mock-only receipt, old-workstation execution, missing
@@ -103,5 +114,13 @@ P0-R08 principal PR from GitHub, verifies required check runs, and validates
 each counted Codex Review against either a submitted bot review or an exact-head
 request comment with the bot's clean `+1` reaction. Receipt fields alone are
 never sufficient evidence.
+
+Normally `principal_pr.reviewed_head` must equal `principal_pr.head_sha`. If
+Review 2 reports findings, the Owner's two-review policy permits a final repair
+without Review 3 only when `post_review_2_repair` binds the final SHA, references
+issue #55, lists every Review 2 finding comment ID, and every corresponding
+thread is resolved. The verifier also requires all review completions to
+predate the live GitHub merge timestamp and executes `npm run release:check`
+itself on the checked-out exact merge SHA.
 
 Only after #63 merges and exact-main replay passes may #12 be marked admitted.
