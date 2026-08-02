@@ -1,0 +1,68 @@
+{
+  "schema_version": "ao.runtime-lock.v1",
+  "runtime_ref": "runtime.agent_orchestrator.v0_11_2_p0_1",
+  "artifact": {
+    "kind": "git_source",
+    "repository": "https://github.com/Samsen879/agent-orchestrator.git",
+    "upstream_repository": "https://github.com/Untrivial-ai/agent-orchestrator.git",
+    "version": "0.11.2-p0.1",
+    "package": {
+      "name": "@aoagents/ao",
+      "version": "0.11.2",
+      "role": "upstream_identity",
+      "install_authority": false
+    },
+    "ref": {
+      "kind": "annotated_tag",
+      "name": "ao-pilot-runtime-v0.11.2-p0.1",
+      "tag_object_sha": "06ba07935cbacb7ff304779a2c1060ce98778200",
+      "commit_sha": "711178ebe07d436db36020eb08f0c4e29613f97b",
+      "tree_sha": "479fba6fd44f251f0c66fafc5cb5d638a6ff590a"
+    },
+    "integrity": {
+      "algorithm": "git-tree-sha1",
+      "digest": "479fba6fd44f251f0c66fafc5cb5d638a6ff590a"
+    }
+  },
+  "build": {
+    "working_directory": "backend",
+    "toolchain": {
+      "name": "go",
+      "version": "1.25.7"
+    },
+    "environment": {
+      "CGO_ENABLED": "0"
+    },
+    "command": [
+      "go",
+      "build",
+      "-trimpath",
+      "-buildvcs=false",
+      "-o",
+      "{binary_path}",
+      "./cmd/ao"
+    ]
+  },
+  "binary": {
+    "name": "ao",
+    "relative_path": "bin/ao"
+  },
+  "compatibility": {
+    "ao_pilot": {
+      "minimum_version": "0.2.0",
+      "maximum_exclusive_version": "0.3.0"
+    },
+    "platforms": [
+      {
+        "os": "linux",
+        "arch": "x64",
+        "binary_sha256": "a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34"
+      },
+      {
+        "os": "linux",
+        "arch": "arm64",
+        "binary_sha256": "132164dc29349ea2082d77d6758b3617be81c7cfcf27d3f0ba9a88d65a88c752"
+      }
+    ]
+  }
+}

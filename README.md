@@ -43,15 +43,23 @@ The core question behind this project is:
 
 The `0.2.0` package boundary is installable, but a fresh clone cannot yet
 recover the complete Agent Orchestrator runtime. There is no `ao-pilot start`,
-no repository-owned deterministic runtime bootstrap or lock, and the current
-`scripts/ao/start-clean.sh` can select an unverified `ao` from `PATH`.
-This is package-level portability only.
+no deterministic runtime bootstrap, and the current `scripts/ao/start-clean.sh`
+can select an unverified `ao` from `PATH`. P0-R04 now supplies a package-owned
+[immutable runtime lock and fail-closed resolver](docs/AO_RUNTIME.md), but that
+identity contract does not install or start the runtime. The system therefore
+still has package-level portability only.
 
 Therefore package installation, control-plane installation, external runtime
 installation, user-provided GitHub/Codex credentials, runtime bootstrap, and
 self-hosting acceptance are separate gates. Do not claim operational
 portability from `npm ci` or `npm run verify:package`. See the
 [P0-R01 incident baseline](docs/runtime-portability/P0-R01_INCIDENT_BASELINE.md).
+
+The runtime identity contract can be inspected offline with:
+
+```bash
+npm run verify:runtime-lock
+```
 
 ## Why This Exists
 

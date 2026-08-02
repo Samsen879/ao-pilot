@@ -67,6 +67,8 @@ describe('ao-pilot public library API', () => {
     expect(contracts.CONTROL_PLANE_SCHEMA_VERSION).toBe(
       'ao.control-plane.schema.v1alpha1',
     );
+    expect(contracts.RUNTIME_LOCK_SCHEMA_VERSION).toBe('ao.runtime-lock.v1');
+    expect(contracts.createRuntimeProvenance).toEqual(expect.any(Function));
     expect(repository.createStateRepository).toEqual(expect.any(Function));
     expect(repository.bootstrapControlPlaneState).toEqual(expect.any(Function));
     expect(engines.reconcileObservations).toEqual(expect.any(Function));
@@ -78,6 +80,7 @@ describe('ao-pilot public library API', () => {
     expect(providers.createLocalCommandRunner).toEqual(expect.any(Function));
     expect(providers.createBlockedNotificationWebhookTransport).toEqual(expect.any(Function));
     expect(providers.listRuntimeProviderContracts()).toEqual(expect.any(Array));
+    expect(providers.resolveManagedRuntime).toEqual(expect.any(Function));
 
     expect(rootApi.contracts).toBeDefined();
     expect(rootApi.repository).toBeDefined();

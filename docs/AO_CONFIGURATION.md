@@ -43,12 +43,13 @@ provider and the `github-cli` source-control provider. Unsupported provider
 names fail during configuration loading.
 
 The provider name is a logical control-plane selection, not proof that an
-external runtime was installed from a public immutable source. Version 0.2.0
-does not bind that name to an exact repository, version, commit, integrity, or
-binary path. During the P0 recovery, PATH order and old HOME checkouts are not
-valid runtime resolution. The future runtime lock/bootstrap contract is owned
-by P0-R04 and P0-R05; current limitations are frozen in
-[P0-R01](runtime-portability/P0-R01_INCIDENT_BASELINE.md).
+external runtime is installed. The package-owned
+[runtime lock](AO_RUNTIME.md) separately binds the public repository, upstream
+package identity, version, annotated tag object, commit, tree integrity, build
+contract, managed binary path, and compatibility range. `PATH` order and old
+HOME checkouts are never runtime authority. P0-R05 still owns deterministic
+installation and provenance materialization; the incident limitations remain
+frozen in [P0-R01](runtime-portability/P0-R01_INCIDENT_BASELINE.md).
 
 Command-line `--project` values override the configured project. PR-scoped
 doctor, lifecycle, and reconciliation commands retain their explicit PR scope.

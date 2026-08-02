@@ -10,10 +10,12 @@ worktree creation, or model execution itself.
 ## P0 Operational Portability Boundary
 
 The package/control-plane boundary and the external runtime boundary are
-different. `ao-pilot@0.2.0` can be packed and installed, but it does not yet
-lock, install, resolve, authenticate, start, or stop a publicly retrievable
-Agent Orchestrator runtime. The P0 recovery lane therefore treats the complete
-system as three explicit layers:
+different. `ao-pilot@0.2.0` can be packed and installed. Its package-owned
+[runtime lock and resolver](AO_RUNTIME.md) now bind and verify the canonical
+runtime identity, provenance, managed binary integrity, and compatibility, but
+the package does not yet bootstrap, authenticate, start, or stop that runtime.
+The P0 recovery lane therefore treats the complete system as three explicit
+layers:
 
 ```text
 public immutable Agent Orchestrator runtime
@@ -23,7 +25,8 @@ public immutable Agent Orchestrator runtime
 
 Until P0-R08 proves this stack on a fresh workstation, an arbitrary PATH `ao`,
 an old HOME checkout, and package-only verification are not runtime authority.
-See [the incident baseline](runtime-portability/P0-R01_INCIDENT_BASELINE.md).
+The resolver fails closed if a different `ao` shadows the managed binary. See
+[the incident baseline](runtime-portability/P0-R01_INCIDENT_BASELINE.md).
 
 ## Control Loop
 

@@ -21,7 +21,11 @@ describe('ao-pilot public product contract', () => {
       'tests/ao/ao-lifecycle-acceptance.test.js',
     );
     expect(packageJson.scripts['ao:smoke']).toBe('node scripts/ao/run-operator-smoke.js');
+    expect(packageJson.scripts['verify:runtime-lock']).toBe(
+      'node scripts/verify-runtime-lock.js',
+    );
     expect(packageJson.scripts['release:check']).toContain('npm run verify:package');
+    expect(packageJson.scripts['release:check']).toContain('npm run verify:runtime-lock');
     expect(packageJson.publishConfig).toEqual({
       access: 'public',
       provenance: true,
@@ -30,6 +34,11 @@ describe('ao-pilot public product contract', () => {
     expect(fs.existsSync(path.join(PROJECT_ROOT, 'package-lock.json'))).toBe(true);
     expect(fs.existsSync(path.join(PROJECT_ROOT, 'CHANGELOG.md'))).toBe(true);
     expect(fs.existsSync(path.join(PROJECT_ROOT, 'docs', 'AO_RELEASE.md'))).toBe(true);
+    expect(fs.existsSync(path.join(
+      PROJECT_ROOT,
+      'runtime',
+      'agent-orchestrator.lock.json',
+    ))).toBe(true);
   });
 
   it('keeps public documentation independent from the CIE product repository', () => {

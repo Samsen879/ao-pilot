@@ -9,8 +9,10 @@ The `0.2.0` package checks do not establish operational runtime portability.
 Until P0-R08 is merged and replayed on exact main, no fresh-machine or
 self-hosting claim may be made and the original AO Upgrade chain remains
 blocked. `verify:package` verifies only the tarball, public imports, package CLI,
-and bundled evaluation. It does not bootstrap, verify, start, or stop the
-external Agent Orchestrator runtime. See the
+bundled evaluation, and presence of the package-owned runtime lock.
+`verify:runtime-lock` separately verifies the immutable identity, provenance,
+build, binary-path, and compatibility contract. Neither gate bootstraps, starts,
+or stops the external Agent Orchestrator runtime. See the
 [incident baseline](runtime-portability/P0-R01_INCIDENT_BASELINE.md).
 
 ## Release Candidate Checks
@@ -22,8 +24,8 @@ npm pack --dry-run
 ```
 
 The release check runs the full test suite, lifecycle acceptance suite,
-operator smoke, isolated tarball installation, bundled evaluation pack, and
-full dependency audit.
+operator smoke, isolated tarball installation, bundled evaluation pack,
+runtime-lock verification, and full dependency audit.
 
 Confirm version consistency:
 
@@ -46,8 +48,8 @@ node ./bin/ao-pilot.js eval --pack policy-fail-closed
 ```
 
 This recipe is not a runtime bootstrap and is not a self-hosting acceptance
-test. The future runtime-bootstrap, fresh-clone, and protected workstation gates
-are separate P0 deliverables.
+test. The runtime-bootstrap, fresh-clone, and protected workstation gates are
+separate P0 deliverables.
 
 ## Tag and GitHub Release
 

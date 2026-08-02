@@ -22,6 +22,7 @@
     "CHANGELOG.md",
     "bin",
     "lib",
+    "runtime",
     "scripts",
     "docs",
     "templates",
@@ -69,9 +70,10 @@
     "ao:test:acceptance": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --runTestsByPath tests/ao/ao-lifecycle-acceptance.test.js --no-color",
     "test": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --testPathPatterns='tests/ao/' --no-color",
     "verify:package": "node scripts/verify-package-install.js",
+    "verify:runtime-lock": "node scripts/verify-runtime-lock.js",
     "verify:runtime-inventory": "node scripts/verify-runtime-portability-inventory.js",
     "verify:runtime-parity": "node scripts/verify-runtime-patch-parity.js",
-    "release:check": "npm test && npm run ao:test:acceptance && npm run ao:smoke && npm run verify:package && npm audit"
+    "release:check": "npm test && npm run ao:test:acceptance && npm run ao:smoke && npm run verify:package && npm run verify:runtime-lock && npm audit"
   },
   "jest": {
     "testEnvironment": "node",

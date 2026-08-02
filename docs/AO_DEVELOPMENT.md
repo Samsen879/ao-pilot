@@ -8,12 +8,13 @@
 - `gh`, authenticated when live GitHub observation is required
 - an `ao` compatible runtime when live agent observation is required
 
-The final bullet is not currently a reproducible installation contract. During
-the P0 recovery, do not satisfy it with an arbitrary PATH binary, an npm package
+The final bullet is not yet a reproducible installation contract. During the
+P0 recovery, do not satisfy it with an arbitrary PATH binary, an npm package
 whose provenance is unknown, or a hidden HOME checkout. `npm ci`, `npm test`,
-and `verify:package` exercise the control-plane package only. The incident and
-dependency inventory are recorded in
-[P0-R01](runtime-portability/P0-R01_INCIDENT_BASELINE.md).
+and `verify:package` exercise the control-plane package only. The immutable
+[runtime lock](AO_RUNTIME.md) establishes identity and deterministic resolution;
+P0-R05 still owns installation. The incident and dependency inventory are
+recorded in [P0-R01](runtime-portability/P0-R01_INCIDENT_BASELINE.md).
 
 ## Clean Install
 
@@ -46,10 +47,12 @@ Verify the actual npm tarball in an isolated install directory:
 
 ```bash
 npm run verify:package
+npm run verify:runtime-lock
 ```
 
-This proves package-level portability only. It does not install or run an
-Agent Orchestrator daemon, OR, or Worker.
+`verify:package` proves package-level portability only;
+`verify:runtime-lock` proves the offline runtime identity contract. They do not
+install or run an Agent Orchestrator daemon, OR, or Worker.
 
 Run the complete release candidate gate:
 

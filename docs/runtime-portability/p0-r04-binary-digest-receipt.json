@@ -1,0 +1,59 @@
+{
+  "schema_version": "ao.runtime-binary-digest-receipt.v1",
+  "generated_at": "2026-08-02T05:41:33Z",
+  "source": {
+    "repository": "https://github.com/Samsen879/agent-orchestrator.git",
+    "tag": "ao-pilot-runtime-v0.11.2-p0.1",
+    "tag_object_sha": "06ba07935cbacb7ff304779a2c1060ce98778200",
+    "commit_sha": "711178ebe07d436db36020eb08f0c4e29613f97b",
+    "tree_sha": "479fba6fd44f251f0c66fafc5cb5d638a6ff590a"
+  },
+  "toolchain": {
+    "name": "go",
+    "version": "1.25.7",
+    "archive": "go1.25.7.linux-amd64.tar.gz",
+    "archive_url": "https://go.dev/dl/go1.25.7.linux-amd64.tar.gz",
+    "archive_sha256": "12e6d6a191091ae27dc31f6efc630e3a3b8ba409baf3573d955b196fdf086005"
+  },
+  "build": {
+    "working_directory": "backend",
+    "command": [
+      "go",
+      "build",
+      "-trimpath",
+      "-buildvcs=false",
+      "-o",
+      "{binary_path}",
+      "./cmd/ao"
+    ],
+    "environment": {
+      "CGO_ENABLED": "0",
+      "GOOS": "linux",
+      "GOARCH": "per-target"
+    }
+  },
+  "targets": [
+    {
+      "os": "linux",
+      "arch": "x64",
+      "goarch": "amd64",
+      "format": "ELF 64-bit LSB x86-64 statically linked",
+      "run_sha256": [
+        "a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34",
+        "a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34"
+      ],
+      "byte_identical": true
+    },
+    {
+      "os": "linux",
+      "arch": "arm64",
+      "goarch": "arm64",
+      "format": "ELF 64-bit LSB ARM aarch64 statically linked",
+      "run_sha256": [
+        "132164dc29349ea2082d77d6758b3617be81c7cfcf27d3f0ba9a88d65a88c752",
+        "132164dc29349ea2082d77d6758b3617be81c7cfcf27d3f0ba9a88d65a88c752"
+      ],
+      "byte_identical": true
+    }
+  ]
+}
