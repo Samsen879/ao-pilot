@@ -3,10 +3,13 @@ import path from 'node:path';
 
 import { loadRuntimeLock } from './runtime-lock.js';
 
-export const SELF_HOSTING_RECEIPT_SCHEMA_VERSION = 'ao.workstation-self-hosting-receipt.v1';
-export const P0_R07_ADMISSION_PR = 69;
-export const P0_R07_ADMITTED_MAIN = 'be8ea9d408920e0728ac980097db758796144714';
-export const P0_R07_ADMITTED_TREE = '00f93b164a75af044e63532fc7ac64479a390ab9';
+export const SELF_HOSTING_RECEIPT_SCHEMA_VERSION = 'ao.workstation-self-hosting-receipt.v2';
+export const P0_R08_RETRY_ADMISSION_PR = 70;
+export const P0_R08_RETRY_ADMISSION_ISSUE = 63;
+export const P0_R08_RETRY_ADMISSION_COMMENT = 5157524210;
+export const P0_R08_RETRY_ADMISSION_COMMENT_SHA256 = '0c06f002ef5044734721c72bfdce27d3c80baf2a4b9bf88d9263bf3d1e1a3b4b';
+export const P0_R08_RETRY_ADMITTED_MAIN = 'd7bef70d16a881cbceb785b1541db67a1876de04';
+export const P0_R08_RETRY_ADMITTED_TREE = 'e3553f50aba65c413d4a5063bfd4ceb4510e0166';
 export const WORKTREE_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-worktree-evidence.v1';
 export const REQUIRED_CI_CHECKS = ['fresh-clone-runtime', 'test (20)', 'test (22)'];
 
@@ -101,14 +104,22 @@ export function verifySelfHostingReceipt(receipt, {
 
   const source = object(value.source, 'source');
   assert(source.repository === 'https://github.com/Samsen879/ao-pilot.git', 'Unexpected ao-pilot source repository');
-  assert(source.admission_pr_number === P0_R07_ADMISSION_PR, 'Source is not bound to the P0-R07 admission PR');
+  assert(source.admission_pr_number === P0_R08_RETRY_ADMISSION_PR, 'Source is not bound to historical P0-R08 PR #70');
   const sourceHead = sha(source.clone_head_sha, 'source.clone_head_sha');
   const sourceTree = sha(source.clone_tree_sha, 'source.clone_tree_sha');
-  assert(sourceHead === P0_R07_ADMITTED_MAIN, 'Fresh clone is not the exact admitted P0-R07 main');
-  assert(sourceTree === P0_R07_ADMITTED_TREE, 'Fresh clone tree is not the exact admitted P0-R07 tree');
+  assert(sourceHead === P0_R08_RETRY_ADMITTED_MAIN, 'Fresh clone is not the exact admitted P0-R08 retry main');
+  assert(sourceTree === P0_R08_RETRY_ADMITTED_TREE, 'Fresh clone tree is not the exact admitted P0-R08 retry tree');
   const sourceClonePath = string(source.clone_path, 'source.clone_path');
   assert(path.isAbsolute(sourceClonePath), 'source.clone_path must be absolute');
   truth(source.clean_before_bootstrap, 'source.clean_before_bootstrap');
+
+  const retryAdmission = object(value.retry_admission, 'retry_admission');
+  assert(retryAdmission.issue_number === P0_R08_RETRY_ADMISSION_ISSUE, 'Retry admission is not bound to issue #63');
+  assert(retryAdmission.comment_id === P0_R08_RETRY_ADMISSION_COMMENT, 'Retry admission comment ID mismatch');
+  assert(retryAdmission.comment_body_sha256 === P0_R08_RETRY_ADMISSION_COMMENT_SHA256, 'Retry admission comment digest mismatch');
+  assert(retryAdmission.historical_pr_number === P0_R08_RETRY_ADMISSION_PR, 'Retry admission historical PR mismatch');
+  assert(sha(retryAdmission.historical_merge_sha, 'retry_admission.historical_merge_sha') === sourceHead, 'Retry admission historical merge mismatch');
+  assert(sha(retryAdmission.historical_tree_sha, 'retry_admission.historical_tree_sha') === sourceTree, 'Retry admission historical tree mismatch');
 
   const repository = object(repositoryEvidence, 'repository evidence');
   assert(repository.source_commit_sha === sourceHead, 'Repository source commit evidence mismatch');
@@ -116,9 +127,18 @@ export function verifySelfHostingReceipt(receipt, {
 
   const github = object(githubEvidence, 'GitHub evidence');
   const admissionPr = object(github.admission_pr, 'GitHub admission PR');
-  assert(admissionPr.number === P0_R07_ADMISSION_PR && admissionPr.merged === true, 'P0-R07 admission PR is not merged');
-  assert(admissionPr.base_ref === 'main', 'P0-R07 admission PR did not target main');
-  assert(admissionPr.merge_sha === sourceHead, 'Fresh clone is not bound to the P0-R07 merge SHA');
+  assert(admissionPr.number === P0_R08_RETRY_ADMISSION_PR && admissionPr.merged === true, 'Historical P0-R08 PR #70 is not merged');
+  assert(admissionPr.base_ref === 'main', 'Historical P0-R08 PR #70 did not target main');
+  assert(admissionPr.merge_sha === sourceHead, 'Fresh clone is not bound to the historical PR #70 merge SHA');
+
+  const liveRetryAdmission = object(github.retry_admission, 'GitHub retry admission comment');
+  assert(liveRetryAdmission.comment_id === retryAdmission.comment_id, 'Live retry admission comment ID mismatch');
+  assert(liveRetryAdmission.issue_number === retryAdmission.issue_number, 'Retry admission comment was not published to issue #63');
+  assert(liveRetryAdmission.author === 'Samsen879', 'Retry admission comment has the wrong author');
+  assert(liveRetryAdmission.author_association === 'OWNER', 'Retry admission comment is not owner-authorized');
+  const retryAdmittedAt = timestamp(liveRetryAdmission.created_at, 'retry admission comment created_at');
+  assert(liveRetryAdmission.updated_at === retryAdmittedAt, 'Retry admission comment was edited after authorization');
+  assert(liveRetryAdmission.body_sha256 === retryAdmission.comment_body_sha256, 'Live retry admission comment digest mismatch');
 
   const runtime = object(value.runtime, 'runtime');
   assert(runtime.runtime_ref === runtimeLock.runtime_ref, 'Runtime ref does not match the committed lock');
@@ -165,6 +185,7 @@ export function verifySelfHostingReceipt(receipt, {
 
   const principalPr = object(delivery.principal_pr, 'delivery.principal_pr');
   assert(Number.isInteger(principalPr.number) && principalPr.number > 0, 'Invalid delivery.principal_pr.number');
+  assert(principalPr.number !== P0_R08_RETRY_ADMISSION_PR, 'Historical failed PR #70 cannot serve as the retry principal PR');
   const livePrincipalPr = object(github.principal_pr, 'GitHub principal PR');
   assert(principalPr.number === livePrincipalPr.number, 'Principal PR number does not match GitHub');
   assert(principalPr.url === `https://github.com/Samsen879/ao-pilot/pull/${principalPr.number}`, 'Invalid principal PR URL');
@@ -174,6 +195,7 @@ export function verifySelfHostingReceipt(receipt, {
   const finalHead = sha(principalPr.head_sha, 'delivery.principal_pr.head_sha');
   assert(livePrincipalPr.head_sha === finalHead, 'Principal PR final HEAD does not match GitHub');
   assert(livePrincipalPr.base_ref === 'main', 'Principal PR did not target main');
+  assert(Date.parse(timestamp(livePrincipalPr.created_at, 'GitHub principal PR created_at')) >= Date.parse(retryAdmittedAt), 'Principal PR predates the owner retry admission');
   assert(principalPr.ci_conclusion === 'success', 'Principal PR CI is not green');
   assert(Array.isArray(github.check_runs), 'Live CI evidence is unavailable');
   for (const checkName of REQUIRED_CI_CHECKS) {
@@ -213,17 +235,19 @@ export function verifySelfHostingReceipt(receipt, {
   assert(worktreeCapture.author === 'Samsen879', 'Worktree evidence has the wrong author');
   const worktreeEvidencePublishedAt = timestamp(worktreeCapture.created_at, 'worktree evidence comment created_at');
   assert(worktreeCapture.updated_at === worktreeEvidencePublishedAt, 'Worktree evidence comment was edited after publication');
+  assert(Date.parse(worktreeEvidencePublishedAt) >= Date.parse(retryAdmittedAt), 'Worktree evidence predates the owner retry admission');
   const captured = object(worktreeCapture.payload, 'worktree capture payload');
   assert(captured.schema_version === WORKTREE_EVIDENCE_SCHEMA_VERSION, 'Unsupported worktree evidence schema');
   assert(captured.issue_number === 63, 'Worktree evidence does not target issue #63');
   const capturedAt = timestamp(captured.captured_at, 'worktree evidence captured_at');
+  assert(Date.parse(capturedAt) >= Date.parse(retryAdmittedAt), 'Worktree evidence was captured before the owner retry admission');
   assert(Date.parse(capturedAt) <= Date.parse(worktreeEvidencePublishedAt), 'Worktree evidence was published before Git capture completed');
   assert(Date.parse(worktreeEvidencePublishedAt) <= Date.parse(mergedAt), 'Worktree evidence was published after merge');
   assert(Date.parse(capturedAt) <= Date.parse(mergedAt), 'Worktree evidence was captured after merge');
   const capturedSource = object(captured.source, 'captured source worktree');
   assert(capturedSource.clone_path === sourceClonePath, 'Receipt source path does not match captured Git evidence');
-  assert(capturedSource.head_sha === sourceHead, 'Captured source HEAD does not match the admitted main');
-  assert(capturedSource.tree_sha === sourceTree, 'Captured source tree does not match the admitted tree');
+  assert(capturedSource.head_sha === sourceHead, 'Captured source HEAD does not match the retry-admitted main');
+  assert(capturedSource.tree_sha === sourceTree, 'Captured source tree does not match the retry-admitted tree');
   assert(path.isAbsolute(string(capturedSource.git_common_dir, 'captured source git_common_dir')), 'Captured source git common directory must be absolute');
   const capturedWorker = object(captured.worker, 'captured Worker worktree');
   assert(capturedWorker.session_id === workerSessionId, 'Captured Worker session does not match the receipt');
@@ -268,6 +292,7 @@ export function verifySelfHostingReceipt(receipt, {
     issue_number: delivery.issue_number,
     runtime_ref: runtime.runtime_ref,
     admitted_main: sourceHead,
+    retry_admission_comment: retryAdmission.comment_id,
     principal_pr: principalPr.number,
     reviewed_head: principalPr.reviewed_head,
     merge_sha: mergeSha,

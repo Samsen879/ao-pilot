@@ -7,8 +7,11 @@ import { describe, expect, it } from '@jest/globals';
 
 import { loadRuntimeLock } from '../../scripts/ao/lib/runtime-lock.js';
 import {
-  P0_R07_ADMITTED_MAIN,
-  P0_R07_ADMITTED_TREE,
+  P0_R08_RETRY_ADMISSION_COMMENT,
+  P0_R08_RETRY_ADMISSION_COMMENT_SHA256,
+  P0_R08_RETRY_ADMISSION_PR,
+  P0_R08_RETRY_ADMITTED_MAIN,
+  P0_R08_RETRY_ADMITTED_TREE,
   SELF_HOSTING_RECEIPT_SCHEMA_VERSION,
   verifySelfHostingReceipt,
 } from '../../scripts/ao/lib/self-hosting-receipt.js';
@@ -31,11 +34,19 @@ function validSelfHostingReceipt() {
     },
     source: {
       repository: 'https://github.com/Samsen879/ao-pilot.git',
-      admission_pr_number: 69,
+      admission_pr_number: P0_R08_RETRY_ADMISSION_PR,
       clone_path: '/fresh/ao-pilot',
-      clone_head_sha: P0_R07_ADMITTED_MAIN,
-      clone_tree_sha: P0_R07_ADMITTED_TREE,
+      clone_head_sha: P0_R08_RETRY_ADMITTED_MAIN,
+      clone_tree_sha: P0_R08_RETRY_ADMITTED_TREE,
       clean_before_bootstrap: true,
+    },
+    retry_admission: {
+      issue_number: 63,
+      comment_id: P0_R08_RETRY_ADMISSION_COMMENT,
+      comment_body_sha256: P0_R08_RETRY_ADMISSION_COMMENT_SHA256,
+      historical_pr_number: P0_R08_RETRY_ADMISSION_PR,
+      historical_merge_sha: P0_R08_RETRY_ADMITTED_MAIN,
+      historical_tree_sha: P0_R08_RETRY_ADMITTED_TREE,
     },
     runtime: {
       runtime_ref: runtime.runtime_ref,
@@ -71,8 +82,8 @@ function validSelfHostingReceipt() {
       review_repairs_same_worker_pr: true,
       github_merge_outcome_confirmed: true,
       principal_pr: {
-        number: 70,
-        url: 'https://github.com/Samsen879/ao-pilot/pull/70',
+        number: 71,
+        url: 'https://github.com/Samsen879/ao-pilot/pull/71',
         head_sha: '3'.repeat(40),
         reviewed_head: '3'.repeat(40),
         ci_conclusion: 'success',
@@ -118,10 +129,19 @@ function validEvidence(receipt) {
     },
     githubEvidence: {
       admission_pr: {
-        number: 69,
+        number: P0_R08_RETRY_ADMISSION_PR,
         merged: true,
         merge_sha: receipt.source.clone_head_sha,
         base_ref: 'main',
+      },
+      retry_admission: {
+        comment_id: P0_R08_RETRY_ADMISSION_COMMENT,
+        issue_number: 63,
+        author: 'Samsen879',
+        author_association: 'OWNER',
+        created_at: '2026-08-02T11:28:12.000Z',
+        updated_at: '2026-08-02T11:28:12.000Z',
+        body_sha256: P0_R08_RETRY_ADMISSION_COMMENT_SHA256,
       },
       principal_pr: {
         number: receipt.delivery.principal_pr.number,
@@ -130,6 +150,7 @@ function validEvidence(receipt) {
         head_sha: receipt.delivery.principal_pr.head_sha,
         head_ref: receipt.delivery.worker_branch,
         base_ref: 'main',
+        created_at: '2026-08-02T12:00:00.000Z',
         merged_at: '2026-08-03T02:00:00.000Z',
         linked_issue_63: true,
       },
@@ -178,6 +199,29 @@ function validEvidence(receipt) {
 }
 
 describe('fresh-clone and protected self-hosting gates', () => {
+  it('pins the retry receipt template to PR #70 and the owner admission comment', () => {
+    const template = JSON.parse(fs.readFileSync(
+      'docs/runtime-portability/p0-r08-workstation-self-hosting-receipt.template.json',
+      'utf8',
+    ));
+    expect(template).toMatchObject({
+      schema_version: SELF_HOSTING_RECEIPT_SCHEMA_VERSION,
+      source: {
+        admission_pr_number: P0_R08_RETRY_ADMISSION_PR,
+        clone_head_sha: P0_R08_RETRY_ADMITTED_MAIN,
+        clone_tree_sha: P0_R08_RETRY_ADMITTED_TREE,
+      },
+      retry_admission: {
+        issue_number: 63,
+        comment_id: P0_R08_RETRY_ADMISSION_COMMENT,
+        comment_body_sha256: P0_R08_RETRY_ADMISSION_COMMENT_SHA256,
+        historical_pr_number: P0_R08_RETRY_ADMISSION_PR,
+        historical_merge_sha: P0_R08_RETRY_ADMITTED_MAIN,
+        historical_tree_sha: P0_R08_RETRY_ADMITTED_TREE,
+      },
+    });
+  });
+
   it('routes pre-merge worktree capture through the Worker package', () => {
     const handoff = fs.readFileSync(
       'docs/runtime-portability/P0-R08_NEW_WORKSTATION_HANDOFF.md',
@@ -187,6 +231,9 @@ describe('fresh-clone and protected self-hosting gates', () => {
     expect(handoff).toContain("WORKER_WORKTREE_ROOT='<WORKER-WORKTREE-ABSOLUTE-PATH>'");
     expect(handoff).toContain('npm --prefix "$WORKER_WORKTREE_ROOT" run capture:self-hosting-worktree');
     expect(handoff).toContain('--source-root "$BOOTSTRAP_CLONE_ROOT"');
+    expect(handoff).toContain('Do not use `ao review trigger`');
+    expect(handoff).toContain('comment `5157524210`');
+    expect(handoff).toContain('orchestrator done --session');
     expect(handoff).not.toContain('npm run capture:self-hosting-worktree --');
 
     const bootstrapRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-bootstrap-routing-'));
@@ -247,7 +294,8 @@ describe('fresh-clone and protected self-hosting gates', () => {
     expect(verifySelfHostingReceipt(receipt, validEvidence(receipt))).toMatchObject({
       status: 'verified',
       issue_number: 63,
-      principal_pr: 70,
+      principal_pr: 71,
+      retry_admission_comment: P0_R08_RETRY_ADMISSION_COMMENT,
       review_count: 1,
     });
   });
@@ -261,7 +309,7 @@ describe('fresh-clone and protected self-hosting gates', () => {
       requirePublication: false,
     })).toMatchObject({
       status: 'prepublication_verified',
-      admitted_main: P0_R07_ADMITTED_MAIN,
+      admitted_main: P0_R08_RETRY_ADMITTED_MAIN,
     });
   });
 
@@ -311,6 +359,9 @@ describe('fresh-clone and protected self-hosting gates', () => {
     ['copied credential state', (receipt) => { receipt.environment.credentials_copied = true; }],
     ['runtime drift', (receipt) => { receipt.runtime.commit_sha = 'f'.repeat(40); }],
     ['wrong admitted main', (receipt) => { receipt.source.clone_head_sha = 'f'.repeat(40); }],
+    ['wrong historical PR', (receipt) => { receipt.retry_admission.historical_pr_number = 69; }],
+    ['wrong retry-admission comment', (receipt) => { receipt.retry_admission.comment_id = 5157524604; }],
+    ['wrong retry-admission digest', (receipt) => { receipt.retry_admission.comment_body_sha256 = 'f'.repeat(64); }],
     ['shared Orchestrator and Worker session', (receipt) => { receipt.delivery.worker_session_id = receipt.delivery.orchestrator_session_id; }],
     ['missing exact-head review', (receipt) => { receipt.delivery.principal_pr.codex_reviews[0].head_sha = 'e'.repeat(40); }],
     ['failed cleanup', (receipt) => { receipt.cleanup.worker_worktree_removed = false; }],
@@ -347,6 +398,49 @@ describe('fresh-clone and protected self-hosting gates', () => {
     const evidence = validEvidence(receipt);
     evidence.githubEvidence.codex_reviews[0].completed = false;
     expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('not completed');
+  });
+
+  it('does not count a request, connector setup/error comment, or generic bot comment as review evidence', () => {
+    const receipt = validSelfHostingReceipt();
+    const evidence = validEvidence(receipt);
+    evidence.githubEvidence.codex_reviews = [];
+    evidence.githubEvidence.generic_comments = [
+      { id: 5157524604, actor: 'chatgpt-codex-connector', body: 'connector setup required' },
+      { id: 5157524605, actor: 'chatgpt-codex-connector[bot]', body: 'review request failed' },
+      { id: 5157524606, actor: 'Samsen879', body: `@codex review ${receipt.delivery.principal_pr.head_sha}` },
+    ];
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('no live completion evidence');
+  });
+
+  it('accepts only an exact-head connector +1 as clean-reaction evidence', () => {
+    const receipt = validSelfHostingReceipt();
+    receipt.delivery.principal_pr.codex_reviews[0].kind = 'clean_reaction';
+    const evidence = validEvidence(receipt);
+    expect(verifySelfHostingReceipt(receipt, evidence)).toMatchObject({ review_count: 1 });
+
+    evidence.githubEvidence.codex_reviews[0].head_sha = 'f'.repeat(40);
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('head mismatch');
+  });
+
+  it.each([
+    ['non-owner authorization', (evidence) => { evidence.githubEvidence.retry_admission.author_association = 'NONE'; }],
+    ['edited authorization', (evidence) => { evidence.githubEvidence.retry_admission.updated_at = '2026-08-02T11:29:00.000Z'; }],
+    ['authorization body drift', (evidence) => { evidence.githubEvidence.retry_admission.body_sha256 = 'f'.repeat(64); }],
+    ['pre-admission retry PR', (evidence) => { evidence.githubEvidence.principal_pr.created_at = '2026-08-02T11:00:00.000Z'; }],
+    ['pre-admission worktree capture', (evidence) => { evidence.githubEvidence.worktree_capture.payload.captured_at = '2026-08-02T11:00:00.000Z'; }],
+  ])('rejects %s', (_name, mutate) => {
+    const receipt = validSelfHostingReceipt();
+    const evidence = validEvidence(receipt);
+    mutate(evidence);
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow();
+  });
+
+  it('rejects historical failed PR #70 as the retry principal', () => {
+    const receipt = validSelfHostingReceipt();
+    receipt.delivery.principal_pr.number = 70;
+    receipt.delivery.principal_pr.url = 'https://github.com/Samsen879/ao-pilot/pull/70';
+    const evidence = validEvidence(receipt);
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('cannot serve as the retry principal PR');
   });
 
   it('rejects an unrelated source commit and tree', () => {

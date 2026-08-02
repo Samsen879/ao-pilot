@@ -2,11 +2,13 @@
 
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 
 import {
   loadSelfHostingReceipt,
-  P0_R07_ADMISSION_PR,
+  P0_R08_RETRY_ADMISSION_COMMENT,
+  P0_R08_RETRY_ADMISSION_PR,
   verifySelfHostingReceipt,
 } from './ao/lib/self-hosting-receipt.js';
 
@@ -42,7 +44,21 @@ function pullEvidence(number, repositoryRoot) {
     head_ref: value.head?.ref ?? null,
     base_ref: value.base?.ref ?? null,
     merged_at: value.merged_at ?? null,
+    created_at: value.created_at ?? null,
     linked_issue_63: /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#63\b/i.test(value.body ?? ''),
+  };
+}
+
+function retryAdmissionEvidence(repositoryRoot) {
+  const comment = runJson('gh', ['api', `repos/Samsen879/ao-pilot/issues/comments/${P0_R08_RETRY_ADMISSION_COMMENT}`], { cwd: repositoryRoot });
+  return {
+    comment_id: comment.id,
+    issue_number: Number(comment.issue_url?.match(/\/issues\/(\d+)$/)?.[1] ?? 0),
+    author: comment.user?.login ?? null,
+    author_association: comment.author_association ?? null,
+    created_at: comment.created_at ?? null,
+    updated_at: comment.updated_at ?? null,
+    body_sha256: createHash('sha256').update(comment.body ?? '').digest('hex'),
   };
 }
 
@@ -129,7 +145,8 @@ function collectEvidence(receipt, repositoryRoot) {
       release_check_passed: true,
     },
     githubEvidence: {
-      admission_pr: pullEvidence(P0_R07_ADMISSION_PR, repositoryRoot),
+      admission_pr: pullEvidence(P0_R08_RETRY_ADMISSION_PR, repositoryRoot),
+      retry_admission: retryAdmissionEvidence(repositoryRoot),
       principal_pr: pullEvidence(principalPr, repositoryRoot),
       check_runs: checks.check_runs.map((check) => ({ name: check.name, conclusion: check.conclusion })),
       codex_reviews: codexReviewEvidence(principalPr, repositoryRoot),

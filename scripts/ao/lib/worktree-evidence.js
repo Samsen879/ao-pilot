@@ -3,8 +3,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import {
-  P0_R07_ADMITTED_MAIN,
-  P0_R07_ADMITTED_TREE,
+  P0_R08_RETRY_ADMITTED_MAIN,
+  P0_R08_RETRY_ADMITTED_TREE,
 } from './self-hosting-receipt.js';
 
 export const WORKTREE_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-worktree-evidence.v1';
@@ -70,7 +70,7 @@ export function inspectWorktreeBinding({
 
 export function captureWorktreeEvidence(options) {
   const evidence = inspectWorktreeBinding(options);
-  assert(evidence.source.head_sha === P0_R07_ADMITTED_MAIN, 'Source worktree is not at the admitted P0-R07 main');
-  assert(evidence.source.tree_sha === P0_R07_ADMITTED_TREE, 'Source worktree tree is not the admitted P0-R07 tree');
+  assert(evidence.source.head_sha === P0_R08_RETRY_ADMITTED_MAIN, 'Source worktree is not at the admitted P0-R08 retry main');
+  assert(evidence.source.tree_sha === P0_R08_RETRY_ADMITTED_TREE, 'Source worktree tree is not the admitted P0-R08 retry tree');
   return evidence;
 }
