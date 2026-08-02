@@ -1,5 +1,11 @@
 # P0-R08 new-workstation handoff
 
+> Historical principal-proof record: the retry procedure below produced sole
+> principal PR #71 and its immutable v2 evidence. Do not rerun it. The
+> Owner-authorized terminal-remediation addendum later in this document is the
+> only active delivery procedure, and the v3 receipt retains this entire v2
+> proof as its first layer.
+
 This handoff is the owner-authorized P0-R08 retry admitted by issue #63 comment
 `5157524210`. It starts only from historical failed-attempt PR #70's immutable
 merge `d7bef70d16a881cbceb785b1541db67a1876de04` and tree
@@ -146,6 +152,60 @@ path, session ID, successful exit, confirmation text, and post-merge timestamp
 to the receipt. Only then stop both sessions, remove the Worker worktree and
 retry task branches, clean the project/session state, stop the daemon, and
 verify that no active re-engagement or other stale ownership remains.
+
+## Owner-authorized terminal-remediation addendum
+
+Issue #63 comment `5158225894` (exact UTF-8 body SHA-256
+`24fbc151586ef2e841f2b5979ef14f05f387a71ef3b5aed9a554245704658a61`)
+admits exactly one additional non-principal terminal-remediation PR from main
+`6d3bf2879d76cd6ab304b0040f1be2c88c294e66` / tree
+`dafe190179199b0b3dbcf16f4e91c1bc714bae4b`. PR #71 remains the sole
+principal delivery. The additional PR body must link #63, identify itself as
+terminal remediation to admission comment `5158225894` and PR #71, and must
+not contain `Closes #63`, `Fixes #63`, or equivalent auto-close wording.
+
+This run uses the fresh clone and isolated AO state below:
+
+- clone: `/home/guoqy/p0-r08-terminal-remediation/ao-pilot`
+- `AO_DATA_DIR`: `/home/guoqy/p0-r08-terminal-remediation/ao-state/data`
+- `AO_RUN_FILE`: `/home/guoqy/p0-r08-terminal-remediation/ao-state/running.json`
+
+It intentionally reuses only the already verified immutable runtime artifact
+at `/home/guoqy/p0-r08-retry-workstation/runtime-store/runtime.agent_orchestrator.v0_11_2_p0_1/linux-x64/711178ebe07d436db36020eb08f0c4e29613f97b/bin/ao`,
+whose SHA-256 is
+`a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34`.
+No prior AO database, sessions, project, daemon, worktree, or re-engagement
+state may be read. Do not claim a remediation-specific runtime store or cache:
+neither was created or used.
+
+Before merge, run `capture:self-hosting-worktree` from the remediation Worker
+package. Its v3 payload binds the admitted remediation clone, fresh AO data and
+run paths, Worker session/worktree/branch/HEAD, and shared Git common directory.
+The receipt and durable completion evidence bind the reused literal runtime
+binary and digest separately. Record the resulting unedited issue
+comment in `terminal_remediation.delivery.worktree_evidence_comment_id`.
+
+After the one remediation PR merges, replay `npm run release:check` on its
+exact merge SHA/tree, invoke `orchestrator done` through the literal pinned
+binary, publish that command evidence, and clean only the remediation AO
+sessions/worktrees/branches/project/daemon state. Record those facts under
+`terminal_remediation.exact_main_replay` and `terminal_remediation.cleanup`.
+The final v3 verifier preserves and revalidates the original v2 admission,
+principal PR #71, comments `5157857462` and `5157899599`, and cleanup proof;
+then it independently validates the terminal admission, exactly one
+post-admission remediation PR, its reviews/CI/merge SHA/tree, and requires the
+verifier checkout to equal the resulting exact current main. Any additional
+post-admission issue-linked delivery fails closed.
+
+A connector clean completion may also be an unedited issue comment authored
+through the `chatgpt-codex-connector` GitHub App whose body begins exactly
+`Codex Review: Didn't find any major issues. :+1:` and contains one reviewed
+commit abbreviation of at least 10 hexadecimal characters. The verifier calls
+this `clean_comment` evidence and accepts it only when the abbreviation maps
+uniquely to one earlier unedited Owner exact-head request. Generic connector
+comments, setup/errors, edited comments, non-App impersonations, ambiguous
+abbreviations, and unrelated heads remain non-evidence and cannot suppress the
+request-comment reaction lookup.
 
 ## Receipt and protected gate
 

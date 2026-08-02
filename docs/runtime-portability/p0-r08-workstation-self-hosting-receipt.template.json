@@ -1,5 +1,5 @@
 {
-  "schema_version": "ao.workstation-self-hosting-receipt.v2",
+  "schema_version": "ao.workstation-self-hosting-receipt.v3",
   "status": "pending",
   "performed_at": "REPLACE_WITH_ISO_8601",
   "environment": {
@@ -61,7 +61,7 @@
     "worker_created_by_new_ao": false,
     "worker_created_from_issue": false,
     "worker_worktree_path": "REPLACE_WITH_WORKTREE_PATH",
-    "worktree_evidence_comment_id": 0,
+    "worktree_evidence_comment_id": 5157857462,
     "worker_branch": "ao/REPLACE_WITH_TASK_BRANCH",
     "worker_committed": false,
     "worker_pushed": false,
@@ -71,15 +71,15 @@
     "review_repairs_same_worker_pr": false,
     "github_merge_outcome_confirmed": false,
     "principal_pr": {
-      "number": 0,
-      "url": "REPLACE_WITH_PR_URL",
+      "number": 71,
+      "url": "https://github.com/Samsen879/ao-pilot/pull/71",
       "head_sha": "REPLACE_WITH_40_HEX",
       "reviewed_head": "REPLACE_WITH_REVIEWED_40_HEX",
       "ci_conclusion": "REPLACE_WITH_SUCCESS",
       "codex_reviews": [
         {
           "attempt": 1,
-          "kind": "REPLACE_WITH_SUBMITTED_REVIEW_OR_CLEAN_REACTION",
+          "kind": "REPLACE_WITH_SUBMITTED_REVIEW_CLEAN_COMMENT_OR_CLEAN_REACTION",
           "evidence_id": 0,
           "request_comment_id": 0,
           "head_sha": "REPLACE_WITH_40_HEX",
@@ -99,11 +99,80 @@
   },
   "cleanup": {
     "orchestrator_done": false,
-    "orchestrator_done_evidence_comment_id": 0,
+    "orchestrator_done_evidence_comment_id": 5157899599,
     "orchestrator_session_stopped": false,
     "worker_session_stopped": false,
     "worker_worktree_removed": false,
     "stale_ownership_absent": false
+  },
+  "terminal_remediation": {
+    "admission": {
+      "issue_number": 63,
+      "comment_id": 5158225894,
+      "comment_body_sha256": "24fbc151586ef2e841f2b5979ef14f05f387a71ef3b5aed9a554245704658a61",
+      "principal_pr_number": 71,
+      "admitted_main_sha": "6d3bf2879d76cd6ab304b0040f1be2c88c294e66",
+      "admitted_tree_sha": "dafe190179199b0b3dbcf16f4e91c1bc714bae4b"
+    },
+    "environment": {
+      "kind": "isolated_terminal_remediation",
+      "prior_ao_state_read": false,
+      "verified_immutable_runtime_reused": true,
+      "remediation_root": "/home/guoqy/p0-r08-terminal-remediation",
+      "ao_data_dir": "/home/guoqy/p0-r08-terminal-remediation/ao-state/data",
+      "ao_run_file": "/home/guoqy/p0-r08-terminal-remediation/ao-state/running.json",
+      "runtime_binary_path": "/home/guoqy/p0-r08-retry-workstation/runtime-store/runtime.agent_orchestrator.v0_11_2_p0_1/linux-x64/711178ebe07d436db36020eb08f0c4e29613f97b/bin/ao",
+      "runtime_binary_sha256": "a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34"
+    },
+    "source": {
+      "repository": "https://github.com/Samsen879/ao-pilot.git",
+      "clone_path": "/home/guoqy/p0-r08-terminal-remediation/ao-pilot",
+      "clone_head_sha": "6d3bf2879d76cd6ab304b0040f1be2c88c294e66",
+      "clone_tree_sha": "dafe190179199b0b3dbcf16f4e91c1bc714bae4b",
+      "clean_before_bootstrap": true
+    },
+    "delivery": {
+      "orchestrator_session_id": "ao-pilot-remediation-1",
+      "worker_session_id": "ao-pilot-remediation-2",
+      "worker_created_by_new_ao": true,
+      "worker_created_from_issue": true,
+      "worker_worktree_path": "/home/guoqy/p0-r08-terminal-remediation/ao-state/data/worktrees/ao-pilot-remediation/ao-pilot-remediation-2",
+      "worktree_evidence_comment_id": 0,
+      "worker_branch": "ao/p0-r08-terminal-remediation",
+      "worker_committed": true,
+      "worker_pushed": true,
+      "worker_opened_pr": true,
+      "orchestrator_observed_ci": false,
+      "orchestrator_observed_codex_review": false,
+      "review_repairs_same_worker_pr": true,
+      "github_merge_outcome_confirmed": false,
+      "remediation_pr": {
+        "number": 0,
+        "url": "REPLACE_WITH_REMEDIATION_PR_URL",
+        "head_sha": "REPLACE_WITH_40_HEX",
+        "reviewed_head": "REPLACE_WITH_REVIEWED_40_HEX",
+        "ci_conclusion": "REPLACE_WITH_SUCCESS",
+        "codex_reviews": [],
+        "post_review_2_repair": null,
+        "merged": false,
+        "merge_sha": "REPLACE_WITH_40_HEX",
+        "merge_tree_sha": "REPLACE_WITH_40_HEX"
+      }
+    },
+    "exact_main_replay": {
+      "passed": false,
+      "release_check_passed": false,
+      "main_sha": "REPLACE_WITH_40_HEX",
+      "tree_sha": "REPLACE_WITH_40_HEX"
+    },
+    "cleanup": {
+      "orchestrator_done": false,
+      "orchestrator_done_evidence_comment_id": 0,
+      "orchestrator_session_stopped": false,
+      "worker_session_stopped": false,
+      "worker_worktree_removed": false,
+      "stale_ownership_absent": false
+    }
   },
   "claim": {
     "workstation_self_hosting": false,

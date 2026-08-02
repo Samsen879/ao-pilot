@@ -41,3 +41,68 @@ export function submittedCodexReviewEvidence(reviews, requests) {
       };
     });
 }
+
+export function cleanCodexReviewCommentEvidence(comments, requests) {
+  return comments
+    .filter((comment) => (
+      comment.user?.login === 'chatgpt-codex-connector[bot]'
+      && comment.performed_via_github_app?.slug === 'chatgpt-codex-connector'
+      && comment.created_at === comment.updated_at
+    ))
+    .map((comment) => {
+      const match = (comment.body ?? '').match(/^Codex Review: Didn't find any major issues\. :\+1:\s*\n\n\*\*Reviewed commit:\*\* `([0-9a-f]{10,40})`(?:\s|$)/i);
+      if (match == null) return null;
+      const abbreviatedHead = match[1].toLowerCase();
+      const matchingRequests = requests.filter((request) => (
+        request.head_sha.startsWith(abbreviatedHead)
+        && Date.parse(request.requested_at) <= Date.parse(comment.created_at)
+      ));
+      if (matchingRequests.length !== 1) return null;
+      return {
+        kind: 'clean_comment',
+        evidence_id: comment.id,
+        request_comment_id: matchingRequests[0].comment_id,
+        request_valid: true,
+        head_sha: matchingRequests[0].head_sha,
+        completed_at: comment.created_at,
+        actor: comment.user.login,
+        completed: true,
+      };
+    })
+    .filter((evidence) => evidence != null);
+}
+
+export function collectCodexReviewEvidence({ comments, reviews, reactionsForComment }) {
+  const requests = ownerExactHeadReviewRequests(comments);
+  const submitted = submittedCodexReviewEvidence(reviews, requests);
+  const completedSubmitted = submitted.filter((review) => review.completed === true);
+  const cleanComments = cleanCodexReviewCommentEvidence(comments, requests);
+  const completedRequestIds = new Set(
+    [...completedSubmitted, ...cleanComments].map((review) => review.request_comment_id),
+  );
+  const clean = [];
+
+  for (const comment of requests) {
+    if (completedRequestIds.has(comment.comment_id)) continue;
+    const reactions = reactionsForComment(comment.comment_id);
+    if (!Array.isArray(reactions)) throw new Error(`Invalid reactions for review request ${comment.comment_id}`);
+    const reaction = reactions.find((item) => (
+      item?.user?.login === 'chatgpt-codex-connector[bot]'
+      && item.content === '+1'
+      && Date.parse(item.created_at) >= Date.parse(comment.requested_at)
+    ));
+    if (reaction == null) continue;
+    clean.push({
+      kind: 'clean_reaction',
+      evidence_id: comment.comment_id,
+      request_comment_id: comment.comment_id,
+      request_valid: true,
+      head_sha: comment.head_sha,
+      completed_at: reaction.created_at,
+      actor: reaction.user.login,
+      completed: true,
+    });
+  }
+
+  return [...completedSubmitted, ...cleanComments, ...clean];
+}

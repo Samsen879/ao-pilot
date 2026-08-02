@@ -8,6 +8,8 @@ import { describe, expect, it } from '@jest/globals';
 import {
   ownerExactHeadReviewRequests,
   submittedCodexReviewEvidence,
+  cleanCodexReviewCommentEvidence,
+  collectCodexReviewEvidence,
 } from '../../scripts/ao/lib/codex-review-evidence.js';
 import { loadRuntimeLock } from '../../scripts/ao/lib/runtime-lock.js';
 import {
@@ -25,6 +27,14 @@ import {
   P0_R08_RETRY_ROOT,
   P0_R08_RETRY_RUNTIME_CACHE,
   P0_R08_RETRY_RUNTIME_STORE,
+  P0_R08_PRINCIPAL_PR,
+  P0_R08_TERMINAL_ADMISSION_COMMENT,
+  P0_R08_TERMINAL_ADMISSION_COMMENT_SHA256,
+  P0_R08_TERMINAL_ADMITTED_MAIN,
+  P0_R08_TERMINAL_ADMITTED_TREE,
+  P0_R08_TERMINAL_AO_DATA_DIR,
+  P0_R08_TERMINAL_AO_RUN_FILE,
+  P0_R08_TERMINAL_ROOT,
   SELF_HOSTING_RECEIPT_SCHEMA_VERSION,
   assertPathResolvesWithin,
   resolvePathThroughFilesystem,
@@ -118,14 +128,14 @@ function validSelfHostingReceipt() {
         }],
         post_review_2_repair: null,
         merged: true,
-        merge_sha: '4'.repeat(40),
+        merge_sha: P0_R08_TERMINAL_ADMITTED_MAIN,
       },
     },
     exact_main_replay: {
       passed: true,
       release_check_passed: true,
-      main_sha: '4'.repeat(40),
-      tree_sha: '5'.repeat(40),
+      main_sha: P0_R08_TERMINAL_ADMITTED_MAIN,
+      tree_sha: P0_R08_TERMINAL_ADMITTED_TREE,
     },
     cleanup: {
       orchestrator_done: true,
@@ -134,6 +144,82 @@ function validSelfHostingReceipt() {
       worker_session_stopped: true,
       worker_worktree_removed: true,
       stale_ownership_absent: true,
+    },
+    terminal_remediation: {
+      admission: {
+        issue_number: 63,
+        comment_id: P0_R08_TERMINAL_ADMISSION_COMMENT,
+        comment_body_sha256: P0_R08_TERMINAL_ADMISSION_COMMENT_SHA256,
+        principal_pr_number: P0_R08_PRINCIPAL_PR,
+        admitted_main_sha: P0_R08_TERMINAL_ADMITTED_MAIN,
+        admitted_tree_sha: P0_R08_TERMINAL_ADMITTED_TREE,
+      },
+      environment: {
+        kind: 'isolated_terminal_remediation',
+        prior_ao_state_read: false,
+        verified_immutable_runtime_reused: true,
+        remediation_root: P0_R08_TERMINAL_ROOT,
+        ao_data_dir: P0_R08_TERMINAL_AO_DATA_DIR,
+        ao_run_file: P0_R08_TERMINAL_AO_RUN_FILE,
+        runtime_binary_path: `${P0_R08_RETRY_RUNTIME_STORE}/${runtime.runtime_ref}/linux-x64/${runtime.artifact.ref.commit_sha}/bin/ao`,
+        runtime_binary_sha256: runtime.compatibility.platforms[0].binary_sha256,
+      },
+      source: {
+        repository: 'https://github.com/Samsen879/ao-pilot.git',
+        clone_path: `${P0_R08_TERMINAL_ROOT}/ao-pilot`,
+        clone_head_sha: P0_R08_TERMINAL_ADMITTED_MAIN,
+        clone_tree_sha: P0_R08_TERMINAL_ADMITTED_TREE,
+        clean_before_bootstrap: true,
+      },
+      delivery: {
+        orchestrator_session_id: 'or-terminal',
+        worker_session_id: 'worker-terminal',
+        worker_created_by_new_ao: true,
+        worker_created_from_issue: true,
+        worker_worktree_path: `${P0_R08_TERMINAL_AO_DATA_DIR}/worktrees/ao-pilot-remediation/ao-pilot-remediation-2`,
+        worktree_evidence_comment_id: 188,
+        worker_branch: 'ao/p0-r08-terminal-remediation',
+        worker_committed: true,
+        worker_pushed: true,
+        worker_opened_pr: true,
+        orchestrator_observed_ci: true,
+        orchestrator_observed_codex_review: true,
+        review_repairs_same_worker_pr: true,
+        github_merge_outcome_confirmed: true,
+        remediation_pr: {
+          number: 72,
+          url: 'https://github.com/Samsen879/ao-pilot/pull/72',
+          head_sha: '6'.repeat(40),
+          reviewed_head: '6'.repeat(40),
+          ci_conclusion: 'success',
+          codex_reviews: [{
+            attempt: 1,
+            kind: 'submitted_review',
+            evidence_id: 201,
+            request_comment_id: 199,
+            head_sha: '6'.repeat(40),
+            completed_at: '2026-08-04T01:00:00.000Z',
+          }],
+          post_review_2_repair: null,
+          merged: true,
+          merge_sha: '7'.repeat(40),
+          merge_tree_sha: '8'.repeat(40),
+        },
+      },
+      exact_main_replay: {
+        passed: true,
+        release_check_passed: true,
+        main_sha: '7'.repeat(40),
+        tree_sha: '8'.repeat(40),
+      },
+      cleanup: {
+        orchestrator_done: true,
+        orchestrator_done_evidence_comment_id: 189,
+        orchestrator_session_stopped: true,
+        worker_session_stopped: true,
+        worker_worktree_removed: true,
+        stale_ownership_absent: true,
+      },
     },
     claim: {
       workstation_self_hosting: true,
@@ -145,13 +231,16 @@ function validSelfHostingReceipt() {
 function validEvidence(receipt) {
   return {
     repositoryEvidence: {
-      current_main_sha: receipt.delivery.principal_pr.merge_sha,
-      current_main_tree_sha: receipt.exact_main_replay.tree_sha,
+      current_main_sha: receipt.terminal_remediation.delivery.remediation_pr.merge_sha,
+      current_main_tree_sha: receipt.terminal_remediation.delivery.remediation_pr.merge_tree_sha,
       source_commit_sha: receipt.source.clone_head_sha,
       source_tree_sha: receipt.source.clone_tree_sha,
+      terminal_source_commit_sha: receipt.terminal_remediation.source.clone_head_sha,
+      terminal_source_tree_sha: receipt.terminal_remediation.source.clone_tree_sha,
       release_check_passed: true,
     },
     githubEvidence: {
+      issue_63: { number: 63, state: 'open' },
       admission_pr: {
         number: P0_R08_RETRY_ADMISSION_PR,
         merged: true,
@@ -171,6 +260,7 @@ function validEvidence(receipt) {
         number: receipt.delivery.principal_pr.number,
         merged: true,
         merge_sha: receipt.delivery.principal_pr.merge_sha,
+        merge_tree_sha: receipt.exact_main_replay.tree_sha,
         head_sha: receipt.delivery.principal_pr.head_sha,
         head_ref: receipt.delivery.worker_branch,
         base_ref: 'main',
@@ -178,12 +268,43 @@ function validEvidence(receipt) {
         merged_at: '2026-08-03T02:00:00.000Z',
         linked_issue_63: true,
       },
+      terminal_remediation_admission: {
+        comment_id: P0_R08_TERMINAL_ADMISSION_COMMENT,
+        issue_number: 63,
+        author: 'Samsen879',
+        author_association: 'OWNER',
+        created_at: '2026-08-02T13:32:32.000Z',
+        updated_at: '2026-08-02T13:32:32.000Z',
+        body_sha256: P0_R08_TERMINAL_ADMISSION_COMMENT_SHA256,
+      },
+      terminal_remediation_pr: {
+        number: receipt.terminal_remediation.delivery.remediation_pr.number,
+        merged: true,
+        merge_sha: receipt.terminal_remediation.delivery.remediation_pr.merge_sha,
+        merge_tree_sha: receipt.terminal_remediation.delivery.remediation_pr.merge_tree_sha,
+        head_sha: receipt.terminal_remediation.delivery.remediation_pr.head_sha,
+        head_ref: receipt.terminal_remediation.delivery.worker_branch,
+        base_ref: 'main',
+        created_at: '2026-08-02T14:00:00.000Z',
+        merged_at: '2026-08-04T02:00:00.000Z',
+        linked_issue_63: true,
+        auto_closes_issue_63: false,
+        binds_terminal_admission: true,
+        binds_principal_pr_71: true,
+      },
       issue_linked_prs: [{
         repository: 'Samsen879/ao-pilot',
         number: receipt.delivery.principal_pr.number,
         url: receipt.delivery.principal_pr.url,
         created_at: '2026-08-02T12:00:00.000Z',
         head_ref: receipt.delivery.worker_branch,
+        base_ref: 'main',
+      }, {
+        repository: 'Samsen879/ao-pilot',
+        number: receipt.terminal_remediation.delivery.remediation_pr.number,
+        url: receipt.terminal_remediation.delivery.remediation_pr.url,
+        created_at: '2026-08-02T14:00:00.000Z',
+        head_ref: receipt.terminal_remediation.delivery.worker_branch,
         base_ref: 'main',
       }],
       check_runs: ['fresh-clone-runtime', 'test (20)', 'test (22)'].map((name) => ({ name, conclusion: 'success' })),
@@ -197,7 +318,19 @@ function validEvidence(receipt) {
         actor: 'chatgpt-codex-connector[bot]',
         completed: true,
       })),
+      terminal_check_runs: ['fresh-clone-runtime', 'test (20)', 'test (22)'].map((name) => ({ name, conclusion: 'success' })),
+      terminal_codex_reviews: receipt.terminal_remediation.delivery.remediation_pr.codex_reviews.map((review) => ({
+        kind: review.kind,
+        evidence_id: review.evidence_id,
+        request_comment_id: review.request_comment_id,
+        request_valid: true,
+        head_sha: review.head_sha,
+        completed_at: review.completed_at,
+        actor: 'chatgpt-codex-connector[bot]',
+        completed: true,
+      })),
       review_findings: [],
+      terminal_review_findings: [],
       worktree_capture: {
         comment_id: receipt.delivery.worktree_evidence_comment_id,
         issue_number: 63,
@@ -249,11 +382,60 @@ function validEvidence(receipt) {
           },
         },
       },
+      terminal_worktree_capture: {
+        comment_id: receipt.terminal_remediation.delivery.worktree_evidence_comment_id,
+        issue_number: 63,
+        author: 'Samsen879',
+        created_at: '2026-08-04T01:46:00.000Z',
+        updated_at: '2026-08-04T01:46:00.000Z',
+        payload: {
+          schema_version: 'ao.workstation-worktree-evidence.v3',
+          issue_number: 63,
+          captured_at: '2026-08-04T01:45:00.000Z',
+          source: {
+            clone_path: receipt.terminal_remediation.source.clone_path,
+            head_sha: receipt.terminal_remediation.source.clone_head_sha,
+            tree_sha: receipt.terminal_remediation.source.clone_tree_sha,
+            git_common_dir: `${P0_R08_TERMINAL_ROOT}/ao-pilot/.git`,
+          },
+          isolation: {
+            remediation_root: P0_R08_TERMINAL_ROOT,
+            ao_data_dir: P0_R08_TERMINAL_AO_DATA_DIR,
+            ao_run_file: P0_R08_TERMINAL_AO_RUN_FILE,
+          },
+          worker: {
+            session_id: receipt.terminal_remediation.delivery.worker_session_id,
+            worktree_path: receipt.terminal_remediation.delivery.worker_worktree_path,
+            branch: receipt.terminal_remediation.delivery.worker_branch,
+            head_sha: receipt.terminal_remediation.delivery.remediation_pr.head_sha,
+            git_common_dir: `${P0_R08_TERMINAL_ROOT}/ao-pilot/.git`,
+          },
+        },
+      },
+      terminal_orchestrator_done_capture: {
+        comment_id: receipt.terminal_remediation.cleanup.orchestrator_done_evidence_comment_id,
+        issue_number: 63,
+        author: 'Samsen879',
+        created_at: '2026-08-04T02:06:00.000Z',
+        updated_at: '2026-08-04T02:06:00.000Z',
+        payload: {
+          schema_version: ORCHESTRATOR_DONE_EVIDENCE_SCHEMA_VERSION,
+          issue_number: 63,
+          completed_at: '2026-08-04T02:05:00.000Z',
+          orchestrator_session_id: receipt.terminal_remediation.delivery.orchestrator_session_id,
+          command: {
+            runtime_binary_path: receipt.runtime.binary_path,
+            args: ['orchestrator', 'done', '--session', receipt.terminal_remediation.delivery.orchestrator_session_id],
+            exit_code: 0,
+            stdout: `Orchestrator ${receipt.terminal_remediation.delivery.orchestrator_session_id} marked done.`,
+          },
+        },
+      },
     },
     publicationEvidence: {
       issue_number: 63,
       author: 'Samsen879',
-      created_at: '2026-08-03T02:10:00.000Z',
+      created_at: '2026-08-04T02:10:00.000Z',
       exact_bytes_match: true,
     },
   };
@@ -286,6 +468,20 @@ describe('fresh-clone and protected self-hosting gates', () => {
         ao_run_file: P0_R08_RETRY_AO_RUN_FILE,
         runtime_store: P0_R08_RETRY_RUNTIME_STORE,
         runtime_cache: P0_R08_RETRY_RUNTIME_CACHE,
+      },
+      delivery: {
+        worktree_evidence_comment_id: 5157857462,
+        principal_pr: { number: 71 },
+      },
+      cleanup: { orchestrator_done_evidence_comment_id: 5157899599 },
+      terminal_remediation: {
+        admission: {
+          comment_id: P0_R08_TERMINAL_ADMISSION_COMMENT,
+          comment_body_sha256: P0_R08_TERMINAL_ADMISSION_COMMENT_SHA256,
+          principal_pr_number: P0_R08_PRINCIPAL_PR,
+          admitted_main_sha: P0_R08_TERMINAL_ADMITTED_MAIN,
+          admitted_tree_sha: P0_R08_TERMINAL_ADMITTED_TREE,
+        },
       },
     });
   });
@@ -448,7 +644,7 @@ describe('fresh-clone and protected self-hosting gates', () => {
         capturedAt: '2026-08-03T01:45:00.000Z',
       });
       expect(evidence).toMatchObject({
-        schema_version: 'ao.workstation-worktree-evidence.v2',
+        schema_version: 'ao.workstation-worktree-evidence.v3',
         source: {
           clone_path: fs.realpathSync(sourceRoot),
           head_sha: sourceHead,
@@ -482,6 +678,22 @@ describe('fresh-clone and protected self-hosting gates', () => {
     const receipt = validSelfHostingReceipt();
     mutate(receipt);
     expect(() => verifySelfHostingReceipt(receipt, validEvidence(receipt))).toThrow();
+  });
+
+  it.each([
+    ['terminal admission comment drift', (receipt) => { receipt.terminal_remediation.admission.comment_id = 5158225895; }],
+    ['terminal admission digest drift', (receipt) => { receipt.terminal_remediation.admission.comment_body_sha256 = 'f'.repeat(64); }],
+    ['terminal admitted main drift', (receipt) => { receipt.terminal_remediation.admission.admitted_main_sha = 'f'.repeat(40); }],
+    ['terminal admitted tree drift', (receipt) => { receipt.terminal_remediation.admission.admitted_tree_sha = 'f'.repeat(40); }],
+    ['principal delivery substitution', (receipt) => { receipt.delivery.principal_pr.number = 72; }],
+    ['remediation merge tree drift', (receipt) => { receipt.terminal_remediation.delivery.remediation_pr.merge_tree_sha = 'f'.repeat(40); }],
+    ['resulting current main drift', (_receipt, evidence) => { evidence.repositoryEvidence.current_main_sha = 'f'.repeat(40); }],
+    ['premature issue close', (_receipt, evidence) => { evidence.githubEvidence.issue_63.state = 'closed'; }],
+  ])('fails closed for bounded terminal-remediation evidence: %s', (_name, mutate) => {
+    const receipt = validSelfHostingReceipt();
+    const evidence = validEvidence(receipt);
+    mutate(receipt, evidence);
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow();
   });
 
   it('rejects receipt-controlled paths that disagree with pre-cleanup Git evidence', () => {
@@ -555,6 +767,136 @@ describe('fresh-clone and protected self-hosting gates', () => {
     ]);
   });
 
+  it('collects a clean reaction from the observed live comment_id review-request shape', () => {
+    const head = 'd04a4d132fd236e3b5e0a97552de6d5ae496d921';
+    const lookedUp = [];
+    const evidence = collectCodexReviewEvidence({
+      comments: [{
+        id: 5157760682,
+        user: { login: 'Samsen879' },
+        author_association: 'OWNER',
+        body: `@codex review\n\nTarget HEAD: ${head}`,
+        created_at: '2026-08-02T12:11:12Z',
+        updated_at: '2026-08-02T12:11:12Z',
+      }],
+      reviews: [],
+      reactionsForComment(commentId) {
+        lookedUp.push(commentId);
+        return [{
+          user: { login: 'chatgpt-codex-connector[bot]' },
+          content: '+1',
+          created_at: '2026-08-02T12:12:00Z',
+        }];
+      },
+    });
+
+    expect(lookedUp).toEqual([5157760682]);
+    expect(evidence).toEqual([expect.objectContaining({
+      kind: 'clean_reaction',
+      evidence_id: 5157760682,
+      request_comment_id: 5157760682,
+      head_sha: head,
+      completed: true,
+    })]);
+  });
+
+  it('collects the exact live PR #72 connector clean-comment completion without a reaction lookup', () => {
+    const head = '0724ab9882846314e39845292ab86ef4aefb3c2b';
+    const comments = [{
+      id: 5158376025,
+      user: { login: 'Samsen879' },
+      author_association: 'OWNER',
+      body: `Review request\n\nExact head: ${head}`,
+      created_at: '2026-08-02T14:00:08Z',
+      updated_at: '2026-08-02T14:00:08Z',
+    }, {
+      id: 5158396828,
+      user: { login: 'chatgpt-codex-connector[bot]' },
+      performed_via_github_app: { slug: 'chatgpt-codex-connector' },
+      body: "Codex Review: Didn't find any major issues. :+1:\n\n**Reviewed commit:** `0724ab9882`\n\n<details>clean completion details</details>",
+      created_at: '2026-08-02T14:03:57Z',
+      updated_at: '2026-08-02T14:03:57Z',
+    }];
+    comments[0].body = `@${'codex'} review\n\nExact head: ${head}`;
+    const evidence = collectCodexReviewEvidence({
+      comments,
+      reviews: [],
+      reactionsForComment() {
+        throw new Error('reaction lookup must be suppressed by completed clean-comment evidence');
+      },
+    });
+
+    expect(evidence).toEqual([{
+      kind: 'clean_comment',
+      evidence_id: 5158396828,
+      request_comment_id: 5158376025,
+      request_valid: true,
+      head_sha: head,
+      completed_at: '2026-08-02T14:03:57Z',
+      actor: 'chatgpt-codex-connector[bot]',
+      completed: true,
+    }]);
+  });
+
+  it.each([
+    ['wrong actor', (comment) => { comment.user.login = 'Samsen879'; }],
+    ['missing connector app provenance', (comment) => { comment.performed_via_github_app = null; }],
+    ['edited completion', (comment) => { comment.updated_at = '2026-08-02T14:04:00Z'; }],
+    ['generic connector body', (comment) => { comment.body = 'Review completed successfully.'; }],
+    ['too-short reviewed commit', (comment) => { comment.body = "Codex Review: Didn't find any major issues. :+1:\n\n**Reviewed commit:** `0724ab988`"; }],
+    ['unrelated reviewed commit', (comment) => { comment.body = "Codex Review: Didn't find any major issues. :+1:\n\n**Reviewed commit:** `fffffffffff`"; }],
+  ])('rejects clean-comment evidence with %s before reaction collection', (_name, mutate) => {
+    const head = '0724ab9882846314e39845292ab86ef4aefb3c2b';
+    const requests = ownerExactHeadReviewRequests([{
+      id: 5158376025,
+      user: { login: 'Samsen879' },
+      author_association: 'OWNER',
+      body: `@${'codex'} review\n\nExact head: ${head}`,
+      created_at: '2026-08-02T14:00:08Z',
+      updated_at: '2026-08-02T14:00:08Z',
+    }]);
+    const comment = {
+      id: 5158396828,
+      user: { login: 'chatgpt-codex-connector[bot]' },
+      performed_via_github_app: { slug: 'chatgpt-codex-connector' },
+      body: "Codex Review: Didn't find any major issues. :+1:\n\n**Reviewed commit:** `0724ab9882`",
+      created_at: '2026-08-02T14:03:57Z',
+      updated_at: '2026-08-02T14:03:57Z',
+    };
+    mutate(comment);
+    expect(cleanCodexReviewCommentEvidence([comment], requests)).toEqual([]);
+  });
+
+  it('rejects the observed generic connector review object before reaction lookup', () => {
+    const head = 'd04a4d132fd236e3b5e0a97552de6d5ae496d921';
+    const lookedUp = [];
+    const evidence = collectCodexReviewEvidence({
+      comments: [{
+        id: 5157760682,
+        user: { login: 'Samsen879' },
+        author_association: 'OWNER',
+        body: `@codex review\n\nTarget HEAD: ${head}`,
+        created_at: '2026-08-02T12:11:12Z',
+        updated_at: '2026-08-02T12:11:12Z',
+      }],
+      reviews: [{
+        id: 4838383320,
+        user: { login: 'chatgpt-codex-connector[bot]' },
+        body: '',
+        commit_id: head,
+        submitted_at: '2026-08-02T12:10:53Z',
+        state: 'COMMENTED',
+      }],
+      reactionsForComment(commentId) {
+        lookedUp.push(commentId);
+        return [];
+      },
+    });
+
+    expect(lookedUp).toEqual([5157760682]);
+    expect(evidence).toEqual([]);
+  });
+
   it('does not count a request, connector setup/error comment, or generic bot comment as review evidence', () => {
     const receipt = validSelfHostingReceipt();
     const evidence = validEvidence(receipt);
@@ -575,6 +917,13 @@ describe('fresh-clone and protected self-hosting gates', () => {
 
     evidence.githubEvidence.codex_reviews[0].head_sha = 'f'.repeat(40);
     expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('head mismatch');
+  });
+
+  it('accepts an exact-head connector clean-comment completion in the receipt', () => {
+    const receipt = validSelfHostingReceipt();
+    receipt.terminal_remediation.delivery.remediation_pr.codex_reviews[0].kind = 'clean_comment';
+    const evidence = validEvidence(receipt);
+    expect(verifySelfHostingReceipt(receipt, evidence)).toMatchObject({ terminal_review_count: 1 });
   });
 
   it.each([
@@ -695,7 +1044,7 @@ describe('fresh-clone and protected self-hosting gates', () => {
     receipt.delivery.principal_pr.number = 70;
     receipt.delivery.principal_pr.url = 'https://github.com/Samsen879/ao-pilot/pull/70';
     const evidence = validEvidence(receipt);
-    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('cannot serve as the retry principal PR');
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('sole P0-R08 principal delivery');
   });
 
   it('rejects an unrelated source commit and tree', () => {
