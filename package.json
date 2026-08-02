@@ -69,6 +69,7 @@
     "ao:state": "node scripts/ao-state.js",
     "ao:test:acceptance": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --runTestsByPath tests/ao/ao-lifecycle-acceptance.test.js --no-color",
     "bootstrap": "./scripts/bootstrap.sh",
+    "capture:orchestrator-done": "node scripts/capture-orchestrator-done.js",
     "capture:self-hosting-worktree": "node scripts/capture-self-hosting-worktree.js",
     "test": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --testPathPatterns='tests/ao/' --no-color",
     "verify:package": "node scripts/verify-package-install.js",

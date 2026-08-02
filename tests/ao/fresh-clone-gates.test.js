@@ -7,11 +7,20 @@ import { describe, expect, it } from '@jest/globals';
 
 import { loadRuntimeLock } from '../../scripts/ao/lib/runtime-lock.js';
 import {
+  ORCHESTRATOR_DONE_EVIDENCE_SCHEMA_VERSION,
+  captureOrchestratorDoneEvidence,
+} from '../../scripts/ao/lib/orchestrator-done-evidence.js';
+import {
+  P0_R08_RETRY_AO_DATA_DIR,
+  P0_R08_RETRY_AO_RUN_FILE,
   P0_R08_RETRY_ADMISSION_COMMENT,
   P0_R08_RETRY_ADMISSION_COMMENT_SHA256,
   P0_R08_RETRY_ADMISSION_PR,
   P0_R08_RETRY_ADMITTED_MAIN,
   P0_R08_RETRY_ADMITTED_TREE,
+  P0_R08_RETRY_ROOT,
+  P0_R08_RETRY_RUNTIME_CACHE,
+  P0_R08_RETRY_RUNTIME_STORE,
   SELF_HOSTING_RECEIPT_SCHEMA_VERSION,
   verifySelfHostingReceipt,
 } from '../../scripts/ao/lib/self-hosting-receipt.js';
@@ -31,11 +40,16 @@ function validSelfHostingReceipt() {
       credentials_copied: false,
       credentials_user_provided: true,
       global_npm_link_used: false,
+      retry_root: P0_R08_RETRY_ROOT,
+      ao_data_dir: P0_R08_RETRY_AO_DATA_DIR,
+      ao_run_file: P0_R08_RETRY_AO_RUN_FILE,
+      runtime_store: P0_R08_RETRY_RUNTIME_STORE,
+      runtime_cache: P0_R08_RETRY_RUNTIME_CACHE,
     },
     source: {
       repository: 'https://github.com/Samsen879/ao-pilot.git',
       admission_pr_number: P0_R08_RETRY_ADMISSION_PR,
-      clone_path: '/fresh/ao-pilot',
+      clone_path: `${P0_R08_RETRY_ROOT}/ao-pilot`,
       clone_head_sha: P0_R08_RETRY_ADMITTED_MAIN,
       clone_tree_sha: P0_R08_RETRY_ADMITTED_TREE,
       clean_before_bootstrap: true,
@@ -56,7 +70,7 @@ function validSelfHostingReceipt() {
       commit_sha: runtime.artifact.ref.commit_sha,
       tree_sha: runtime.artifact.ref.tree_sha,
       integrity: runtime.artifact.integrity,
-      binary_path: '/isolated/runtime/bin/ao',
+      binary_path: `${P0_R08_RETRY_RUNTIME_STORE}/${runtime.runtime_ref}/linux-x64/${runtime.artifact.ref.commit_sha}/bin/ao`,
       binary_sha256: runtime.compatibility.platforms[0].binary_sha256,
       target: { os: 'linux', arch: 'x64' },
     },
@@ -71,7 +85,7 @@ function validSelfHostingReceipt() {
       worker_session_id: 'worker-r08',
       worker_created_by_new_ao: true,
       worker_created_from_issue: true,
-      worker_worktree_path: '/fresh/ao-pilot/.worktrees/p0-r08-self-hosting',
+      worker_worktree_path: `${P0_R08_RETRY_AO_DATA_DIR}/worktrees/ao-pilot/ao-pilot-2`,
       worktree_evidence_comment_id: 88,
       worker_branch: 'ao/p0-r08/worker',
       worker_committed: true,
@@ -91,6 +105,7 @@ function validSelfHostingReceipt() {
           attempt: 1,
           kind: 'submitted_review',
           evidence_id: 101,
+          request_comment_id: 99,
           head_sha: '3'.repeat(40),
           completed_at: '2026-08-03T01:00:00.000Z',
         }],
@@ -106,6 +121,8 @@ function validSelfHostingReceipt() {
       tree_sha: '5'.repeat(40),
     },
     cleanup: {
+      orchestrator_done: true,
+      orchestrator_done_evidence_comment_id: 89,
       orchestrator_session_stopped: true,
       worker_session_stopped: true,
       worker_worktree_removed: true,
@@ -154,10 +171,19 @@ function validEvidence(receipt) {
         merged_at: '2026-08-03T02:00:00.000Z',
         linked_issue_63: true,
       },
+      issue_linked_prs: [{
+        number: receipt.delivery.principal_pr.number,
+        url: receipt.delivery.principal_pr.url,
+        created_at: '2026-08-02T12:00:00.000Z',
+        head_ref: receipt.delivery.worker_branch,
+        base_ref: 'main',
+      }],
       check_runs: ['fresh-clone-runtime', 'test (20)', 'test (22)'].map((name) => ({ name, conclusion: 'success' })),
       codex_reviews: receipt.delivery.principal_pr.codex_reviews.map((review) => ({
         kind: review.kind,
         evidence_id: review.evidence_id,
+        request_comment_id: review.request_comment_id,
+        request_valid: true,
         head_sha: review.head_sha,
         completed_at: review.completed_at,
         actor: 'chatgpt-codex-connector[bot]',
@@ -171,21 +197,47 @@ function validEvidence(receipt) {
         created_at: '2026-08-03T01:46:00.000Z',
         updated_at: '2026-08-03T01:46:00.000Z',
         payload: {
-          schema_version: 'ao.workstation-worktree-evidence.v1',
+          schema_version: 'ao.workstation-worktree-evidence.v2',
           issue_number: 63,
           captured_at: '2026-08-03T01:45:00.000Z',
           source: {
             clone_path: receipt.source.clone_path,
             head_sha: receipt.source.clone_head_sha,
             tree_sha: receipt.source.clone_tree_sha,
-            git_common_dir: '/fresh/ao-pilot/.git',
+            git_common_dir: `${P0_R08_RETRY_ROOT}/ao-pilot/.git`,
+          },
+          isolation: {
+            retry_root: receipt.environment.retry_root,
+            ao_data_dir: receipt.environment.ao_data_dir,
+            ao_run_file: receipt.environment.ao_run_file,
+            runtime_store: receipt.environment.runtime_store,
+            runtime_cache: receipt.environment.runtime_cache,
           },
           worker: {
             session_id: receipt.delivery.worker_session_id,
             worktree_path: receipt.delivery.worker_worktree_path,
             branch: receipt.delivery.worker_branch,
             head_sha: receipt.delivery.principal_pr.head_sha,
-            git_common_dir: '/fresh/ao-pilot/.git',
+            git_common_dir: `${P0_R08_RETRY_ROOT}/ao-pilot/.git`,
+          },
+        },
+      },
+      orchestrator_done_capture: {
+        comment_id: receipt.cleanup.orchestrator_done_evidence_comment_id,
+        issue_number: 63,
+        author: 'Samsen879',
+        created_at: '2026-08-03T02:06:00.000Z',
+        updated_at: '2026-08-03T02:06:00.000Z',
+        payload: {
+          schema_version: ORCHESTRATOR_DONE_EVIDENCE_SCHEMA_VERSION,
+          issue_number: 63,
+          completed_at: '2026-08-03T02:05:00.000Z',
+          orchestrator_session_id: receipt.delivery.orchestrator_session_id,
+          command: {
+            runtime_binary_path: receipt.runtime.binary_path,
+            args: ['orchestrator', 'done', '--session', receipt.delivery.orchestrator_session_id],
+            exit_code: 0,
+            stdout: `Orchestrator ${receipt.delivery.orchestrator_session_id} marked done.`,
           },
         },
       },
@@ -193,6 +245,7 @@ function validEvidence(receipt) {
     publicationEvidence: {
       issue_number: 63,
       author: 'Samsen879',
+      created_at: '2026-08-03T02:10:00.000Z',
       exact_bytes_match: true,
     },
   };
@@ -219,6 +272,13 @@ describe('fresh-clone and protected self-hosting gates', () => {
         historical_merge_sha: P0_R08_RETRY_ADMITTED_MAIN,
         historical_tree_sha: P0_R08_RETRY_ADMITTED_TREE,
       },
+      environment: {
+        retry_root: P0_R08_RETRY_ROOT,
+        ao_data_dir: P0_R08_RETRY_AO_DATA_DIR,
+        ao_run_file: P0_R08_RETRY_AO_RUN_FILE,
+        runtime_store: P0_R08_RETRY_RUNTIME_STORE,
+        runtime_cache: P0_R08_RETRY_RUNTIME_CACHE,
+      },
     });
   });
 
@@ -233,7 +293,8 @@ describe('fresh-clone and protected self-hosting gates', () => {
     expect(handoff).toContain('--source-root "$BOOTSTRAP_CLONE_ROOT"');
     expect(handoff).toContain('Do not use `ao review trigger`');
     expect(handoff).toContain('comment `5157524210`');
-    expect(handoff).toContain('orchestrator done --session');
+    expect(handoff).toContain('invoke `orchestrator done`');
+    expect(handoff).toContain('npm run capture:orchestrator-done');
     expect(handoff).not.toContain('npm run capture:self-hosting-worktree --');
 
     const bootstrapRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-bootstrap-routing-'));
@@ -249,6 +310,50 @@ describe('fresh-clone and protected self-hosting gates', () => {
       expect(output).toContain('Usage: npm run capture:self-hosting-worktree');
     } finally {
       removeTemporaryRoot(bootstrapRoot);
+    }
+  });
+
+  it('captures durable Orchestrator completion through the pinned binary', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-done-evidence-'));
+    const runtimeBinary = path.join(root, 'ao');
+    fs.writeFileSync(runtimeBinary, 'fixture\n');
+    let invocation = null;
+    try {
+      const evidence = captureOrchestratorDoneEvidence({
+        runtimeBinary,
+        orchestratorSessionId: 'or-r08',
+        completedAt: '2026-08-03T02:05:00.000Z',
+        execute(binary, args) {
+          invocation = { binary, args };
+          return 'Orchestrator or-r08 marked done.\n';
+        },
+      });
+      expect(invocation).toEqual({
+        binary: fs.realpathSync(runtimeBinary),
+        args: ['orchestrator', 'done', '--session', 'or-r08'],
+      });
+      expect(evidence).toMatchObject({
+        schema_version: ORCHESTRATOR_DONE_EVIDENCE_SCHEMA_VERSION,
+        orchestrator_session_id: 'or-r08',
+        command: { exit_code: 0 },
+      });
+    } finally {
+      removeTemporaryRoot(root);
+    }
+  });
+
+  it('rejects an Orchestrator done command without the exact success confirmation', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-done-failure-'));
+    const runtimeBinary = path.join(root, 'ao');
+    fs.writeFileSync(runtimeBinary, 'fixture\n');
+    try {
+      expect(() => captureOrchestratorDoneEvidence({
+        runtimeBinary,
+        orchestratorSessionId: 'or-r08',
+        execute: () => 'Orchestrator still active.\n',
+      })).toThrow('did not confirm durable Orchestrator completion');
+    } finally {
+      removeTemporaryRoot(root);
     }
   });
 
@@ -335,7 +440,7 @@ describe('fresh-clone and protected self-hosting gates', () => {
         capturedAt: '2026-08-03T01:45:00.000Z',
       });
       expect(evidence).toMatchObject({
-        schema_version: 'ao.workstation-worktree-evidence.v1',
+        schema_version: 'ao.workstation-worktree-evidence.v2',
         source: {
           clone_path: fs.realpathSync(sourceRoot),
           head_sha: sourceHead,
@@ -374,15 +479,15 @@ describe('fresh-clone and protected self-hosting gates', () => {
   it('rejects receipt-controlled paths that disagree with pre-cleanup Git evidence', () => {
     const receipt = validSelfHostingReceipt();
     const evidence = validEvidence(receipt);
-    receipt.delivery.worker_worktree_path = '/fabricated/different-worktree';
+    receipt.delivery.worker_worktree_path = `${P0_R08_RETRY_AO_DATA_DIR}/worktrees/ao-pilot/different-worktree`;
     expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('captured Git evidence');
   });
 
   it('rejects a receipt-controlled source path that disagrees with pre-cleanup Git evidence', () => {
     const receipt = validSelfHostingReceipt();
     const evidence = validEvidence(receipt);
-    receipt.source.clone_path = '/fabricated/bootstrap-clone';
-    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('captured Git evidence');
+    receipt.source.clone_path = `${P0_R08_RETRY_ROOT}/fabricated-bootstrap-clone`;
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('admitted retry clone');
   });
 
   it('rejects captured evidence that reuses the bootstrap worktree', () => {
@@ -390,7 +495,7 @@ describe('fresh-clone and protected self-hosting gates', () => {
     const evidence = validEvidence(receipt);
     evidence.githubEvidence.worktree_capture.payload.worker.worktree_path = receipt.source.clone_path;
     receipt.delivery.worker_worktree_path = receipt.source.clone_path;
-    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('not distinct');
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('outside retry-specific AO_DATA_DIR');
   });
 
   it('rejects fabricated or incomplete Codex Review evidence', () => {
@@ -398,6 +503,16 @@ describe('fresh-clone and protected self-hosting gates', () => {
     const evidence = validEvidence(receipt);
     evidence.githubEvidence.codex_reviews[0].completed = false;
     expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('not completed');
+  });
+
+  it.each([
+    ['missing owner exact-head request', (_receipt, evidence) => { evidence.githubEvidence.codex_reviews[0].request_valid = false; }],
+    ['mismatched request comment', (receipt) => { receipt.delivery.principal_pr.codex_reviews[0].request_comment_id = 98; }],
+  ])('rejects a submitted connector review with %s', (_name, mutate) => {
+    const receipt = validSelfHostingReceipt();
+    const evidence = validEvidence(receipt);
+    mutate(receipt, evidence);
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow();
   });
 
   it('does not count a request, connector setup/error comment, or generic bot comment as review evidence', () => {
@@ -435,6 +550,52 @@ describe('fresh-clone and protected self-hosting gates', () => {
     expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow();
   });
 
+  it.each([
+    ['AO_DATA_DIR drift', (receipt) => { receipt.environment.ao_data_dir = '/failed-attempt/.ao'; }],
+    ['AO_RUN_FILE drift', (receipt) => { receipt.environment.ao_run_file = `${P0_R08_RETRY_ROOT}/ao-state/../failed.run`; }],
+    ['runtime store drift', (receipt) => { receipt.environment.runtime_store = `${P0_R08_RETRY_ROOT}/failed-runtime-store`; }],
+    ['runtime cache drift', (receipt) => { receipt.environment.runtime_cache = `${P0_R08_RETRY_ROOT}/failed-runtime-cache`; }],
+    ['runtime binary escape', (receipt) => { receipt.runtime.binary_path = '/failed-attempt/bin/ao'; }],
+    ['Worker worktree escape', (receipt) => { receipt.delivery.worker_worktree_path = '/failed-attempt/worktree'; }],
+  ])('rejects retry isolation failure: %s', (_name, mutate) => {
+    const receipt = validSelfHostingReceipt();
+    mutate(receipt);
+    expect(() => verifySelfHostingReceipt(receipt, validEvidence(receipt))).toThrow();
+  });
+
+  it('rejects captured Worker environment paths that disagree with the receipt', () => {
+    const receipt = validSelfHostingReceipt();
+    const evidence = validEvidence(receipt);
+    evidence.githubEvidence.worktree_capture.payload.isolation.ao_data_dir = '/failed-attempt/.ao';
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('Captured AO_DATA_DIR');
+  });
+
+  it('rejects multiple post-admission issue-linked retry PRs', () => {
+    const receipt = validSelfHostingReceipt();
+    const evidence = validEvidence(receipt);
+    evidence.githubEvidence.issue_linked_prs.push({
+      number: 72,
+      url: 'https://github.com/Samsen879/ao-pilot/pull/72',
+      created_at: '2026-08-02T12:30:00.000Z',
+      head_ref: 'ao/p0-r08-extra-retry',
+      base_ref: 'main',
+    });
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('exactly one post-admission retry principal PR');
+  });
+
+  it.each([
+    ['missing done claim', (receipt) => { receipt.cleanup.orchestrator_done = false; }],
+    ['wrong done comment', (receipt) => { receipt.cleanup.orchestrator_done_evidence_comment_id = 90; }],
+    ['wrong done session', (_receipt, evidence) => { evidence.githubEvidence.orchestrator_done_capture.payload.orchestrator_session_id = 'other-or'; }],
+    ['failed done command', (_receipt, evidence) => { evidence.githubEvidence.orchestrator_done_capture.payload.command.exit_code = 1; }],
+    ['pre-merge done command', (_receipt, evidence) => { evidence.githubEvidence.orchestrator_done_capture.payload.completed_at = '2026-08-03T01:59:00.000Z'; }],
+  ])('rejects durable Orchestrator completion failure: %s', (_name, mutate) => {
+    const receipt = validSelfHostingReceipt();
+    const evidence = validEvidence(receipt);
+    mutate(receipt, evidence);
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow();
+  });
+
   it('rejects historical failed PR #70 as the retry principal', () => {
     const receipt = validSelfHostingReceipt();
     receipt.delivery.principal_pr.number = 70;
@@ -456,6 +617,7 @@ describe('fresh-clone and protected self-hosting gates', () => {
       attempt: 2,
       kind: 'submitted_review',
       evidence_id: 202,
+      request_comment_id: 199,
       head_sha: '6'.repeat(40),
       completed_at: '2026-08-03T01:30:00.000Z',
     });

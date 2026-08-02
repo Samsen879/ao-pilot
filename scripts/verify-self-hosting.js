@@ -63,32 +63,78 @@ function retryAdmissionEvidence(repositoryRoot) {
 }
 
 function codexReviewEvidence(principalPr, repositoryRoot) {
+  const requestComments = runJson('gh', ['api', `repos/Samsen879/ao-pilot/issues/${principalPr}/comments?per_page=100`], { cwd: repositoryRoot })
+    .filter((comment) => (
+      comment.user?.login === 'Samsen879'
+      && comment.author_association === 'OWNER'
+      && comment.body?.trimStart().startsWith('@codex review')
+      && comment.created_at === comment.updated_at
+    ))
+    .map((comment) => {
+      const matches = comment.body.match(/\b[0-9a-f]{40}\b/gi) ?? [];
+      return {
+        comment_id: comment.id,
+        head_sha: matches.length === 1 ? matches[0].toLowerCase() : null,
+        requested_at: comment.created_at,
+      };
+    })
+    .filter((comment) => comment.head_sha != null);
   const submitted = runJson('gh', ['api', `repos/Samsen879/ao-pilot/pulls/${principalPr}/reviews`], { cwd: repositoryRoot })
     .filter((review) => review.user?.login === 'chatgpt-codex-connector[bot]')
-    .map((review) => ({
-      kind: 'submitted_review',
-      evidence_id: review.id,
-      head_sha: review.commit_id,
-      completed_at: review.submitted_at,
-      actor: review.user.login,
-      completed: review.submitted_at != null && ['COMMENTED', 'APPROVED', 'CHANGES_REQUESTED'].includes(review.state),
-    }));
-  const requestComments = runJson('gh', ['api', `repos/Samsen879/ao-pilot/issues/${principalPr}/comments?per_page=100`], { cwd: repositoryRoot })
-    .filter((comment) => comment.user?.login === 'Samsen879' && comment.body?.trimStart().startsWith('@codex review'));
+    .map((review) => {
+      const matchingRequests = requestComments.filter((comment) => (
+        comment.head_sha === review.commit_id?.toLowerCase()
+        && Date.parse(comment.requested_at) <= Date.parse(review.submitted_at)
+      ));
+      return {
+        kind: 'submitted_review',
+        evidence_id: review.id,
+        request_comment_id: matchingRequests.length === 1 ? matchingRequests[0].comment_id : null,
+        request_valid: matchingRequests.length === 1,
+        head_sha: review.commit_id,
+        completed_at: review.submitted_at,
+        actor: review.user.login,
+        completed: review.submitted_at != null && ['COMMENTED', 'APPROVED', 'CHANGES_REQUESTED'].includes(review.state),
+      };
+    });
   const clean = requestComments.map((comment) => {
     const reactions = runJson('gh', ['api', `repos/Samsen879/ao-pilot/issues/comments/${comment.id}/reactions`], { cwd: repositoryRoot });
-    const reaction = reactions.find((item) => item.user?.login === 'chatgpt-codex-connector[bot]' && item.content === '+1');
-    const headSha = comment.body?.match(/\b[0-9a-f]{40}\b/i)?.[0]?.toLowerCase() ?? null;
+    const reaction = reactions.find((item) => (
+      item.user?.login === 'chatgpt-codex-connector[bot]'
+      && item.content === '+1'
+      && Date.parse(item.created_at) >= Date.parse(comment.requested_at)
+    ));
     return {
       kind: 'clean_reaction',
-      evidence_id: comment.id,
-      head_sha: headSha,
+      evidence_id: comment.comment_id,
+      request_comment_id: comment.comment_id,
+      request_valid: true,
+      head_sha: comment.head_sha,
       completed_at: reaction?.created_at ?? null,
       actor: reaction?.user?.login ?? null,
-      completed: reaction != null && headSha != null,
+      completed: reaction != null,
     };
   }).filter((review) => review.completed);
   return [...submitted, ...clean];
+}
+
+function issueLinkedPrEvidence(repositoryRoot) {
+  const query = 'query { repository(owner:"Samsen879", name:"ao-pilot") { issue(number:63) { timelineItems(first:100, itemTypes:[CROSS_REFERENCED_EVENT]) { pageInfo { hasNextPage } nodes { ... on CrossReferencedEvent { source { __typename ... on PullRequest { number url createdAt headRefName baseRefName } } } } } } } }';
+  const timeline = runJson('gh', ['api', 'graphql', '-f', `query=${query}`], { cwd: repositoryRoot })
+    .data.repository.issue.timelineItems;
+  if (timeline.pageInfo.hasNextPage) throw new Error('Issue-linked PR evidence exceeds the bounded GraphQL page');
+  const linked = new Map();
+  for (const event of timeline.nodes) {
+    if (event.source?.__typename !== 'PullRequest') continue;
+    linked.set(event.source.number, {
+      number: event.source.number,
+      url: event.source.url,
+      created_at: event.source.createdAt,
+      head_ref: event.source.headRefName,
+      base_ref: event.source.baseRefName,
+    });
+  }
+  return [...linked.values()];
 }
 
 function reviewFindingEvidence(principalPr, repositoryRoot) {
@@ -109,7 +155,7 @@ function reviewFindingEvidence(principalPr, repositoryRoot) {
     }));
 }
 
-function worktreeCaptureEvidence(commentId, repositoryRoot) {
+function jsonIssueCommentEvidence(commentId, repositoryRoot) {
   const comment = runJson('gh', ['api', `repos/Samsen879/ao-pilot/issues/comments/${commentId}`], { cwd: repositoryRoot });
   let payload = null;
   try {
@@ -148,10 +194,12 @@ function collectEvidence(receipt, repositoryRoot) {
       admission_pr: pullEvidence(P0_R08_RETRY_ADMISSION_PR, repositoryRoot),
       retry_admission: retryAdmissionEvidence(repositoryRoot),
       principal_pr: pullEvidence(principalPr, repositoryRoot),
+      issue_linked_prs: issueLinkedPrEvidence(repositoryRoot),
       check_runs: checks.check_runs.map((check) => ({ name: check.name, conclusion: check.conclusion })),
       codex_reviews: codexReviewEvidence(principalPr, repositoryRoot),
       review_findings: reviewFindingEvidence(principalPr, repositoryRoot),
-      worktree_capture: worktreeCaptureEvidence(receipt.delivery.worktree_evidence_comment_id, repositoryRoot),
+      worktree_capture: jsonIssueCommentEvidence(receipt.delivery.worktree_evidence_comment_id, repositoryRoot),
+      orchestrator_done_capture: jsonIssueCommentEvidence(receipt.cleanup.orchestrator_done_evidence_comment_id, repositoryRoot),
     },
   };
 }
@@ -161,6 +209,7 @@ function publicationEvidence(commentId, rawReceipt, repositoryRoot) {
   return {
     issue_number: Number(comment.issue_url?.match(/\/issues\/(\d+)$/)?.[1] ?? 0),
     author: comment.user?.login ?? null,
+    created_at: comment.created_at ?? null,
     exact_bytes_match: String(comment.body ?? '').trimEnd() === rawReceipt.trimEnd(),
   };
 }

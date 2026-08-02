@@ -8,7 +8,12 @@
     "old_runtime_state_read": false,
     "credentials_copied": false,
     "credentials_user_provided": true,
-    "global_npm_link_used": false
+    "global_npm_link_used": false,
+    "retry_root": "/home/guoqy/p0-r08-retry-workstation",
+    "ao_data_dir": "/home/guoqy/p0-r08-retry-workstation/ao-state/data",
+    "ao_run_file": "/home/guoqy/p0-r08-retry-workstation/ao-state/running.json",
+    "runtime_store": "/home/guoqy/p0-r08-retry-workstation/runtime-store",
+    "runtime_cache": "/home/guoqy/p0-r08-retry-workstation/runtime-cache"
   },
   "source": {
     "repository": "https://github.com/Samsen879/ao-pilot.git",
@@ -76,6 +81,7 @@
           "attempt": 1,
           "kind": "REPLACE_WITH_SUBMITTED_REVIEW_OR_CLEAN_REACTION",
           "evidence_id": 0,
+          "request_comment_id": 0,
           "head_sha": "REPLACE_WITH_40_HEX",
           "completed_at": "REPLACE_WITH_GITHUB_TIMESTAMP"
         }
@@ -92,6 +98,8 @@
     "tree_sha": "REPLACE_WITH_40_HEX"
   },
   "cleanup": {
+    "orchestrator_done": false,
+    "orchestrator_done_evidence_comment_id": 0,
     "orchestrator_session_stopped": false,
     "worker_session_stopped": false,
     "worker_worktree_removed": false,
