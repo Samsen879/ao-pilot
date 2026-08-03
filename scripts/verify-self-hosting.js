@@ -9,6 +9,7 @@ import { createPremergeVerificationEvidence } from './ao/lib/premerge-verificati
 
 import {
   collectCodexReviewEvidence,
+  ownerExactHeadReviewRequests,
 } from './ao/lib/codex-review-evidence.js';
 import { issueLinkedPrEvidenceFromTimeline } from './ao/lib/issue-linked-pr-evidence.js';
 import {
@@ -17,8 +18,14 @@ import {
   P0_R08_RETRY_ADMISSION_PR,
   P0_R08_FAILED_TERMINAL_DISPOSITION_COMMENT,
   P0_R08_FAILED_TERMINAL_PR,
+  P0_R08_FAILED_MERGE_PATH_DISPOSITION_COMMENT,
+  P0_R08_FAILED_MERGE_PATH_PR,
+  P0_R08_ARCHITECTURAL_BLOCKER_COMMENT,
+  P0_R08_FINAL_ADMISSION_COMMENT,
   P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT,
   P0_R08_PRINCIPAL_PR,
+  P0_R08_RUNTIME_PR,
+  P0_R08_RUNTIME_TAG,
   P0_R08_TERMINAL_ADMISSION_COMMENT,
   verifySelfHostingReceipt,
 } from './ao/lib/self-hosting-receipt.js';
@@ -45,11 +52,11 @@ function runJson(command, args, options) {
   return JSON.parse(run(command, args, options));
 }
 
-function pullEvidence(number, repositoryRoot) {
-  const value = runJson('gh', ['api', `repos/Samsen879/ao-pilot/pulls/${number}`], { cwd: repositoryRoot });
+function pullEvidence(number, repositoryRoot, repository = 'Samsen879/ao-pilot') {
+  const value = runJson('gh', ['api', `repos/${repository}/pulls/${number}`], { cwd: repositoryRoot });
   const body = value.body ?? '';
   const mergeTree = value.merged === true && value.merge_commit_sha != null
-    ? runJson('gh', ['api', `repos/Samsen879/ao-pilot/git/commits/${value.merge_commit_sha}`], { cwd: repositoryRoot }).tree?.sha ?? null
+    ? runJson('gh', ['api', `repos/${repository}/git/commits/${value.merge_commit_sha}`], { cwd: repositoryRoot }).tree?.sha ?? null
     : null;
   return {
     number: value.number,
@@ -66,6 +73,19 @@ function pullEvidence(number, repositoryRoot) {
     binds_terminal_admission: /\b5158510418\b/.test(body) && /terminal[- ]recovery/i.test(body),
     binds_principal_pr_71: /(?:\bPR\s*#71\b|\bprincipal[^\n]*#71\b)/i.test(body),
     binds_failed_terminal_pr_72: /(?:\bPR\s*#72\b|\bfailed[^\n]*#72\b)/i.test(body),
+    binds_failed_merge_path_pr_73: /(?:\bPR\s*#73\b|\bfailed[^\n]*#73\b)/i.test(body),
+    binds_architectural_blocker: /\b5163606282\b/.test(body),
+    binds_final_admission: /\b5163994984\b/.test(body),
+  };
+}
+
+function runtimeTagEvidence(repositoryRoot) {
+  const ref = runJson('gh', ['api', `repos/Samsen879/agent-orchestrator/git/ref/tags/${P0_R08_RUNTIME_TAG}`], { cwd: repositoryRoot });
+  const tag = runJson('gh', ['api', `repos/Samsen879/agent-orchestrator/git/tags/${ref.object.sha}`], { cwd: repositoryRoot });
+  return {
+    tag: P0_R08_RUNTIME_TAG,
+    tag_object_sha: ref.object.sha,
+    commit_sha: tag.object?.sha ?? null,
   };
 }
 
@@ -91,6 +111,20 @@ function codexReviewEvidence(principalPr, repositoryRoot) {
       return runJson('gh', ['api', `repos/Samsen879/ao-pilot/issues/comments/${commentId}/reactions`], { cwd: repositoryRoot });
     },
   });
+}
+
+function terminalCodexReviewEvidence(principalPr, repositoryRoot) {
+  const comments = runJson('gh', ['api', `repos/Samsen879/ao-pilot/issues/${principalPr}/comments?per_page=100`], { cwd: repositoryRoot });
+  return {
+    requests: ownerExactHeadReviewRequests(comments),
+    completed: collectCodexReviewEvidence({
+      comments,
+      reviews: runJson('gh', ['api', `repos/Samsen879/ao-pilot/pulls/${principalPr}/reviews`], { cwd: repositoryRoot }),
+      reactionsForComment(commentId) {
+        return runJson('gh', ['api', `repos/Samsen879/ao-pilot/issues/comments/${commentId}/reactions`], { cwd: repositoryRoot });
+      },
+    }),
+  };
 }
 
 function issueLinkedPrEvidence(repositoryRoot) {
@@ -171,6 +205,7 @@ function collectEvidence(receipt, repositoryRoot, { preMerge = false } = {}) {
     };
   }
   const terminalChecks = runJson('gh', ['api', `repos/Samsen879/ao-pilot/commits/${remediationHead}/check-runs`], { cwd: repositoryRoot });
+  const terminalReviews = terminalCodexReviewEvidence(remediationPr, repositoryRoot);
   return {
     repositoryEvidence: {
       current_main_sha: currentMain,
@@ -200,20 +235,32 @@ function collectEvidence(receipt, repositoryRoot, { preMerge = false } = {}) {
       first_terminal_admission: admissionEvidence(P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT, repositoryRoot),
       failed_terminal_pr: pullEvidence(P0_R08_FAILED_TERMINAL_PR, repositoryRoot),
       failed_terminal_disposition: admissionEvidence(P0_R08_FAILED_TERMINAL_DISPOSITION_COMMENT, repositoryRoot),
-      terminal_remediation_admission: admissionEvidence(P0_R08_TERMINAL_ADMISSION_COMMENT, repositoryRoot),
+      standing_recovery_admission: admissionEvidence(P0_R08_TERMINAL_ADMISSION_COMMENT, repositoryRoot),
+      failed_merge_path_pr: pullEvidence(P0_R08_FAILED_MERGE_PATH_PR, repositoryRoot),
+      failed_merge_path_disposition: admissionEvidence(P0_R08_FAILED_MERGE_PATH_DISPOSITION_COMMENT, repositoryRoot),
+      failed_merge_path_worktree_evidence: admissionEvidence(receipt.terminal_recovery_chain.attempts[1].pr.worktree_evidence_comment_id, repositoryRoot),
+      failed_merge_path_premerge_evidence: admissionEvidence(receipt.terminal_recovery_chain.attempts[1].pr.premerge_evidence_comment_id, repositoryRoot),
+      architectural_blocker: admissionEvidence(P0_R08_ARCHITECTURAL_BLOCKER_COMMENT, repositoryRoot),
+      terminal_remediation_admission: admissionEvidence(P0_R08_FINAL_ADMISSION_COMMENT, repositoryRoot),
+      runtime_pr: pullEvidence(P0_R08_RUNTIME_PR, repositoryRoot, 'Samsen879/agent-orchestrator'),
+      runtime_tag: runtimeTagEvidence(repositoryRoot),
       terminal_remediation_pr: pullEvidence(remediationPr, repositoryRoot),
       issue_linked_prs: issueLinkedPrEvidence(repositoryRoot),
       check_runs: checks.check_runs.map((check) => ({ name: check.name, conclusion: check.conclusion })),
       codex_reviews: codexReviewEvidence(principalPr, repositoryRoot),
       failed_terminal_codex_reviews: codexReviewEvidence(P0_R08_FAILED_TERMINAL_PR, repositoryRoot),
+      failed_merge_path_codex_reviews: codexReviewEvidence(P0_R08_FAILED_MERGE_PATH_PR, repositoryRoot),
       terminal_check_runs: terminalChecks.check_runs.map((check) => ({ name: check.name, conclusion: check.conclusion })),
-      terminal_codex_reviews: codexReviewEvidence(remediationPr, repositoryRoot),
+      terminal_codex_reviews: terminalReviews.completed,
+      terminal_codex_review_requests: terminalReviews.requests,
       review_findings: reviewFindingEvidence(principalPr, repositoryRoot),
       terminal_review_findings: reviewFindingEvidence(remediationPr, repositoryRoot),
+      failed_merge_path_review_findings: reviewFindingEvidence(P0_R08_FAILED_MERGE_PATH_PR, repositoryRoot),
       worktree_capture: jsonIssueCommentEvidence(receipt.delivery.worktree_evidence_comment_id, repositoryRoot),
       orchestrator_done_capture: jsonIssueCommentEvidence(receipt.cleanup.orchestrator_done_evidence_comment_id, repositoryRoot),
       terminal_worktree_capture: jsonIssueCommentEvidence(receipt.terminal_remediation.delivery.worktree_evidence_comment_id, repositoryRoot),
       terminal_premerge_capture: preMerge ? null : jsonIssueCommentEvidence(receipt.terminal_remediation.premerge_verification.evidence_comment_id, repositoryRoot),
+      terminal_merge_capture: preMerge ? null : jsonIssueCommentEvidence(receipt.terminal_remediation.merge_execution.evidence_comment_id, repositoryRoot),
       terminal_orchestrator_done_capture: preMerge ? null : jsonIssueCommentEvidence(receipt.terminal_remediation.cleanup.orchestrator_done_evidence_comment_id, repositoryRoot),
     },
   };

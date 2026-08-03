@@ -7,7 +7,7 @@ import {
   captureOrchestratorBoundWorktreeEvidence,
 } from './orchestrator-worktree-publication.js';
 
-export const PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-premerge-verification-evidence.v1';
+export const PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-premerge-verification-evidence.v2';
 export const PREMERGE_VERIFICATION_PUBLICATION_SCHEMA_VERSION = 'ao.workstation-premerge-verification-publication.v1';
 
 function assert(condition, message) {
@@ -32,7 +32,8 @@ export function createPremergeVerificationEvidence({ receipt, result, evidence, 
     verified_at: verifiedAt,
     status: result.status,
     standing_admission_comment_id: 5158510418,
-    recovery_attempt: 2,
+    final_admission_comment_id: 5163994984,
+    recovery_attempt: 3,
     remediation_pr: {
       number: remediationPr.number,
       head_sha: remediationPr.head_sha,

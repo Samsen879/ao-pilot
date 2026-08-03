@@ -1,5 +1,5 @@
 {
-  "schema_version": "ao.workstation-self-hosting-receipt.v5",
+  "schema_version": "ao.workstation-self-hosting-receipt.v7",
   "status": "pending",
   "performed_at": "REPLACE_WITH_ISO_8601",
   "environment": {
@@ -106,7 +106,7 @@
     "stale_ownership_absent": false
   },
   "terminal_recovery_chain": {
-    "schema_version": "ao.workstation-terminal-recovery-chain.v1",
+    "schema_version": "ao.workstation-terminal-recovery-chain.v2",
     "standing_admission": {
       "issue_number": 63,
       "comment_id": 5158510418,
@@ -174,22 +174,106 @@
       {
         "attempt": 2,
         "kind": "terminal_recovery_delivery",
-        "disposition": "pending",
+        "disposition": "failed_merge_path_provenance",
         "predecessor_pr_number": 72,
         "admission_comment_id": 5158510418,
-        "pr_number": 73,
+        "pr": {
+          "number": 73,
+          "url": "https://github.com/Samsen879/ao-pilot/pull/73",
+          "head_sha": "d504a154f946da57284bf05b9788b5aa7e87a0ce",
+          "reviewed_head": "338805cf4a53963d400cadc5556511616b95784d",
+          "codex_reviews": [
+            {
+              "attempt": 1,
+              "kind": "submitted_review",
+              "evidence_id": 4838853686,
+              "request_comment_id": 5158629433,
+              "head_sha": "e3108ca40061fb314cc5f54fc8039656d2f89dc0",
+              "completed_at": "2026-08-02T14:52:10Z"
+            },
+            {
+              "attempt": 2,
+              "kind": "submitted_review",
+              "evidence_id": 4840588410,
+              "request_comment_id": 5161943701,
+              "head_sha": "338805cf4a53963d400cadc5556511616b95784d",
+              "completed_at": "2026-08-03T03:27:03Z"
+            }
+          ],
+          "finding_comment_ids": [3699415314, 3699415317, 3699415320, 3701145692, 3701145696, 3701145702, 3701145705, 3701145707, 3701145710],
+          "worktree_evidence_comment_id": 5163418525,
+          "premerge_evidence_comment_id": 5163443629,
+          "merge_sha": "fe9bcd9eeba08453aeb003036a5dce76926314ff",
+          "merge_tree_sha": "a619bcc0fc57a7312b36368501ba54714eb2373e",
+          "merged_at": "2026-08-03T07:23:43Z"
+        },
+        "failure": {
+          "disposition_comment_id": 5163542954,
+          "disposition_comment_body_bytes": 3574,
+          "disposition_comment_body_sha256": "d8ff4994fba918ed8ecfb954ba1352da21661a405c5331f5f8422bdb8ce7be5c",
+          "disposition_created_at": "2026-08-03T07:32:36Z",
+          "disposition_updated_at": "2026-08-03T07:32:36Z",
+          "architectural_blocker_comment_id": 5163606282,
+          "provider_mutation": "gh_pr_merge_exact_head_guarded",
+          "ao_merge_executed": false,
+          "reason_codes": ["pinned_ao_merge_route_not_implemented", "provider_mutation_not_executed_by_ao"]
+        }
+      },
+      {
+        "attempt": 3,
+        "kind": "terminal_recovery_delivery",
+        "disposition": "pending",
+        "predecessor_pr_number": 73,
+        "admission_comment_id": 5163994984,
+        "pr_number": 74,
         "worktree_evidence_comment_id": 0
       }
     ]
   },
+  "runtime_transition": {
+    "architectural_blocker": {
+      "comment_id": 5163606282,
+      "comment_body_bytes": 2036,
+      "comment_body_sha256": "0fb549f8ff0651a87fe83c1f1179605866a864b36adc7b62092655f3cf05f401",
+      "created_at": "2026-08-03T07:40:30Z",
+      "updated_at": "2026-08-03T07:40:30Z"
+    },
+    "admission": {
+      "comment_id": 5163994984,
+      "comment_body_bytes": 5406,
+      "comment_body_sha256": "2005f4deceae2f69a9e332a040fb72664dbd2d0618cfa119ef7c00894599e1ca",
+      "created_at": "2026-08-03T08:23:19Z",
+      "updated_at": "2026-08-03T08:23:19Z"
+    },
+    "predecessor": {
+      "runtime_ref": "runtime.agent_orchestrator.v0_11_2_p0_1",
+      "commit_sha": "711178ebe07d436db36020eb08f0c4e29613f97b",
+      "tree_sha": "479fba6fd44f251f0c66fafc5cb5d638a6ff590a",
+      "linux_x64_binary_sha256": "a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34"
+    },
+    "successor": {
+      "runtime_ref": "runtime.agent_orchestrator.v0_11_2_p0_2",
+      "runtime_pr_number": 8,
+      "runtime_pr_base": "runtime-baseline/v0.11.2",
+      "bootstrap_merge_exception": "owner_gh_pr_merge_runtime_pr_8_only",
+      "tag": "ao-pilot-runtime-v0.11.2-p0.2",
+      "tag_object_sha": "450ae009e2c1eb48cdf9c19be676b4a4ff01e611",
+      "commit_sha": "aae8a684357271acc7ad2fa1d4116c7c65c8fa9d",
+      "tree_sha": "e8adb9a31068810becfb5d31b46688b04202cf81",
+      "integrity": { "algorithm": "git-tree-sha1", "digest": "e8adb9a31068810becfb5d31b46688b04202cf81" },
+      "linux_x64_binary_sha256": "ad7fd23c6a3f495e2d10b130cf23227c14e30573db5c2c01b68d8214c5965b4d",
+      "linux_arm64_binary_sha256": "972181d92085fb6772fd9a8edf688f68c290976eda67a282ba1ac83d985d2dc6"
+    }
+  },
   "terminal_remediation": {
     "admission": {
       "issue_number": 63,
-      "comment_id": 5158510418,
-      "comment_body_sha256": "431e128a4ffe100b1a74a327778796480513f6fd06a5ab9a8df5c2e5c5df1284",
+      "comment_id": 5163994984,
+      "comment_body_bytes": 5406,
+      "comment_body_sha256": "2005f4deceae2f69a9e332a040fb72664dbd2d0618cfa119ef7c00894599e1ca",
       "principal_pr_number": 71,
-      "admitted_main_sha": "59cdf7c0ddfedfe4438eaeeff485146534fae287",
-      "admitted_tree_sha": "044f49e5fe8cbfe2382001436d1e060b9bbb0e07"
+      "admitted_main_sha": "fe9bcd9eeba08453aeb003036a5dce76926314ff",
+      "admitted_tree_sha": "a619bcc0fc57a7312b36368501ba54714eb2373e"
     },
     "environment": {
       "kind": "isolated_terminal_remediation",
@@ -198,22 +282,22 @@
       "remediation_root": "/home/guoqy/p0-r08-terminal-remediation",
       "ao_data_dir": "/home/guoqy/p0-r08-terminal-remediation/ao-state/data",
       "ao_run_file": "/home/guoqy/p0-r08-terminal-remediation/ao-state/running.json",
-      "runtime_binary_path": "/home/guoqy/p0-r08-retry-workstation/runtime-store/runtime.agent_orchestrator.v0_11_2_p0_1/linux-x64/711178ebe07d436db36020eb08f0c4e29613f97b/bin/ao",
-      "runtime_binary_sha256": "a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34"
+      "runtime_binary_path": "/home/guoqy/p0-r08-retry-workstation/runtime-store/runtime.agent_orchestrator.v0_11_2_p0_2/linux-x64/aae8a684357271acc7ad2fa1d4116c7c65c8fa9d/bin/ao",
+      "runtime_binary_sha256": "ad7fd23c6a3f495e2d10b130cf23227c14e30573db5c2c01b68d8214c5965b4d"
     },
     "source": {
       "repository": "https://github.com/Samsen879/ao-pilot.git",
       "clone_path": "/home/guoqy/p0-r08-terminal-remediation/ao-pilot",
-      "clone_head_sha": "59cdf7c0ddfedfe4438eaeeff485146534fae287",
-      "clone_tree_sha": "044f49e5fe8cbfe2382001436d1e060b9bbb0e07",
+      "clone_head_sha": "fe9bcd9eeba08453aeb003036a5dce76926314ff",
+      "clone_tree_sha": "a619bcc0fc57a7312b36368501ba54714eb2373e",
       "clean_before_bootstrap": true
     },
     "delivery": {
       "orchestrator_session_id": "ao-pilot-remediation-1",
-      "worker_session_id": "ao-pilot-remediation-3",
+      "worker_session_id": "ao-pilot-remediation-4",
       "worker_created_by_new_ao": true,
       "worker_created_from_issue": true,
-      "worker_worktree_path": "/home/guoqy/p0-r08-terminal-remediation/ao-state/data/worktrees/ao-pilot-remediation/ao-pilot-remediation-3",
+      "worker_worktree_path": "/home/guoqy/p0-r08-terminal-remediation/ao-state/data/worktrees/ao-pilot-remediation/ao-pilot-remediation-4",
       "worktree_evidence_comment_id": 0,
       "worktree_evidence_publication": {
         "schema_version": "ao.workstation-orchestrator-worktree-publication.v2",
@@ -224,20 +308,20 @@
         "payload_sha256": "REPLACE_WITH_64_HEX",
         "exact_body_read_back": false,
         "orchestrator_session_id": "ao-pilot-remediation-1",
-        "runtime_binary_path": "/home/guoqy/p0-r08-retry-workstation/runtime-store/runtime.agent_orchestrator.v0_11_2_p0_1/linux-x64/711178ebe07d436db36020eb08f0c4e29613f97b/bin/ao",
-        "runtime_binary_sha256": "a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34",
+        "runtime_binary_path": "/home/guoqy/p0-r08-retry-workstation/runtime-store/runtime.agent_orchestrator.v0_11_2_p0_2/linux-x64/aae8a684357271acc7ad2fa1d4116c7c65c8fa9d/bin/ao",
+        "runtime_binary_sha256": "ad7fd23c6a3f495e2d10b130cf23227c14e30573db5c2c01b68d8214c5965b4d",
         "process_binding": {
           "supervisor_pid": 0,
           "supervisor_process_start_token": "REPLACE_WITH_PROC_START_TOKEN",
-          "supervisor_executable_path": "/home/guoqy/p0-r08-retry-workstation/runtime-store/runtime.agent_orchestrator.v0_11_2_p0_1/linux-x64/711178ebe07d436db36020eb08f0c4e29613f97b/bin/ao",
-          "supervisor_executable_sha256": "a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34",
+          "supervisor_executable_path": "/home/guoqy/p0-r08-retry-workstation/runtime-store/runtime.agent_orchestrator.v0_11_2_p0_2/linux-x64/aae8a684357271acc7ad2fa1d4116c7c65c8fa9d/bin/ao",
+          "supervisor_executable_sha256": "ad7fd23c6a3f495e2d10b130cf23227c14e30573db5c2c01b68d8214c5965b4d",
           "supervisor_command_sha256": "REPLACE_WITH_64_HEX",
           "session_id": "ao-pilot-remediation-1",
           "runtime_launch_id": "REPLACE_WITH_AO_RUNTIME_LAUNCH_ID",
           "current_process_is_descendant": true
         }
       },
-      "worker_branch": "ao/p0-r08-standing-recovery-1",
+      "worker_branch": "ao/p0-r08-standing-recovery-2",
       "worker_committed": true,
       "worker_pushed": true,
       "worker_opened_pr": true,
@@ -246,51 +330,30 @@
       "review_repairs_same_worker_pr": true,
       "github_merge_outcome_confirmed": false,
       "remediation_pr": {
-        "number": 73,
-        "url": "https://github.com/Samsen879/ao-pilot/pull/73",
+        "number": 74,
+        "url": "https://github.com/Samsen879/ao-pilot/pull/74",
         "head_sha": "REPLACE_WITH_40_HEX",
-        "reviewed_head": "338805cf4a53963d400cadc5556511616b95784d",
+        "reviewed_head": "REPLACE_WITH_REVIEWED_40_HEX",
         "ci_conclusion": "success",
         "codex_reviews": [
           {
             "attempt": 1,
             "kind": "submitted_review",
-            "evidence_id": 4838853686,
-            "request_comment_id": 5158629433,
-            "head_sha": "e3108ca40061fb314cc5f54fc8039656d2f89dc0",
-            "completed_at": "2026-08-02T14:52:10Z"
-          },
-          {
-            "attempt": 2,
-            "kind": "submitted_review",
-            "evidence_id": 4840588410,
-            "request_comment_id": 5161943701,
-            "head_sha": "338805cf4a53963d400cadc5556511616b95784d",
-            "completed_at": "2026-08-03T03:27:03Z"
+            "evidence_id": 0,
+            "request_comment_id": 0,
+            "head_sha": "REPLACE_WITH_REVIEWED_40_HEX",
+            "completed_at": "REPLACE_WITH_GITHUB_TIMESTAMP"
           }
         ],
-        "finding_dispositions": [
-          { "comment_id": 3699415314, "review_id": 4838853686, "disposition": "fixed", "resolved": true },
-          { "comment_id": 3699415317, "review_id": 4838853686, "disposition": "fixed", "resolved": true },
-          { "comment_id": 3699415320, "review_id": 4838853686, "disposition": "fixed", "resolved": true },
-          { "comment_id": 3701145692, "review_id": 4840588410, "disposition": "fixed", "resolved": true },
-          { "comment_id": 3701145696, "review_id": 4840588410, "disposition": "fixed", "resolved": true },
-          { "comment_id": 3701145702, "review_id": 4840588410, "disposition": "fixed", "resolved": true },
-          { "comment_id": 3701145705, "review_id": 4840588410, "disposition": "fixed", "resolved": true },
-          { "comment_id": 3701145707, "review_id": 4840588410, "disposition": "fixed", "resolved": true },
-          { "comment_id": 3701145710, "review_id": 4840588410, "disposition": "fixed", "resolved": true }
-        ],
-        "post_review_2_repair": {
-          "authorization_ref": "https://github.com/Samsen879/ao-pilot/issues/63#issuecomment-5158510418",
-          "final_head_sha": "REPLACE_WITH_40_HEX",
-          "finding_comment_ids": [3701145692, 3701145696, 3701145702, 3701145705, 3701145707, 3701145710]
-        },
+        "finding_dispositions": [],
+        "post_review_2_repair": null,
         "merged": false,
         "merge_sha": null,
         "merge_tree_sha": null
       }
     },
     "premerge_verification": null,
+    "merge_execution": null,
     "exact_main_replay": {
       "passed": false,
       "release_check_passed": false,

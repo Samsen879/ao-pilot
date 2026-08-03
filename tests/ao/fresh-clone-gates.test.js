@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 
 import { describe, expect, it } from '@jest/globals';
@@ -32,6 +33,35 @@ import {
   P0_R08_FAILED_TERMINAL_DISPOSITION_SHA256,
   P0_R08_FAILED_TERMINAL_HEAD,
   P0_R08_FAILED_TERMINAL_PR,
+  P0_R08_FAILED_MERGE_PATH_DISPOSITION_BYTES,
+  P0_R08_FAILED_MERGE_PATH_DISPOSITION_COMMENT,
+  P0_R08_FAILED_MERGE_PATH_DISPOSITION_SHA256,
+  P0_R08_FAILED_MERGE_PATH_HEAD,
+  P0_R08_FAILED_MERGE_PATH_PR,
+  P0_R08_FAILED_MERGE_PATH_REVIEWED_HEAD,
+  P0_R08_ARCHITECTURAL_BLOCKER_BYTES,
+  P0_R08_ARCHITECTURAL_BLOCKER_COMMENT,
+  P0_R08_ARCHITECTURAL_BLOCKER_SHA256,
+  P0_R08_FINAL_ADMISSION_BYTES,
+  P0_R08_FINAL_ADMISSION_COMMENT,
+  P0_R08_FINAL_ADMISSION_SHA256,
+  P0_R08_FINAL_ADMITTED_MAIN,
+  P0_R08_FINAL_ADMITTED_TREE,
+  P0_R08_FINAL_RECOVERY_PR,
+  P0_R08_PRINCIPAL_RUNTIME_ARM64_SHA256,
+  P0_R08_PRINCIPAL_RUNTIME_COMMIT,
+  P0_R08_PRINCIPAL_RUNTIME_REF,
+  P0_R08_PRINCIPAL_RUNTIME_TAG,
+  P0_R08_PRINCIPAL_RUNTIME_TREE,
+  P0_R08_PRINCIPAL_RUNTIME_X64_SHA256,
+  P0_R08_RUNTIME_ARM64_SHA256,
+  P0_R08_RUNTIME_COMMIT,
+  P0_R08_RUNTIME_PR,
+  P0_R08_RUNTIME_REF,
+  P0_R08_RUNTIME_TAG,
+  P0_R08_RUNTIME_TAG_OBJECT,
+  P0_R08_RUNTIME_TREE,
+  P0_R08_RUNTIME_X64_SHA256,
   P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT,
   P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT_SHA256,
   P0_R08_FIRST_TERMINAL_ADMITTED_MAIN,
@@ -47,6 +77,8 @@ import {
   P0_R08_TERMINAL_RUNTIME_BINARY,
   P0_R08_TERMINAL_RUNTIME_BINARY_SHA256,
   SELF_HOSTING_RECEIPT_SCHEMA_VERSION,
+  TERMINAL_MERGE_EVIDENCE_SCHEMA_VERSION,
+  TERMINAL_MERGE_PUBLICATION_SCHEMA_VERSION,
   TERMINAL_RECOVERY_CHAIN_SCHEMA_VERSION,
   assertPathResolvesWithin,
   resolvePathThroughFilesystem,
@@ -68,6 +100,10 @@ import {
   createPremergeVerificationEvidence,
   publishOrchestratorBoundPremergeEvidence,
 } from '../../scripts/ao/lib/premerge-verification-evidence.js';
+import {
+  TERMINAL_MERGE_OPERATION_SCHEMA_VERSION,
+  executeAndPublishTerminalMergeEvidence,
+} from '../../scripts/ao/lib/terminal-merge-publication.js';
 
 function validSupervisorProcessBinding(sessionId = 'or-terminal') {
   return {
@@ -110,7 +146,20 @@ function validPremergePublicationAuthority(payload) {
 }
 
 function validSelfHostingReceipt() {
-  const runtime = loadRuntimeLock().lock;
+  const successorRuntime = loadRuntimeLock().lock;
+  const runtime = {
+    runtime_ref: P0_R08_PRINCIPAL_RUNTIME_REF,
+    artifact: {
+      repository: 'https://github.com/Samsen879/agent-orchestrator.git',
+      version: '0.11.2-p0.1',
+      ref: { name: P0_R08_PRINCIPAL_RUNTIME_TAG, commit_sha: P0_R08_PRINCIPAL_RUNTIME_COMMIT, tree_sha: P0_R08_PRINCIPAL_RUNTIME_TREE },
+      integrity: { algorithm: 'git-tree-sha1', digest: P0_R08_PRINCIPAL_RUNTIME_TREE },
+    },
+    compatibility: { platforms: [
+      { os: 'linux', arch: 'x64', binary_sha256: P0_R08_PRINCIPAL_RUNTIME_X64_SHA256 },
+      { os: 'linux', arch: 'arm64', binary_sha256: P0_R08_PRINCIPAL_RUNTIME_ARM64_SHA256 },
+    ] },
+  };
   return {
     schema_version: SELF_HOSTING_RECEIPT_SCHEMA_VERSION,
     status: 'passed',
@@ -271,21 +320,101 @@ function validSelfHostingReceipt() {
       }, {
         attempt: 2,
         kind: 'terminal_recovery_delivery',
-        disposition: 'passed',
+        disposition: 'failed_merge_path_provenance',
         predecessor_pr_number: P0_R08_FAILED_TERMINAL_PR,
         admission_comment_id: P0_R08_TERMINAL_ADMISSION_COMMENT,
-        pr_number: 73,
+        pr: {
+          number: P0_R08_FAILED_MERGE_PATH_PR,
+          url: 'https://github.com/Samsen879/ao-pilot/pull/73',
+          head_sha: P0_R08_FAILED_MERGE_PATH_HEAD,
+          reviewed_head: P0_R08_FAILED_MERGE_PATH_REVIEWED_HEAD,
+          codex_reviews: [{
+            attempt: 1,
+            kind: 'submitted_review',
+            evidence_id: 4838853686,
+            request_comment_id: 5158629433,
+            head_sha: 'e3108ca40061fb314cc5f54fc8039656d2f89dc0',
+            completed_at: '2026-08-02T14:52:10Z',
+          }, {
+            attempt: 2,
+            kind: 'submitted_review',
+            evidence_id: 4840588410,
+            request_comment_id: 5161943701,
+            head_sha: P0_R08_FAILED_MERGE_PATH_REVIEWED_HEAD,
+            completed_at: '2026-08-03T03:27:03Z',
+          }],
+          finding_comment_ids: [3699415314, 3699415317, 3699415320, 3701145692, 3701145696, 3701145702, 3701145705, 3701145707, 3701145710],
+          worktree_evidence_comment_id: 5163418525,
+          premerge_evidence_comment_id: 5163443629,
+          merge_sha: P0_R08_FINAL_ADMITTED_MAIN,
+          merge_tree_sha: P0_R08_FINAL_ADMITTED_TREE,
+          merged_at: '2026-08-03T07:23:43Z',
+        },
+        failure: {
+          disposition_comment_id: P0_R08_FAILED_MERGE_PATH_DISPOSITION_COMMENT,
+          disposition_comment_body_bytes: P0_R08_FAILED_MERGE_PATH_DISPOSITION_BYTES,
+          disposition_comment_body_sha256: P0_R08_FAILED_MERGE_PATH_DISPOSITION_SHA256,
+          disposition_created_at: '2026-08-03T07:32:36Z',
+          disposition_updated_at: '2026-08-03T07:32:36Z',
+          architectural_blocker_comment_id: P0_R08_ARCHITECTURAL_BLOCKER_COMMENT,
+          provider_mutation: 'gh_pr_merge_exact_head_guarded',
+          ao_merge_executed: false,
+          reason_codes: ['pinned_ao_merge_route_not_implemented', 'provider_mutation_not_executed_by_ao'],
+        },
+      }, {
+        attempt: 3,
+        kind: 'terminal_recovery_delivery',
+        disposition: 'passed',
+        predecessor_pr_number: P0_R08_FAILED_MERGE_PATH_PR,
+        admission_comment_id: P0_R08_FINAL_ADMISSION_COMMENT,
+        pr_number: P0_R08_FINAL_RECOVERY_PR,
         worktree_evidence_comment_id: 188,
       }],
+    },
+    runtime_transition: {
+      architectural_blocker: {
+        comment_id: P0_R08_ARCHITECTURAL_BLOCKER_COMMENT,
+        comment_body_bytes: P0_R08_ARCHITECTURAL_BLOCKER_BYTES,
+        comment_body_sha256: P0_R08_ARCHITECTURAL_BLOCKER_SHA256,
+        created_at: '2026-08-03T07:40:30Z',
+        updated_at: '2026-08-03T07:40:30Z',
+      },
+      admission: {
+        comment_id: P0_R08_FINAL_ADMISSION_COMMENT,
+        comment_body_bytes: P0_R08_FINAL_ADMISSION_BYTES,
+        comment_body_sha256: P0_R08_FINAL_ADMISSION_SHA256,
+        created_at: '2026-08-03T08:23:19Z',
+        updated_at: '2026-08-03T08:23:19Z',
+      },
+      predecessor: {
+        runtime_ref: 'runtime.agent_orchestrator.v0_11_2_p0_1',
+        commit_sha: '711178ebe07d436db36020eb08f0c4e29613f97b',
+        tree_sha: '479fba6fd44f251f0c66fafc5cb5d638a6ff590a',
+        linux_x64_binary_sha256: 'a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34',
+      },
+      successor: {
+        runtime_ref: P0_R08_RUNTIME_REF,
+        runtime_pr_number: P0_R08_RUNTIME_PR,
+        runtime_pr_base: 'runtime-baseline/v0.11.2',
+        bootstrap_merge_exception: 'owner_gh_pr_merge_runtime_pr_8_only',
+        tag: P0_R08_RUNTIME_TAG,
+        tag_object_sha: P0_R08_RUNTIME_TAG_OBJECT,
+        commit_sha: P0_R08_RUNTIME_COMMIT,
+        tree_sha: P0_R08_RUNTIME_TREE,
+        integrity: { algorithm: 'git-tree-sha1', digest: P0_R08_RUNTIME_TREE },
+        linux_x64_binary_sha256: P0_R08_RUNTIME_X64_SHA256,
+        linux_arm64_binary_sha256: P0_R08_RUNTIME_ARM64_SHA256,
+      },
     },
     terminal_remediation: {
       admission: {
         issue_number: 63,
-        comment_id: P0_R08_TERMINAL_ADMISSION_COMMENT,
-        comment_body_sha256: P0_R08_TERMINAL_ADMISSION_COMMENT_SHA256,
+        comment_id: P0_R08_FINAL_ADMISSION_COMMENT,
+        comment_body_bytes: P0_R08_FINAL_ADMISSION_BYTES,
+        comment_body_sha256: P0_R08_FINAL_ADMISSION_SHA256,
         principal_pr_number: P0_R08_PRINCIPAL_PR,
-        admitted_main_sha: P0_R08_TERMINAL_ADMITTED_MAIN,
-        admitted_tree_sha: P0_R08_TERMINAL_ADMITTED_TREE,
+        admitted_main_sha: P0_R08_FINAL_ADMITTED_MAIN,
+        admitted_tree_sha: P0_R08_FINAL_ADMITTED_TREE,
       },
       environment: {
         kind: 'isolated_terminal_remediation',
@@ -294,14 +423,14 @@ function validSelfHostingReceipt() {
         remediation_root: P0_R08_TERMINAL_ROOT,
         ao_data_dir: P0_R08_TERMINAL_AO_DATA_DIR,
         ao_run_file: P0_R08_TERMINAL_AO_RUN_FILE,
-        runtime_binary_path: `${P0_R08_RETRY_RUNTIME_STORE}/${runtime.runtime_ref}/linux-x64/${runtime.artifact.ref.commit_sha}/bin/ao`,
-        runtime_binary_sha256: runtime.compatibility.platforms[0].binary_sha256,
+        runtime_binary_path: `${P0_R08_RETRY_RUNTIME_STORE}/${successorRuntime.runtime_ref}/linux-x64/${successorRuntime.artifact.ref.commit_sha}/bin/ao`,
+        runtime_binary_sha256: successorRuntime.compatibility.platforms[0].binary_sha256,
       },
       source: {
         repository: 'https://github.com/Samsen879/ao-pilot.git',
         clone_path: `${P0_R08_TERMINAL_ROOT}/ao-pilot`,
-        clone_head_sha: P0_R08_TERMINAL_ADMITTED_MAIN,
-        clone_tree_sha: P0_R08_TERMINAL_ADMITTED_TREE,
+        clone_head_sha: P0_R08_FINAL_ADMITTED_MAIN,
+        clone_tree_sha: P0_R08_FINAL_ADMITTED_TREE,
         clean_before_bootstrap: true,
       },
       delivery: {
@@ -320,8 +449,8 @@ function validSelfHostingReceipt() {
           payload_sha256: 'a'.repeat(64),
           exact_body_read_back: true,
           orchestrator_session_id: 'or-terminal',
-          runtime_binary_path: `${P0_R08_RETRY_RUNTIME_STORE}/${runtime.runtime_ref}/linux-x64/${runtime.artifact.ref.commit_sha}/bin/ao`,
-          runtime_binary_sha256: runtime.compatibility.platforms[0].binary_sha256,
+          runtime_binary_path: `${P0_R08_RETRY_RUNTIME_STORE}/${successorRuntime.runtime_ref}/linux-x64/${successorRuntime.artifact.ref.commit_sha}/bin/ao`,
+          runtime_binary_sha256: successorRuntime.compatibility.platforms[0].binary_sha256,
           process_binding: validSupervisorProcessBinding(),
         },
         worker_branch: 'ao/p0-r08-terminal-remediation',
@@ -333,8 +462,8 @@ function validSelfHostingReceipt() {
         review_repairs_same_worker_pr: true,
         github_merge_outcome_confirmed: true,
         remediation_pr: {
-          number: 73,
-          url: 'https://github.com/Samsen879/ao-pilot/pull/73',
+          number: P0_R08_FINAL_RECOVERY_PR,
+          url: 'https://github.com/Samsen879/ao-pilot/pull/74',
           head_sha: '6'.repeat(40),
           reviewed_head: '6'.repeat(40),
           ci_conclusion: 'success',
@@ -363,6 +492,23 @@ function validSelfHostingReceipt() {
           read_back_at: '2026-08-04T01:59:00.000Z',
           payload_bytes: 2345,
           payload_sha256: 'b'.repeat(64),
+          exact_body_read_back: true,
+          orchestrator_session_id: 'or-terminal',
+          runtime_binary_path: P0_R08_TERMINAL_RUNTIME_BINARY,
+          runtime_binary_sha256: P0_R08_TERMINAL_RUNTIME_BINARY_SHA256,
+          process_binding: validSupervisorProcessBinding(),
+        },
+      },
+      merge_execution: {
+        evidence_comment_id: 191,
+        publication: {
+          schema_version: TERMINAL_MERGE_PUBLICATION_SCHEMA_VERSION,
+          issue_number: 63,
+          comment_id: 191,
+          published_at: '2026-08-04T02:02:00.000Z',
+          read_back_at: '2026-08-04T02:03:00.000Z',
+          payload_bytes: 3456,
+          payload_sha256: 'd'.repeat(64),
           exact_body_read_back: true,
           orchestrator_session_id: 'or-terminal',
           runtime_binary_path: P0_R08_TERMINAL_RUNTIME_BINARY,
@@ -440,7 +586,7 @@ function validEvidence(receipt) {
         merged_at: '2026-08-03T02:00:00.000Z',
         linked_issue_63: true,
       },
-      terminal_remediation_admission: {
+      standing_recovery_admission: {
         comment_id: P0_R08_TERMINAL_ADMISSION_COMMENT,
         issue_number: 63,
         author: 'Samsen879',
@@ -449,6 +595,16 @@ function validEvidence(receipt) {
         updated_at: '2026-08-02T14:24:49Z',
         body_bytes: P0_R08_TERMINAL_ADMISSION_COMMENT_BYTES,
         body_sha256: P0_R08_TERMINAL_ADMISSION_COMMENT_SHA256,
+      },
+      terminal_remediation_admission: {
+        comment_id: P0_R08_FINAL_ADMISSION_COMMENT,
+        issue_number: 63,
+        author: 'Samsen879',
+        author_association: 'OWNER',
+        created_at: '2026-08-03T08:23:19Z',
+        updated_at: '2026-08-03T08:23:19Z',
+        body_bytes: P0_R08_FINAL_ADMISSION_BYTES,
+        body_sha256: P0_R08_FINAL_ADMISSION_SHA256,
       },
       first_terminal_admission: {
         comment_id: P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT,
@@ -477,6 +633,55 @@ function validEvidence(receipt) {
         updated_at: '2026-08-02T14:29:13Z',
         body_sha256: P0_R08_FAILED_TERMINAL_DISPOSITION_SHA256,
       },
+      failed_merge_path_pr: {
+        number: P0_R08_FAILED_MERGE_PATH_PR,
+        merged: true,
+        merge_sha: P0_R08_FINAL_ADMITTED_MAIN,
+        merge_tree_sha: P0_R08_FINAL_ADMITTED_TREE,
+        head_sha: P0_R08_FAILED_MERGE_PATH_HEAD,
+        base_ref: 'main',
+        merged_at: '2026-08-03T07:23:43Z',
+      },
+      failed_merge_path_disposition: {
+        comment_id: P0_R08_FAILED_MERGE_PATH_DISPOSITION_COMMENT,
+        issue_number: 63,
+        author: 'Samsen879',
+        author_association: 'OWNER',
+        created_at: '2026-08-03T07:32:36Z',
+        updated_at: '2026-08-03T07:32:36Z',
+        body_bytes: P0_R08_FAILED_MERGE_PATH_DISPOSITION_BYTES,
+        body_sha256: P0_R08_FAILED_MERGE_PATH_DISPOSITION_SHA256,
+      },
+      failed_merge_path_worktree_evidence: {
+        comment_id: 5163418525, issue_number: 63, author: 'Samsen879', author_association: 'OWNER',
+        created_at: '2026-08-03T07:17:13Z', updated_at: '2026-08-03T07:17:13Z',
+      },
+      failed_merge_path_premerge_evidence: {
+        comment_id: 5163443629, issue_number: 63, author: 'Samsen879', author_association: 'OWNER',
+        created_at: '2026-08-03T07:20:16Z', updated_at: '2026-08-03T07:20:16Z',
+      },
+      architectural_blocker: {
+        comment_id: P0_R08_ARCHITECTURAL_BLOCKER_COMMENT,
+        issue_number: 63,
+        author: 'Samsen879',
+        author_association: 'OWNER',
+        created_at: '2026-08-03T07:40:30Z',
+        updated_at: '2026-08-03T07:40:30Z',
+        body_bytes: P0_R08_ARCHITECTURAL_BLOCKER_BYTES,
+        body_sha256: P0_R08_ARCHITECTURAL_BLOCKER_SHA256,
+      },
+      runtime_pr: {
+        number: P0_R08_RUNTIME_PR,
+        merged: true,
+        base_ref: 'runtime-baseline/v0.11.2',
+        merge_sha: P0_R08_RUNTIME_COMMIT,
+        merge_tree_sha: P0_R08_RUNTIME_TREE,
+      },
+      runtime_tag: {
+        tag: P0_R08_RUNTIME_TAG,
+        tag_object_sha: P0_R08_RUNTIME_TAG_OBJECT,
+        commit_sha: P0_R08_RUNTIME_COMMIT,
+      },
       terminal_remediation_pr: {
         number: receipt.terminal_remediation.delivery.remediation_pr.number,
         merged: true,
@@ -485,13 +690,16 @@ function validEvidence(receipt) {
         head_sha: receipt.terminal_remediation.delivery.remediation_pr.head_sha,
         head_ref: receipt.terminal_remediation.delivery.worker_branch,
         base_ref: 'main',
-        created_at: '2026-08-02T14:30:00.000Z',
+        created_at: '2026-08-03T08:30:00.000Z',
         merged_at: '2026-08-04T02:00:00.000Z',
         linked_issue_63: true,
         auto_closes_issue_63: false,
         binds_terminal_admission: true,
         binds_principal_pr_71: true,
         binds_failed_terminal_pr_72: true,
+        binds_failed_merge_path_pr_73: true,
+        binds_architectural_blocker: true,
+        binds_final_admission: true,
       },
       issue_linked_prs: [{
         repository: 'Samsen879/ao-pilot',
@@ -509,9 +717,16 @@ function validEvidence(receipt) {
         base_ref: 'main',
       }, {
         repository: 'Samsen879/ao-pilot',
+        number: P0_R08_FAILED_MERGE_PATH_PR,
+        url: 'https://github.com/Samsen879/ao-pilot/pull/73',
+        created_at: '2026-08-02T14:44:39.000Z',
+        head_ref: 'ao/p0-r08-standing-recovery-1',
+        base_ref: 'main',
+      }, {
+        repository: 'Samsen879/ao-pilot',
         number: receipt.terminal_remediation.delivery.remediation_pr.number,
         url: receipt.terminal_remediation.delivery.remediation_pr.url,
-        created_at: '2026-08-02T14:30:00.000Z',
+        created_at: '2026-08-03T08:30:00.000Z',
         head_ref: receipt.terminal_remediation.delivery.worker_branch,
         base_ref: 'main',
       }],
@@ -536,6 +751,21 @@ function validEvidence(receipt) {
         actor: 'chatgpt-codex-connector[bot]',
         completed: true,
       })),
+      failed_merge_path_codex_reviews: receipt.terminal_recovery_chain.attempts[1].pr.codex_reviews.map((review) => ({
+        kind: review.kind,
+        evidence_id: review.evidence_id,
+        request_comment_id: review.request_comment_id,
+        request_valid: true,
+        head_sha: review.head_sha,
+        completed_at: review.completed_at,
+        actor: 'chatgpt-codex-connector[bot]',
+        completed: true,
+      })),
+      failed_merge_path_review_findings: receipt.terminal_recovery_chain.attempts[1].pr.finding_comment_ids.map((commentId, index) => ({
+        comment_id: commentId,
+        review_id: index < 3 ? 4838853686 : 4840588410,
+        resolved: true,
+      })),
       terminal_check_runs: ['fresh-clone-runtime', 'test (20)', 'test (22)'].map((name) => ({ name, conclusion: 'success' })),
       terminal_codex_reviews: receipt.terminal_remediation.delivery.remediation_pr.codex_reviews.map((review) => ({
         kind: review.kind,
@@ -546,6 +776,11 @@ function validEvidence(receipt) {
         completed_at: review.completed_at,
         actor: 'chatgpt-codex-connector[bot]',
         completed: true,
+      })),
+      terminal_codex_review_requests: receipt.terminal_remediation.delivery.remediation_pr.codex_reviews.map((review) => ({
+        comment_id: review.request_comment_id,
+        head_sha: review.head_sha,
+        requested_at: new Date(Date.parse(review.completed_at) - 60_000).toISOString(),
       })),
       review_findings: [],
       terminal_review_findings: [],
@@ -610,7 +845,7 @@ function validEvidence(receipt) {
         body_bytes: 1234,
         body_sha256: 'a'.repeat(64),
         payload: {
-          schema_version: 'ao.workstation-worktree-evidence.v5',
+          schema_version: 'ao.workstation-worktree-evidence.v6',
           issue_number: 63,
           captured_at: '2026-08-04T01:45:00.000Z',
           source: {
@@ -626,10 +861,11 @@ function validEvidence(receipt) {
           },
           recovery_chain: {
             standing_admission_comment_id: P0_R08_TERMINAL_ADMISSION_COMMENT,
-            attempt: 2,
-            prior_attempt_pr_number: P0_R08_FAILED_TERMINAL_PR,
-            admitted_main_sha: P0_R08_TERMINAL_ADMITTED_MAIN,
-            admitted_tree_sha: P0_R08_TERMINAL_ADMITTED_TREE,
+            final_admission_comment_id: P0_R08_FINAL_ADMISSION_COMMENT,
+            attempt: 3,
+            prior_attempt_pr_number: P0_R08_FAILED_MERGE_PATH_PR,
+            admitted_main_sha: P0_R08_FINAL_ADMITTED_MAIN,
+            admitted_tree_sha: P0_R08_FINAL_ADMITTED_TREE,
           },
           worker: {
             session_id: receipt.terminal_remediation.delivery.worker_session_id,
@@ -657,8 +893,8 @@ function validEvidence(receipt) {
             activity_state: 'active',
             is_terminated: false,
             runtime_launch_id: 'launch-or-terminal',
-            runtime_binary_path: receipt.runtime.binary_path,
-            runtime_binary_sha256: receipt.runtime.binary_sha256,
+            runtime_binary_path: receipt.terminal_remediation.environment.runtime_binary_path,
+            runtime_binary_sha256: receipt.terminal_remediation.environment.runtime_binary_sha256,
             process_binding: validSupervisorProcessBinding(),
             session_get: {
               args: ['session', 'get', receipt.terminal_remediation.delivery.orchestrator_session_id, '--json'],
@@ -673,6 +909,60 @@ function validEvidence(receipt) {
         },
       },
       terminal_premerge_capture: null,
+      terminal_merge_capture: receipt.terminal_remediation.merge_execution == null ? null : {
+        comment_id: receipt.terminal_remediation.merge_execution.evidence_comment_id,
+        issue_number: 63,
+        author: 'Samsen879',
+        author_association: 'OWNER',
+        created_at: '2026-08-04T02:02:00.000Z',
+        updated_at: '2026-08-04T02:02:00.000Z',
+        body_bytes: 3456,
+        body_sha256: 'd'.repeat(64),
+        payload: {
+          schema_version: TERMINAL_MERGE_EVIDENCE_SCHEMA_VERSION,
+          issue_number: 63,
+          completed_at: '2026-08-04T02:01:00.000Z',
+          orchestrator_session_id: receipt.terminal_remediation.delivery.orchestrator_session_id,
+          recovery_attempt: 3,
+          premerge_evidence: {
+            comment_id: receipt.terminal_remediation.premerge_verification.evidence_comment_id,
+            payload_sha256: 'b'.repeat(64),
+          },
+          command: {
+            runtime_binary_path: P0_R08_TERMINAL_RUNTIME_BINARY,
+            runtime_binary_sha256: P0_R08_TERMINAL_RUNTIME_BINARY_SHA256,
+            args: ['pr', 'merge', String(receipt.terminal_remediation.delivery.remediation_pr.number)],
+            exit_code: 0,
+            stdout: `merged PR #${receipt.terminal_remediation.delivery.remediation_pr.number} using squash (head ${receipt.terminal_remediation.delivery.remediation_pr.head_sha}, merge commit ${receipt.terminal_remediation.delivery.remediation_pr.merge_sha})`,
+          },
+          effect: {
+            provider_mutation: 'github_squash_merge',
+            exact_head_guarded: true,
+            ao_merge_executed: true,
+            github_readback_confirmed: true,
+            pr_number: receipt.terminal_remediation.delivery.remediation_pr.number,
+            method: 'squash',
+            head_sha: receipt.terminal_remediation.delivery.remediation_pr.head_sha,
+            merge_commit_sha: receipt.terminal_remediation.delivery.remediation_pr.merge_sha,
+            main_sha: receipt.terminal_remediation.delivery.remediation_pr.merge_sha,
+            main_tree_sha: receipt.terminal_remediation.delivery.remediation_pr.merge_tree_sha,
+          },
+          execution_binding: {
+            schema_version: TERMINAL_MERGE_OPERATION_SCHEMA_VERSION,
+            helper: 'publish:self-hosting-merge',
+            helper_source_sha256: createHash('sha256').update(fs.readFileSync('scripts/ao/lib/terminal-merge-publication.js')).digest('hex'),
+            guarded_head_sha: receipt.terminal_remediation.delivery.remediation_pr.head_sha,
+            premerge_payload_sha256: 'b'.repeat(64),
+            subprocess_stdout_sha256: createHash('sha256').update(`merged PR #${receipt.terminal_remediation.delivery.remediation_pr.number} using squash (head ${receipt.terminal_remediation.delivery.remediation_pr.head_sha}, merge commit ${receipt.terminal_remediation.delivery.remediation_pr.merge_sha})`).digest('hex'),
+            premerge_read_back_at: '2026-08-04T01:59:00.000Z',
+            subprocess_started_at: '2026-08-04T01:59:01.000Z',
+            subprocess_completed_at: '2026-08-04T02:00:30.000Z',
+            github_read_back_at: '2026-08-04T02:01:00.000Z',
+            process_binding: validSupervisorProcessBinding(),
+          },
+          orchestrator_provenance: null,
+        },
+      },
       terminal_orchestrator_done_capture: {
         comment_id: receipt.terminal_remediation.cleanup.orchestrator_done_evidence_comment_id,
         issue_number: 63,
@@ -685,7 +975,7 @@ function validEvidence(receipt) {
           completed_at: '2026-08-04T02:05:00.000Z',
           orchestrator_session_id: receipt.terminal_remediation.delivery.orchestrator_session_id,
           command: {
-            runtime_binary_path: receipt.runtime.binary_path,
+            runtime_binary_path: receipt.terminal_remediation.environment.runtime_binary_path,
             args: ['orchestrator', 'done', '--session', receipt.terminal_remediation.delivery.orchestrator_session_id],
             exit_code: 0,
             stdout: `Orchestrator ${receipt.terminal_remediation.delivery.orchestrator_session_id} marked done.`,
@@ -701,6 +991,9 @@ function validEvidence(receipt) {
     },
   };
   const terminalCapture = evidence.githubEvidence.terminal_worktree_capture;
+  if (evidence.githubEvidence.terminal_merge_capture) {
+    evidence.githubEvidence.terminal_merge_capture.payload.orchestrator_provenance = terminalCapture.payload.orchestrator_provenance;
+  }
   if (receipt.terminal_remediation.premerge_verification == null) return evidence;
   evidence.githubEvidence.terminal_premerge_capture = {
     comment_id: receipt.terminal_remediation.premerge_verification.evidence_comment_id,
@@ -717,7 +1010,8 @@ function validEvidence(receipt) {
       verified_at: '2026-08-04T01:57:00.000Z',
       status: 'premerge_verified',
       standing_admission_comment_id: P0_R08_TERMINAL_ADMISSION_COMMENT,
-      recovery_attempt: 2,
+      final_admission_comment_id: P0_R08_FINAL_ADMISSION_COMMENT,
+      recovery_attempt: 3,
       remediation_pr: {
         number: receipt.terminal_remediation.delivery.remediation_pr.number,
         head_sha: receipt.terminal_remediation.delivery.remediation_pr.head_sha,
@@ -758,12 +1052,13 @@ function validEvidence(receipt) {
 function validPreMergeReceipt() {
   const receipt = validSelfHostingReceipt();
   receipt.status = 'pending';
-  receipt.terminal_recovery_chain.attempts[1].disposition = 'pending';
+  receipt.terminal_recovery_chain.attempts[2].disposition = 'pending';
   receipt.terminal_remediation.delivery.github_merge_outcome_confirmed = false;
   receipt.terminal_remediation.delivery.remediation_pr.merged = false;
   receipt.terminal_remediation.delivery.remediation_pr.merge_sha = null;
   receipt.terminal_remediation.delivery.remediation_pr.merge_tree_sha = null;
   receipt.terminal_remediation.premerge_verification = null;
+  receipt.terminal_remediation.merge_execution = null;
   receipt.terminal_remediation.exact_main_replay = {
     passed: false,
     release_check_passed: false,
@@ -829,6 +1124,12 @@ describe('fresh-clone and protected self-hosting gates', () => {
         runtime_store: P0_R08_RETRY_RUNTIME_STORE,
         runtime_cache: P0_R08_RETRY_RUNTIME_CACHE,
       },
+      runtime: {
+        runtime_ref: P0_R08_PRINCIPAL_RUNTIME_REF,
+        tag: P0_R08_PRINCIPAL_RUNTIME_TAG,
+        commit_sha: P0_R08_PRINCIPAL_RUNTIME_COMMIT,
+        tree_sha: P0_R08_PRINCIPAL_RUNTIME_TREE,
+      },
       delivery: {
         worktree_evidence_comment_id: 5157857462,
         principal_pr: { number: 71 },
@@ -836,12 +1137,18 @@ describe('fresh-clone and protected self-hosting gates', () => {
       cleanup: { orchestrator_done_evidence_comment_id: 5157899599 },
       terminal_remediation: {
         admission: {
-          comment_id: P0_R08_TERMINAL_ADMISSION_COMMENT,
-          comment_body_sha256: P0_R08_TERMINAL_ADMISSION_COMMENT_SHA256,
+          comment_id: P0_R08_FINAL_ADMISSION_COMMENT,
+          comment_body_bytes: P0_R08_FINAL_ADMISSION_BYTES,
+          comment_body_sha256: P0_R08_FINAL_ADMISSION_SHA256,
           principal_pr_number: P0_R08_PRINCIPAL_PR,
-          admitted_main_sha: P0_R08_TERMINAL_ADMITTED_MAIN,
-          admitted_tree_sha: P0_R08_TERMINAL_ADMITTED_TREE,
+          admitted_main_sha: P0_R08_FINAL_ADMITTED_MAIN,
+          admitted_tree_sha: P0_R08_FINAL_ADMITTED_TREE,
         },
+        environment: {
+          runtime_binary_path: P0_R08_TERMINAL_RUNTIME_BINARY,
+          runtime_binary_sha256: P0_R08_TERMINAL_RUNTIME_BINARY_SHA256,
+        },
+        merge_execution: null,
       },
       terminal_recovery_chain: {
         schema_version: TERMINAL_RECOVERY_CHAIN_SCHEMA_VERSION,
@@ -856,8 +1163,14 @@ describe('fresh-clone and protected self-hosting gates', () => {
         },
         attempts: [
           expect.objectContaining({ attempt: 1, disposition: 'failed_premerge_gates', pr: { number: 72, url: 'https://github.com/Samsen879/ao-pilot/pull/72', head_sha: P0_R08_FAILED_TERMINAL_HEAD, reviewed_head: P0_R08_FAILED_TERMINAL_HEAD, codex_reviews: expect.any(Array), merge_sha: P0_R08_TERMINAL_ADMITTED_MAIN, merge_tree_sha: P0_R08_TERMINAL_ADMITTED_TREE, merged_at: '2026-08-02T14:15:52Z' } }),
-          expect.objectContaining({ attempt: 2, predecessor_pr_number: 72 }),
+          expect.objectContaining({ attempt: 2, disposition: 'failed_merge_path_provenance', predecessor_pr_number: 72, pr: expect.objectContaining({ number: 73 }) }),
+          expect.objectContaining({ attempt: 3, predecessor_pr_number: 73, pr_number: 74 }),
         ],
+      },
+      runtime_transition: {
+        architectural_blocker: { comment_id: P0_R08_ARCHITECTURAL_BLOCKER_COMMENT },
+        admission: { comment_id: P0_R08_FINAL_ADMISSION_COMMENT },
+        successor: { runtime_pr_number: P0_R08_RUNTIME_PR, tag_object_sha: P0_R08_RUNTIME_TAG_OBJECT },
       },
     });
   });
@@ -989,6 +1302,91 @@ describe('fresh-clone and protected self-hosting gates', () => {
     });
   });
 
+  it('preserves p0.1 for the immutable principal/bootstrap proof and confines p0.2 to the successor transition and terminal environment', () => {
+    const receipt = validSelfHostingReceipt();
+    expect(receipt.runtime).toMatchObject({
+      runtime_ref: P0_R08_PRINCIPAL_RUNTIME_REF,
+      commit_sha: P0_R08_PRINCIPAL_RUNTIME_COMMIT,
+      tree_sha: P0_R08_PRINCIPAL_RUNTIME_TREE,
+      binary_sha256: P0_R08_PRINCIPAL_RUNTIME_X64_SHA256,
+    });
+    expect(receipt.runtime_transition.successor).toMatchObject({
+      runtime_ref: P0_R08_RUNTIME_REF,
+      commit_sha: P0_R08_RUNTIME_COMMIT,
+      tree_sha: P0_R08_RUNTIME_TREE,
+    });
+    expect(receipt.terminal_remediation.environment).toMatchObject({
+      runtime_binary_path: P0_R08_TERMINAL_RUNTIME_BINARY,
+      runtime_binary_sha256: P0_R08_TERMINAL_RUNTIME_BINARY_SHA256,
+    });
+    receipt.runtime.runtime_ref = P0_R08_RUNTIME_REF;
+    expect(() => verifySelfHostingReceipt(receipt, validEvidence(receipt))).toThrow('Historical principal runtime ref mismatch');
+  });
+
+  it('documents p0.2 as canonical while retaining p0.1 only as historical principal evidence', () => {
+    const runtimeDoc = fs.readFileSync('docs/AO_RUNTIME.md', 'utf8');
+    expect(runtimeDoc).toContain(`runtime ref: \`${P0_R08_RUNTIME_REF}\``);
+    expect(runtimeDoc).toContain(`immutable tag: \`${P0_R08_RUNTIME_TAG}\``);
+    expect(runtimeDoc).toContain(`annotated tag object: \`${P0_R08_RUNTIME_TAG_OBJECT}\``);
+    expect(runtimeDoc).toContain(`commit: \`${P0_R08_RUNTIME_COMMIT}\``);
+    expect(runtimeDoc).toContain(`tree/integrity: \`${P0_R08_RUNTIME_TREE}\``);
+    expect(runtimeDoc).toContain(P0_R08_RUNTIME_X64_SHA256);
+    expect(runtimeDoc).toContain(P0_R08_RUNTIME_ARM64_SHA256);
+    expect(runtimeDoc).toContain('p0.1 tag/commit/tree and binary digests remain immutable historical');
+  });
+
+  it.each([
+    ['missing immutable AO merge record', (receipt) => { receipt.terminal_remediation.merge_execution = null; }],
+    ['direct/manual merge substitution', (_receipt, evidence) => { evidence.githubEvidence.terminal_merge_capture.payload.effect.ao_merge_executed = false; }],
+    ['missing exact-HEAD guard', (_receipt, evidence) => { evidence.githubEvidence.terminal_merge_capture.payload.effect.exact_head_guarded = false; }],
+    ['wrong merge command', (_receipt, evidence) => { evidence.githubEvidence.terminal_merge_capture.payload.command.args = ['gh', 'pr', 'merge', '74']; }],
+    ['p0.2 merge runtime digest drift', (_receipt, evidence) => { evidence.githubEvidence.terminal_merge_capture.payload.command.runtime_binary_sha256 = 'f'.repeat(64); }],
+    ['merge effect HEAD drift', (_receipt, evidence) => { evidence.githubEvidence.terminal_merge_capture.payload.effect.head_sha = 'f'.repeat(40); }],
+    ['merge/main effect drift', (_receipt, evidence) => { evidence.githubEvidence.terminal_merge_capture.payload.effect.main_tree_sha = 'f'.repeat(40); }],
+    ['missing GitHub merge readback', (_receipt, evidence) => { evidence.githubEvidence.terminal_merge_capture.payload.effect.github_readback_confirmed = false; }],
+    ['edited merge evidence', (_receipt, evidence) => { evidence.githubEvidence.terminal_merge_capture.updated_at = '2026-08-04T02:03:00.000Z'; }],
+    ['missing merge evidence readback', (receipt) => { receipt.terminal_remediation.merge_execution.publication.exact_body_read_back = false; }],
+    ['arbitrary merge effect field', (_receipt, evidence) => { evidence.githubEvidence.terminal_merge_capture.payload.effect.extra = true; }],
+    ['missing atomic helper binding', (_receipt, evidence) => { delete evidence.githubEvidence.terminal_merge_capture.payload.execution_binding; }],
+    ['fabricated helper identity', (_receipt, evidence) => { evidence.githubEvidence.terminal_merge_capture.payload.execution_binding.helper = 'owner-authored-json'; }],
+    ['helper source digest drift', (_receipt, evidence) => { evidence.githubEvidence.terminal_merge_capture.payload.execution_binding.helper_source_sha256 = 'f'.repeat(64); }],
+    ['subprocess/readback order drift', (_receipt, evidence) => { evidence.githubEvidence.terminal_merge_capture.payload.execution_binding.subprocess_completed_at = '2026-08-04T02:01:01.000Z'; }],
+    ['merge helper process drift', (_receipt, evidence) => { evidence.githubEvidence.terminal_merge_capture.payload.execution_binding.process_binding.supervisor_process_start_token = 'other'; }],
+  ])('fails closed for AO merge execution/effect provenance: %s', (_name, mutate) => {
+    const receipt = validSelfHostingReceipt();
+    const evidence = validEvidence(receipt);
+    mutate(receipt, evidence);
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow();
+  });
+
+  it('rejects a pending third Owner review request even when two completed reviews pass', () => {
+    const receipt = validSelfHostingReceipt();
+    const remediation = receipt.terminal_remediation.delivery.remediation_pr;
+    remediation.codex_reviews.push({
+      attempt: 2, kind: 'submitted_review', evidence_id: 202, request_comment_id: 200,
+      head_sha: remediation.head_sha, completed_at: '2026-08-04T01:30:00.000Z',
+    });
+    const evidence = validEvidence(receipt);
+    evidence.githubEvidence.terminal_codex_review_requests.push({
+      comment_id: 201,
+      head_sha: remediation.head_sha,
+      requested_at: '2026-08-04T01:31:00.000Z',
+    });
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('extra, missing, or pending Owner review request');
+  });
+
+  it.each([
+    ['missing raw request', (requests) => { requests.pop(); }],
+    ['request ID drift', (requests) => { requests[0].comment_id += 1; }],
+    ['request HEAD drift', (requests) => { requests[0].head_sha = 'f'.repeat(40); }],
+    ['arbitrary request field', (requests) => { requests[0].extra = true; }],
+  ])('fails closed for terminal Owner review-request evidence: %s', (_name, mutate) => {
+    const receipt = validSelfHostingReceipt();
+    const evidence = validEvidence(receipt);
+    mutate(evidence.githubEvidence.terminal_codex_review_requests);
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow();
+  });
+
   it('supports the handoff pre-publication verification stage', () => {
     const receipt = validSelfHostingReceipt();
     const evidence = validEvidence(receipt);
@@ -1011,7 +1409,7 @@ describe('fresh-clone and protected self-hosting gates', () => {
     })).toMatchObject({
       status: 'premerge_verified',
       principal_pr: 71,
-      terminal_recovery_pr: 73,
+      terminal_recovery_pr: 74,
       worktree_evidence_comment: 188,
       orchestrator_session_id: 'or-terminal',
     });
@@ -1144,7 +1542,7 @@ describe('fresh-clone and protected self-hosting gates', () => {
     remediation.reviewed_head = '6'.repeat(40);
     remediation.finding_dispositions = [{ comment_id: 301, review_id: 202, disposition: 'fixed', resolved: true }];
     remediation.post_review_2_repair = {
-      authorization_ref: 'https://github.com/Samsen879/ao-pilot/issues/63#issuecomment-5158510418',
+      authorization_ref: 'https://github.com/Samsen879/ao-pilot/issues/63#issuecomment-5163994984',
       final_head_sha: '7'.repeat(40), finding_comment_ids: [301],
     };
     const evidence = validEvidence(receipt);
@@ -1163,6 +1561,7 @@ describe('fresh-clone and protected self-hosting gates', () => {
     ['wrong publication Orchestrator', (receipt) => { receipt.terminal_remediation.delivery.worktree_evidence_publication.orchestrator_session_id = 'worker-terminal'; }],
     ['missing exact readback', (receipt) => { receipt.terminal_remediation.delivery.worktree_evidence_publication.exact_body_read_back = false; }],
     ['pre-existing preflight claim', (receipt) => { receipt.terminal_remediation.premerge_verification = { evidence_comment_id: 190 }; }],
+    ['pre-existing AO merge execution claim', (receipt) => { receipt.terminal_remediation.merge_execution = { evidence_comment_id: 191 }; }],
   ])('pre-merge verification fails closed for %s', (_name, mutate) => {
     const receipt = validPreMergeReceipt();
     const evidence = validPreMergeEvidence(receipt);
@@ -1417,6 +1816,115 @@ describe('fresh-clone and protected self-hosting gates', () => {
     }
   });
 
+  it('atomically executes the literal pinned AO merge and publishes its live effect readback', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-merge-helper-'));
+    const payloadPath = path.join(root, 'merge.json');
+    const publicationReceiptPath = path.join(root, 'publication.json');
+    const head = '7'.repeat(40);
+    const tree = '8'.repeat(40);
+    const merge = '9'.repeat(40);
+    const mainTree = 'a'.repeat(40);
+    const premergePayload = {
+      schema_version: PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION,
+      status: 'premerge_verified',
+      remediation_pr: { number: 74, head_sha: head, tree_sha: tree },
+      orchestrator_provenance: { session_id: 'or-terminal', process_binding: validSupervisorProcessBinding() },
+    };
+    const premergeRaw = JSON.stringify(premergePayload);
+    const premergeDigest = createHash('sha256').update(premergeRaw).digest('hex');
+    const times = [
+      '2026-08-04T01:59:00.000Z', '2026-08-04T01:59:01.000Z',
+      '2026-08-04T02:00:30.000Z', '2026-08-04T02:01:00.000Z',
+      '2026-08-04T02:03:00.000Z',
+    ];
+    let executed = false;
+    try {
+      const result = executeAndPublishTerminalMergeEvidence({
+        premergeCommentId: 5165000000,
+        premergePayloadSha256: premergeDigest,
+        payloadPath,
+        publicationReceiptPath,
+        authorityOptions: validPremergePublicationAuthority({ remediation_pr: { head_sha: head, tree_sha: tree } }),
+        readIssueComment: (commentId) => commentId === 5165000000 ? {
+          id: commentId, user: { login: 'Samsen879' }, author_association: 'OWNER',
+          created_at: '2026-08-04T01:58:00.000Z', updated_at: '2026-08-04T01:58:00.000Z', body: premergeRaw,
+        } : {
+          id: commentId, user: { login: 'Samsen879' }, author_association: 'OWNER',
+          created_at: '2026-08-04T02:02:00.000Z', updated_at: '2026-08-04T02:02:00.000Z', body: fs.readFileSync(payloadPath, 'utf8'),
+        },
+        executeMerge: (binary, args) => {
+          expect(binary).toBe(P0_R08_TERMINAL_RUNTIME_BINARY);
+          expect(args).toEqual(['pr', 'merge', '74']);
+          executed = true;
+          return `merged PR #74 using squash (head ${head}, merge commit ${merge})`;
+        },
+        readPull: () => ({ number: 74, merged: true, head: { sha: head }, merge_commit_sha: merge, merged_at: '2026-08-04T02:00:00.000Z' }),
+        readMain: () => ({ sha: merge, commit: { tree: { sha: mainTree } } }),
+        publish: () => ({ id: 5165000001 }),
+        now: () => times.shift(),
+      });
+      expect(executed).toBe(true);
+      expect(result.payload).toMatchObject({
+        schema_version: TERMINAL_MERGE_EVIDENCE_SCHEMA_VERSION,
+        command: { runtime_binary_path: P0_R08_TERMINAL_RUNTIME_BINARY, args: ['pr', 'merge', '74'], exit_code: 0 },
+        effect: { exact_head_guarded: true, ao_merge_executed: true, github_readback_confirmed: true, head_sha: head, merge_commit_sha: merge, main_tree_sha: mainTree },
+        execution_binding: { schema_version: TERMINAL_MERGE_OPERATION_SCHEMA_VERSION, helper: 'publish:self-hosting-merge', helper_source_sha256: expect.stringMatching(/^[0-9a-f]{64}$/), guarded_head_sha: head, premerge_payload_sha256: premergeDigest, subprocess_stdout_sha256: expect.stringMatching(/^[0-9a-f]{64}$/), process_binding: validSupervisorProcessBinding() },
+      });
+      expect(JSON.parse(fs.readFileSync(publicationReceiptPath, 'utf8'))).toEqual(result.publication);
+    } finally {
+      removeTemporaryRoot(root);
+    }
+  });
+
+  it.each([
+    ['fabricated premerge digest', { digest: 'f'.repeat(64) }],
+    ['manual/direct outcome without subprocess success', { executeError: new Error('AO subprocess was not executed') }],
+    ['GitHub head drift', { pullHead: 'f'.repeat(40) }],
+    ['main readback drift', { mainSha: 'f'.repeat(40) }],
+    ['publication body drift', { publicationSuffix: '\n' }],
+  ])('terminal merge helper fails closed for %s', (_name, mutation) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-merge-helper-fail-'));
+    const head = '7'.repeat(40);
+    const tree = '8'.repeat(40);
+    const merge = '9'.repeat(40);
+    const premergePayload = {
+      schema_version: PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION,
+      status: 'premerge_verified', remediation_pr: { number: 74, head_sha: head, tree_sha: tree },
+      orchestrator_provenance: { session_id: 'or-terminal', process_binding: validSupervisorProcessBinding() },
+    };
+    const raw = JSON.stringify(premergePayload);
+    const payloadPath = path.join(root, 'merge.json');
+    try {
+      expect(() => executeAndPublishTerminalMergeEvidence({
+        premergeCommentId: 5165000000,
+        premergePayloadSha256: mutation.digest ?? createHash('sha256').update(raw).digest('hex'),
+        payloadPath,
+        publicationReceiptPath: path.join(root, 'publication.json'),
+        authorityOptions: validPremergePublicationAuthority({ remediation_pr: { head_sha: head, tree_sha: tree } }),
+        readIssueComment: (commentId) => commentId === 5165000000 ? {
+          id: commentId, user: { login: 'Samsen879' }, author_association: 'OWNER',
+          created_at: '2026-08-04T01:58:00.000Z', updated_at: '2026-08-04T01:58:00.000Z', body: raw,
+        } : {
+          id: commentId, user: { login: 'Samsen879' }, author_association: 'OWNER',
+          created_at: '2026-08-04T02:02:00.000Z', updated_at: '2026-08-04T02:02:00.000Z', body: `${fs.readFileSync(payloadPath, 'utf8')}${mutation.publicationSuffix ?? ''}`,
+        },
+        executeMerge: () => {
+          if (mutation.executeError) throw mutation.executeError;
+          return `merged PR #74 using squash (head ${head}, merge commit ${merge})`;
+        },
+        readPull: () => ({ number: 74, merged: true, head: { sha: mutation.pullHead ?? head }, merge_commit_sha: merge, merged_at: '2026-08-04T02:00:00.000Z' }),
+        readMain: () => ({ sha: mutation.mainSha ?? merge, commit: { tree: { sha: 'a'.repeat(40) } } }),
+        publish: () => ({ id: 5165000001 }),
+        now: (() => {
+          const values = ['2026-08-04T01:59:00.000Z', '2026-08-04T01:59:01.000Z', '2026-08-04T02:00:30.000Z', '2026-08-04T02:01:00.000Z', '2026-08-04T02:03:00.000Z'];
+          return () => values.shift();
+        })(),
+      })).toThrow();
+    } finally {
+      removeTemporaryRoot(root);
+    }
+  });
+
   it('captures the actual independent Git worktree binding before cleanup', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-worktree-evidence-'));
     const sourceRoot = path.join(root, 'source');
@@ -1443,7 +1951,7 @@ describe('fresh-clone and protected self-hosting gates', () => {
         capturedAt: '2026-08-03T01:45:00.000Z',
       });
       expect(evidence).toMatchObject({
-        schema_version: 'ao.workstation-worktree-evidence.v5',
+        schema_version: 'ao.workstation-worktree-evidence.v6',
         source: {
           clone_path: fs.realpathSync(sourceRoot),
           head_sha: sourceHead,
@@ -1746,12 +2254,20 @@ describe('fresh-clone and protected self-hosting gates', () => {
     ['standing baseline drift', (receipt) => { receipt.terminal_recovery_chain.standing_admission.admitted_main_sha = 'f'.repeat(40); }],
     ['widened attempt authority', (receipt) => { receipt.terminal_recovery_chain.standing_admission.max_additional_recovery_attempts = 3; }],
     ['unordered attempts', (receipt) => { receipt.terminal_recovery_chain.attempts.reverse(); }],
-    ['arbitrary extra attempt', (receipt) => { receipt.terminal_recovery_chain.attempts.push({ attempt: 3 }); }],
+    ['arbitrary extra attempt', (receipt) => { receipt.terminal_recovery_chain.attempts.push({ attempt: 4 }); }],
     ['missing failed Review 2', (receipt) => { receipt.terminal_recovery_chain.attempts[0].pr.codex_reviews.pop(); }],
     ['rewritten failed disposition', (receipt) => { receipt.terminal_recovery_chain.attempts[0].disposition = 'passed'; }],
     ['missing failed gate', (receipt) => { receipt.terminal_recovery_chain.attempts[0].failure.premerge_worktree_evidence_published = true; }],
-    ['reused failed PR as recovery', (receipt) => { receipt.terminal_recovery_chain.attempts[1].pr_number = 72; }],
-    ['unbound attempt evidence', (receipt) => { receipt.terminal_recovery_chain.attempts[1].worktree_evidence_comment_id = 999; }],
+    ['rewritten PR #73 disposition', (receipt) => { receipt.terminal_recovery_chain.attempts[1].disposition = 'passed'; }],
+    ['missing PR #73 finding evidence', (receipt) => { receipt.terminal_recovery_chain.attempts[1].pr.finding_comment_ids.pop(); }],
+    ['drifted PR #73 merge provenance', (receipt) => { receipt.terminal_recovery_chain.attempts[1].failure.ao_merge_executed = true; }],
+    ['reused failed PR as recovery', (receipt) => { receipt.terminal_recovery_chain.attempts[2].pr_number = 73; }],
+    ['unbound attempt evidence', (receipt) => { receipt.terminal_recovery_chain.attempts[2].worktree_evidence_comment_id = 999; }],
+    ['arbitrary chain field', (receipt) => { receipt.terminal_recovery_chain.extra = true; }],
+    ['arbitrary attempt field', (receipt) => { receipt.terminal_recovery_chain.attempts[2].extra = true; }],
+    ['missing final admission', (receipt) => { delete receipt.runtime_transition.admission; }],
+    ['drifted runtime tag object', (receipt) => { receipt.runtime_transition.successor.tag_object_sha = 'f'.repeat(40); }],
+    ['arbitrary runtime transition field', (receipt) => { receipt.runtime_transition.successor.extra = true; }],
   ])('fails closed for ordered recovery-chain violation: %s', (_name, mutate) => {
     const receipt = validSelfHostingReceipt();
     const evidence = validEvidence(receipt);
@@ -1763,7 +2279,7 @@ describe('fresh-clone and protected self-hosting gates', () => {
     const receipt = validSelfHostingReceipt();
     const evidence = validEvidence(receipt);
     delete evidence.githubEvidence.terminal_worktree_capture.payload.recovery_chain;
-    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('ordered standing recovery attempt 2');
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('ordered final recovery attempt 3');
   });
 
   it.each([
@@ -1917,8 +2433,8 @@ describe('fresh-clone and protected self-hosting gates', () => {
     const evidence = validEvidence(receipt);
     evidence.githubEvidence.issue_linked_prs.push({
       repository: 'Samsen879/ao-pilot',
-      number: 74,
-      url: 'https://github.com/Samsen879/ao-pilot/pull/74',
+      number: 75,
+      url: 'https://github.com/Samsen879/ao-pilot/pull/75',
       created_at: '2026-08-02T12:30:00.000Z',
       head_ref: 'ao/p0-r08-extra-retry',
       base_ref: 'main',
@@ -1926,30 +2442,30 @@ describe('fresh-clone and protected self-hosting gates', () => {
     expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('exactly one post-admission retry principal PR');
   });
 
-  it('accepts the live layered issue-linked shape with sole principal PR #71 then ordered recovery PRs #72 and #73', () => {
+  it('accepts the live layered issue-linked shape with sole principal PR #71 then ordered recovery PRs #72, #73, and #74', () => {
     const receipt = validSelfHostingReceipt();
     const evidence = validEvidence(receipt);
 
-    expect(evidence.githubEvidence.issue_linked_prs.map((linkedPr) => linkedPr.number)).toEqual([71, 72, 73]);
+    expect(evidence.githubEvidence.issue_linked_prs.map((linkedPr) => linkedPr.number)).toEqual([71, 72, 73, 74]);
     expect(verifySelfHostingReceipt(receipt, evidence)).toMatchObject({
       principal_pr: 71,
-      terminal_remediation_pr: 73,
+      terminal_remediation_pr: 74,
     });
   });
 
   it('rejects an arbitrary extra linked delivery in the terminal recovery layer', () => {
     const receipt = validSelfHostingReceipt();
     const evidence = validEvidence(receipt);
-    evidence.githubEvidence.issue_linked_prs.splice(2, 0, {
+    evidence.githubEvidence.issue_linked_prs.splice(3, 0, {
       repository: 'Samsen879/ao-pilot',
-      number: 74,
-      url: 'https://github.com/Samsen879/ao-pilot/pull/74',
-      created_at: '2026-08-02T14:20:00.000Z',
+      number: 75,
+      url: 'https://github.com/Samsen879/ao-pilot/pull/75',
+      created_at: '2026-08-03T08:31:00.000Z',
       head_ref: 'ao/p0-r08-arbitrary-extra-delivery',
       base_ref: 'main',
     });
 
-    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('terminal recovery deliveries must be exactly ordered PR #72 then the active recovery PR');
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('exactly one admitted terminal-remediation PR');
   });
 
   it('excludes cross-referenced pull requests from external repositories before dedupe and count', () => {

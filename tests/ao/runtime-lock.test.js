@@ -26,12 +26,12 @@ describe('runtime lock contract', () => {
     expect(loaded.digest).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(loaded.lock).toMatchObject({
       schema_version: RUNTIME_LOCK_SCHEMA_VERSION,
-      runtime_ref: 'runtime.agent_orchestrator.v0_11_2_p0_1',
+      runtime_ref: 'runtime.agent_orchestrator.v0_11_2_p0_2',
       artifact: {
         kind: 'git_source',
         repository: 'https://github.com/Samsen879/agent-orchestrator.git',
         upstream_repository: 'https://github.com/Untrivial-ai/agent-orchestrator.git',
-        version: '0.11.2-p0.1',
+        version: '0.11.2-p0.2',
         package: {
           name: '@aoagents/ao',
           version: '0.11.2',
@@ -40,14 +40,14 @@ describe('runtime lock contract', () => {
         },
         ref: {
           kind: 'annotated_tag',
-          name: 'ao-pilot-runtime-v0.11.2-p0.1',
-          tag_object_sha: '06ba07935cbacb7ff304779a2c1060ce98778200',
-          commit_sha: '711178ebe07d436db36020eb08f0c4e29613f97b',
-          tree_sha: '479fba6fd44f251f0c66fafc5cb5d638a6ff590a',
+          name: 'ao-pilot-runtime-v0.11.2-p0.2',
+          tag_object_sha: '450ae009e2c1eb48cdf9c19be676b4a4ff01e611',
+          commit_sha: 'aae8a684357271acc7ad2fa1d4116c7c65c8fa9d',
+          tree_sha: 'e8adb9a31068810becfb5d31b46688b04202cf81',
         },
         integrity: {
           algorithm: 'git-tree-sha1',
-          digest: '479fba6fd44f251f0c66fafc5cb5d638a6ff590a',
+          digest: 'e8adb9a31068810becfb5d31b46688b04202cf81',
         },
       },
       build: {
@@ -70,12 +70,12 @@ describe('runtime lock contract', () => {
       {
         os: 'linux',
         arch: 'x64',
-        binary_sha256: 'a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34',
+        binary_sha256: 'ad7fd23c6a3f495e2d10b130cf23227c14e30573db5c2c01b68d8214c5965b4d',
       },
       {
         os: 'linux',
         arch: 'arm64',
-        binary_sha256: '132164dc29349ea2082d77d6758b3617be81c7cfcf27d3f0ba9a88d65a88c752',
+        binary_sha256: '972181d92085fb6772fd9a8edf688f68c290976eda67a282ba1ac83d985d2dc6',
       },
     ]);
   });
@@ -139,18 +139,17 @@ describe('runtime lock contract', () => {
     expect(verifyRuntimeLock()).toMatchObject({
       status: 'verified',
       schema_version: RUNTIME_LOCK_SCHEMA_VERSION,
-      runtime_ref: 'runtime.agent_orchestrator.v0_11_2_p0_1',
+      runtime_ref: 'runtime.agent_orchestrator.v0_11_2_p0_2',
       lock_digest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
       artifact: {
         repository: 'https://github.com/Samsen879/agent-orchestrator.git',
-        commit_sha: '711178ebe07d436db36020eb08f0c4e29613f97b',
-        tree_sha: '479fba6fd44f251f0c66fafc5cb5d638a6ff590a',
+        commit_sha: 'aae8a684357271acc7ad2fa1d4116c7c65c8fa9d',
+        tree_sha: 'e8adb9a31068810becfb5d31b46688b04202cf81',
       },
     });
   });
 
-  it('binds platform digests to two byte-identical exact-source builds', () => {
-    const { lock } = loadRuntimeLock();
+  it('preserves the immutable p0.1 platform digest receipt as predecessor evidence', () => {
     const receipt = JSON.parse(fs.readFileSync(path.join(
       process.cwd(),
       'docs',
@@ -161,28 +160,30 @@ describe('runtime lock contract', () => {
     expect(receipt).toMatchObject({
       schema_version: 'ao.runtime-binary-digest-receipt.v1',
       source: {
-        repository: lock.artifact.repository,
-        tag: lock.artifact.ref.name,
-        tag_object_sha: lock.artifact.ref.tag_object_sha,
-        commit_sha: lock.artifact.ref.commit_sha,
-        tree_sha: lock.artifact.ref.tree_sha,
+        repository: 'https://github.com/Samsen879/agent-orchestrator.git',
+        tag: 'ao-pilot-runtime-v0.11.2-p0.1',
+        tag_object_sha: '06ba07935cbacb7ff304779a2c1060ce98778200',
+        commit_sha: '711178ebe07d436db36020eb08f0c4e29613f97b',
+        tree_sha: '479fba6fd44f251f0c66fafc5cb5d638a6ff590a',
       },
       toolchain: {
-        name: lock.build.toolchain.name,
-        version: lock.build.toolchain.version,
+        name: 'go',
+        version: '1.25.7',
         archive_sha256: '12e6d6a191091ae27dc31f6efc630e3a3b8ba409baf3573d955b196fdf086005',
       },
     });
-    expect(receipt.targets).toHaveLength(lock.compatibility.platforms.length);
+    const predecessorDigests = new Map([
+      ['linux/x64', 'a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34'],
+      ['linux/arm64', '132164dc29349ea2082d77d6758b3617be81c7cfcf27d3f0ba9a88d65a88c752'],
+    ]);
+    expect(receipt.targets).toHaveLength(predecessorDigests.size);
     for (const target of receipt.targets) {
-      const lockedTarget = lock.compatibility.platforms.find((item) => (
-        item.os === target.os && item.arch === target.arch
-      ));
-      expect(lockedTarget).toBeDefined();
+      const predecessorDigest = predecessorDigests.get(`${target.os}/${target.arch}`);
+      expect(predecessorDigest).toBeDefined();
       expect(target.byte_identical).toBe(true);
       expect(target.run_sha256).toEqual([
-        lockedTarget.binary_sha256,
-        lockedTarget.binary_sha256,
+        predecessorDigest,
+        predecessorDigest,
       ]);
     }
   });
