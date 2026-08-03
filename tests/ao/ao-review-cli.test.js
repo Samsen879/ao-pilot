@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const mockFindRepoRoot = jest.fn();
 const mockCreateStateRepository = jest.fn();
@@ -18,10 +18,22 @@ jest.unstable_mockModule('../../scripts/ao/lib/review-protocol.js', () => ({
 
 const { runCli } = await import('../../scripts/ao-review.js');
 
+const inheritedAoSession = {
+  id: process.env.AO_SESSION_ID,
+  name: process.env.AO_SESSION_NAME,
+};
+
+function restoreEnvironmentVariable(name, value) {
+  if (value == null) delete process.env[name];
+  else process.env[name] = value;
+}
+
 describe('ao review cli', () => {
   let protocol;
 
   beforeEach(() => {
+    delete process.env.AO_SESSION_ID;
+    delete process.env.AO_SESSION_NAME;
     mockFindRepoRoot.mockReset();
     mockCreateStateRepository.mockReset();
     mockCreateReviewProtocol.mockReset();
@@ -71,6 +83,31 @@ describe('ao review cli', () => {
       }),
     };
     mockCreateReviewProtocol.mockReturnValue(protocol);
+  });
+
+  afterEach(() => {
+    restoreEnvironmentVariable('AO_SESSION_ID', inheritedAoSession.id);
+    restoreEnvironmentVariable('AO_SESSION_NAME', inheritedAoSession.name);
+  });
+
+  it('uses the active AO session only when the test explicitly supplies it', async () => {
+    process.env.AO_SESSION_ID = 'orchestrator-session-id';
+    process.env.AO_SESSION_NAME = 'orchestrator-session';
+
+    const result = await runCli(['claim', '--review', 'review-issue-125-1'], {
+      writeStdout: () => {},
+      writeStderr: () => {},
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(protocol.claimReview).toHaveBeenCalledWith(expect.objectContaining({
+      reviewerSessionName: 'orchestrator-session',
+      reviewerSessionId: 'orchestrator-session-id',
+      requestedBySessionName: 'orchestrator-session',
+      requestedBySessionId: 'orchestrator-session-id',
+      implementationSessionName: 'orchestrator-session',
+      implementationSessionId: 'orchestrator-session-id',
+    }));
   });
 
   it('dispatches request in JSON mode with explicit review-target metadata', async () => {
