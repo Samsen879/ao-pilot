@@ -9,8 +9,8 @@ import {
 } from './self-hosting-receipt.js';
 import { captureWorktreeEvidence } from './worktree-evidence.js';
 
-export const ORCHESTRATOR_WORKTREE_PROVENANCE_SCHEMA_VERSION = 'ao.workstation-orchestrator-worktree-provenance.v1';
-export const ORCHESTRATOR_WORKTREE_PUBLICATION_SCHEMA_VERSION = 'ao.workstation-orchestrator-worktree-publication.v1';
+export const ORCHESTRATOR_WORKTREE_PROVENANCE_SCHEMA_VERSION = 'ao.workstation-orchestrator-worktree-provenance.v2';
+export const ORCHESTRATOR_WORKTREE_PUBLICATION_SCHEMA_VERSION = 'ao.workstation-orchestrator-worktree-publication.v2';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -27,6 +27,57 @@ function defaultSessionGet(runtimeBinary, args) {
   }));
 }
 
+function processRecord(pid) {
+  const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+  const commandEnd = stat.lastIndexOf(')');
+  assert(commandEnd > 0, `Unable to parse process identity for PID ${pid}`);
+  const fields = stat.slice(commandEnd + 2).split(' ');
+  const rawCommandLine = fs.readFileSync(`/proc/${pid}/cmdline`);
+  return {
+    pid,
+    parentPid: Number(fields[1]),
+    startToken: fields[19],
+    executablePath: fs.realpathSync.native(`/proc/${pid}/exe`),
+    rawCommandLine,
+    args: rawCommandLine.toString('utf8').split('\0').filter(Boolean),
+  };
+}
+
+export function inspectAoSupervisorProcess({
+  runtimeBinary,
+  orchestratorSessionId,
+  runtimeLaunchId,
+  currentPid = process.pid,
+  readProcess = processRecord,
+}) {
+  let pid = currentPid;
+  for (let depth = 0; depth < 64 && pid > 1; depth += 1) {
+    const candidate = readProcess(pid);
+    const sessionIndex = candidate.args.indexOf('--session');
+    const launchIndex = candidate.args.indexOf('--launch');
+    if (candidate.executablePath === runtimeBinary
+      && candidate.args[1] === 'agent-process'
+      && candidate.args[2] === 'supervise'
+      && sessionIndex > 2
+      && launchIndex > sessionIndex
+      && candidate.args[sessionIndex + 1] === orchestratorSessionId
+      && candidate.args[launchIndex + 1] === runtimeLaunchId) {
+      return {
+        supervisor_pid: candidate.pid,
+        supervisor_process_start_token: candidate.startToken,
+        supervisor_executable_path: candidate.executablePath,
+        supervisor_executable_sha256: sha256(fs.readFileSync(candidate.executablePath)),
+        supervisor_command_sha256: sha256(candidate.rawCommandLine),
+        session_id: orchestratorSessionId,
+        runtime_launch_id: runtimeLaunchId,
+        current_process_is_descendant: true,
+      };
+    }
+    pid = candidate.parentPid;
+  }
+  throw new Error('Publication process is not a descendant of the declared AO Orchestrator supervisor');
+}
+
 export function captureOrchestratorBoundWorktreeEvidence({
   sourceRoot,
   workerRoot,
@@ -41,6 +92,7 @@ export function captureOrchestratorBoundWorktreeEvidence({
   const resolveRuntimeBinary = probes.resolveRuntimeBinary ?? fs.realpathSync.native;
   const runtimeDigest = probes.runtimeDigest ?? ((candidate) => sha256(fs.readFileSync(candidate)));
   const capture = probes.captureWorktreeEvidence ?? captureWorktreeEvidence;
+  const inspectProcess = probes.inspectAoSupervisorProcess ?? inspectAoSupervisorProcess;
   const resolvedRuntimeBinary = resolveRuntimeBinary(runtimeBinary);
   assert(resolvedRuntimeBinary === P0_R08_TERMINAL_RUNTIME_BINARY, 'Worktree publication did not use the exact pinned runtime binary');
   assert(runtimeDigest(resolvedRuntimeBinary) === P0_R08_TERMINAL_RUNTIME_BINARY_SHA256, 'Pinned runtime binary digest mismatch');
@@ -57,11 +109,23 @@ export function captureOrchestratorBoundWorktreeEvidence({
   assert(session?.projectId === 'ao-pilot-remediation', 'Worktree publication Orchestrator belongs to the wrong project');
   assert(String(session?.issueId) === '63', 'Worktree publication Orchestrator is not bound to issue #63');
   assert(session?.activity?.state === 'active' && session?.isTerminated === false, 'Worktree publication Orchestrator is not active');
+  const workerSessionArgs = ['session', 'get', workerSessionId, '--json'];
+  const workerSession = sessionGet(resolvedRuntimeBinary, workerSessionArgs)?.session;
+  assert(workerSession?.id === workerSessionId && workerSession?.kind === 'worker', 'Pinned AO returned the wrong Worker session');
+  assert(workerSession?.projectId === session.projectId && String(workerSession?.issueId) === '63', 'Worktree publication Worker belongs to the wrong project/issue');
+  const processBinding = inspectProcess({
+    runtimeBinary: resolvedRuntimeBinary,
+    orchestratorSessionId,
+    runtimeLaunchId: env.AO_RUNTIME_LAUNCH_ID,
+  });
+  assert(processBinding.current_process_is_descendant === true, 'Worktree publisher lacks AO supervisor ancestry');
+  assert(processBinding.supervisor_executable_path === resolvedRuntimeBinary && processBinding.supervisor_executable_sha256 === P0_R08_TERMINAL_RUNTIME_BINARY_SHA256, 'Worktree publisher supervisor runtime mismatch');
 
   const evidence = capture({
     sourceRoot,
     workerRoot,
     workerSessionId,
+    workerSession,
     capturedAt,
     env,
   });
@@ -79,8 +143,10 @@ export function captureOrchestratorBoundWorktreeEvidence({
       runtime_launch_id: env.AO_RUNTIME_LAUNCH_ID,
       runtime_binary_path: resolvedRuntimeBinary,
       runtime_binary_sha256: P0_R08_TERMINAL_RUNTIME_BINARY_SHA256,
+      process_binding: processBinding,
       session_get: {
         args: sessionArgs,
+        worker_args: workerSessionArgs,
       },
       operation: {
         capture: true,
@@ -116,7 +182,7 @@ export function publishOrchestratorBoundWorktreeEvidence({
   publicationReceiptPath,
   publish = defaultPublish,
   readBack = defaultReadBack,
-  readBackAt = new Date().toISOString(),
+  now = () => new Date().toISOString(),
 }) {
   const raw = JSON.stringify(payload, null, 2);
   fs.writeFileSync(path.resolve(payloadPath), raw, { flag: 'wx' });
@@ -127,6 +193,7 @@ export function publishOrchestratorBoundWorktreeEvidence({
   assert(observed?.user?.login === 'Samsen879' && observed?.author_association === 'OWNER', 'Worktree evidence was not published by the Owner credential');
   assert(observed?.created_at === observed?.updated_at, 'Published worktree evidence was edited');
   assert(observed?.body === raw, 'Worktree-evidence readback body differs from the published payload');
+  const readBackAt = now();
 
   const receipt = {
     schema_version: ORCHESTRATOR_WORKTREE_PUBLICATION_SCHEMA_VERSION,
@@ -140,7 +207,9 @@ export function publishOrchestratorBoundWorktreeEvidence({
     orchestrator_session_id: payload.orchestrator_provenance.session_id,
     runtime_binary_path: payload.orchestrator_provenance.runtime_binary_path,
     runtime_binary_sha256: payload.orchestrator_provenance.runtime_binary_sha256,
+    process_binding: payload.orchestrator_provenance.process_binding,
   };
+  assert(Date.parse(receipt.read_back_at) >= Date.parse(receipt.published_at), 'Worktree-evidence readback timestamp predates publication');
   fs.writeFileSync(path.resolve(publicationReceiptPath), `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx' });
   return receipt;
 }

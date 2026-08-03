@@ -5,6 +5,8 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 
+import { createPremergeVerificationEvidence } from './ao/lib/premerge-verification-evidence.js';
+
 import {
   collectCodexReviewEvidence,
 } from './ao/lib/codex-review-evidence.js';
@@ -22,7 +24,7 @@ import {
 } from './ao/lib/self-hosting-receipt.js';
 
 function usage() {
-  return 'Usage: npm run verify:self-hosting -- --receipt <path> [--pre-merge] [--issue-comment-id <id>] [--repository-root <path>]';
+  return 'Usage: npm run verify:self-hosting -- --receipt <path> [--pre-merge --preflight-evidence-out <path>] [--issue-comment-id <id>] [--repository-root <path>]';
 }
 
 function run(command, args, { cwd = process.cwd(), timeout = 30_000 } = {}) {
@@ -151,10 +153,23 @@ function collectEvidence(receipt, repositoryRoot, { preMerge = false } = {}) {
   const checks = runJson('gh', ['api', `repos/Samsen879/ao-pilot/commits/${headSha}/check-runs`], { cwd: repositoryRoot });
   const remediationPr = receipt.terminal_remediation.delivery.remediation_pr.number;
   const remediationHead = receipt.terminal_remediation.delivery.remediation_pr.head_sha;
+  const terminalReviewedHead = receipt.terminal_remediation.delivery.remediation_pr.reviewed_head;
   run('git', ['cat-file', '-e', `${remediationHead}^{commit}`], { cwd: repositoryRoot });
   const terminalWorkerTree = run('git', ['rev-parse', `${remediationHead}^{tree}`], { cwd: repositoryRoot });
   run('git', ['merge-base', '--is-ancestor', terminalSourceHead, remediationHead], { cwd: repositoryRoot });
   const terminalMergeBase = run('git', ['merge-base', terminalSourceHead, remediationHead], { cwd: repositoryRoot });
+  run('git', ['merge-base', '--is-ancestor', terminalReviewedHead, remediationHead], { cwd: repositoryRoot });
+  const terminalReviewedHeadMergeBase = run('git', ['merge-base', terminalReviewedHead, remediationHead], { cwd: repositoryRoot });
+  let terminalBranchCreation = { sha: null, at: null };
+  if (preMerge) {
+    const branch = receipt.terminal_remediation.delivery.worker_branch;
+    const lines = run('git', ['reflog', 'show', '--date=iso-strict', '--format=%H%x09%gD%x09%gs', `refs/heads/${branch}`], { cwd: repositoryRoot }).split('\n');
+    const fields = lines.at(-1)?.split('\t') ?? [];
+    terminalBranchCreation = {
+      sha: fields[0] ?? null,
+      at: fields[1]?.match(/@\{(.+)\}$/)?.[1] ?? null,
+    };
+  }
   const terminalChecks = runJson('gh', ['api', `repos/Samsen879/ao-pilot/commits/${remediationHead}/check-runs`], { cwd: repositoryRoot });
   return {
     repositoryEvidence: {
@@ -168,6 +183,10 @@ function collectEvidence(receipt, repositoryRoot, { preMerge = false } = {}) {
       terminal_worker_tree_sha: terminalWorkerTree,
       terminal_source_is_ancestor: true,
       terminal_merge_base_sha: terminalMergeBase,
+      terminal_reviewed_head_is_ancestor: true,
+      terminal_reviewed_head_merge_base_sha: terminalReviewedHeadMergeBase,
+      terminal_branch_creation_sha: terminalBranchCreation.sha,
+      terminal_branch_creation_at: terminalBranchCreation.at,
       release_check_passed: true,
     },
     githubEvidence: {
@@ -194,6 +213,7 @@ function collectEvidence(receipt, repositoryRoot, { preMerge = false } = {}) {
       worktree_capture: jsonIssueCommentEvidence(receipt.delivery.worktree_evidence_comment_id, repositoryRoot),
       orchestrator_done_capture: jsonIssueCommentEvidence(receipt.cleanup.orchestrator_done_evidence_comment_id, repositoryRoot),
       terminal_worktree_capture: jsonIssueCommentEvidence(receipt.terminal_remediation.delivery.worktree_evidence_comment_id, repositoryRoot),
+      terminal_premerge_capture: preMerge ? null : jsonIssueCommentEvidence(receipt.terminal_remediation.premerge_verification.evidence_comment_id, repositoryRoot),
       terminal_orchestrator_done_capture: preMerge ? null : jsonIssueCommentEvidence(receipt.terminal_remediation.cleanup.orchestrator_done_evidence_comment_id, repositoryRoot),
     },
   };
@@ -216,13 +236,15 @@ if (argv.includes('--help') || argv.includes('-h')) {
   const receiptIndex = argv.indexOf('--receipt');
   const commentIndex = argv.indexOf('--issue-comment-id');
   const rootIndex = argv.indexOf('--repository-root');
+  const preflightOutIndex = argv.indexOf('--preflight-evidence-out');
   const preMerge = argv.includes('--pre-merge');
   const receiptPath = receiptIndex === -1 ? null : argv[receiptIndex + 1];
   const commentId = commentIndex === -1 ? null : Number(argv[commentIndex + 1]);
   const repositoryRoot = rootIndex === -1 ? process.cwd() : argv[rootIndex + 1];
-  const expectedLength = 2 + (preMerge ? 1 : 0) + (commentIndex === -1 ? 0 : 2) + (rootIndex === -1 ? 0 : 2);
+  const preflightEvidencePath = preflightOutIndex === -1 ? null : argv[preflightOutIndex + 1];
+  const expectedLength = 2 + (preMerge ? 1 : 0) + (commentIndex === -1 ? 0 : 2) + (rootIndex === -1 ? 0 : 2) + (preflightOutIndex === -1 ? 0 : 2);
   const invalidComment = commentIndex !== -1 && (!Number.isSafeInteger(commentId) || commentId <= 0);
-  if (receiptPath == null || receiptPath.startsWith('-') || invalidComment || (preMerge && commentId != null) || repositoryRoot == null || repositoryRoot.startsWith('-') || argv.length !== expectedLength) {
+  if (receiptPath == null || receiptPath.startsWith('-') || invalidComment || (preMerge && commentId != null) || preMerge !== (preflightEvidencePath != null) || preflightEvidencePath?.startsWith('-') || repositoryRoot == null || repositoryRoot.startsWith('-') || argv.length !== expectedLength) {
     process.stderr.write(`${usage()}\n`);
     process.exitCode = 4;
   } else {
@@ -239,6 +261,16 @@ if (argv.includes('--help') || argv.includes('-h')) {
         requirePublication: preMerge ? false : commentId != null,
         stage: preMerge ? 'pre_merge' : 'final',
       });
+      if (preMerge) {
+        const preflight = createPremergeVerificationEvidence({ receipt, result, evidence });
+        const rawPreflight = JSON.stringify(preflight, null, 2);
+        fs.writeFileSync(path.resolve(preflightEvidencePath), rawPreflight, { flag: 'wx' });
+        result.preflight_evidence = {
+          path: path.resolve(preflightEvidencePath),
+          bytes: Buffer.byteLength(rawPreflight, 'utf8'),
+          sha256: createHash('sha256').update(rawPreflight).digest('hex'),
+        };
+      }
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     } catch (error) {
       process.stderr.write(`${JSON.stringify({ status: 'blocked', code: 'self_hosting_receipt_invalid', message: error.message }, null, 2)}\n`);

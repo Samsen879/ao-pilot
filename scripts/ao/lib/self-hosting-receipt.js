@@ -2,9 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { ORCHESTRATOR_DONE_EVIDENCE_SCHEMA_VERSION } from './orchestrator-done-evidence.js';
+import {
+  PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION,
+  PREMERGE_VERIFICATION_PUBLICATION_SCHEMA_VERSION,
+} from './premerge-verification-evidence.js';
 import { loadRuntimeLock } from './runtime-lock.js';
 
-export const SELF_HOSTING_RECEIPT_SCHEMA_VERSION = 'ao.workstation-self-hosting-receipt.v4';
+export const SELF_HOSTING_RECEIPT_SCHEMA_VERSION = 'ao.workstation-self-hosting-receipt.v5';
 export const P0_R08_RETRY_ADMISSION_PR = 70;
 export const P0_R08_RETRY_ADMISSION_ISSUE = 63;
 export const P0_R08_RETRY_ADMISSION_COMMENT = 5157524210;
@@ -17,7 +21,7 @@ export const P0_R08_RETRY_AO_RUN_FILE = `${P0_R08_RETRY_ROOT}/ao-state/running.j
 export const P0_R08_RETRY_RUNTIME_STORE = `${P0_R08_RETRY_ROOT}/runtime-store`;
 export const P0_R08_RETRY_RUNTIME_CACHE = `${P0_R08_RETRY_ROOT}/runtime-cache`;
 export const WORKTREE_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-worktree-evidence.v2';
-export const TERMINAL_WORKTREE_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-worktree-evidence.v4';
+export const TERMINAL_WORKTREE_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-worktree-evidence.v5';
 export const TERMINAL_RECOVERY_CHAIN_SCHEMA_VERSION = 'ao.workstation-terminal-recovery-chain.v1';
 export const P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT = 5158225894;
 export const P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT_SHA256 = '24fbc151586ef2e841f2b5979ef14f05f387a71ef3b5aed9a554245704658a61';
@@ -120,6 +124,18 @@ function truth(value, field) {
 function falsehood(value, field) {
   assert(value === false, `${field} must be false`);
   return false;
+}
+
+function verifySupervisorProcessBinding(value, { sessionId, runtimeLaunchId }, field) {
+  const binding = object(value, field);
+  assert(Number.isSafeInteger(binding.supervisor_pid) && binding.supervisor_pid > 1, `${field}.supervisor_pid is invalid`);
+  string(binding.supervisor_process_start_token, `${field}.supervisor_process_start_token`);
+  assert(binding.supervisor_executable_path === P0_R08_TERMINAL_RUNTIME_BINARY, `${field} used the wrong supervisor executable`);
+  assert(binding.supervisor_executable_sha256 === P0_R08_TERMINAL_RUNTIME_BINARY_SHA256, `${field} supervisor executable digest mismatch`);
+  assert(/^[0-9a-f]{64}$/.test(binding.supervisor_command_sha256), `${field} supervisor command digest is invalid`);
+  assert(binding.session_id === sessionId && binding.runtime_launch_id === runtimeLaunchId, `${field} session/launch binding mismatch`);
+  truth(binding.current_process_is_descendant, `${field}.current_process_is_descendant`);
+  return binding;
 }
 
 function verifyCompletedCodexReviews(receiptReviews, liveReviews) {
@@ -585,6 +601,7 @@ export function verifySelfHostingReceipt(receipt, {
       const liveFinding = terminalFindings.find((finding) => finding.comment_id === findingId);
       assert(liveFinding?.resolved === true, `Terminal-remediation Review 2 finding is unresolved or missing: ${findingId}`);
     }
+    assert(repository.terminal_reviewed_head_is_ancestor === true && repository.terminal_reviewed_head_merge_base_sha === terminalReviewedHead, 'Post-Review-2 repaired final HEAD does not descend from the reviewed HEAD');
   } else {
     assert(remediationPr.post_review_2_repair == null, 'Unexpected terminal-remediation post-Review-2 repair claim');
   }
@@ -595,6 +612,7 @@ export function verifySelfHostingReceipt(receipt, {
     falsehood(remediationPr.merged, 'terminal_remediation.delivery.remediation_pr.merged');
     assert(remediationPr.merge_sha == null && remediationPr.merge_tree_sha == null, 'Pre-merge receipt must not claim a merge SHA/tree');
     assert(liveRemediationPr.merged === false && liveRemediationPr.merge_sha == null && liveRemediationPr.merge_tree_sha == null && liveRemediationPr.merged_at == null, 'Live recovery PR already has a merge outcome during pre-merge verification');
+    assert(repository.current_main_sha === terminalFinalHead && repository.current_main_tree_sha === repository.terminal_worker_tree_sha, 'Pre-merge release check did not run on the exact recovery PR final HEAD/tree');
   } else {
     truth(remediationPr.merged, 'terminal_remediation.delivery.remediation_pr.merged');
     assert(liveRemediationPr.merged === true, 'Terminal-remediation PR is not merged on GitHub');
@@ -621,8 +639,13 @@ export function verifySelfHostingReceipt(receipt, {
   assert(terminalCaptured.worker.session_id === terminalWorkerSessionId && terminalCaptured.worker.worktree_path === terminalWorkerPath && terminalCaptured.worker.branch === terminalBranch && terminalCaptured.worker.head_sha === terminalFinalHead, 'Terminal-remediation captured Worker mismatch');
   assert(terminalCaptured.worker.tree_sha === repository.terminal_worker_tree_sha, 'Terminal-remediation captured Worker tree mismatch');
   assert(terminalCaptured.git_relationship?.source_is_ancestor === true, 'Captured source is not an ancestor of the recovery Worker');
-  assert(terminalCaptured.git_relationship?.merge_base_sha === terminalSourceHead && terminalCaptured.git_relationship?.fork_point_sha === terminalSourceHead, 'Captured recovery Worker fork point is not the standing baseline');
+  assert(terminalCaptured.git_relationship?.merge_base_sha === terminalSourceHead, 'Captured recovery Worker merge base is not the standing baseline');
+  assert(terminalCaptured.git_relationship?.branch_creation_sha === terminalSourceHead, 'Captured recovery Worker branch was not created at the standing baseline');
+  const terminalBranchCreatedAt = timestamp(terminalCaptured.git_relationship?.branch_creation_at, 'terminal-remediation Worker branch creation timestamp');
+  assert(terminalCaptured.git_relationship?.branch_creation_subject?.startsWith('branch: Created from '), 'Captured recovery Worker lacks a branch-creation reflog event');
+  assert(terminalCaptured.git_relationship?.worker_session_created_at === terminalBranchCreatedAt || Math.abs(Date.parse(terminalCaptured.git_relationship?.worker_session_created_at) - Date.parse(terminalBranchCreatedAt)) < 2_000, 'Captured Worker branch creation is not bound to AO Worker session creation');
   assert(repository.terminal_source_is_ancestor === true && repository.terminal_merge_base_sha === terminalSourceHead, 'Live Git history does not confirm the captured recovery fork relationship');
+  if (preMerge) assert(repository.terminal_branch_creation_sha === terminalSourceHead && repository.terminal_branch_creation_at === terminalBranchCreatedAt, 'Live Worker branch-creation evidence drifted from the published capture');
   assert(activeAttempt.worktree_evidence_comment_id === terminalWorktreeCommentId, 'Recovery-chain attempt 2 does not bind the terminal worktree evidence');
   const terminalSourceGitCommonDir = canonicalAbsolutePath(terminalCaptured.source.git_common_dir, 'terminal-remediation captured source git_common_dir');
   const terminalWorkerGitCommonDir = canonicalAbsolutePath(terminalCaptured.worker.git_common_dir, 'terminal-remediation captured Worker git_common_dir');
@@ -631,24 +654,31 @@ export function verifySelfHostingReceipt(receipt, {
   assert(terminalWorkerGitCommonDir === terminalSourceGitCommonDir && terminalCaptured.worker.worktree_path !== terminalCaptured.source.clone_path, 'Terminal-remediation Worker is not an independent worktree of the admitted clone');
 
   const orchestratorProvenance = object(terminalCaptured.orchestrator_provenance, 'terminal-remediation Orchestrator worktree provenance');
-  assert(orchestratorProvenance.schema_version === 'ao.workstation-orchestrator-worktree-provenance.v1', 'Unsupported worktree Orchestrator provenance');
+  assert(orchestratorProvenance.schema_version === 'ao.workstation-orchestrator-worktree-provenance.v2', 'Unsupported worktree Orchestrator provenance');
   assert(orchestratorProvenance.session_id === terminalOrchestratorSessionId && orchestratorProvenance.worker_session_id === terminalWorkerSessionId, 'Worktree evidence session provenance mismatch');
   assert(orchestratorProvenance.project_id === 'ao-pilot-remediation' && orchestratorProvenance.issue_number === 63 && orchestratorProvenance.kind === 'orchestrator', 'Worktree evidence was not captured by the issue #63 Orchestrator');
   assert(orchestratorProvenance.activity_state === 'active' && orchestratorProvenance.is_terminated === false, 'Worktree evidence Orchestrator was not active');
   string(orchestratorProvenance.runtime_launch_id, 'terminal-remediation Orchestrator runtime_launch_id');
   assert(orchestratorProvenance.runtime_binary_path === P0_R08_TERMINAL_RUNTIME_BINARY && orchestratorProvenance.runtime_binary_sha256 === P0_R08_TERMINAL_RUNTIME_BINARY_SHA256, 'Worktree evidence used unverified Orchestrator runtime provenance');
   assert(JSON.stringify(orchestratorProvenance.session_get?.args) === JSON.stringify(['session', 'get', terminalOrchestratorSessionId, '--json']), 'Worktree evidence did not query the exact Orchestrator session');
+  assert(JSON.stringify(orchestratorProvenance.session_get?.worker_args) === JSON.stringify(['session', 'get', terminalWorkerSessionId, '--json']), 'Worktree evidence did not query the exact Worker session');
   assert(orchestratorProvenance.operation?.capture === true && orchestratorProvenance.operation?.publish_issue_comment === true && orchestratorProvenance.operation?.read_back_exact_body === true, 'Worktree evidence lacks complete Orchestrator operation provenance');
+  const worktreeProcessBinding = verifySupervisorProcessBinding(orchestratorProvenance.process_binding, {
+    sessionId: terminalOrchestratorSessionId,
+    runtimeLaunchId: orchestratorProvenance.runtime_launch_id,
+  }, 'terminal-remediation worktree Orchestrator process binding');
 
   const worktreePublication = object(terminalDelivery.worktree_evidence_publication, 'terminal_remediation.delivery.worktree_evidence_publication');
-  assert(worktreePublication.schema_version === 'ao.workstation-orchestrator-worktree-publication.v1', 'Unsupported worktree publication receipt');
+  assert(worktreePublication.schema_version === 'ao.workstation-orchestrator-worktree-publication.v2', 'Unsupported worktree publication receipt');
   assert(worktreePublication.comment_id === terminalWorktreeCommentId && worktreePublication.orchestrator_session_id === terminalOrchestratorSessionId, 'Worktree publication receipt identity mismatch');
   assert(worktreePublication.payload_bytes === terminalWorktreeCapture.body_bytes && worktreePublication.payload_sha256 === terminalWorktreeCapture.body_sha256, 'Worktree publication receipt payload digest/length mismatch');
   assert(worktreePublication.published_at === terminalWorktreePublishedAt && Date.parse(timestamp(worktreePublication.read_back_at, 'worktree evidence read_back_at')) >= Date.parse(terminalWorktreePublishedAt), 'Worktree publication/readback timestamps mismatch');
   truth(worktreePublication.exact_body_read_back, 'terminal_remediation.delivery.worktree_evidence_publication.exact_body_read_back');
   assert(worktreePublication.runtime_binary_path === P0_R08_TERMINAL_RUNTIME_BINARY && worktreePublication.runtime_binary_sha256 === P0_R08_TERMINAL_RUNTIME_BINARY_SHA256, 'Worktree publication receipt runtime provenance mismatch');
+  assert(JSON.stringify(worktreePublication.process_binding) === JSON.stringify(worktreeProcessBinding), 'Worktree publication process binding differs from captured Orchestrator provenance');
 
   if (preMerge) {
+    assert(terminal.premerge_verification == null, 'Pending receipt must not claim pre-merge evidence before the staged verifier emits it');
     const pendingReplay = object(terminal.exact_main_replay, 'terminal_remediation.exact_main_replay');
     falsehood(pendingReplay.passed, 'terminal_remediation.exact_main_replay.passed');
     falsehood(pendingReplay.release_check_passed, 'terminal_remediation.exact_main_replay.release_check_passed');
@@ -676,6 +706,33 @@ export function verifySelfHostingReceipt(receipt, {
       orchestrator_session_id: terminalOrchestratorSessionId,
     };
   }
+
+  const premergeVerification = object(terminal.premerge_verification, 'terminal_remediation.premerge_verification');
+  const premergeEvidenceCommentId = Number(premergeVerification.evidence_comment_id);
+  assert(Number.isSafeInteger(premergeEvidenceCommentId) && premergeEvidenceCommentId > 0, 'Invalid immutable pre-merge evidence comment ID');
+  const premergeCapture = object(github.terminal_premerge_capture, 'GitHub terminal-remediation pre-merge evidence');
+  assert(premergeCapture.comment_id === premergeEvidenceCommentId && premergeCapture.issue_number === 63 && premergeCapture.author === 'Samsen879' && premergeCapture.author_association === 'OWNER', 'Immutable pre-merge evidence identity mismatch');
+  const premergePublishedAt = timestamp(premergeCapture.created_at, 'pre-merge evidence created_at');
+  assert(premergeCapture.updated_at === premergePublishedAt && Date.parse(premergePublishedAt) <= Date.parse(terminalMergedAt), 'Pre-merge evidence was edited or published after merge');
+  const preflight = object(premergeCapture.payload, 'pre-merge evidence payload');
+  assert(preflight.schema_version === PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION && preflight.issue_number === 63 && preflight.status === 'premerge_verified', 'Unsupported or unsuccessful immutable pre-merge evidence');
+  const preflightVerifiedAt = timestamp(preflight.verified_at, 'pre-merge verified_at');
+  assert(Date.parse(preflightVerifiedAt) >= Date.parse(terminalWorktreePublishedAt) && Date.parse(preflightVerifiedAt) <= Date.parse(premergePublishedAt), 'Pre-merge verification timestamp is outside its immutable publication window');
+  assert(preflight.standing_admission_comment_id === P0_R08_TERMINAL_ADMISSION_COMMENT && preflight.recovery_attempt === 2, 'Pre-merge evidence is outside the standing recovery chain');
+  assert(preflight.remediation_pr?.number === remediationPr.number && preflight.remediation_pr?.head_sha === terminalFinalHead && preflight.remediation_pr?.tree_sha === repository.terminal_worker_tree_sha && preflight.remediation_pr?.reviewed_head === terminalReviewedHead, 'Pre-merge evidence does not bind the final PR head/tree/reviewed head');
+  assert(JSON.stringify(preflight.remediation_pr?.review_evidence_ids) === JSON.stringify(remediationPr.codex_reviews.map((review) => review.evidence_id)), 'Pre-merge review evidence IDs drifted');
+  assert(JSON.stringify(preflight.remediation_pr?.resolved_finding_comment_ids) === JSON.stringify(remediationPr.finding_dispositions.map((finding) => finding.comment_id)), 'Pre-merge resolved finding IDs drifted');
+  assert(preflight.release_check?.command === 'npm run release:check' && preflight.release_check?.checkout_head_sha === terminalFinalHead && preflight.release_check?.checkout_tree_sha === repository.terminal_worker_tree_sha && preflight.release_check?.passed === true, 'Pre-merge evidence does not prove release:check on the exact final checkout');
+  assert(preflight.git_relationship?.reviewed_head_is_ancestor === true && preflight.git_relationship?.reviewed_head_merge_base_sha === terminalReviewedHead, 'Pre-merge evidence does not preserve reviewed-head ancestry');
+  assert(preflight.git_relationship?.source_is_ancestor === true && preflight.git_relationship?.source_merge_base_sha === terminalSourceHead && preflight.git_relationship?.branch_creation_sha === terminalSourceHead && preflight.git_relationship?.branch_creation_at === terminalBranchCreatedAt, 'Pre-merge evidence does not preserve the admitted Worker creation relationship');
+  assert(preflight.worktree_evidence?.comment_id === terminalWorktreeCommentId && preflight.worktree_evidence?.published_at === terminalWorktreePublishedAt && preflight.worktree_evidence?.payload_bytes === terminalWorktreeCapture.body_bytes && preflight.worktree_evidence?.payload_sha256 === terminalWorktreeCapture.body_sha256, 'Pre-merge evidence worktree publication identity mismatch');
+  assert(JSON.stringify(preflight.orchestrator_provenance) === JSON.stringify(orchestratorProvenance), 'Pre-merge evidence Orchestrator provenance differs from worktree evidence');
+  const premergePublication = object(premergeVerification.publication, 'terminal_remediation.premerge_verification.publication');
+  assert(premergePublication.schema_version === PREMERGE_VERIFICATION_PUBLICATION_SCHEMA_VERSION && premergePublication.comment_id === premergeEvidenceCommentId && premergePublication.orchestrator_session_id === terminalOrchestratorSessionId, 'Pre-merge publication receipt identity mismatch');
+  assert(premergePublication.payload_bytes === premergeCapture.body_bytes && premergePublication.payload_sha256 === premergeCapture.body_sha256 && premergePublication.published_at === premergePublishedAt, 'Pre-merge publication payload/timestamp mismatch');
+  assert(Date.parse(timestamp(premergePublication.read_back_at, 'pre-merge evidence read_back_at')) >= Date.parse(premergePublishedAt) && premergePublication.exact_body_read_back === true, 'Pre-merge publication lacks exact post-publication readback');
+  assert(premergePublication.runtime_binary_path === P0_R08_TERMINAL_RUNTIME_BINARY && premergePublication.runtime_binary_sha256 === P0_R08_TERMINAL_RUNTIME_BINARY_SHA256, 'Pre-merge publication runtime provenance mismatch');
+  assert(JSON.stringify(premergePublication.process_binding) === JSON.stringify(worktreeProcessBinding), 'Pre-merge publication did not run under the same AO Orchestrator supervisor');
 
   const terminalReplay = object(terminal.exact_main_replay, 'terminal_remediation.exact_main_replay');
   truth(terminalReplay.passed, 'terminal_remediation.exact_main_replay.passed');

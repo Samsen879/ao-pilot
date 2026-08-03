@@ -3,7 +3,7 @@
 > Historical principal-proof record: the retry procedure below produced sole
 > principal PR #71 and its immutable v2 evidence. Do not rerun it. The
 > Owner-authorized standing terminal-recovery addendum later in this document
-> is the only active delivery procedure, and the v4 receipt retains this entire v2
+> is the only active delivery procedure, and the v5 receipt retains this entire v2
 > proof as its first layer.
 
 This handoff is the owner-authorized P0-R08 retry admitted by issue #63 comment
@@ -198,19 +198,26 @@ session. The command fails unless `AO_SESSION_ID` equals
 `ao-pilot-remediation-1`, the pinned AO reports that exact active session as
 the issue #63 Orchestrator, the process carries matching AO project, issue,
 session, and runtime-launch bindings, and the runtime path and digest match the
-admitted binary. It captures, publishes, and reads back the exact comment in one
-Orchestrator-bound operation; a Worker or ordinary Owner shell cannot satisfy
-the session binding. The canonical comment body is the formatted JSON with no
+admitted binary. In addition, the publisher must be a live process descendant
+of the pinned AO `agent-process supervise` process for that exact Orchestrator
+session and launch. The evidence records the supervisor PID plus its
+PID-reuse-resistant `/proc` start token, executable digest, and command-line
+digest. Exporting matching variables from a Worker or ordinary Owner shell is
+insufficient. It captures, publishes, and reads back the exact comment in one
+Orchestrator-bound operation. The canonical comment body is the formatted JSON with no
 trailing newline; exact readback, byte count, and SHA-256 all cover those same
 bytes. Record the comment and generated publication receipt in
 `terminal_remediation.delivery.worktree_evidence_comment_id` and
 `terminal_remediation.delivery.worktree_evidence_publication`.
 
-The v4 capture derives both source and Worker commit/tree IDs from Git. It
+The v5 capture derives both source and Worker commit/tree IDs from Git. It
 requires the source HEAD/tree to equal the standing baseline, proves that
-source HEAD is an ancestor of Worker HEAD, and requires both merge base and
-fork point to equal the admitted source commit. Sharing a Git common directory
-alone is insufficient.
+source HEAD is an ancestor of Worker HEAD, and requires the merge base to equal
+the admitted source commit. Independently, it reads the oldest branch-creation
+reflog entry, requires that entry's commit to equal the admitted baseline, and
+binds its timestamp to the pinned AO Worker session creation timestamp. A stale
+Worker that later merges the admitted source therefore remains inadmissible.
+Sharing a Git common directory alone is insufficient.
 
 ```bash
 SOURCE_ROOT=/home/guoqy/p0-r08-terminal-remediation/ao-pilot
@@ -228,32 +235,66 @@ npm --prefix "$WORKER_ROOT" run publish:self-hosting-worktree -- \
   --publication-receipt-out /tmp/p0-r08-standing-recovery-1-worktree-publication.json
 ```
 
-After copying the publication receipt fields into the pending v4 receipt, the
-Orchestrator must run this executable staged gate from the exact Worker HEAD:
+After CI is green, both formal reviews are complete, every finding disposition
+is recorded and resolved, and the worktree publication receipt is copied into
+the pending v5 receipt, the Orchestrator must run this executable staged gate
+from the exact Worker HEAD. The output path is created exclusively and contains
+canonical JSON with no trailing newline:
 
 ```bash
 npm --prefix "$WORKER_ROOT" run verify:self-hosting -- \
   --receipt /tmp/p0-r08-workstation-self-hosting-receipt.json \
   --pre-merge \
+  --preflight-evidence-out /tmp/p0-r08-standing-recovery-1-preflight-evidence.json \
   --repository-root "$WORKER_ROOT"
 ```
 
 The `--pre-merge` mode validates the complete immutable v2 principal proof,
 standing admission, failed PR #72 chain entry and disposition, ordered live PR
 topology, all completed reviews and findings, final-head CI, Git ancestry/fork
-relationship, and Orchestrator-bound worktree publication/readback. It requires
+relationship, reviewed-head ancestry, and Orchestrator-bound worktree
+publication/readback. It requires `release:check` to execute from a checkout
+whose current HEAD/tree exactly equal the proposed PR final HEAD/tree. It also
+requires
 the active delivery, replay, cleanup, and final claims to remain explicitly
 pending. It does not require or accept a merge outcome, merged-main replay,
 Orchestrator done, cleanup, terminal receipt publication, or protected workflow
 result. A missing comment ID, incomplete readback, or premature post-merge
-claim blocks the command.
+claim blocks the command. Success writes a timestamped artifact containing the
+exact final HEAD/tree, release-check checkout identity, completed review IDs,
+resolved finding comment IDs, independently derived branch creation evidence,
+and exact worktree publication identity.
+
+The same active Orchestrator must then publish and read back that preflight
+artifact before merge. This command repeats the supervisor-process and current
+Worker head/tree bindings and writes a durable publication receipt:
+
+```bash
+AO_DATA_DIR=/home/guoqy/p0-r08-terminal-remediation/ao-state/data \
+AO_RUN_FILE=/home/guoqy/p0-r08-terminal-remediation/ao-state/running.json \
+npm --prefix "$WORKER_ROOT" run publish:self-hosting-preflight -- \
+  --evidence /tmp/p0-r08-standing-recovery-1-preflight-evidence.json \
+  --source-root "$SOURCE_ROOT" \
+  --worker-root "$WORKER_ROOT" \
+  --worker-session-id ao-pilot-remediation-3 \
+  --orchestrator-session-id ao-pilot-remediation-1 \
+  --runtime-binary "$RUNTIME_BINARY" \
+  --publication-receipt-out /tmp/p0-r08-standing-recovery-1-preflight-publication.json
+```
+
+Before final verification, replace `terminal_remediation.premerge_verification`
+in the local receipt with the observed evidence comment ID and the complete
+preflight publication receipt. The final verifier reads the unedited Owner
+comment and rejects a missing, post-merge, edited, digest-drifted, head/tree-
+drifted, finding-drifted, worktree-identity-drifted, or differently supervised
+preflight artifact.
 
 After the recovery PR merges, replay `npm run release:check` on its
 exact merge SHA/tree, invoke `orchestrator done` through the literal pinned
 binary, publish that command evidence, and clean only the remediation AO
 sessions/worktrees/branches/project/daemon state. Record those facts under
 `terminal_remediation.exact_main_replay` and `terminal_remediation.cleanup`.
-The final v4 verifier preserves and revalidates the original v2 admission,
+The final v5 verifier preserves and revalidates the original v2 admission,
 principal PR #71, comments `5157857462` and `5157899599`, and cleanup proof;
 then it independently validates the exact two-entry ordered recovery chain:
 failed PR #72 plus this recovery delivery. It binds the standing admission,
@@ -261,6 +302,12 @@ the PR #72 failure disposition and both PR #72 reviews, exactly one
 post-standing-admission recovery PR, that PR's reviews/CI/merge SHA/tree, and
 requires the verifier checkout to equal resulting exact current main. Any
 additional, omitted, duplicated, or reordered delivery fails closed.
+
+For this authorized no-Review-3 repair, the final verifier additionally derives
+from Git that Review 2's exact reviewed head
+`338805cf4a53963d400cadc5556511616b95784d` is an ancestor of the repaired final
+head and that their merge base is exactly that reviewed head. An unrelated or
+force-pushed sibling cannot use the post-Review-2 repair exception.
 
 A connector clean completion may also be an unedited issue comment authored
 through the `chatgpt-codex-connector` GitHub App whose body begins exactly

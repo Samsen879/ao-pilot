@@ -59,8 +59,28 @@ import {
   ORCHESTRATOR_WORKTREE_PROVENANCE_SCHEMA_VERSION,
   ORCHESTRATOR_WORKTREE_PUBLICATION_SCHEMA_VERSION,
   captureOrchestratorBoundWorktreeEvidence,
+  inspectAoSupervisorProcess,
   publishOrchestratorBoundWorktreeEvidence,
 } from '../../scripts/ao/lib/orchestrator-worktree-publication.js';
+import {
+  PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION,
+  PREMERGE_VERIFICATION_PUBLICATION_SCHEMA_VERSION,
+  createPremergeVerificationEvidence,
+  publishOrchestratorBoundPremergeEvidence,
+} from '../../scripts/ao/lib/premerge-verification-evidence.js';
+
+function validSupervisorProcessBinding(sessionId = 'or-terminal') {
+  return {
+    supervisor_pid: 4242,
+    supervisor_process_start_token: '987654',
+    supervisor_executable_path: P0_R08_TERMINAL_RUNTIME_BINARY,
+    supervisor_executable_sha256: P0_R08_TERMINAL_RUNTIME_BINARY_SHA256,
+    supervisor_command_sha256: 'c'.repeat(64),
+    session_id: sessionId,
+    runtime_launch_id: 'launch-or-terminal',
+    current_process_is_descendant: true,
+  };
+}
 
 function validSelfHostingReceipt() {
   const runtime = loadRuntimeLock().lock;
@@ -275,6 +295,7 @@ function validSelfHostingReceipt() {
           orchestrator_session_id: 'or-terminal',
           runtime_binary_path: `${P0_R08_RETRY_RUNTIME_STORE}/${runtime.runtime_ref}/linux-x64/${runtime.artifact.ref.commit_sha}/bin/ao`,
           runtime_binary_sha256: runtime.compatibility.platforms[0].binary_sha256,
+          process_binding: validSupervisorProcessBinding(),
         },
         worker_branch: 'ao/p0-r08-terminal-remediation',
         worker_committed: true,
@@ -305,6 +326,23 @@ function validSelfHostingReceipt() {
           merge_tree_sha: '8'.repeat(40),
         },
       },
+      premerge_verification: {
+        evidence_comment_id: 190,
+        publication: {
+          schema_version: PREMERGE_VERIFICATION_PUBLICATION_SCHEMA_VERSION,
+          issue_number: 63,
+          comment_id: 190,
+          published_at: '2026-08-04T01:58:00.000Z',
+          read_back_at: '2026-08-04T01:59:00.000Z',
+          payload_bytes: 2345,
+          payload_sha256: 'b'.repeat(64),
+          exact_body_read_back: true,
+          orchestrator_session_id: 'or-terminal',
+          runtime_binary_path: P0_R08_TERMINAL_RUNTIME_BINARY,
+          runtime_binary_sha256: P0_R08_TERMINAL_RUNTIME_BINARY_SHA256,
+          process_binding: validSupervisorProcessBinding(),
+        },
+      },
       exact_main_replay: {
         passed: true,
         release_check_passed: true,
@@ -328,7 +366,7 @@ function validSelfHostingReceipt() {
 }
 
 function validEvidence(receipt) {
-  return {
+  const evidence = {
     repositoryEvidence: {
       current_main_sha: receipt.terminal_remediation.delivery.remediation_pr.merge_sha,
       current_main_tree_sha: receipt.terminal_remediation.delivery.remediation_pr.merge_tree_sha,
@@ -340,6 +378,10 @@ function validEvidence(receipt) {
       terminal_worker_tree_sha: '9'.repeat(40),
       terminal_source_is_ancestor: true,
       terminal_merge_base_sha: receipt.terminal_remediation.source.clone_head_sha,
+      terminal_reviewed_head_is_ancestor: true,
+      terminal_reviewed_head_merge_base_sha: receipt.terminal_remediation.delivery.remediation_pr.reviewed_head,
+      terminal_branch_creation_sha: null,
+      terminal_branch_creation_at: null,
       release_check_passed: true,
     },
     githubEvidence: {
@@ -534,7 +576,7 @@ function validEvidence(receipt) {
         body_bytes: 1234,
         body_sha256: 'a'.repeat(64),
         payload: {
-          schema_version: 'ao.workstation-worktree-evidence.v4',
+          schema_version: 'ao.workstation-worktree-evidence.v5',
           issue_number: 63,
           captured_at: '2026-08-04T01:45:00.000Z',
           source: {
@@ -566,7 +608,10 @@ function validEvidence(receipt) {
           git_relationship: {
             source_is_ancestor: true,
             merge_base_sha: receipt.terminal_remediation.source.clone_head_sha,
-            fork_point_sha: receipt.terminal_remediation.source.clone_head_sha,
+            branch_creation_sha: receipt.terminal_remediation.source.clone_head_sha,
+            branch_creation_at: '2026-08-02T14:29:56.000Z',
+            branch_creation_subject: 'branch: Created from origin/main',
+            worker_session_created_at: '2026-08-02T14:29:56.794Z',
           },
           orchestrator_provenance: {
             schema_version: ORCHESTRATOR_WORKTREE_PROVENANCE_SCHEMA_VERSION,
@@ -580,8 +625,10 @@ function validEvidence(receipt) {
             runtime_launch_id: 'launch-or-terminal',
             runtime_binary_path: receipt.runtime.binary_path,
             runtime_binary_sha256: receipt.runtime.binary_sha256,
+            process_binding: validSupervisorProcessBinding(),
             session_get: {
               args: ['session', 'get', receipt.terminal_remediation.delivery.orchestrator_session_id, '--json'],
+              worker_args: ['session', 'get', receipt.terminal_remediation.delivery.worker_session_id, '--json'],
             },
             operation: {
               capture: true,
@@ -591,6 +638,7 @@ function validEvidence(receipt) {
           },
         },
       },
+      terminal_premerge_capture: null,
       terminal_orchestrator_done_capture: {
         comment_id: receipt.terminal_remediation.cleanup.orchestrator_done_evidence_comment_id,
         issue_number: 63,
@@ -618,6 +666,59 @@ function validEvidence(receipt) {
       exact_bytes_match: true,
     },
   };
+  const terminalCapture = evidence.githubEvidence.terminal_worktree_capture;
+  if (receipt.terminal_remediation.premerge_verification == null) return evidence;
+  evidence.githubEvidence.terminal_premerge_capture = {
+    comment_id: receipt.terminal_remediation.premerge_verification.evidence_comment_id,
+    issue_number: 63,
+    author: 'Samsen879',
+    author_association: 'OWNER',
+    created_at: '2026-08-04T01:58:00.000Z',
+    updated_at: '2026-08-04T01:58:00.000Z',
+    body_bytes: 2345,
+    body_sha256: 'b'.repeat(64),
+    payload: {
+      schema_version: PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION,
+      issue_number: 63,
+      verified_at: '2026-08-04T01:57:00.000Z',
+      status: 'premerge_verified',
+      standing_admission_comment_id: P0_R08_TERMINAL_ADMISSION_COMMENT,
+      recovery_attempt: 2,
+      remediation_pr: {
+        number: receipt.terminal_remediation.delivery.remediation_pr.number,
+        head_sha: receipt.terminal_remediation.delivery.remediation_pr.head_sha,
+        tree_sha: evidence.repositoryEvidence.terminal_worker_tree_sha,
+        reviewed_head: receipt.terminal_remediation.delivery.remediation_pr.reviewed_head,
+        review_evidence_ids: receipt.terminal_remediation.delivery.remediation_pr.codex_reviews.map((review) => review.evidence_id),
+        resolved_finding_comment_ids: receipt.terminal_remediation.delivery.remediation_pr.finding_dispositions.map((finding) => finding.comment_id),
+      },
+      release_check: {
+        command: 'npm run release:check',
+        checkout_head_sha: receipt.terminal_remediation.delivery.remediation_pr.head_sha,
+        checkout_tree_sha: evidence.repositoryEvidence.terminal_worker_tree_sha,
+        passed: true,
+      },
+      git_relationship: {
+        reviewed_head_is_ancestor: true,
+        reviewed_head_merge_base_sha: receipt.terminal_remediation.delivery.remediation_pr.reviewed_head,
+        source_is_ancestor: true,
+        source_merge_base_sha: receipt.terminal_remediation.source.clone_head_sha,
+        branch_creation_sha: receipt.terminal_remediation.source.clone_head_sha,
+        branch_creation_at: terminalCapture.payload.git_relationship.branch_creation_at,
+      },
+      worktree_evidence: {
+        comment_id: terminalCapture.comment_id,
+        published_at: terminalCapture.created_at,
+        payload_bytes: terminalCapture.body_bytes,
+        payload_sha256: terminalCapture.body_sha256,
+        publication_schema_version: receipt.terminal_remediation.delivery.worktree_evidence_publication.schema_version,
+        publication_read_back_at: receipt.terminal_remediation.delivery.worktree_evidence_publication.read_back_at,
+        publication_process_binding: receipt.terminal_remediation.delivery.worktree_evidence_publication.process_binding,
+      },
+      orchestrator_provenance: terminalCapture.payload.orchestrator_provenance,
+    },
+  };
+  return evidence;
 }
 
 function validPreMergeReceipt() {
@@ -628,6 +729,7 @@ function validPreMergeReceipt() {
   receipt.terminal_remediation.delivery.remediation_pr.merged = false;
   receipt.terminal_remediation.delivery.remediation_pr.merge_sha = null;
   receipt.terminal_remediation.delivery.remediation_pr.merge_tree_sha = null;
+  receipt.terminal_remediation.premerge_verification = null;
   receipt.terminal_remediation.exact_main_replay = {
     passed: false,
     release_check_passed: false,
@@ -657,6 +759,11 @@ function validPreMergeEvidence(receipt) {
   evidence.githubEvidence.terminal_remediation_pr.merge_tree_sha = null;
   evidence.githubEvidence.terminal_remediation_pr.merged_at = null;
   evidence.githubEvidence.terminal_orchestrator_done_capture = null;
+  evidence.githubEvidence.terminal_premerge_capture = null;
+  evidence.repositoryEvidence.current_main_sha = receipt.terminal_remediation.delivery.remediation_pr.head_sha;
+  evidence.repositoryEvidence.current_main_tree_sha = evidence.repositoryEvidence.terminal_worker_tree_sha;
+  evidence.repositoryEvidence.terminal_branch_creation_sha = receipt.terminal_remediation.source.clone_head_sha;
+  evidence.repositoryEvidence.terminal_branch_creation_at = evidence.githubEvidence.terminal_worktree_capture.payload.git_relationship.branch_creation_at;
   return evidence;
 }
 
@@ -876,6 +983,121 @@ describe('fresh-clone and protected self-hosting gates', () => {
     });
   });
 
+  it('creates canonical immutable evidence from the exact-head staged verification result', () => {
+    const receipt = validPreMergeReceipt();
+    const evidence = validPreMergeEvidence(receipt);
+    const result = verifySelfHostingReceipt(receipt, {
+      ...evidence,
+      requirePublication: false,
+      stage: 'pre_merge',
+    });
+    const artifact = createPremergeVerificationEvidence({
+      receipt,
+      result,
+      evidence,
+      verifiedAt: '2026-08-04T01:57:00.000Z',
+    });
+    expect(artifact).toMatchObject({
+      schema_version: PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION,
+      status: 'premerge_verified',
+      remediation_pr: {
+        head_sha: receipt.terminal_remediation.delivery.remediation_pr.head_sha,
+        tree_sha: evidence.repositoryEvidence.current_main_tree_sha,
+      },
+      release_check: {
+        checkout_head_sha: receipt.terminal_remediation.delivery.remediation_pr.head_sha,
+        passed: true,
+      },
+      worktree_evidence: { comment_id: 188 },
+    });
+  });
+
+  it('publishes canonical preflight evidence with exact Orchestrator-bound readback', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-preflight-publication-'));
+    const receipt = validPreMergeReceipt();
+    const evidence = validPreMergeEvidence(receipt);
+    const result = verifySelfHostingReceipt(receipt, { ...evidence, requirePublication: false, stage: 'pre_merge' });
+    const payload = createPremergeVerificationEvidence({ receipt, result, evidence, verifiedAt: '2026-08-04T01:57:00.000Z' });
+    const evidencePath = path.join(root, 'preflight.json');
+    fs.writeFileSync(evidencePath, JSON.stringify(payload, null, 2));
+    const authorityOptions = {
+      sourceRoot: '/source', workerRoot: '/worker', workerSessionId: 'worker-terminal', orchestratorSessionId: 'or-terminal',
+      runtimeBinary: P0_R08_TERMINAL_RUNTIME_BINARY,
+      env: { AO_SESSION_ID: 'or-terminal', AO_PROJECT_ID: 'ao-pilot-remediation', AO_ISSUE_ID: '63', AO_RUNTIME_LAUNCH_ID: 'launch-or-terminal' },
+      sessionGet: (_binary, args) => ({ session: args[2] === 'worker-terminal' ? {
+        id: 'worker-terminal', projectId: 'ao-pilot-remediation', issueId: '63', kind: 'worker', createdAt: '2026-08-02T14:29:56.794Z',
+      } : {
+        id: 'or-terminal', projectId: 'ao-pilot-remediation', issueId: '63', kind: 'orchestrator', activity: { state: 'active' }, isTerminated: false,
+      } }),
+      probes: {
+        resolveRuntimeBinary: () => P0_R08_TERMINAL_RUNTIME_BINARY,
+        runtimeDigest: () => P0_R08_TERMINAL_RUNTIME_BINARY_SHA256,
+        inspectAoSupervisorProcess: () => validSupervisorProcessBinding(),
+        captureWorktreeEvidence: () => ({ worker: { head_sha: payload.remediation_pr.head_sha, tree_sha: payload.remediation_pr.tree_sha } }),
+      },
+    };
+    try {
+      const publication = publishOrchestratorBoundPremergeEvidence({
+        evidencePath,
+        publicationReceiptPath: path.join(root, 'publication.json'),
+        authorityOptions,
+        publish: () => ({ id: 5159000003 }),
+        readBack: () => ({
+          id: 5159000003, user: { login: 'Samsen879' }, author_association: 'OWNER',
+          created_at: '2026-08-04T01:58:00.000Z', updated_at: '2026-08-04T01:58:00.000Z',
+          body: fs.readFileSync(evidencePath, 'utf8'),
+        }),
+        now: () => '2026-08-04T01:59:00.000Z',
+      });
+      expect(publication).toMatchObject({
+        schema_version: PREMERGE_VERIFICATION_PUBLICATION_SCHEMA_VERSION,
+        comment_id: 5159000003,
+        exact_body_read_back: true,
+        process_binding: validSupervisorProcessBinding(),
+      });
+    } finally {
+      removeTemporaryRoot(root);
+    }
+  });
+
+  it.each([
+    ['missing immutable preflight record', (receipt) => { delete receipt.terminal_remediation.premerge_verification; }],
+    ['preflight final-head drift', (_receipt, evidence) => { evidence.githubEvidence.terminal_premerge_capture.payload.remediation_pr.head_sha = 'f'.repeat(40); }],
+    ['preflight finding-ID drift', (_receipt, evidence) => { evidence.githubEvidence.terminal_premerge_capture.payload.remediation_pr.resolved_finding_comment_ids = [999]; }],
+    ['preflight worktree identity drift', (_receipt, evidence) => { evidence.githubEvidence.terminal_premerge_capture.payload.worktree_evidence.comment_id = 999; }],
+    ['preflight exact-readback failure', (receipt) => { receipt.terminal_remediation.premerge_verification.publication.exact_body_read_back = false; }],
+    ['preflight process provenance drift', (receipt) => { receipt.terminal_remediation.premerge_verification.publication.process_binding.supervisor_process_start_token = 'other-process'; }],
+    ['preflight payload digest drift', (_receipt, evidence) => { evidence.githubEvidence.terminal_premerge_capture.body_sha256 = 'f'.repeat(64); }],
+    ['preflight published after merge', (_receipt, evidence) => { evidence.githubEvidence.terminal_premerge_capture.created_at = '2026-08-04T02:01:00.000Z'; evidence.githubEvidence.terminal_premerge_capture.updated_at = '2026-08-04T02:01:00.000Z'; }],
+  ])('final verification rejects %s', (_name, mutate) => {
+    const receipt = validSelfHostingReceipt();
+    const evidence = validEvidence(receipt);
+    mutate(receipt, evidence);
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow();
+  });
+
+  it('accepts only a post-Review-2 repaired head that descends from the reviewed head', () => {
+    const receipt = validSelfHostingReceipt();
+    const remediation = receipt.terminal_remediation.delivery.remediation_pr;
+    remediation.codex_reviews.push({
+      attempt: 2, kind: 'submitted_review', evidence_id: 202, request_comment_id: 200,
+      head_sha: '6'.repeat(40), completed_at: '2026-08-04T01:30:00.000Z',
+    });
+    remediation.head_sha = '7'.repeat(40);
+    remediation.reviewed_head = '6'.repeat(40);
+    remediation.finding_dispositions = [{ comment_id: 301, review_id: 202, disposition: 'fixed', resolved: true }];
+    remediation.post_review_2_repair = {
+      authorization_ref: 'https://github.com/Samsen879/ao-pilot/issues/63#issuecomment-5158510418',
+      final_head_sha: '7'.repeat(40), finding_comment_ids: [301],
+    };
+    const evidence = validEvidence(receipt);
+    evidence.githubEvidence.terminal_review_findings = [{ comment_id: 301, review_id: 202, resolved: true }];
+    expect(verifySelfHostingReceipt(receipt, evidence)).toMatchObject({ status: 'verified', terminal_reviewed_head: '6'.repeat(40) });
+
+    evidence.repositoryEvidence.terminal_reviewed_head_is_ancestor = false;
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('does not descend from the reviewed HEAD');
+  });
+
   it.each([
     ['premature merge claim', (receipt) => { receipt.terminal_remediation.delivery.remediation_pr.merged = true; }],
     ['premature replay claim', (receipt) => { receipt.terminal_remediation.exact_main_replay.passed = true; }],
@@ -883,6 +1105,7 @@ describe('fresh-clone and protected self-hosting gates', () => {
     ['premature final claim', (receipt) => { receipt.claim.workstation_self_hosting = true; }],
     ['wrong publication Orchestrator', (receipt) => { receipt.terminal_remediation.delivery.worktree_evidence_publication.orchestrator_session_id = 'worker-terminal'; }],
     ['missing exact readback', (receipt) => { receipt.terminal_remediation.delivery.worktree_evidence_publication.exact_body_read_back = false; }],
+    ['pre-existing preflight claim', (receipt) => { receipt.terminal_remediation.premerge_verification = { evidence_comment_id: 190 }; }],
   ])('pre-merge verification fails closed for %s', (_name, mutate) => {
     const receipt = validPreMergeReceipt();
     const evidence = validPreMergeEvidence(receipt);
@@ -897,9 +1120,14 @@ describe('fresh-clone and protected self-hosting gates', () => {
   it.each([
     ['live ancestry failure', (evidence) => { evidence.repositoryEvidence.terminal_source_is_ancestor = false; }],
     ['live merge-base drift', (evidence) => { evidence.repositoryEvidence.terminal_merge_base_sha = 'f'.repeat(40); }],
-    ['captured fork drift', (evidence) => { evidence.githubEvidence.terminal_worktree_capture.payload.git_relationship.fork_point_sha = 'f'.repeat(40); }],
+    ['captured branch-creation drift', (evidence) => { evidence.githubEvidence.terminal_worktree_capture.payload.git_relationship.branch_creation_sha = 'f'.repeat(40); }],
     ['captured Worker tree drift', (evidence) => { evidence.githubEvidence.terminal_worktree_capture.payload.worker.tree_sha = 'f'.repeat(40); }],
     ['missing Orchestrator provenance', (evidence) => { delete evidence.githubEvidence.terminal_worktree_capture.payload.orchestrator_provenance; }],
+    ['release check on another HEAD', (evidence) => { evidence.repositoryEvidence.current_main_sha = 'f'.repeat(40); }],
+    ['release check on another tree', (evidence) => { evidence.repositoryEvidence.current_main_tree_sha = 'f'.repeat(40); }],
+    ['live branch creation timestamp drift', (evidence) => { evidence.repositoryEvidence.terminal_branch_creation_at = '2026-08-02T14:29:57.000Z'; }],
+    ['AO Worker creation timestamp drift', (evidence) => { evidence.githubEvidence.terminal_worktree_capture.payload.git_relationship.worker_session_created_at = '2026-08-02T14:30:30.000Z'; }],
+    ['forged supervisor ancestry', (evidence) => { evidence.githubEvidence.terminal_worktree_capture.payload.orchestrator_provenance.process_binding.current_process_is_descendant = false; }],
   ])('pre-merge verification rejects %s', (_name, mutate) => {
     const receipt = validPreMergeReceipt();
     const evidence = validPreMergeEvidence(receipt);
@@ -921,7 +1149,13 @@ describe('fresh-clone and protected self-hosting gates', () => {
       env: { AO_SESSION_ID: 'or-terminal', AO_PROJECT_ID: 'ao-pilot-remediation', AO_ISSUE_ID: '63', AO_RUNTIME_LAUNCH_ID: 'launch-or-terminal' },
       capturedAt: '2026-08-04T01:45:00.000Z',
       sessionGet: (_binary, args) => ({
-        session: {
+        session: args[2] === 'worker-terminal' ? {
+          id: 'worker-terminal',
+          projectId: 'ao-pilot-remediation',
+          issueId: '63',
+          kind: 'worker',
+          createdAt: '2026-08-02T14:29:56.794Z',
+        } : {
           id: 'or-terminal',
           projectId: 'ao-pilot-remediation',
           issueId: '63',
@@ -934,7 +1168,8 @@ describe('fresh-clone and protected self-hosting gates', () => {
       probes: {
         resolveRuntimeBinary: () => P0_R08_TERMINAL_RUNTIME_BINARY,
         runtimeDigest: () => P0_R08_TERMINAL_RUNTIME_BINARY_SHA256,
-        captureWorktreeEvidence: () => ({ schema_version: 'ao.workstation-worktree-evidence.v4', issue_number: 63 }),
+        inspectAoSupervisorProcess: () => validSupervisorProcessBinding(),
+        captureWorktreeEvidence: () => ({ schema_version: 'ao.workstation-worktree-evidence.v5', issue_number: 63 }),
       },
     });
 
@@ -944,11 +1179,58 @@ describe('fresh-clone and protected self-hosting gates', () => {
       worker_session_id: 'worker-terminal',
       kind: 'orchestrator',
       runtime_launch_id: 'launch-or-terminal',
+      process_binding: validSupervisorProcessBinding(),
       operation: {
         capture: true,
         publish_issue_comment: true,
         read_back_exact_body: true,
       },
+    });
+  });
+
+  it('rejects a correct exported environment without AO supervisor process ancestry', () => {
+    expect(() => captureOrchestratorBoundWorktreeEvidence({
+      sourceRoot: '/source',
+      workerRoot: '/worker',
+      workerSessionId: 'worker-terminal',
+      orchestratorSessionId: 'or-terminal',
+      runtimeBinary: P0_R08_TERMINAL_RUNTIME_BINARY,
+      env: { AO_SESSION_ID: 'or-terminal', AO_PROJECT_ID: 'ao-pilot-remediation', AO_ISSUE_ID: '63', AO_RUNTIME_LAUNCH_ID: 'launch-or-terminal' },
+      sessionGet: (_binary, args) => ({ session: args[2] === 'worker-terminal' ? {
+        id: 'worker-terminal', projectId: 'ao-pilot-remediation', issueId: '63', kind: 'worker', createdAt: '2026-08-02T14:29:56.794Z',
+      } : {
+        id: 'or-terminal', projectId: 'ao-pilot-remediation', issueId: '63', kind: 'orchestrator', activity: { state: 'active' }, isTerminated: false,
+      } }),
+      probes: {
+        resolveRuntimeBinary: () => P0_R08_TERMINAL_RUNTIME_BINARY,
+        runtimeDigest: () => P0_R08_TERMINAL_RUNTIME_BINARY_SHA256,
+        inspectAoSupervisorProcess: () => { throw new Error('not a descendant'); },
+        captureWorktreeEvidence: () => ({}),
+      },
+    })).toThrow('not a descendant');
+  });
+
+  it('derives the pinned AO supervisor identity from the current process ancestry', () => {
+    const command = Buffer.from(`${P0_R08_TERMINAL_RUNTIME_BINARY}\0agent-process\0supervise\0--session\0or-terminal\0--launch\0launch-or-terminal\0--\0codex\0`);
+    const records = new Map([
+      [30, { pid: 30, parentPid: 20, startToken: 'child', executablePath: '/usr/bin/node', rawCommandLine: Buffer.from('node\0'), args: ['node'] }],
+      [20, {
+        pid: 20, parentPid: 1, startToken: '987654', executablePath: P0_R08_TERMINAL_RUNTIME_BINARY,
+        rawCommandLine: command, args: command.toString().split('\0').filter(Boolean),
+      }],
+    ]);
+    expect(inspectAoSupervisorProcess({
+      runtimeBinary: P0_R08_TERMINAL_RUNTIME_BINARY,
+      orchestratorSessionId: 'or-terminal',
+      runtimeLaunchId: 'launch-or-terminal',
+      currentPid: 30,
+      readProcess: (pid) => records.get(pid),
+    })).toMatchObject({
+      supervisor_pid: 20,
+      supervisor_process_start_token: '987654',
+      session_id: 'or-terminal',
+      runtime_launch_id: 'launch-or-terminal',
+      current_process_is_descendant: true,
     });
   });
 
@@ -963,13 +1245,16 @@ describe('fresh-clone and protected self-hosting gates', () => {
       orchestratorSessionId: 'or-terminal',
       runtimeBinary: P0_R08_TERMINAL_RUNTIME_BINARY,
       env,
-      sessionGet: () => ({ session: {
+      sessionGet: (_binary, args) => ({ session: args[2] === 'worker-terminal' ? {
+        id: 'worker-terminal', projectId: 'ao-pilot-remediation', issueId: '63', kind: 'worker', createdAt: '2026-08-02T14:29:56.794Z',
+      } : {
         id: 'or-terminal', projectId: 'ao-pilot-remediation', issueId: '63', kind,
         activity: { state: 'active' }, isTerminated: false,
       } }),
       probes: {
         resolveRuntimeBinary: () => P0_R08_TERMINAL_RUNTIME_BINARY,
         runtimeDigest: () => P0_R08_TERMINAL_RUNTIME_BINARY_SHA256,
+        inspectAoSupervisorProcess: () => validSupervisorProcessBinding(),
         captureWorktreeEvidence: () => ({}),
       },
     })).toThrow();
@@ -998,7 +1283,7 @@ describe('fresh-clone and protected self-hosting gates', () => {
           updated_at: '2026-08-04T01:46:00.000Z',
           body: fs.readFileSync(payloadPath, 'utf8'),
         }),
-        readBackAt: '2026-08-04T01:47:00.000Z',
+        now: () => '2026-08-04T01:47:00.000Z',
       });
       expect(result).toMatchObject({
         schema_version: ORCHESTRATOR_WORKTREE_PUBLICATION_SCHEMA_VERSION,
@@ -1007,6 +1292,41 @@ describe('fresh-clone and protected self-hosting gates', () => {
         orchestrator_session_id: 'or-terminal',
       });
       expect(JSON.parse(fs.readFileSync(receiptPath, 'utf8'))).toEqual(result);
+    } finally {
+      removeTemporaryRoot(root);
+    }
+  });
+
+  it('records read_back_at only after GitHub readback completes', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-publication-clock-'));
+    const payload = { orchestrator_provenance: {
+      session_id: 'or-terminal',
+      runtime_binary_path: P0_R08_TERMINAL_RUNTIME_BINARY,
+      runtime_binary_sha256: P0_R08_TERMINAL_RUNTIME_BINARY_SHA256,
+      process_binding: validSupervisorProcessBinding(),
+    } };
+    let readBackCompleted = false;
+    try {
+      const result = publishOrchestratorBoundWorktreeEvidence({
+        payload,
+        payloadPath: path.join(root, 'payload.json'),
+        publicationReceiptPath: path.join(root, 'publication.json'),
+        publish: () => ({ id: 5159000002 }),
+        readBack: () => {
+          readBackCompleted = true;
+          return {
+            id: 5159000002,
+            user: { login: 'Samsen879' }, author_association: 'OWNER',
+            created_at: '2026-08-04T01:46:01.000Z', updated_at: '2026-08-04T01:46:01.000Z',
+            body: JSON.stringify(payload, null, 2),
+          };
+        },
+        now: () => {
+          expect(readBackCompleted).toBe(true);
+          return '2026-08-04T01:46:02.000Z';
+        },
+      });
+      expect(result.read_back_at).toBe('2026-08-04T01:46:02.000Z');
     } finally {
       removeTemporaryRoot(root);
     }
@@ -1058,10 +1378,14 @@ describe('fresh-clone and protected self-hosting gates', () => {
         sourceRoot,
         workerRoot,
         workerSessionId: 'worker-r08',
+        workerSession: {
+          id: 'worker-r08', kind: 'worker', projectId: 'ao-pilot-remediation', issueId: '63',
+          createdAt: new Date(Number(execFileSync('git', ['reflog', 'show', '--date=unix', '--format=%gD', 'refs/heads/ao/p0-r08/evidence-test'], { cwd: workerRoot, encoding: 'utf8' }).trim().match(/@\{(\d+)\}/)[1]) * 1000).toISOString(),
+        },
         capturedAt: '2026-08-03T01:45:00.000Z',
       });
       expect(evidence).toMatchObject({
-        schema_version: 'ao.workstation-worktree-evidence.v4',
+        schema_version: 'ao.workstation-worktree-evidence.v5',
         source: {
           clone_path: fs.realpathSync(sourceRoot),
           head_sha: sourceHead,
@@ -1079,7 +1403,10 @@ describe('fresh-clone and protected self-hosting gates', () => {
       expect(evidence.git_relationship).toEqual({
         source_is_ancestor: true,
         merge_base_sha: sourceHead,
-        fork_point_sha: sourceHead,
+        branch_creation_sha: sourceHead,
+        branch_creation_at: expect.any(String),
+        branch_creation_subject: expect.stringContaining('branch: Created from'),
+        worker_session_created_at: expect.any(String),
       });
     } finally {
       removeTemporaryRoot(root);
@@ -1106,7 +1433,42 @@ describe('fresh-clone and protected self-hosting gates', () => {
         sourceRoot,
         workerRoot,
         workerSessionId: 'worker-stale',
+        workerSession: {
+          id: 'worker-stale', kind: 'worker', projectId: 'ao-pilot-remediation', issueId: '63',
+          createdAt: new Date().toISOString(),
+        },
       })).toThrow('did not fork from the admitted source HEAD');
+    } finally {
+      removeTemporaryRoot(root);
+    }
+  });
+
+  it('rejects a stale-created Worker even after it merges the admitted source', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-stale-merged-fork-'));
+    const sourceRoot = path.join(root, 'source');
+    const workerRoot = path.join(root, 'worker');
+    try {
+      fs.mkdirSync(sourceRoot);
+      execFileSync('git', ['init', '--quiet'], { cwd: sourceRoot });
+      execFileSync('git', ['config', 'user.name', 'AO Test'], { cwd: sourceRoot });
+      execFileSync('git', ['config', 'user.email', 'ao-test@example.invalid'], { cwd: sourceRoot });
+      fs.writeFileSync(path.join(sourceRoot, 'fixture.txt'), 'first\n');
+      execFileSync('git', ['add', 'fixture.txt'], { cwd: sourceRoot });
+      execFileSync('git', ['commit', '--quiet', '-m', 'test: stale base'], { cwd: sourceRoot });
+      execFileSync('git', ['worktree', 'add', '--quiet', '-b', 'ao/p0-r08/stale-merged', workerRoot], { cwd: sourceRoot });
+      fs.writeFileSync(path.join(sourceRoot, 'fixture.txt'), 'admitted\n');
+      execFileSync('git', ['commit', '--quiet', '-am', 'test: admitted source'], { cwd: sourceRoot });
+      const admittedHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: sourceRoot, encoding: 'utf8' }).trim();
+      execFileSync('git', ['merge', '--quiet', '--no-edit', admittedHead], { cwd: workerRoot });
+
+      expect(() => inspectWorktreeBinding({
+        sourceRoot,
+        workerRoot,
+        workerSessionId: 'worker-stale-merged',
+        workerSession: {
+          id: 'worker-stale-merged', kind: 'worker', projectId: 'ao-pilot-remediation', issueId: '63', createdAt: new Date().toISOString(),
+        },
+      })).toThrow('branch creation reflog does not start at the admitted source HEAD');
     } finally {
       removeTemporaryRoot(root);
     }
