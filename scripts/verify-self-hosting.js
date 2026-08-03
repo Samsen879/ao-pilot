@@ -5,6 +5,8 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 
+import { createPremergeVerificationEvidence } from './ao/lib/premerge-verification-evidence.js';
+
 import {
   collectCodexReviewEvidence,
 } from './ao/lib/codex-review-evidence.js';
@@ -13,13 +15,16 @@ import {
   loadSelfHostingReceipt,
   P0_R08_RETRY_ADMISSION_COMMENT,
   P0_R08_RETRY_ADMISSION_PR,
+  P0_R08_FAILED_TERMINAL_DISPOSITION_COMMENT,
+  P0_R08_FAILED_TERMINAL_PR,
+  P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT,
   P0_R08_PRINCIPAL_PR,
   P0_R08_TERMINAL_ADMISSION_COMMENT,
   verifySelfHostingReceipt,
 } from './ao/lib/self-hosting-receipt.js';
 
 function usage() {
-  return 'Usage: npm run verify:self-hosting -- --receipt <path> [--issue-comment-id <id>] [--repository-root <path>]';
+  return 'Usage: npm run verify:self-hosting -- --receipt <path> [--pre-merge --preflight-evidence-out <path>] [--issue-comment-id <id>] [--repository-root <path>]';
 }
 
 function run(command, args, { cwd = process.cwd(), timeout = 30_000 } = {}) {
@@ -49,7 +54,7 @@ function pullEvidence(number, repositoryRoot) {
   return {
     number: value.number,
     merged: value.merged === true,
-    merge_sha: value.merge_commit_sha,
+    merge_sha: value.merged === true ? value.merge_commit_sha : null,
     merge_tree_sha: mergeTree,
     head_sha: value.head?.sha ?? null,
     head_ref: value.head?.ref ?? null,
@@ -58,8 +63,9 @@ function pullEvidence(number, repositoryRoot) {
     created_at: value.created_at ?? null,
     linked_issue_63: /(^|\s)#63\b/.test(body),
     auto_closes_issue_63: /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#63\b/i.test(body),
-    binds_terminal_admission: /\b5158225894\b/.test(body) && /terminal[- ]remediation/i.test(body),
+    binds_terminal_admission: /\b5158510418\b/.test(body) && /terminal[- ]recovery/i.test(body),
     binds_principal_pr_71: /(?:\bPR\s*#71\b|\bprincipal[^\n]*#71\b)/i.test(body),
+    binds_failed_terminal_pr_72: /(?:\bPR\s*#72\b|\bfailed[^\n]*#72\b)/i.test(body),
   };
 }
 
@@ -72,6 +78,7 @@ function admissionEvidence(commentId, repositoryRoot) {
     author_association: comment.author_association ?? null,
     created_at: comment.created_at ?? null,
     updated_at: comment.updated_at ?? null,
+    body_bytes: Buffer.byteLength(comment.body ?? '', 'utf8'),
     body_sha256: createHash('sha256').update(comment.body ?? '').digest('hex'),
   };
 }
@@ -123,13 +130,16 @@ function jsonIssueCommentEvidence(commentId, repositoryRoot) {
     comment_id: comment.id,
     issue_number: Number(comment.issue_url?.match(/\/issues\/(\d+)$/)?.[1] ?? 0),
     author: comment.user?.login ?? null,
+    author_association: comment.author_association ?? null,
     created_at: comment.created_at ?? null,
     updated_at: comment.updated_at ?? null,
+    body_bytes: Buffer.byteLength(comment.body ?? '', 'utf8'),
+    body_sha256: createHash('sha256').update(comment.body ?? '').digest('hex'),
     payload,
   };
 }
 
-function collectEvidence(receipt, repositoryRoot) {
+function collectEvidence(receipt, repositoryRoot, { preMerge = false } = {}) {
   const sourceHead = receipt.source.clone_head_sha;
   const terminalSourceHead = receipt.terminal_remediation.source.clone_head_sha;
   const currentMain = run('git', ['rev-parse', 'HEAD^{commit}'], { cwd: repositoryRoot });
@@ -143,6 +153,23 @@ function collectEvidence(receipt, repositoryRoot) {
   const checks = runJson('gh', ['api', `repos/Samsen879/ao-pilot/commits/${headSha}/check-runs`], { cwd: repositoryRoot });
   const remediationPr = receipt.terminal_remediation.delivery.remediation_pr.number;
   const remediationHead = receipt.terminal_remediation.delivery.remediation_pr.head_sha;
+  const terminalReviewedHead = receipt.terminal_remediation.delivery.remediation_pr.reviewed_head;
+  run('git', ['cat-file', '-e', `${remediationHead}^{commit}`], { cwd: repositoryRoot });
+  const terminalWorkerTree = run('git', ['rev-parse', `${remediationHead}^{tree}`], { cwd: repositoryRoot });
+  run('git', ['merge-base', '--is-ancestor', terminalSourceHead, remediationHead], { cwd: repositoryRoot });
+  const terminalMergeBase = run('git', ['merge-base', terminalSourceHead, remediationHead], { cwd: repositoryRoot });
+  run('git', ['merge-base', '--is-ancestor', terminalReviewedHead, remediationHead], { cwd: repositoryRoot });
+  const terminalReviewedHeadMergeBase = run('git', ['merge-base', terminalReviewedHead, remediationHead], { cwd: repositoryRoot });
+  let terminalBranchCreation = { sha: null, at: null };
+  if (preMerge) {
+    const branch = receipt.terminal_remediation.delivery.worker_branch;
+    const lines = run('git', ['reflog', 'show', '--date=iso-strict', '--format=%H%x09%gD%x09%gs', `refs/heads/${branch}`], { cwd: repositoryRoot }).split('\n');
+    const fields = lines.at(-1)?.split('\t') ?? [];
+    terminalBranchCreation = {
+      sha: fields[0] ?? null,
+      at: fields[1]?.match(/@\{(.+)\}$/)?.[1] ?? null,
+    };
+  }
   const terminalChecks = runJson('gh', ['api', `repos/Samsen879/ao-pilot/commits/${remediationHead}/check-runs`], { cwd: repositoryRoot });
   return {
     repositoryEvidence: {
@@ -152,6 +179,14 @@ function collectEvidence(receipt, repositoryRoot) {
       source_tree_sha: sourceTree,
       terminal_source_commit_sha: terminalSourceHead,
       terminal_source_tree_sha: terminalSourceTree,
+      terminal_worker_commit_sha: remediationHead,
+      terminal_worker_tree_sha: terminalWorkerTree,
+      terminal_source_is_ancestor: true,
+      terminal_merge_base_sha: terminalMergeBase,
+      terminal_reviewed_head_is_ancestor: true,
+      terminal_reviewed_head_merge_base_sha: terminalReviewedHeadMergeBase,
+      terminal_branch_creation_sha: terminalBranchCreation.sha,
+      terminal_branch_creation_at: terminalBranchCreation.at,
       release_check_passed: true,
     },
     githubEvidence: {
@@ -162,11 +197,15 @@ function collectEvidence(receipt, repositoryRoot) {
       admission_pr: pullEvidence(P0_R08_RETRY_ADMISSION_PR, repositoryRoot),
       retry_admission: admissionEvidence(P0_R08_RETRY_ADMISSION_COMMENT, repositoryRoot),
       principal_pr: pullEvidence(P0_R08_PRINCIPAL_PR, repositoryRoot),
+      first_terminal_admission: admissionEvidence(P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT, repositoryRoot),
+      failed_terminal_pr: pullEvidence(P0_R08_FAILED_TERMINAL_PR, repositoryRoot),
+      failed_terminal_disposition: admissionEvidence(P0_R08_FAILED_TERMINAL_DISPOSITION_COMMENT, repositoryRoot),
       terminal_remediation_admission: admissionEvidence(P0_R08_TERMINAL_ADMISSION_COMMENT, repositoryRoot),
       terminal_remediation_pr: pullEvidence(remediationPr, repositoryRoot),
       issue_linked_prs: issueLinkedPrEvidence(repositoryRoot),
       check_runs: checks.check_runs.map((check) => ({ name: check.name, conclusion: check.conclusion })),
       codex_reviews: codexReviewEvidence(principalPr, repositoryRoot),
+      failed_terminal_codex_reviews: codexReviewEvidence(P0_R08_FAILED_TERMINAL_PR, repositoryRoot),
       terminal_check_runs: terminalChecks.check_runs.map((check) => ({ name: check.name, conclusion: check.conclusion })),
       terminal_codex_reviews: codexReviewEvidence(remediationPr, repositoryRoot),
       review_findings: reviewFindingEvidence(principalPr, repositoryRoot),
@@ -174,7 +213,8 @@ function collectEvidence(receipt, repositoryRoot) {
       worktree_capture: jsonIssueCommentEvidence(receipt.delivery.worktree_evidence_comment_id, repositoryRoot),
       orchestrator_done_capture: jsonIssueCommentEvidence(receipt.cleanup.orchestrator_done_evidence_comment_id, repositoryRoot),
       terminal_worktree_capture: jsonIssueCommentEvidence(receipt.terminal_remediation.delivery.worktree_evidence_comment_id, repositoryRoot),
-      terminal_orchestrator_done_capture: jsonIssueCommentEvidence(receipt.terminal_remediation.cleanup.orchestrator_done_evidence_comment_id, repositoryRoot),
+      terminal_premerge_capture: preMerge ? null : jsonIssueCommentEvidence(receipt.terminal_remediation.premerge_verification.evidence_comment_id, repositoryRoot),
+      terminal_orchestrator_done_capture: preMerge ? null : jsonIssueCommentEvidence(receipt.terminal_remediation.cleanup.orchestrator_done_evidence_comment_id, repositoryRoot),
     },
   };
 }
@@ -196,12 +236,15 @@ if (argv.includes('--help') || argv.includes('-h')) {
   const receiptIndex = argv.indexOf('--receipt');
   const commentIndex = argv.indexOf('--issue-comment-id');
   const rootIndex = argv.indexOf('--repository-root');
+  const preflightOutIndex = argv.indexOf('--preflight-evidence-out');
+  const preMerge = argv.includes('--pre-merge');
   const receiptPath = receiptIndex === -1 ? null : argv[receiptIndex + 1];
   const commentId = commentIndex === -1 ? null : Number(argv[commentIndex + 1]);
   const repositoryRoot = rootIndex === -1 ? process.cwd() : argv[rootIndex + 1];
-  const expectedLength = 2 + (commentIndex === -1 ? 0 : 2) + (rootIndex === -1 ? 0 : 2);
+  const preflightEvidencePath = preflightOutIndex === -1 ? null : argv[preflightOutIndex + 1];
+  const expectedLength = 2 + (preMerge ? 1 : 0) + (commentIndex === -1 ? 0 : 2) + (rootIndex === -1 ? 0 : 2) + (preflightOutIndex === -1 ? 0 : 2);
   const invalidComment = commentIndex !== -1 && (!Number.isSafeInteger(commentId) || commentId <= 0);
-  if (receiptPath == null || receiptPath.startsWith('-') || invalidComment || repositoryRoot == null || repositoryRoot.startsWith('-') || argv.length !== expectedLength) {
+  if (receiptPath == null || receiptPath.startsWith('-') || invalidComment || (preMerge && commentId != null) || preMerge !== (preflightEvidencePath != null) || preflightEvidencePath?.startsWith('-') || repositoryRoot == null || repositoryRoot.startsWith('-') || argv.length !== expectedLength) {
     process.stderr.write(`${usage()}\n`);
     process.exitCode = 4;
   } else {
@@ -211,12 +254,23 @@ if (argv.includes('--help') || argv.includes('-h')) {
       const rawReceipt = fs.readFileSync(resolvedReceiptPath, 'utf8');
       const receipt = loadSelfHostingReceipt(resolvedReceiptPath);
       run('npm', ['run', 'release:check'], { cwd: resolvedRepositoryRoot, timeout: 30 * 60 * 1000 });
-      const evidence = collectEvidence(receipt, resolvedRepositoryRoot);
+      const evidence = collectEvidence(receipt, resolvedRepositoryRoot, { preMerge });
       const result = verifySelfHostingReceipt(receipt, {
         ...evidence,
         publicationEvidence: commentId == null ? null : publicationEvidence(commentId, rawReceipt, resolvedRepositoryRoot),
-        requirePublication: commentId != null,
+        requirePublication: preMerge ? false : commentId != null,
+        stage: preMerge ? 'pre_merge' : 'final',
       });
+      if (preMerge) {
+        const preflight = createPremergeVerificationEvidence({ receipt, result, evidence });
+        const rawPreflight = JSON.stringify(preflight, null, 2);
+        fs.writeFileSync(path.resolve(preflightEvidencePath), rawPreflight, { flag: 'wx' });
+        result.preflight_evidence = {
+          path: path.resolve(preflightEvidencePath),
+          bytes: Buffer.byteLength(rawPreflight, 'utf8'),
+          sha256: createHash('sha256').update(rawPreflight).digest('hex'),
+        };
+      }
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     } catch (error) {
       process.stderr.write(`${JSON.stringify({ status: 'blocked', code: 'self_hosting_receipt_invalid', message: error.message }, null, 2)}\n`);

@@ -2,9 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { ORCHESTRATOR_DONE_EVIDENCE_SCHEMA_VERSION } from './orchestrator-done-evidence.js';
+import {
+  PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION,
+  PREMERGE_VERIFICATION_PUBLICATION_SCHEMA_VERSION,
+} from './premerge-verification-evidence.js';
 import { loadRuntimeLock } from './runtime-lock.js';
 
-export const SELF_HOSTING_RECEIPT_SCHEMA_VERSION = 'ao.workstation-self-hosting-receipt.v3';
+export const SELF_HOSTING_RECEIPT_SCHEMA_VERSION = 'ao.workstation-self-hosting-receipt.v5';
 export const P0_R08_RETRY_ADMISSION_PR = 70;
 export const P0_R08_RETRY_ADMISSION_ISSUE = 63;
 export const P0_R08_RETRY_ADMISSION_COMMENT = 5157524210;
@@ -17,15 +21,27 @@ export const P0_R08_RETRY_AO_RUN_FILE = `${P0_R08_RETRY_ROOT}/ao-state/running.j
 export const P0_R08_RETRY_RUNTIME_STORE = `${P0_R08_RETRY_ROOT}/runtime-store`;
 export const P0_R08_RETRY_RUNTIME_CACHE = `${P0_R08_RETRY_ROOT}/runtime-cache`;
 export const WORKTREE_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-worktree-evidence.v2';
-export const TERMINAL_WORKTREE_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-worktree-evidence.v3';
-export const P0_R08_TERMINAL_ADMISSION_COMMENT = 5158225894;
-export const P0_R08_TERMINAL_ADMISSION_COMMENT_SHA256 = '24fbc151586ef2e841f2b5979ef14f05f387a71ef3b5aed9a554245704658a61';
-export const P0_R08_TERMINAL_ADMITTED_MAIN = '6d3bf2879d76cd6ab304b0040f1be2c88c294e66';
-export const P0_R08_TERMINAL_ADMITTED_TREE = 'dafe190179199b0b3dbcf16f4e91c1bc714bae4b';
+export const TERMINAL_WORKTREE_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-worktree-evidence.v5';
+export const TERMINAL_RECOVERY_CHAIN_SCHEMA_VERSION = 'ao.workstation-terminal-recovery-chain.v1';
+export const P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT = 5158225894;
+export const P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT_SHA256 = '24fbc151586ef2e841f2b5979ef14f05f387a71ef3b5aed9a554245704658a61';
+export const P0_R08_FIRST_TERMINAL_ADMITTED_MAIN = '6d3bf2879d76cd6ab304b0040f1be2c88c294e66';
+export const P0_R08_FIRST_TERMINAL_ADMITTED_TREE = 'dafe190179199b0b3dbcf16f4e91c1bc714bae4b';
+export const P0_R08_FAILED_TERMINAL_PR = 72;
+export const P0_R08_FAILED_TERMINAL_HEAD = '054cf5f648bb72b94ee4cdd1b17e64515db9031f';
+export const P0_R08_FAILED_TERMINAL_DISPOSITION_COMMENT = 5158533683;
+export const P0_R08_FAILED_TERMINAL_DISPOSITION_SHA256 = '850ee6631986731684666fa1fc379835497d740fcd72ac725065ac10f542e487';
+export const P0_R08_TERMINAL_ADMISSION_COMMENT = 5158510418;
+export const P0_R08_TERMINAL_ADMISSION_COMMENT_SHA256 = '431e128a4ffe100b1a74a327778796480513f6fd06a5ab9a8df5c2e5c5df1284';
+export const P0_R08_TERMINAL_ADMISSION_COMMENT_BYTES = 3712;
+export const P0_R08_TERMINAL_ADMITTED_MAIN = '59cdf7c0ddfedfe4438eaeeff485146534fae287';
+export const P0_R08_TERMINAL_ADMITTED_TREE = '044f49e5fe8cbfe2382001436d1e060b9bbb0e07';
 export const P0_R08_PRINCIPAL_PR = 71;
 export const P0_R08_TERMINAL_ROOT = '/home/guoqy/p0-r08-terminal-remediation';
 export const P0_R08_TERMINAL_AO_DATA_DIR = `${P0_R08_TERMINAL_ROOT}/ao-state/data`;
 export const P0_R08_TERMINAL_AO_RUN_FILE = `${P0_R08_TERMINAL_ROOT}/ao-state/running.json`;
+export const P0_R08_TERMINAL_RUNTIME_BINARY = '/home/guoqy/p0-r08-retry-workstation/runtime-store/runtime.agent_orchestrator.v0_11_2_p0_1/linux-x64/711178ebe07d436db36020eb08f0c4e29613f97b/bin/ao';
+export const P0_R08_TERMINAL_RUNTIME_BINARY_SHA256 = 'a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34';
 export const REQUIRED_CI_CHECKS = ['fresh-clone-runtime', 'test (20)', 'test (22)'];
 
 function assert(condition, message) {
@@ -110,6 +126,18 @@ function falsehood(value, field) {
   return false;
 }
 
+function verifySupervisorProcessBinding(value, { sessionId, runtimeLaunchId }, field) {
+  const binding = object(value, field);
+  assert(Number.isSafeInteger(binding.supervisor_pid) && binding.supervisor_pid > 1, `${field}.supervisor_pid is invalid`);
+  string(binding.supervisor_process_start_token, `${field}.supervisor_process_start_token`);
+  assert(binding.supervisor_executable_path === P0_R08_TERMINAL_RUNTIME_BINARY, `${field} used the wrong supervisor executable`);
+  assert(binding.supervisor_executable_sha256 === P0_R08_TERMINAL_RUNTIME_BINARY_SHA256, `${field} supervisor executable digest mismatch`);
+  assert(/^[0-9a-f]{64}$/.test(binding.supervisor_command_sha256), `${field} supervisor command digest is invalid`);
+  assert(binding.session_id === sessionId && binding.runtime_launch_id === runtimeLaunchId, `${field} session/launch binding mismatch`);
+  truth(binding.current_process_is_descendant, `${field}.current_process_is_descendant`);
+  return binding;
+}
+
 function verifyCompletedCodexReviews(receiptReviews, liveReviews) {
   assert(Array.isArray(receiptReviews) && receiptReviews.length >= 1 && receiptReviews.length <= 2, 'Self-hosting proof requires one or two completed Codex Reviews');
   assert(Array.isArray(liveReviews), 'Live Codex Review evidence is unavailable');
@@ -154,10 +182,13 @@ export function verifySelfHostingReceipt(receipt, {
   githubEvidence = null,
   publicationEvidence = null,
   requirePublication = true,
+  stage = 'final',
 } = {}) {
   const value = object(receipt, 'receipt');
+  assert(['final', 'pre_merge'].includes(stage), 'Unsupported self-hosting verification stage');
+  const preMerge = stage === 'pre_merge';
   assert(value.schema_version === SELF_HOSTING_RECEIPT_SCHEMA_VERSION, 'Unsupported self-hosting receipt schema');
-  assert(value.status === 'passed', 'Self-hosting receipt is not passed');
+  assert(value.status === (preMerge ? 'pending' : 'passed'), `Self-hosting receipt status is invalid for ${stage}`);
   timestamp(value.performed_at, 'performed_at');
 
   const environment = object(value.environment, 'environment');
@@ -238,8 +269,63 @@ export function verifySelfHostingReceipt(receipt, {
   assert(liveTerminalAdmission.issue_number === 63, 'Terminal-remediation admission was not published to issue #63');
   assert(liveTerminalAdmission.author === 'Samsen879' && liveTerminalAdmission.author_association === 'OWNER', 'Terminal-remediation admission is not Owner-authored');
   const terminalAdmittedAt = timestamp(liveTerminalAdmission.created_at, 'terminal-remediation admission created_at');
+  assert(terminalAdmittedAt === '2026-08-02T14:24:49Z', 'Standing recovery admission created_at mismatch');
   assert(liveTerminalAdmission.updated_at === terminalAdmittedAt, 'Terminal-remediation admission comment was edited');
+  assert(liveTerminalAdmission.body_bytes === P0_R08_TERMINAL_ADMISSION_COMMENT_BYTES, 'Live standing admission byte length mismatch');
   assert(liveTerminalAdmission.body_sha256 === terminalAdmission.comment_body_sha256, 'Live terminal-remediation admission digest mismatch');
+
+  const recoveryChain = object(value.terminal_recovery_chain, 'terminal_recovery_chain');
+  assert(recoveryChain.schema_version === TERMINAL_RECOVERY_CHAIN_SCHEMA_VERSION, 'Unsupported terminal recovery-chain schema');
+  const standing = object(recoveryChain.standing_admission, 'terminal_recovery_chain.standing_admission');
+  assert(standing.issue_number === 63, 'Standing recovery admission is not bound to issue #63');
+  assert(standing.comment_id === P0_R08_TERMINAL_ADMISSION_COMMENT, 'Standing recovery admission comment mismatch');
+  assert(standing.comment_body_bytes === P0_R08_TERMINAL_ADMISSION_COMMENT_BYTES, 'Standing recovery admission byte length mismatch');
+  assert(standing.comment_body_sha256 === P0_R08_TERMINAL_ADMISSION_COMMENT_SHA256, 'Standing recovery admission digest mismatch');
+  assert(standing.created_at === '2026-08-02T14:24:49Z' && standing.updated_at === standing.created_at, 'Standing recovery admission timestamp/edit state mismatch');
+  assert(standing.principal_pr_number === P0_R08_PRINCIPAL_PR, 'Standing recovery admission does not preserve sole principal PR #71');
+  assert(standing.max_additional_recovery_attempts === 2, 'Standing recovery attempt bound was widened');
+  assert(sha(standing.admitted_main_sha, 'terminal_recovery_chain.standing_admission.admitted_main_sha') === P0_R08_TERMINAL_ADMITTED_MAIN, 'Standing recovery baseline commit mismatch');
+  assert(sha(standing.admitted_tree_sha, 'terminal_recovery_chain.standing_admission.admitted_tree_sha') === P0_R08_TERMINAL_ADMITTED_TREE, 'Standing recovery baseline tree mismatch');
+
+  assert(Array.isArray(recoveryChain.attempts) && recoveryChain.attempts.length === 2, 'Recovery chain must contain exactly the failed PR #72 and this ordered recovery delivery');
+  const failedAttempt = object(recoveryChain.attempts[0], 'terminal_recovery_chain.attempts[0]');
+  assert(failedAttempt.attempt === 1 && failedAttempt.kind === 'terminal_recovery_delivery' && failedAttempt.disposition === 'failed_premerge_gates', 'PR #72 must be the first failed recovery-chain attempt');
+  const failedAdmission = object(failedAttempt.admission, 'terminal_recovery_chain.attempts[0].admission');
+  assert(failedAdmission.comment_id === P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT && failedAdmission.comment_body_sha256 === P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT_SHA256, 'Failed attempt does not preserve its first terminal admission');
+  assert(sha(failedAdmission.admitted_main_sha, 'failed terminal admitted_main_sha') === P0_R08_FIRST_TERMINAL_ADMITTED_MAIN && sha(failedAdmission.admitted_tree_sha, 'failed terminal admitted_tree_sha') === P0_R08_FIRST_TERMINAL_ADMITTED_TREE, 'Failed attempt admission baseline mismatch');
+  const liveFirstAdmission = object(github.first_terminal_admission, 'GitHub first terminal admission');
+  assert(liveFirstAdmission.comment_id === P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT && liveFirstAdmission.issue_number === 63 && liveFirstAdmission.author === 'Samsen879' && liveFirstAdmission.author_association === 'OWNER', 'First terminal admission identity mismatch');
+  const firstTerminalAdmittedAt = timestamp(liveFirstAdmission.created_at, 'first terminal admission created_at');
+  assert(firstTerminalAdmittedAt === liveFirstAdmission.updated_at && liveFirstAdmission.body_sha256 === P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT_SHA256, 'First terminal admission was edited or drifted');
+
+  const failedPr = object(failedAttempt.pr, 'terminal_recovery_chain.attempts[0].pr');
+  assert(failedPr.number === P0_R08_FAILED_TERMINAL_PR && failedPr.url === 'https://github.com/Samsen879/ao-pilot/pull/72', 'Failed recovery attempt is not PR #72');
+  assert(sha(failedPr.head_sha, 'failed terminal PR head_sha') === P0_R08_FAILED_TERMINAL_HEAD, 'Failed PR #72 head mismatch');
+  assert(failedPr.reviewed_head === failedPr.head_sha, 'Failed PR #72 final reviewed head mismatch');
+  assert(sha(failedPr.merge_sha, 'failed terminal PR merge_sha') === P0_R08_TERMINAL_ADMITTED_MAIN && sha(failedPr.merge_tree_sha, 'failed terminal PR merge_tree_sha') === P0_R08_TERMINAL_ADMITTED_TREE, 'Failed PR #72 outcome is not the standing baseline');
+  assert(failedPr.merged_at === '2026-08-02T14:15:52Z', 'Failed PR #72 merge timestamp mismatch');
+  const liveFailedPr = object(github.failed_terminal_pr, 'GitHub failed terminal PR #72');
+  assert(liveFailedPr.number === P0_R08_FAILED_TERMINAL_PR && liveFailedPr.merged === true && liveFailedPr.base_ref === 'main', 'PR #72 is not the immutable merged failed attempt');
+  assert(liveFailedPr.head_sha === failedPr.head_sha && liveFailedPr.merge_sha === failedPr.merge_sha && liveFailedPr.merge_tree_sha === failedPr.merge_tree_sha && liveFailedPr.merged_at === failedPr.merged_at, 'Live PR #72 outcome drifted from the recovery chain');
+  const failedReviews = verifyCompletedCodexReviews(failedPr.codex_reviews, github.failed_terminal_codex_reviews);
+  assert(failedReviews.length === 2, 'Failed PR #72 must preserve both completed review attempts');
+  assert(failedReviews[0].kind === 'clean_comment' && failedReviews[0].evidence_id === 5158396828 && failedReviews[0].request_comment_id === 5158376025 && failedReviews[0].head_sha === '0724ab9882846314e39845292ab86ef4aefb3c2b', 'Failed PR #72 Review 1 evidence mismatch');
+  assert(failedReviews[1].kind === 'clean_comment' && failedReviews[1].evidence_id === 5158456834 && failedReviews[1].request_comment_id === 5158426324 && failedReviews[1].head_sha === P0_R08_FAILED_TERMINAL_HEAD, 'Failed PR #72 Review 2 evidence mismatch');
+  for (const review of failedReviews) assert(Date.parse(review.completed_at) <= Date.parse(failedPr.merged_at), `Failed PR #72 review ${review.attempt} completed after merge`);
+
+  const failure = object(failedAttempt.failure, 'terminal_recovery_chain.attempts[0].failure');
+  assert(failure.disposition_comment_id === P0_R08_FAILED_TERMINAL_DISPOSITION_COMMENT && failure.disposition_comment_body_sha256 === P0_R08_FAILED_TERMINAL_DISPOSITION_SHA256, 'PR #72 fail-closed disposition mismatch');
+  assert(failure.disposition_created_at === '2026-08-02T14:29:13Z' && failure.disposition_updated_at === failure.disposition_created_at, 'PR #72 disposition timestamp/edit state mismatch');
+  assert(failure.collector_review_2_recognized === false && failure.premerge_worktree_evidence_published === false && failure.terminal_receipt_published === false, 'PR #72 failure gates were rewritten as satisfied');
+  assert(JSON.stringify(failure.reason_codes) === JSON.stringify(['review_2_clean_comment_unrecognized', 'premerge_worktree_evidence_missing']), 'PR #72 failure reasons are incomplete or unordered');
+  const liveFailure = object(github.failed_terminal_disposition, 'GitHub PR #72 fail-closed disposition');
+  assert(liveFailure.comment_id === failure.disposition_comment_id && liveFailure.issue_number === 63 && liveFailure.author === 'Samsen879' && liveFailure.author_association === 'OWNER', 'PR #72 fail-closed disposition identity mismatch');
+  assert(liveFailure.created_at === failure.disposition_created_at && liveFailure.updated_at === failure.disposition_updated_at && liveFailure.body_sha256 === failure.disposition_comment_body_sha256, 'PR #72 fail-closed disposition was edited or drifted');
+
+  const activeAttempt = object(recoveryChain.attempts[1], 'terminal_recovery_chain.attempts[1]');
+  assert(activeAttempt.attempt === 2 && activeAttempt.kind === 'terminal_recovery_delivery' && activeAttempt.disposition === (preMerge ? 'pending' : 'passed'), 'Current recovery delivery has the wrong ordered attempt/disposition');
+  assert(activeAttempt.predecessor_pr_number === P0_R08_FAILED_TERMINAL_PR, 'Current recovery delivery does not follow failed PR #72');
+  assert(activeAttempt.admission_comment_id === P0_R08_TERMINAL_ADMISSION_COMMENT, 'Current recovery delivery is not bound to standing admission');
 
   const runtime = object(value.runtime, 'runtime');
   assert(runtime.runtime_ref === runtimeLock.runtime_ref, 'Runtime ref does not match the committed lock');
@@ -310,7 +396,7 @@ export function verifySelfHostingReceipt(receipt, {
     const createdAt = timestamp(item.created_at, `issue-linked PR #${item.number} created_at`);
     return item.number !== P0_R08_RETRY_ADMISSION_PR
       && Date.parse(createdAt) >= Date.parse(retryAdmittedAt)
-      && Date.parse(createdAt) < Date.parse(terminalAdmittedAt);
+      && Date.parse(createdAt) < Date.parse(firstTerminalAdmittedAt);
   });
   assert(postAdmissionLinkedPrs.length === 1, 'Issue #63 must have exactly one post-admission retry principal PR');
   assert(postAdmissionLinkedPrs[0].number === principalPr.number, 'Receipt principal PR is not the sole post-admission issue-linked retry PR');
@@ -391,7 +477,7 @@ export function verifySelfHostingReceipt(receipt, {
   assert(sha(replay.main_sha, 'exact_main_replay.main_sha') === mergeSha, 'Exact-main replay is not bound to the merge SHA');
   const replayTree = sha(replay.tree_sha, 'exact_main_replay.tree_sha');
   assert(livePrincipalPr.merge_tree_sha === replayTree, 'Principal exact-main replay tree does not match GitHub merge tree');
-  assert(mergeSha === P0_R08_TERMINAL_ADMITTED_MAIN && replayTree === P0_R08_TERMINAL_ADMITTED_TREE, 'Principal PR #71 merge SHA/tree does not equal the terminal-remediation admission baseline');
+  assert(mergeSha === P0_R08_FIRST_TERMINAL_ADMITTED_MAIN && replayTree === P0_R08_FIRST_TERMINAL_ADMITTED_TREE, 'Principal PR #71 merge SHA/tree does not equal the immutable v2 proof baseline');
 
   const cleanup = object(value.cleanup, 'cleanup');
   const doneEvidenceCommentId = Number(cleanup.orchestrator_done_evidence_comment_id);
@@ -468,32 +554,48 @@ export function verifySelfHostingReceipt(receipt, {
   truth(terminalDelivery.orchestrator_observed_ci, 'terminal_remediation.delivery.orchestrator_observed_ci');
   truth(terminalDelivery.orchestrator_observed_codex_review, 'terminal_remediation.delivery.orchestrator_observed_codex_review');
   truth(terminalDelivery.review_repairs_same_worker_pr, 'terminal_remediation.delivery.review_repairs_same_worker_pr');
-  truth(terminalDelivery.github_merge_outcome_confirmed, 'terminal_remediation.delivery.github_merge_outcome_confirmed');
+  if (preMerge) falsehood(terminalDelivery.github_merge_outcome_confirmed, 'terminal_remediation.delivery.github_merge_outcome_confirmed');
+  else truth(terminalDelivery.github_merge_outcome_confirmed, 'terminal_remediation.delivery.github_merge_outcome_confirmed');
   const remediationPr = object(terminalDelivery.remediation_pr, 'terminal_remediation.delivery.remediation_pr');
-  assert(Number.isInteger(remediationPr.number) && ![70, P0_R08_PRINCIPAL_PR].includes(remediationPr.number), 'Terminal remediation must use one additional non-principal PR');
+  assert(Number.isInteger(remediationPr.number) && ![70, P0_R08_PRINCIPAL_PR, P0_R08_FAILED_TERMINAL_PR].includes(remediationPr.number), 'Terminal recovery must use one new non-principal PR after failed PR #72');
+  assert(activeAttempt.pr_number === remediationPr.number, 'Recovery-chain attempt 2 PR does not match the terminal delivery');
   assert(remediationPr.url === `https://github.com/Samsen879/ao-pilot/pull/${remediationPr.number}`, 'Invalid terminal-remediation PR URL');
   const liveRemediationPr = object(github.terminal_remediation_pr, 'GitHub terminal-remediation PR');
   assert(liveRemediationPr.number === remediationPr.number, 'Terminal-remediation PR number does not match GitHub');
   assert(liveRemediationPr.head_ref === terminalBranch && liveRemediationPr.base_ref === 'main', 'Terminal-remediation PR branch/base mismatch');
   assert(liveRemediationPr.linked_issue_63 === true, 'Terminal-remediation PR is not linked to issue #63');
-  assert(liveRemediationPr.binds_terminal_admission === true, 'Terminal-remediation PR does not bind admission comment 5158225894');
+  assert(liveRemediationPr.binds_terminal_admission === true, 'Terminal-recovery PR does not bind standing admission comment 5158510418');
   assert(liveRemediationPr.binds_principal_pr_71 === true, 'Terminal-remediation PR does not preserve principal PR #71');
+  assert(liveRemediationPr.binds_failed_terminal_pr_72 === true, 'Terminal-recovery PR does not bind failed chain attempt PR #72');
   assert(liveRemediationPr.auto_closes_issue_63 === false, 'Terminal-remediation PR must not auto-close issue #63');
   assert(Date.parse(timestamp(liveRemediationPr.created_at, 'terminal-remediation PR created_at')) >= Date.parse(terminalAdmittedAt), 'Terminal-remediation PR predates admission');
   const terminalFinalHead = sha(remediationPr.head_sha, 'terminal_remediation.delivery.remediation_pr.head_sha');
   assert(liveRemediationPr.head_sha === terminalFinalHead, 'Terminal-remediation PR final HEAD mismatch');
   const terminalLinkedPrs = github.issue_linked_prs.filter((linkedPr) => Date.parse(timestamp(linkedPr.created_at, `issue-linked PR #${linkedPr.number} created_at`)) >= Date.parse(terminalAdmittedAt));
   assert(terminalLinkedPrs.length === 1 && terminalLinkedPrs[0].number === remediationPr.number, 'Issue #63 must have exactly one admitted terminal-remediation PR and no extra linked deliveries');
+  const terminalRecoveryLinkedPrs = github.issue_linked_prs.filter((linkedPr) => Date.parse(timestamp(linkedPr.created_at, `issue-linked PR #${linkedPr.number} created_at`)) >= Date.parse(firstTerminalAdmittedAt));
+  assert(JSON.stringify(terminalRecoveryLinkedPrs.map((linkedPr) => linkedPr.number)) === JSON.stringify([P0_R08_FAILED_TERMINAL_PR, remediationPr.number]), 'Issue #63 terminal recovery deliveries must be exactly ordered PR #72 then the active recovery PR');
+  assert(Date.parse(terminalRecoveryLinkedPrs[0].created_at) < Date.parse(terminalAdmittedAt), 'Failed PR #72 is not isolated to the first terminal-admission layer');
   assert(remediationPr.ci_conclusion === 'success', 'Terminal-remediation PR CI is not green');
   assert(Array.isArray(github.terminal_check_runs), 'Live terminal-remediation CI evidence is unavailable');
   for (const checkName of REQUIRED_CI_CHECKS) assert(github.terminal_check_runs.some((check) => check.name === checkName && check.conclusion === 'success'), `Terminal-remediation required CI is not green: ${checkName}`);
   const terminalReviews = verifyCompletedCodexReviews(remediationPr.codex_reviews, github.terminal_codex_reviews);
+  assert(Array.isArray(github.terminal_review_findings), 'Live terminal-remediation review finding evidence is unavailable');
+  assert(Array.isArray(remediationPr.finding_dispositions), 'Terminal-remediation finding dispositions are unavailable');
+  assert(remediationPr.finding_dispositions.length === github.terminal_review_findings.length, 'Terminal-remediation finding disposition evidence is incomplete');
+  assert(new Set(remediationPr.finding_dispositions.map((item) => item.comment_id)).size === remediationPr.finding_dispositions.length, 'Duplicate terminal-remediation finding disposition');
+  for (const disposition of remediationPr.finding_dispositions) {
+    const liveFinding = github.terminal_review_findings.find((finding) => finding.comment_id === disposition.comment_id && finding.review_id === disposition.review_id);
+    assert(liveFinding?.resolved === true, `Terminal-remediation finding is unresolved or missing: ${disposition.comment_id}`);
+    assert(disposition.disposition === 'fixed' && disposition.resolved === true, `Terminal-remediation finding lacks a fixed/resolved disposition: ${disposition.comment_id}`);
+    assert(terminalReviews.some((review) => review.evidence_id === disposition.review_id), `Terminal-remediation finding is not bound to a completed review: ${disposition.comment_id}`);
+  }
   const terminalReviewedHead = sha(remediationPr.reviewed_head, 'terminal_remediation.delivery.remediation_pr.reviewed_head');
   assert(terminalReviews.at(-1).head_sha === terminalReviewedHead, 'Terminal-remediation reviewed HEAD mismatch');
   if (terminalFinalHead !== terminalReviewedHead) {
     const terminalRepair = object(remediationPr.post_review_2_repair, 'terminal_remediation.delivery.remediation_pr.post_review_2_repair');
     assert(terminalReviews.length === 2 && terminalReviews.at(-1).kind === 'submitted_review', 'Unreviewed terminal-remediation final HEAD is allowed only after Review 2 findings');
-    assert(terminalRepair.authorization_ref === 'https://github.com/Samsen879/ao-pilot/issues/63#issuecomment-5158225894', 'Terminal-remediation post-Review-2 repair lacks exact Owner authorization');
+    assert(terminalRepair.authorization_ref === 'https://github.com/Samsen879/ao-pilot/issues/63#issuecomment-5158510418', 'Terminal-recovery post-Review-2 repair lacks exact standing Owner authorization');
     assert(sha(terminalRepair.final_head_sha, 'terminal-remediation post_review_2_repair.final_head_sha') === terminalFinalHead, 'Terminal-remediation post-Review-2 repair does not bind final HEAD');
     assert(Array.isArray(terminalRepair.finding_comment_ids) && terminalRepair.finding_comment_ids.length > 0, 'Terminal-remediation post-Review-2 repair has no finding IDs');
     assert(Array.isArray(github.terminal_review_findings), 'Live terminal-remediation review finding evidence is unavailable');
@@ -503,33 +605,138 @@ export function verifySelfHostingReceipt(receipt, {
       const liveFinding = terminalFindings.find((finding) => finding.comment_id === findingId);
       assert(liveFinding?.resolved === true, `Terminal-remediation Review 2 finding is unresolved or missing: ${findingId}`);
     }
+    assert(repository.terminal_reviewed_head_is_ancestor === true && repository.terminal_reviewed_head_merge_base_sha === terminalReviewedHead, 'Post-Review-2 repaired final HEAD does not descend from the reviewed HEAD');
   } else {
     assert(remediationPr.post_review_2_repair == null, 'Unexpected terminal-remediation post-Review-2 repair claim');
   }
-  truth(remediationPr.merged, 'terminal_remediation.delivery.remediation_pr.merged');
-  assert(liveRemediationPr.merged === true, 'Terminal-remediation PR is not merged on GitHub');
-  const terminalMergeSha = sha(remediationPr.merge_sha, 'terminal_remediation.delivery.remediation_pr.merge_sha');
-  const terminalMergeTree = sha(remediationPr.merge_tree_sha, 'terminal_remediation.delivery.remediation_pr.merge_tree_sha');
-  assert(liveRemediationPr.merge_sha === terminalMergeSha && liveRemediationPr.merge_tree_sha === terminalMergeTree, 'Terminal-remediation merge SHA/tree mismatch');
-  const terminalMergedAt = timestamp(liveRemediationPr.merged_at, 'terminal-remediation PR merged_at');
-  for (const review of terminalReviews) assert(Date.parse(review.completed_at) <= Date.parse(terminalMergedAt), `Terminal-remediation Codex Review attempt ${review.attempt} completed after merge`);
+  let terminalMergeSha = null;
+  let terminalMergeTree = null;
+  let terminalMergedAt = null;
+  if (preMerge) {
+    falsehood(remediationPr.merged, 'terminal_remediation.delivery.remediation_pr.merged');
+    assert(remediationPr.merge_sha == null && remediationPr.merge_tree_sha == null, 'Pre-merge receipt must not claim a merge SHA/tree');
+    assert(liveRemediationPr.merged === false && liveRemediationPr.merge_sha == null && liveRemediationPr.merge_tree_sha == null && liveRemediationPr.merged_at == null, 'Live recovery PR already has a merge outcome during pre-merge verification');
+    assert(repository.current_main_sha === terminalFinalHead && repository.current_main_tree_sha === repository.terminal_worker_tree_sha, 'Pre-merge release check did not run on the exact recovery PR final HEAD/tree');
+  } else {
+    truth(remediationPr.merged, 'terminal_remediation.delivery.remediation_pr.merged');
+    assert(liveRemediationPr.merged === true, 'Terminal-remediation PR is not merged on GitHub');
+    terminalMergeSha = sha(remediationPr.merge_sha, 'terminal_remediation.delivery.remediation_pr.merge_sha');
+    terminalMergeTree = sha(remediationPr.merge_tree_sha, 'terminal_remediation.delivery.remediation_pr.merge_tree_sha');
+    assert(liveRemediationPr.merge_sha === terminalMergeSha && liveRemediationPr.merge_tree_sha === terminalMergeTree, 'Terminal-remediation merge SHA/tree mismatch');
+    terminalMergedAt = timestamp(liveRemediationPr.merged_at, 'terminal-remediation PR merged_at');
+    for (const review of terminalReviews) assert(Date.parse(review.completed_at) <= Date.parse(terminalMergedAt), `Terminal-remediation Codex Review attempt ${review.attempt} completed after merge`);
+  }
 
   const terminalWorktreeCapture = object(github.terminal_worktree_capture, 'GitHub terminal-remediation worktree capture');
-  assert(terminalWorktreeCapture.comment_id === terminalWorktreeCommentId && terminalWorktreeCapture.issue_number === 63 && terminalWorktreeCapture.author === 'Samsen879', 'Terminal-remediation worktree evidence identity mismatch');
+  assert(terminalWorktreeCapture.comment_id === terminalWorktreeCommentId && terminalWorktreeCapture.issue_number === 63 && terminalWorktreeCapture.author === 'Samsen879' && terminalWorktreeCapture.author_association === 'OWNER', 'Terminal-remediation worktree evidence identity mismatch');
   const terminalWorktreePublishedAt = timestamp(terminalWorktreeCapture.created_at, 'terminal-remediation worktree evidence created_at');
   assert(terminalWorktreeCapture.updated_at === terminalWorktreePublishedAt, 'Terminal-remediation worktree evidence was edited');
   const terminalCaptured = object(terminalWorktreeCapture.payload, 'terminal-remediation worktree payload');
   assert(terminalCaptured.schema_version === TERMINAL_WORKTREE_EVIDENCE_SCHEMA_VERSION && terminalCaptured.issue_number === 63, 'Unsupported terminal-remediation worktree evidence');
   const terminalCapturedAt = timestamp(terminalCaptured.captured_at, 'terminal-remediation worktree captured_at');
-  assert(Date.parse(terminalCapturedAt) >= Date.parse(terminalAdmittedAt) && Date.parse(terminalCapturedAt) <= Date.parse(terminalWorktreePublishedAt) && Date.parse(terminalWorktreePublishedAt) <= Date.parse(terminalMergedAt), 'Terminal-remediation worktree evidence is outside the admitted pre-merge window');
+  assert(Date.parse(terminalCapturedAt) >= Date.parse(terminalAdmittedAt) && Date.parse(terminalCapturedAt) <= Date.parse(terminalWorktreePublishedAt), 'Terminal-remediation worktree evidence is outside the admitted publication window');
+  if (!preMerge) assert(Date.parse(terminalWorktreePublishedAt) <= Date.parse(terminalMergedAt), 'Terminal-remediation worktree evidence was published after merge');
   assert(terminalCaptured.source.clone_path === terminalClonePath && terminalCaptured.source.head_sha === terminalSourceHead && terminalCaptured.source.tree_sha === terminalSourceTree, 'Terminal-remediation captured source mismatch');
   assert(terminalCaptured.isolation.remediation_root === terminalRoot && terminalCaptured.isolation.ao_data_dir === terminalAoDataDir && terminalCaptured.isolation.ao_run_file === terminalAoRunFile, 'Terminal-remediation captured isolation mismatch');
+  assert(terminalCaptured.recovery_chain?.standing_admission_comment_id === P0_R08_TERMINAL_ADMISSION_COMMENT && terminalCaptured.recovery_chain?.attempt === 2 && terminalCaptured.recovery_chain?.prior_attempt_pr_number === P0_R08_FAILED_TERMINAL_PR, 'Terminal worktree evidence is not bound to ordered standing recovery attempt 2');
+  assert(terminalCaptured.recovery_chain?.admitted_main_sha === P0_R08_TERMINAL_ADMITTED_MAIN && terminalCaptured.recovery_chain?.admitted_tree_sha === P0_R08_TERMINAL_ADMITTED_TREE, 'Terminal worktree evidence standing baseline mismatch');
   assert(terminalCaptured.worker.session_id === terminalWorkerSessionId && terminalCaptured.worker.worktree_path === terminalWorkerPath && terminalCaptured.worker.branch === terminalBranch && terminalCaptured.worker.head_sha === terminalFinalHead, 'Terminal-remediation captured Worker mismatch');
+  assert(terminalCaptured.worker.tree_sha === repository.terminal_worker_tree_sha, 'Terminal-remediation captured Worker tree mismatch');
+  assert(terminalCaptured.git_relationship?.source_is_ancestor === true, 'Captured source is not an ancestor of the recovery Worker');
+  assert(terminalCaptured.git_relationship?.merge_base_sha === terminalSourceHead, 'Captured recovery Worker merge base is not the standing baseline');
+  assert(terminalCaptured.git_relationship?.branch_creation_sha === terminalSourceHead, 'Captured recovery Worker branch was not created at the standing baseline');
+  const terminalBranchCreatedAt = timestamp(terminalCaptured.git_relationship?.branch_creation_at, 'terminal-remediation Worker branch creation timestamp');
+  assert(terminalCaptured.git_relationship?.branch_creation_subject?.startsWith('branch: Created from '), 'Captured recovery Worker lacks a branch-creation reflog event');
+  assert(terminalCaptured.git_relationship?.worker_session_created_at === terminalBranchCreatedAt || Math.abs(Date.parse(terminalCaptured.git_relationship?.worker_session_created_at) - Date.parse(terminalBranchCreatedAt)) < 2_000, 'Captured Worker branch creation is not bound to AO Worker session creation');
+  assert(repository.terminal_source_is_ancestor === true && repository.terminal_merge_base_sha === terminalSourceHead, 'Live Git history does not confirm the captured recovery fork relationship');
+  if (preMerge) assert(repository.terminal_branch_creation_sha === terminalSourceHead && repository.terminal_branch_creation_at === terminalBranchCreatedAt, 'Live Worker branch-creation evidence drifted from the published capture');
+  assert(activeAttempt.worktree_evidence_comment_id === terminalWorktreeCommentId, 'Recovery-chain attempt 2 does not bind the terminal worktree evidence');
   const terminalSourceGitCommonDir = canonicalAbsolutePath(terminalCaptured.source.git_common_dir, 'terminal-remediation captured source git_common_dir');
   const terminalWorkerGitCommonDir = canonicalAbsolutePath(terminalCaptured.worker.git_common_dir, 'terminal-remediation captured Worker git_common_dir');
   assertPathResolvesWithin(terminalRoot, terminalSourceGitCommonDir, 'Terminal-remediation captured source git common directory');
   assertPathResolvesWithin(terminalRoot, terminalWorkerGitCommonDir, 'Terminal-remediation captured Worker git common directory');
   assert(terminalWorkerGitCommonDir === terminalSourceGitCommonDir && terminalCaptured.worker.worktree_path !== terminalCaptured.source.clone_path, 'Terminal-remediation Worker is not an independent worktree of the admitted clone');
+
+  const orchestratorProvenance = object(terminalCaptured.orchestrator_provenance, 'terminal-remediation Orchestrator worktree provenance');
+  assert(orchestratorProvenance.schema_version === 'ao.workstation-orchestrator-worktree-provenance.v2', 'Unsupported worktree Orchestrator provenance');
+  assert(orchestratorProvenance.session_id === terminalOrchestratorSessionId && orchestratorProvenance.worker_session_id === terminalWorkerSessionId, 'Worktree evidence session provenance mismatch');
+  assert(orchestratorProvenance.project_id === 'ao-pilot-remediation' && orchestratorProvenance.issue_number === 63 && orchestratorProvenance.kind === 'orchestrator', 'Worktree evidence was not captured by the issue #63 Orchestrator');
+  assert(orchestratorProvenance.activity_state === 'active' && orchestratorProvenance.is_terminated === false, 'Worktree evidence Orchestrator was not active');
+  string(orchestratorProvenance.runtime_launch_id, 'terminal-remediation Orchestrator runtime_launch_id');
+  assert(orchestratorProvenance.runtime_binary_path === P0_R08_TERMINAL_RUNTIME_BINARY && orchestratorProvenance.runtime_binary_sha256 === P0_R08_TERMINAL_RUNTIME_BINARY_SHA256, 'Worktree evidence used unverified Orchestrator runtime provenance');
+  assert(JSON.stringify(orchestratorProvenance.session_get?.args) === JSON.stringify(['session', 'get', terminalOrchestratorSessionId, '--json']), 'Worktree evidence did not query the exact Orchestrator session');
+  assert(JSON.stringify(orchestratorProvenance.session_get?.worker_args) === JSON.stringify(['session', 'get', terminalWorkerSessionId, '--json']), 'Worktree evidence did not query the exact Worker session');
+  assert(orchestratorProvenance.operation?.capture === true && orchestratorProvenance.operation?.publish_issue_comment === true && orchestratorProvenance.operation?.read_back_exact_body === true, 'Worktree evidence lacks complete Orchestrator operation provenance');
+  const worktreeProcessBinding = verifySupervisorProcessBinding(orchestratorProvenance.process_binding, {
+    sessionId: terminalOrchestratorSessionId,
+    runtimeLaunchId: orchestratorProvenance.runtime_launch_id,
+  }, 'terminal-remediation worktree Orchestrator process binding');
+
+  const worktreePublication = object(terminalDelivery.worktree_evidence_publication, 'terminal_remediation.delivery.worktree_evidence_publication');
+  assert(worktreePublication.schema_version === 'ao.workstation-orchestrator-worktree-publication.v2', 'Unsupported worktree publication receipt');
+  assert(worktreePublication.comment_id === terminalWorktreeCommentId && worktreePublication.orchestrator_session_id === terminalOrchestratorSessionId, 'Worktree publication receipt identity mismatch');
+  assert(worktreePublication.payload_bytes === terminalWorktreeCapture.body_bytes && worktreePublication.payload_sha256 === terminalWorktreeCapture.body_sha256, 'Worktree publication receipt payload digest/length mismatch');
+  assert(worktreePublication.published_at === terminalWorktreePublishedAt && Date.parse(timestamp(worktreePublication.read_back_at, 'worktree evidence read_back_at')) >= Date.parse(terminalWorktreePublishedAt), 'Worktree publication/readback timestamps mismatch');
+  truth(worktreePublication.exact_body_read_back, 'terminal_remediation.delivery.worktree_evidence_publication.exact_body_read_back');
+  assert(worktreePublication.runtime_binary_path === P0_R08_TERMINAL_RUNTIME_BINARY && worktreePublication.runtime_binary_sha256 === P0_R08_TERMINAL_RUNTIME_BINARY_SHA256, 'Worktree publication receipt runtime provenance mismatch');
+  assert(JSON.stringify(worktreePublication.process_binding) === JSON.stringify(worktreeProcessBinding), 'Worktree publication process binding differs from captured Orchestrator provenance');
+
+  if (preMerge) {
+    assert(terminal.premerge_verification == null, 'Pending receipt must not claim pre-merge evidence before the staged verifier emits it');
+    const pendingReplay = object(terminal.exact_main_replay, 'terminal_remediation.exact_main_replay');
+    falsehood(pendingReplay.passed, 'terminal_remediation.exact_main_replay.passed');
+    falsehood(pendingReplay.release_check_passed, 'terminal_remediation.exact_main_replay.release_check_passed');
+    assert(pendingReplay.main_sha == null && pendingReplay.tree_sha == null, 'Pre-merge receipt must not claim exact-main replay SHA/tree');
+    const pendingCleanup = object(terminal.cleanup, 'terminal_remediation.cleanup');
+    falsehood(pendingCleanup.orchestrator_done, 'terminal_remediation.cleanup.orchestrator_done');
+    assert(pendingCleanup.orchestrator_done_evidence_comment_id === 0, 'Pre-merge receipt must not claim Orchestrator-done evidence');
+    falsehood(pendingCleanup.orchestrator_session_stopped, 'terminal_remediation.cleanup.orchestrator_session_stopped');
+    falsehood(pendingCleanup.worker_session_stopped, 'terminal_remediation.cleanup.worker_session_stopped');
+    falsehood(pendingCleanup.worker_worktree_removed, 'terminal_remediation.cleanup.worker_worktree_removed');
+    falsehood(pendingCleanup.stale_ownership_absent, 'terminal_remediation.cleanup.stale_ownership_absent');
+    const pendingClaim = object(value.claim, 'claim');
+    falsehood(pendingClaim.workstation_self_hosting, 'claim.workstation_self_hosting');
+    falsehood(pendingClaim.p0_r08_satisfied, 'claim.p0_r08_satisfied');
+    assert(publicationEvidence == null && requirePublication === false, 'Pre-merge verification cannot accept terminal receipt publication evidence');
+    return {
+      status: 'premerge_verified',
+      schema_version: value.schema_version,
+      issue_number: delivery.issue_number,
+      principal_pr: principalPr.number,
+      terminal_recovery_pr: remediationPr.number,
+      terminal_reviewed_head: remediationPr.reviewed_head,
+      terminal_review_count: terminalReviews.length,
+      worktree_evidence_comment: terminalWorktreeCommentId,
+      orchestrator_session_id: terminalOrchestratorSessionId,
+    };
+  }
+
+  const premergeVerification = object(terminal.premerge_verification, 'terminal_remediation.premerge_verification');
+  const premergeEvidenceCommentId = Number(premergeVerification.evidence_comment_id);
+  assert(Number.isSafeInteger(premergeEvidenceCommentId) && premergeEvidenceCommentId > 0, 'Invalid immutable pre-merge evidence comment ID');
+  const premergeCapture = object(github.terminal_premerge_capture, 'GitHub terminal-remediation pre-merge evidence');
+  assert(premergeCapture.comment_id === premergeEvidenceCommentId && premergeCapture.issue_number === 63 && premergeCapture.author === 'Samsen879' && premergeCapture.author_association === 'OWNER', 'Immutable pre-merge evidence identity mismatch');
+  const premergePublishedAt = timestamp(premergeCapture.created_at, 'pre-merge evidence created_at');
+  assert(premergeCapture.updated_at === premergePublishedAt && Date.parse(premergePublishedAt) <= Date.parse(terminalMergedAt), 'Pre-merge evidence was edited or published after merge');
+  const preflight = object(premergeCapture.payload, 'pre-merge evidence payload');
+  assert(preflight.schema_version === PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION && preflight.issue_number === 63 && preflight.status === 'premerge_verified', 'Unsupported or unsuccessful immutable pre-merge evidence');
+  const preflightVerifiedAt = timestamp(preflight.verified_at, 'pre-merge verified_at');
+  assert(Date.parse(preflightVerifiedAt) >= Date.parse(terminalWorktreePublishedAt) && Date.parse(preflightVerifiedAt) <= Date.parse(premergePublishedAt), 'Pre-merge verification timestamp is outside its immutable publication window');
+  assert(preflight.standing_admission_comment_id === P0_R08_TERMINAL_ADMISSION_COMMENT && preflight.recovery_attempt === 2, 'Pre-merge evidence is outside the standing recovery chain');
+  assert(preflight.remediation_pr?.number === remediationPr.number && preflight.remediation_pr?.head_sha === terminalFinalHead && preflight.remediation_pr?.tree_sha === repository.terminal_worker_tree_sha && preflight.remediation_pr?.reviewed_head === terminalReviewedHead, 'Pre-merge evidence does not bind the final PR head/tree/reviewed head');
+  assert(JSON.stringify(preflight.remediation_pr?.review_evidence_ids) === JSON.stringify(remediationPr.codex_reviews.map((review) => review.evidence_id)), 'Pre-merge review evidence IDs drifted');
+  assert(JSON.stringify(preflight.remediation_pr?.resolved_finding_comment_ids) === JSON.stringify(remediationPr.finding_dispositions.map((finding) => finding.comment_id)), 'Pre-merge resolved finding IDs drifted');
+  assert(preflight.release_check?.command === 'npm run release:check' && preflight.release_check?.checkout_head_sha === terminalFinalHead && preflight.release_check?.checkout_tree_sha === repository.terminal_worker_tree_sha && preflight.release_check?.passed === true, 'Pre-merge evidence does not prove release:check on the exact final checkout');
+  assert(preflight.git_relationship?.reviewed_head_is_ancestor === true && preflight.git_relationship?.reviewed_head_merge_base_sha === terminalReviewedHead, 'Pre-merge evidence does not preserve reviewed-head ancestry');
+  assert(preflight.git_relationship?.source_is_ancestor === true && preflight.git_relationship?.source_merge_base_sha === terminalSourceHead && preflight.git_relationship?.branch_creation_sha === terminalSourceHead && preflight.git_relationship?.branch_creation_at === terminalBranchCreatedAt, 'Pre-merge evidence does not preserve the admitted Worker creation relationship');
+  assert(preflight.worktree_evidence?.comment_id === terminalWorktreeCommentId && preflight.worktree_evidence?.published_at === terminalWorktreePublishedAt && preflight.worktree_evidence?.payload_bytes === terminalWorktreeCapture.body_bytes && preflight.worktree_evidence?.payload_sha256 === terminalWorktreeCapture.body_sha256, 'Pre-merge evidence worktree publication identity mismatch');
+  assert(JSON.stringify(preflight.orchestrator_provenance) === JSON.stringify(orchestratorProvenance), 'Pre-merge evidence Orchestrator provenance differs from worktree evidence');
+  const premergePublication = object(premergeVerification.publication, 'terminal_remediation.premerge_verification.publication');
+  assert(premergePublication.schema_version === PREMERGE_VERIFICATION_PUBLICATION_SCHEMA_VERSION && premergePublication.comment_id === premergeEvidenceCommentId && premergePublication.orchestrator_session_id === terminalOrchestratorSessionId, 'Pre-merge publication receipt identity mismatch');
+  assert(premergePublication.payload_bytes === premergeCapture.body_bytes && premergePublication.payload_sha256 === premergeCapture.body_sha256 && premergePublication.published_at === premergePublishedAt, 'Pre-merge publication payload/timestamp mismatch');
+  assert(Date.parse(timestamp(premergePublication.read_back_at, 'pre-merge evidence read_back_at')) >= Date.parse(premergePublishedAt) && premergePublication.exact_body_read_back === true, 'Pre-merge publication lacks exact post-publication readback');
+  assert(premergePublication.runtime_binary_path === P0_R08_TERMINAL_RUNTIME_BINARY && premergePublication.runtime_binary_sha256 === P0_R08_TERMINAL_RUNTIME_BINARY_SHA256, 'Pre-merge publication runtime provenance mismatch');
+  assert(JSON.stringify(premergePublication.process_binding) === JSON.stringify(worktreeProcessBinding), 'Pre-merge publication did not run under the same AO Orchestrator supervisor');
 
   const terminalReplay = object(terminal.exact_main_replay, 'terminal_remediation.exact_main_replay');
   truth(terminalReplay.passed, 'terminal_remediation.exact_main_replay.passed');

@@ -50,7 +50,7 @@ export function cleanCodexReviewCommentEvidence(comments, requests) {
       && comment.created_at === comment.updated_at
     ))
     .map((comment) => {
-      const match = (comment.body ?? '').match(/^Codex Review: Didn't find any major issues\. :\+1:\s*\n\n\*\*Reviewed commit:\*\* `([0-9a-f]{10,40})`(?:\s|$)/i);
+      const match = (comment.body ?? '').match(/^Codex Review: Didn't find any major issues\. (?::\+1:|You're on a roll\.)\s*\n\n\*\*Reviewed commit:\*\* `([0-9a-f]{10,40})`(?:\s|$)/i);
       if (match == null) return null;
       const abbreviatedHead = match[1].toLowerCase();
       const matchingRequests = requests.filter((request) => (
