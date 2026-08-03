@@ -49,6 +49,7 @@ export function inspectAoSupervisorProcess({
   runtimeLaunchId,
   currentPid = process.pid,
   readProcess = processRecord,
+  executableDigest = (candidate) => sha256(fs.readFileSync(candidate)),
 }) {
   let pid = currentPid;
   for (let depth = 0; depth < 64 && pid > 1; depth += 1) {
@@ -66,7 +67,7 @@ export function inspectAoSupervisorProcess({
         supervisor_pid: candidate.pid,
         supervisor_process_start_token: candidate.startToken,
         supervisor_executable_path: candidate.executablePath,
-        supervisor_executable_sha256: sha256(fs.readFileSync(candidate.executablePath)),
+        supervisor_executable_sha256: executableDigest(candidate.executablePath),
         supervisor_command_sha256: sha256(candidate.rawCommandLine),
         session_id: orchestratorSessionId,
         runtime_launch_id: runtimeLaunchId,

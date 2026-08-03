@@ -1225,6 +1225,7 @@ describe('fresh-clone and protected self-hosting gates', () => {
       runtimeLaunchId: 'launch-or-terminal',
       currentPid: 30,
       readProcess: (pid) => records.get(pid),
+      executableDigest: () => P0_R08_TERMINAL_RUNTIME_BINARY_SHA256,
     })).toMatchObject({
       supervisor_pid: 20,
       supervisor_process_start_token: '987654',
