@@ -39,19 +39,15 @@ describe('runtime bootstrap toolchain lock', () => {
       'docs/runtime-portability/p0-r05-bootstrap-evidence.json',
       'utf8',
     ));
-    const runtime = JSON.parse(fs.readFileSync(
-      'runtime/agent-orchestrator.lock.json',
-      'utf8',
-    ));
     const toolchain = loadBootstrapToolchainLock();
     expect(evidence).toEqual(expect.objectContaining({
       schema_version: 'ao-pilot.p0-r05-bootstrap-evidence.v1',
       issue: 60,
       runtime: expect.objectContaining({
-        runtime_ref: runtime.runtime_ref,
-        tag_object_sha: runtime.artifact.ref.tag_object_sha,
-        commit_sha: runtime.artifact.ref.commit_sha,
-        tree_sha: runtime.artifact.ref.tree_sha,
+        runtime_ref: 'runtime.agent_orchestrator.v0_11_2_p0_1',
+        tag_object_sha: '06ba07935cbacb7ff304779a2c1060ce98778200',
+        commit_sha: '711178ebe07d436db36020eb08f0c4e29613f97b',
+        tree_sha: '479fba6fd44f251f0c66fafc5cb5d638a6ff590a',
       }),
       toolchain: expect.objectContaining({
         lock_digest: toolchain.digest,

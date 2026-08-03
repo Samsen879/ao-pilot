@@ -8,7 +8,7 @@ import {
 } from './premerge-verification-evidence.js';
 import { loadRuntimeLock } from './runtime-lock.js';
 
-export const SELF_HOSTING_RECEIPT_SCHEMA_VERSION = 'ao.workstation-self-hosting-receipt.v5';
+export const SELF_HOSTING_RECEIPT_SCHEMA_VERSION = 'ao.workstation-self-hosting-receipt.v6';
 export const P0_R08_RETRY_ADMISSION_PR = 70;
 export const P0_R08_RETRY_ADMISSION_ISSUE = 63;
 export const P0_R08_RETRY_ADMISSION_COMMENT = 5157524210;
@@ -21,8 +21,8 @@ export const P0_R08_RETRY_AO_RUN_FILE = `${P0_R08_RETRY_ROOT}/ao-state/running.j
 export const P0_R08_RETRY_RUNTIME_STORE = `${P0_R08_RETRY_ROOT}/runtime-store`;
 export const P0_R08_RETRY_RUNTIME_CACHE = `${P0_R08_RETRY_ROOT}/runtime-cache`;
 export const WORKTREE_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-worktree-evidence.v2';
-export const TERMINAL_WORKTREE_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-worktree-evidence.v5';
-export const TERMINAL_RECOVERY_CHAIN_SCHEMA_VERSION = 'ao.workstation-terminal-recovery-chain.v1';
+export const TERMINAL_WORKTREE_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-worktree-evidence.v6';
+export const TERMINAL_RECOVERY_CHAIN_SCHEMA_VERSION = 'ao.workstation-terminal-recovery-chain.v2';
 export const P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT = 5158225894;
 export const P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT_SHA256 = '24fbc151586ef2e841f2b5979ef14f05f387a71ef3b5aed9a554245704658a61';
 export const P0_R08_FIRST_TERMINAL_ADMITTED_MAIN = '6d3bf2879d76cd6ab304b0040f1be2c88c294e66';
@@ -37,11 +37,34 @@ export const P0_R08_TERMINAL_ADMISSION_COMMENT_BYTES = 3712;
 export const P0_R08_TERMINAL_ADMITTED_MAIN = '59cdf7c0ddfedfe4438eaeeff485146534fae287';
 export const P0_R08_TERMINAL_ADMITTED_TREE = '044f49e5fe8cbfe2382001436d1e060b9bbb0e07';
 export const P0_R08_PRINCIPAL_PR = 71;
+export const P0_R08_FAILED_MERGE_PATH_PR = 73;
+export const P0_R08_FAILED_MERGE_PATH_HEAD = 'd504a154f946da57284bf05b9788b5aa7e87a0ce';
+export const P0_R08_FAILED_MERGE_PATH_REVIEWED_HEAD = '338805cf4a53963d400cadc5556511616b95784d';
+export const P0_R08_FAILED_MERGE_PATH_DISPOSITION_COMMENT = 5163542954;
+export const P0_R08_FAILED_MERGE_PATH_DISPOSITION_BYTES = 3574;
+export const P0_R08_FAILED_MERGE_PATH_DISPOSITION_SHA256 = 'd8ff4994fba918ed8ecfb954ba1352da21661a405c5331f5f8422bdb8ce7be5c';
+export const P0_R08_ARCHITECTURAL_BLOCKER_COMMENT = 5163606282;
+export const P0_R08_ARCHITECTURAL_BLOCKER_BYTES = 2036;
+export const P0_R08_ARCHITECTURAL_BLOCKER_SHA256 = '0fb549f8ff0651a87fe83c1f1179605866a864b36adc7b62092655f3cf05f401';
+export const P0_R08_FINAL_ADMISSION_COMMENT = 5163994984;
+export const P0_R08_FINAL_ADMISSION_BYTES = 5406;
+export const P0_R08_FINAL_ADMISSION_SHA256 = '2005f4deceae2f69a9e332a040fb72664dbd2d0618cfa119ef7c00894599e1ca';
+export const P0_R08_FINAL_ADMITTED_MAIN = 'fe9bcd9eeba08453aeb003036a5dce76926314ff';
+export const P0_R08_FINAL_ADMITTED_TREE = 'a619bcc0fc57a7312b36368501ba54714eb2373e';
+export const P0_R08_FINAL_RECOVERY_PR = 74;
+export const P0_R08_RUNTIME_PR = 8;
+export const P0_R08_RUNTIME_REF = 'runtime.agent_orchestrator.v0_11_2_p0_2';
+export const P0_R08_RUNTIME_TAG = 'ao-pilot-runtime-v0.11.2-p0.2';
+export const P0_R08_RUNTIME_TAG_OBJECT = '450ae009e2c1eb48cdf9c19be676b4a4ff01e611';
+export const P0_R08_RUNTIME_COMMIT = 'aae8a684357271acc7ad2fa1d4116c7c65c8fa9d';
+export const P0_R08_RUNTIME_TREE = 'e8adb9a31068810becfb5d31b46688b04202cf81';
+export const P0_R08_RUNTIME_X64_SHA256 = 'ad7fd23c6a3f495e2d10b130cf23227c14e30573db5c2c01b68d8214c5965b4d';
+export const P0_R08_RUNTIME_ARM64_SHA256 = '972181d92085fb6772fd9a8edf688f68c290976eda67a282ba1ac83d985d2dc6';
 export const P0_R08_TERMINAL_ROOT = '/home/guoqy/p0-r08-terminal-remediation';
 export const P0_R08_TERMINAL_AO_DATA_DIR = `${P0_R08_TERMINAL_ROOT}/ao-state/data`;
 export const P0_R08_TERMINAL_AO_RUN_FILE = `${P0_R08_TERMINAL_ROOT}/ao-state/running.json`;
-export const P0_R08_TERMINAL_RUNTIME_BINARY = '/home/guoqy/p0-r08-retry-workstation/runtime-store/runtime.agent_orchestrator.v0_11_2_p0_1/linux-x64/711178ebe07d436db36020eb08f0c4e29613f97b/bin/ao';
-export const P0_R08_TERMINAL_RUNTIME_BINARY_SHA256 = 'a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34';
+export const P0_R08_TERMINAL_RUNTIME_BINARY = `/home/guoqy/p0-r08-retry-workstation/runtime-store/${P0_R08_RUNTIME_REF}/linux-x64/${P0_R08_RUNTIME_COMMIT}/bin/ao`;
+export const P0_R08_TERMINAL_RUNTIME_BINARY_SHA256 = P0_R08_RUNTIME_X64_SHA256;
 export const REQUIRED_CI_CHECKS = ['fresh-clone-runtime', 'test (20)', 'test (22)'];
 
 function assert(condition, message) {
@@ -51,6 +74,14 @@ function assert(condition, message) {
 function object(value, field) {
   assert(value != null && typeof value === 'object' && !Array.isArray(value), `Invalid ${field}`);
   return value;
+}
+
+function exactKeys(value, field, expected) {
+  const item = object(value, field);
+  const actual = Object.keys(item).sort();
+  const required = [...expected].sort();
+  assert(JSON.stringify(actual) === JSON.stringify(required), `Invalid ${field} keys`);
+  return item;
 }
 
 function string(value, field) {
@@ -257,24 +288,28 @@ export function verifySelfHostingReceipt(receipt, {
   assert(liveRetryAdmission.body_sha256 === retryAdmission.comment_body_sha256, 'Live retry admission comment digest mismatch');
 
   const terminal = object(value.terminal_remediation, 'terminal_remediation');
-  const terminalAdmission = object(terminal.admission, 'terminal_remediation.admission');
+  const terminalAdmission = exactKeys(terminal.admission, 'terminal_remediation.admission', [
+    'issue_number', 'comment_id', 'comment_body_bytes', 'comment_body_sha256',
+    'principal_pr_number', 'admitted_main_sha', 'admitted_tree_sha',
+  ]);
   assert(terminalAdmission.issue_number === 63, 'Terminal-remediation admission is not bound to issue #63');
-  assert(terminalAdmission.comment_id === P0_R08_TERMINAL_ADMISSION_COMMENT, 'Terminal-remediation admission comment ID mismatch');
-  assert(terminalAdmission.comment_body_sha256 === P0_R08_TERMINAL_ADMISSION_COMMENT_SHA256, 'Terminal-remediation admission comment digest mismatch');
+  assert(terminalAdmission.comment_id === P0_R08_FINAL_ADMISSION_COMMENT, 'Final terminal-remediation admission comment ID mismatch');
+  assert(terminalAdmission.comment_body_bytes === P0_R08_FINAL_ADMISSION_BYTES, 'Final terminal-remediation admission byte length mismatch');
+  assert(terminalAdmission.comment_body_sha256 === P0_R08_FINAL_ADMISSION_SHA256, 'Final terminal-remediation admission comment digest mismatch');
   assert(terminalAdmission.principal_pr_number === P0_R08_PRINCIPAL_PR, 'Terminal-remediation admission does not preserve principal PR #71');
-  assert(sha(terminalAdmission.admitted_main_sha, 'terminal_remediation.admission.admitted_main_sha') === P0_R08_TERMINAL_ADMITTED_MAIN, 'Terminal-remediation admitted main mismatch');
-  assert(sha(terminalAdmission.admitted_tree_sha, 'terminal_remediation.admission.admitted_tree_sha') === P0_R08_TERMINAL_ADMITTED_TREE, 'Terminal-remediation admitted tree mismatch');
+  assert(sha(terminalAdmission.admitted_main_sha, 'terminal_remediation.admission.admitted_main_sha') === P0_R08_FINAL_ADMITTED_MAIN, 'Terminal-remediation admitted main mismatch');
+  assert(sha(terminalAdmission.admitted_tree_sha, 'terminal_remediation.admission.admitted_tree_sha') === P0_R08_FINAL_ADMITTED_TREE, 'Terminal-remediation admitted tree mismatch');
   const liveTerminalAdmission = object(github.terminal_remediation_admission, 'GitHub terminal-remediation admission comment');
   assert(liveTerminalAdmission.comment_id === terminalAdmission.comment_id, 'Live terminal-remediation admission comment ID mismatch');
   assert(liveTerminalAdmission.issue_number === 63, 'Terminal-remediation admission was not published to issue #63');
   assert(liveTerminalAdmission.author === 'Samsen879' && liveTerminalAdmission.author_association === 'OWNER', 'Terminal-remediation admission is not Owner-authored');
   const terminalAdmittedAt = timestamp(liveTerminalAdmission.created_at, 'terminal-remediation admission created_at');
-  assert(terminalAdmittedAt === '2026-08-02T14:24:49Z', 'Standing recovery admission created_at mismatch');
+  assert(terminalAdmittedAt === '2026-08-03T08:23:19Z', 'Final recovery admission created_at mismatch');
   assert(liveTerminalAdmission.updated_at === terminalAdmittedAt, 'Terminal-remediation admission comment was edited');
-  assert(liveTerminalAdmission.body_bytes === P0_R08_TERMINAL_ADMISSION_COMMENT_BYTES, 'Live standing admission byte length mismatch');
+  assert(liveTerminalAdmission.body_bytes === P0_R08_FINAL_ADMISSION_BYTES, 'Live final admission byte length mismatch');
   assert(liveTerminalAdmission.body_sha256 === terminalAdmission.comment_body_sha256, 'Live terminal-remediation admission digest mismatch');
 
-  const recoveryChain = object(value.terminal_recovery_chain, 'terminal_recovery_chain');
+  const recoveryChain = exactKeys(value.terminal_recovery_chain, 'terminal_recovery_chain', ['schema_version', 'standing_admission', 'attempts']);
   assert(recoveryChain.schema_version === TERMINAL_RECOVERY_CHAIN_SCHEMA_VERSION, 'Unsupported terminal recovery-chain schema');
   const standing = object(recoveryChain.standing_admission, 'terminal_recovery_chain.standing_admission');
   assert(standing.issue_number === 63, 'Standing recovery admission is not bound to issue #63');
@@ -286,9 +321,12 @@ export function verifySelfHostingReceipt(receipt, {
   assert(standing.max_additional_recovery_attempts === 2, 'Standing recovery attempt bound was widened');
   assert(sha(standing.admitted_main_sha, 'terminal_recovery_chain.standing_admission.admitted_main_sha') === P0_R08_TERMINAL_ADMITTED_MAIN, 'Standing recovery baseline commit mismatch');
   assert(sha(standing.admitted_tree_sha, 'terminal_recovery_chain.standing_admission.admitted_tree_sha') === P0_R08_TERMINAL_ADMITTED_TREE, 'Standing recovery baseline tree mismatch');
+  const liveStanding = object(github.standing_recovery_admission, 'GitHub standing recovery admission');
+  assert(liveStanding.comment_id === standing.comment_id && liveStanding.issue_number === 63 && liveStanding.author === 'Samsen879' && liveStanding.author_association === 'OWNER', 'Standing recovery admission identity mismatch');
+  assert(liveStanding.created_at === standing.created_at && liveStanding.updated_at === standing.updated_at && liveStanding.body_bytes === standing.comment_body_bytes && liveStanding.body_sha256 === standing.comment_body_sha256, 'Standing recovery admission was edited or drifted');
 
-  assert(Array.isArray(recoveryChain.attempts) && recoveryChain.attempts.length === 2, 'Recovery chain must contain exactly the failed PR #72 and this ordered recovery delivery');
-  const failedAttempt = object(recoveryChain.attempts[0], 'terminal_recovery_chain.attempts[0]');
+  assert(Array.isArray(recoveryChain.attempts) && recoveryChain.attempts.length === 3, 'Recovery chain must be exactly [72 failed, 73 failed_merge_path_provenance, 74 active/final]');
+  const failedAttempt = exactKeys(recoveryChain.attempts[0], 'terminal_recovery_chain.attempts[0]', ['attempt', 'kind', 'disposition', 'admission', 'pr', 'failure']);
   assert(failedAttempt.attempt === 1 && failedAttempt.kind === 'terminal_recovery_delivery' && failedAttempt.disposition === 'failed_premerge_gates', 'PR #72 must be the first failed recovery-chain attempt');
   const failedAdmission = object(failedAttempt.admission, 'terminal_recovery_chain.attempts[0].admission');
   assert(failedAdmission.comment_id === P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT && failedAdmission.comment_body_sha256 === P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT_SHA256, 'Failed attempt does not preserve its first terminal admission');
@@ -322,10 +360,63 @@ export function verifySelfHostingReceipt(receipt, {
   assert(liveFailure.comment_id === failure.disposition_comment_id && liveFailure.issue_number === 63 && liveFailure.author === 'Samsen879' && liveFailure.author_association === 'OWNER', 'PR #72 fail-closed disposition identity mismatch');
   assert(liveFailure.created_at === failure.disposition_created_at && liveFailure.updated_at === failure.disposition_updated_at && liveFailure.body_sha256 === failure.disposition_comment_body_sha256, 'PR #72 fail-closed disposition was edited or drifted');
 
-  const activeAttempt = object(recoveryChain.attempts[1], 'terminal_recovery_chain.attempts[1]');
-  assert(activeAttempt.attempt === 2 && activeAttempt.kind === 'terminal_recovery_delivery' && activeAttempt.disposition === (preMerge ? 'pending' : 'passed'), 'Current recovery delivery has the wrong ordered attempt/disposition');
-  assert(activeAttempt.predecessor_pr_number === P0_R08_FAILED_TERMINAL_PR, 'Current recovery delivery does not follow failed PR #72');
-  assert(activeAttempt.admission_comment_id === P0_R08_TERMINAL_ADMISSION_COMMENT, 'Current recovery delivery is not bound to standing admission');
+  const mergePathAttempt = exactKeys(recoveryChain.attempts[1], 'terminal_recovery_chain.attempts[1]', ['attempt', 'kind', 'disposition', 'predecessor_pr_number', 'admission_comment_id', 'pr', 'failure']);
+  assert(mergePathAttempt.attempt === 2 && mergePathAttempt.kind === 'terminal_recovery_delivery' && mergePathAttempt.disposition === 'failed_merge_path_provenance', 'PR #73 must be the second failed recovery-chain attempt');
+  assert(mergePathAttempt.predecessor_pr_number === P0_R08_FAILED_TERMINAL_PR && mergePathAttempt.admission_comment_id === P0_R08_TERMINAL_ADMISSION_COMMENT, 'PR #73 recovery-chain authority mismatch');
+  const mergePathPr = exactKeys(mergePathAttempt.pr, 'terminal_recovery_chain.attempts[1].pr', [
+    'number', 'url', 'head_sha', 'reviewed_head', 'codex_reviews', 'finding_comment_ids',
+    'worktree_evidence_comment_id', 'premerge_evidence_comment_id', 'merge_sha', 'merge_tree_sha', 'merged_at',
+  ]);
+  assert(mergePathPr.number === P0_R08_FAILED_MERGE_PATH_PR && mergePathPr.url === 'https://github.com/Samsen879/ao-pilot/pull/73', 'Failed merge-path attempt is not PR #73');
+  assert(sha(mergePathPr.head_sha, 'PR #73 head') === P0_R08_FAILED_MERGE_PATH_HEAD && sha(mergePathPr.reviewed_head, 'PR #73 reviewed head') === P0_R08_FAILED_MERGE_PATH_REVIEWED_HEAD, 'PR #73 immutable head evidence mismatch');
+  assert(mergePathPr.merge_sha === P0_R08_FINAL_ADMITTED_MAIN && mergePathPr.merge_tree_sha === P0_R08_FINAL_ADMITTED_TREE && mergePathPr.merged_at === '2026-08-03T07:23:43Z', 'PR #73 immutable merge outcome mismatch');
+  assert(mergePathPr.worktree_evidence_comment_id === 5163418525 && mergePathPr.premerge_evidence_comment_id === 5163443629, 'PR #73 immutable publication evidence mismatch');
+  const mergePathReviews = verifyCompletedCodexReviews(mergePathPr.codex_reviews, github.failed_merge_path_codex_reviews);
+  assert(mergePathReviews.length === 2 && mergePathReviews[0].evidence_id === 4838853686 && mergePathReviews[1].evidence_id === 4840588410, 'PR #73 completed review evidence mismatch');
+  const expectedMergePathFindings = [3699415314, 3699415317, 3699415320, 3701145692, 3701145696, 3701145702, 3701145705, 3701145707, 3701145710];
+  assert(JSON.stringify(mergePathPr.finding_comment_ids) === JSON.stringify(expectedMergePathFindings), 'PR #73 finding evidence is incomplete, extra, or reordered');
+  assert(Array.isArray(github.failed_merge_path_review_findings) && JSON.stringify(github.failed_merge_path_review_findings.map((item) => item.comment_id)) === JSON.stringify(expectedMergePathFindings) && github.failed_merge_path_review_findings.every((item) => item.resolved === true), 'Live PR #73 finding evidence drifted or is unresolved');
+  const liveMergePathPr = object(github.failed_merge_path_pr, 'GitHub failed merge-path PR #73');
+  assert(liveMergePathPr.number === P0_R08_FAILED_MERGE_PATH_PR && liveMergePathPr.merged === true && liveMergePathPr.base_ref === 'main', 'PR #73 is not the immutable merged second attempt');
+  assert(liveMergePathPr.head_sha === mergePathPr.head_sha && liveMergePathPr.merge_sha === mergePathPr.merge_sha && liveMergePathPr.merge_tree_sha === mergePathPr.merge_tree_sha && liveMergePathPr.merged_at === mergePathPr.merged_at, 'Live PR #73 outcome drifted');
+  for (const field of ['failed_merge_path_worktree_evidence', 'failed_merge_path_premerge_evidence']) {
+    const published = object(github[field], `GitHub PR #73 ${field}`);
+    const expectedId = field.endsWith('worktree_evidence') ? mergePathPr.worktree_evidence_comment_id : mergePathPr.premerge_evidence_comment_id;
+    assert(published.comment_id === expectedId && published.issue_number === 63 && published.author === 'Samsen879' && published.author_association === 'OWNER' && published.created_at === published.updated_at, `PR #73 ${field} identity/edit state mismatch`);
+  }
+  const mergePathFailure = exactKeys(mergePathAttempt.failure, 'terminal_recovery_chain.attempts[1].failure', [
+    'disposition_comment_id', 'disposition_comment_body_bytes', 'disposition_comment_body_sha256',
+    'disposition_created_at', 'disposition_updated_at', 'architectural_blocker_comment_id',
+    'provider_mutation', 'ao_merge_executed', 'reason_codes',
+  ]);
+  assert(mergePathFailure.disposition_comment_id === P0_R08_FAILED_MERGE_PATH_DISPOSITION_COMMENT && mergePathFailure.disposition_comment_body_bytes === P0_R08_FAILED_MERGE_PATH_DISPOSITION_BYTES && mergePathFailure.disposition_comment_body_sha256 === P0_R08_FAILED_MERGE_PATH_DISPOSITION_SHA256, 'PR #73 disposition bytes/digest mismatch');
+  assert(mergePathFailure.disposition_created_at === '2026-08-03T07:32:36Z' && mergePathFailure.disposition_updated_at === mergePathFailure.disposition_created_at, 'PR #73 disposition edit state mismatch');
+  assert(mergePathFailure.architectural_blocker_comment_id === P0_R08_ARCHITECTURAL_BLOCKER_COMMENT && mergePathFailure.provider_mutation === 'gh_pr_merge_exact_head_guarded' && mergePathFailure.ao_merge_executed === false, 'PR #73 merge-path provenance was rewritten');
+  assert(JSON.stringify(mergePathFailure.reason_codes) === JSON.stringify(['pinned_ao_merge_route_not_implemented', 'provider_mutation_not_executed_by_ao']), 'PR #73 failure reasons are incomplete or unordered');
+  const liveMergePathFailure = object(github.failed_merge_path_disposition, 'GitHub PR #73 fail-closed disposition');
+  assert(liveMergePathFailure.comment_id === mergePathFailure.disposition_comment_id && liveMergePathFailure.body_bytes === mergePathFailure.disposition_comment_body_bytes && liveMergePathFailure.body_sha256 === mergePathFailure.disposition_comment_body_sha256 && liveMergePathFailure.created_at === mergePathFailure.disposition_created_at && liveMergePathFailure.updated_at === mergePathFailure.disposition_updated_at, 'PR #73 fail-closed disposition drifted');
+
+  const blocker = exactKeys(value.runtime_transition?.architectural_blocker, 'runtime_transition.architectural_blocker', ['comment_id', 'comment_body_bytes', 'comment_body_sha256', 'created_at', 'updated_at']);
+  assert(blocker.comment_id === P0_R08_ARCHITECTURAL_BLOCKER_COMMENT && blocker.comment_body_bytes === P0_R08_ARCHITECTURAL_BLOCKER_BYTES && blocker.comment_body_sha256 === P0_R08_ARCHITECTURAL_BLOCKER_SHA256 && blocker.created_at === '2026-08-03T07:40:30Z' && blocker.updated_at === blocker.created_at, 'Architectural blocker evidence mismatch');
+  const liveBlocker = object(github.architectural_blocker, 'GitHub architectural blocker');
+  assert(liveBlocker.comment_id === blocker.comment_id && liveBlocker.issue_number === 63 && liveBlocker.author === 'Samsen879' && liveBlocker.author_association === 'OWNER' && liveBlocker.body_bytes === blocker.comment_body_bytes && liveBlocker.body_sha256 === blocker.comment_body_sha256 && liveBlocker.created_at === blocker.created_at && liveBlocker.updated_at === blocker.updated_at, 'Architectural blocker drifted');
+  const transition = exactKeys(value.runtime_transition, 'runtime_transition', ['architectural_blocker', 'admission', 'predecessor', 'successor']);
+  const transitionAdmission = exactKeys(transition.admission, 'runtime_transition.admission', ['comment_id', 'comment_body_bytes', 'comment_body_sha256', 'created_at', 'updated_at']);
+  assert(transitionAdmission.comment_id === P0_R08_FINAL_ADMISSION_COMMENT && transitionAdmission.comment_body_bytes === P0_R08_FINAL_ADMISSION_BYTES && transitionAdmission.comment_body_sha256 === P0_R08_FINAL_ADMISSION_SHA256 && transitionAdmission.created_at === terminalAdmittedAt && transitionAdmission.updated_at === terminalAdmittedAt, 'Runtime transition admission mismatch');
+  const predecessorRuntime = exactKeys(transition.predecessor, 'runtime_transition.predecessor', ['runtime_ref', 'commit_sha', 'tree_sha', 'linux_x64_binary_sha256']);
+  assert(predecessorRuntime.runtime_ref === 'runtime.agent_orchestrator.v0_11_2_p0_1' && predecessorRuntime.commit_sha === '711178ebe07d436db36020eb08f0c4e29613f97b' && predecessorRuntime.tree_sha === '479fba6fd44f251f0c66fafc5cb5d638a6ff590a' && predecessorRuntime.linux_x64_binary_sha256 === 'a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34', 'Predecessor runtime evidence was rewritten');
+  const successorRuntime = exactKeys(transition.successor, 'runtime_transition.successor', ['runtime_ref', 'runtime_pr_number', 'runtime_pr_base', 'bootstrap_merge_exception', 'tag', 'tag_object_sha', 'commit_sha', 'tree_sha', 'integrity', 'linux_x64_binary_sha256', 'linux_arm64_binary_sha256']);
+  assert(successorRuntime.runtime_ref === P0_R08_RUNTIME_REF && successorRuntime.runtime_pr_number === P0_R08_RUNTIME_PR && successorRuntime.runtime_pr_base === 'runtime-baseline/v0.11.2' && successorRuntime.bootstrap_merge_exception === 'owner_gh_pr_merge_runtime_pr_8_only', 'Successor runtime authority mismatch');
+  assert(successorRuntime.tag === P0_R08_RUNTIME_TAG && successorRuntime.tag_object_sha === P0_R08_RUNTIME_TAG_OBJECT && successorRuntime.commit_sha === P0_R08_RUNTIME_COMMIT && successorRuntime.tree_sha === P0_R08_RUNTIME_TREE && successorRuntime.integrity?.algorithm === 'git-tree-sha1' && successorRuntime.integrity?.digest === P0_R08_RUNTIME_TREE && successorRuntime.linux_x64_binary_sha256 === P0_R08_RUNTIME_X64_SHA256 && successorRuntime.linux_arm64_binary_sha256 === P0_R08_RUNTIME_ARM64_SHA256, 'Successor runtime artifact evidence mismatch');
+  const liveRuntimePr = object(github.runtime_pr, 'GitHub runtime prerequisite PR #8');
+  assert(liveRuntimePr.number === P0_R08_RUNTIME_PR && liveRuntimePr.merged === true && liveRuntimePr.base_ref === 'runtime-baseline/v0.11.2' && liveRuntimePr.merge_sha === P0_R08_RUNTIME_COMMIT && liveRuntimePr.merge_tree_sha === P0_R08_RUNTIME_TREE, 'Live runtime prerequisite PR outcome drifted');
+  const liveRuntimeTag = object(github.runtime_tag, 'GitHub p0.2 runtime tag');
+  assert(liveRuntimeTag.tag === P0_R08_RUNTIME_TAG && liveRuntimeTag.tag_object_sha === P0_R08_RUNTIME_TAG_OBJECT && liveRuntimeTag.commit_sha === P0_R08_RUNTIME_COMMIT, 'Live p0.2 annotated tag drifted');
+
+  const activeAttempt = exactKeys(recoveryChain.attempts[2], 'terminal_recovery_chain.attempts[2]', ['attempt', 'kind', 'disposition', 'predecessor_pr_number', 'admission_comment_id', 'pr_number', 'worktree_evidence_comment_id']);
+  assert(activeAttempt.attempt === 3 && activeAttempt.kind === 'terminal_recovery_delivery' && activeAttempt.disposition === (preMerge ? 'pending' : 'passed'), 'Current recovery delivery has the wrong ordered attempt/disposition');
+  assert(activeAttempt.predecessor_pr_number === P0_R08_FAILED_MERGE_PATH_PR, 'Current recovery delivery does not follow failed PR #73');
+  assert(activeAttempt.admission_comment_id === P0_R08_FINAL_ADMISSION_COMMENT && activeAttempt.pr_number === P0_R08_FINAL_RECOVERY_PR, 'Current recovery delivery is not bound to final Owner admission/PR #74');
 
   const runtime = object(value.runtime, 'runtime');
   assert(runtime.runtime_ref === runtimeLock.runtime_ref, 'Runtime ref does not match the committed lock');
@@ -527,7 +618,7 @@ export function verifySelfHostingReceipt(receipt, {
   assert(terminalSource.repository === source.repository, 'Terminal-remediation source repository mismatch');
   const terminalSourceHead = sha(terminalSource.clone_head_sha, 'terminal_remediation.source.clone_head_sha');
   const terminalSourceTree = sha(terminalSource.clone_tree_sha, 'terminal_remediation.source.clone_tree_sha');
-  assert(terminalSourceHead === P0_R08_TERMINAL_ADMITTED_MAIN && terminalSourceTree === P0_R08_TERMINAL_ADMITTED_TREE, 'Terminal-remediation source is not exact admitted main/tree');
+  assert(terminalSourceHead === P0_R08_FINAL_ADMITTED_MAIN && terminalSourceTree === P0_R08_FINAL_ADMITTED_TREE, 'Terminal-remediation source is not exact final admitted main/tree');
   assert(repository.terminal_source_commit_sha === terminalSourceHead, 'Terminal-remediation source commit evidence mismatch');
   assert(repository.terminal_source_tree_sha === terminalSourceTree, 'Terminal-remediation source tree evidence mismatch');
   const terminalClonePath = canonicalAbsolutePath(terminalSource.clone_path, 'terminal_remediation.source.clone_path');
@@ -557,8 +648,8 @@ export function verifySelfHostingReceipt(receipt, {
   if (preMerge) falsehood(terminalDelivery.github_merge_outcome_confirmed, 'terminal_remediation.delivery.github_merge_outcome_confirmed');
   else truth(terminalDelivery.github_merge_outcome_confirmed, 'terminal_remediation.delivery.github_merge_outcome_confirmed');
   const remediationPr = object(terminalDelivery.remediation_pr, 'terminal_remediation.delivery.remediation_pr');
-  assert(Number.isInteger(remediationPr.number) && ![70, P0_R08_PRINCIPAL_PR, P0_R08_FAILED_TERMINAL_PR].includes(remediationPr.number), 'Terminal recovery must use one new non-principal PR after failed PR #72');
-  assert(activeAttempt.pr_number === remediationPr.number, 'Recovery-chain attempt 2 PR does not match the terminal delivery');
+  assert(remediationPr.number === P0_R08_FINAL_RECOVERY_PR, 'Terminal recovery must use final non-principal PR #74');
+  assert(activeAttempt.pr_number === remediationPr.number, 'Recovery-chain attempt 3 PR does not match the terminal delivery');
   assert(remediationPr.url === `https://github.com/Samsen879/ao-pilot/pull/${remediationPr.number}`, 'Invalid terminal-remediation PR URL');
   const liveRemediationPr = object(github.terminal_remediation_pr, 'GitHub terminal-remediation PR');
   assert(liveRemediationPr.number === remediationPr.number, 'Terminal-remediation PR number does not match GitHub');
@@ -567,6 +658,9 @@ export function verifySelfHostingReceipt(receipt, {
   assert(liveRemediationPr.binds_terminal_admission === true, 'Terminal-recovery PR does not bind standing admission comment 5158510418');
   assert(liveRemediationPr.binds_principal_pr_71 === true, 'Terminal-remediation PR does not preserve principal PR #71');
   assert(liveRemediationPr.binds_failed_terminal_pr_72 === true, 'Terminal-recovery PR does not bind failed chain attempt PR #72');
+  assert(liveRemediationPr.binds_failed_merge_path_pr_73 === true, 'Terminal-recovery PR does not bind failed merge-path attempt PR #73');
+  assert(liveRemediationPr.binds_architectural_blocker === true, 'Terminal-recovery PR does not bind architectural blocker comment 5163606282');
+  assert(liveRemediationPr.binds_final_admission === true, 'Terminal-recovery PR does not bind final p0.2 admission comment 5163994984');
   assert(liveRemediationPr.auto_closes_issue_63 === false, 'Terminal-remediation PR must not auto-close issue #63');
   assert(Date.parse(timestamp(liveRemediationPr.created_at, 'terminal-remediation PR created_at')) >= Date.parse(terminalAdmittedAt), 'Terminal-remediation PR predates admission');
   const terminalFinalHead = sha(remediationPr.head_sha, 'terminal_remediation.delivery.remediation_pr.head_sha');
@@ -574,7 +668,7 @@ export function verifySelfHostingReceipt(receipt, {
   const terminalLinkedPrs = github.issue_linked_prs.filter((linkedPr) => Date.parse(timestamp(linkedPr.created_at, `issue-linked PR #${linkedPr.number} created_at`)) >= Date.parse(terminalAdmittedAt));
   assert(terminalLinkedPrs.length === 1 && terminalLinkedPrs[0].number === remediationPr.number, 'Issue #63 must have exactly one admitted terminal-remediation PR and no extra linked deliveries');
   const terminalRecoveryLinkedPrs = github.issue_linked_prs.filter((linkedPr) => Date.parse(timestamp(linkedPr.created_at, `issue-linked PR #${linkedPr.number} created_at`)) >= Date.parse(firstTerminalAdmittedAt));
-  assert(JSON.stringify(terminalRecoveryLinkedPrs.map((linkedPr) => linkedPr.number)) === JSON.stringify([P0_R08_FAILED_TERMINAL_PR, remediationPr.number]), 'Issue #63 terminal recovery deliveries must be exactly ordered PR #72 then the active recovery PR');
+  assert(JSON.stringify(terminalRecoveryLinkedPrs.map((linkedPr) => linkedPr.number)) === JSON.stringify([P0_R08_FAILED_TERMINAL_PR, P0_R08_FAILED_MERGE_PATH_PR, remediationPr.number]), 'Issue #63 terminal recovery deliveries must be exactly ordered PR #72, PR #73, then active PR #74');
   assert(Date.parse(terminalRecoveryLinkedPrs[0].created_at) < Date.parse(terminalAdmittedAt), 'Failed PR #72 is not isolated to the first terminal-admission layer');
   assert(remediationPr.ci_conclusion === 'success', 'Terminal-remediation PR CI is not green');
   assert(Array.isArray(github.terminal_check_runs), 'Live terminal-remediation CI evidence is unavailable');
@@ -595,7 +689,7 @@ export function verifySelfHostingReceipt(receipt, {
   if (terminalFinalHead !== terminalReviewedHead) {
     const terminalRepair = object(remediationPr.post_review_2_repair, 'terminal_remediation.delivery.remediation_pr.post_review_2_repair');
     assert(terminalReviews.length === 2 && terminalReviews.at(-1).kind === 'submitted_review', 'Unreviewed terminal-remediation final HEAD is allowed only after Review 2 findings');
-    assert(terminalRepair.authorization_ref === 'https://github.com/Samsen879/ao-pilot/issues/63#issuecomment-5158510418', 'Terminal-recovery post-Review-2 repair lacks exact standing Owner authorization');
+    assert(terminalRepair.authorization_ref === 'https://github.com/Samsen879/ao-pilot/issues/63#issuecomment-5163994984', 'Terminal-recovery post-Review-2 repair lacks exact final Owner authorization');
     assert(sha(terminalRepair.final_head_sha, 'terminal-remediation post_review_2_repair.final_head_sha') === terminalFinalHead, 'Terminal-remediation post-Review-2 repair does not bind final HEAD');
     assert(Array.isArray(terminalRepair.finding_comment_ids) && terminalRepair.finding_comment_ids.length > 0, 'Terminal-remediation post-Review-2 repair has no finding IDs');
     assert(Array.isArray(github.terminal_review_findings), 'Live terminal-remediation review finding evidence is unavailable');
@@ -638,8 +732,8 @@ export function verifySelfHostingReceipt(receipt, {
   if (!preMerge) assert(Date.parse(terminalWorktreePublishedAt) <= Date.parse(terminalMergedAt), 'Terminal-remediation worktree evidence was published after merge');
   assert(terminalCaptured.source.clone_path === terminalClonePath && terminalCaptured.source.head_sha === terminalSourceHead && terminalCaptured.source.tree_sha === terminalSourceTree, 'Terminal-remediation captured source mismatch');
   assert(terminalCaptured.isolation.remediation_root === terminalRoot && terminalCaptured.isolation.ao_data_dir === terminalAoDataDir && terminalCaptured.isolation.ao_run_file === terminalAoRunFile, 'Terminal-remediation captured isolation mismatch');
-  assert(terminalCaptured.recovery_chain?.standing_admission_comment_id === P0_R08_TERMINAL_ADMISSION_COMMENT && terminalCaptured.recovery_chain?.attempt === 2 && terminalCaptured.recovery_chain?.prior_attempt_pr_number === P0_R08_FAILED_TERMINAL_PR, 'Terminal worktree evidence is not bound to ordered standing recovery attempt 2');
-  assert(terminalCaptured.recovery_chain?.admitted_main_sha === P0_R08_TERMINAL_ADMITTED_MAIN && terminalCaptured.recovery_chain?.admitted_tree_sha === P0_R08_TERMINAL_ADMITTED_TREE, 'Terminal worktree evidence standing baseline mismatch');
+  assert(terminalCaptured.recovery_chain?.standing_admission_comment_id === P0_R08_TERMINAL_ADMISSION_COMMENT && terminalCaptured.recovery_chain?.final_admission_comment_id === P0_R08_FINAL_ADMISSION_COMMENT && terminalCaptured.recovery_chain?.attempt === 3 && terminalCaptured.recovery_chain?.prior_attempt_pr_number === P0_R08_FAILED_MERGE_PATH_PR, 'Terminal worktree evidence is not bound to ordered final recovery attempt 3');
+  assert(terminalCaptured.recovery_chain?.admitted_main_sha === P0_R08_FINAL_ADMITTED_MAIN && terminalCaptured.recovery_chain?.admitted_tree_sha === P0_R08_FINAL_ADMITTED_TREE, 'Terminal worktree evidence final baseline mismatch');
   assert(terminalCaptured.worker.session_id === terminalWorkerSessionId && terminalCaptured.worker.worktree_path === terminalWorkerPath && terminalCaptured.worker.branch === terminalBranch && terminalCaptured.worker.head_sha === terminalFinalHead, 'Terminal-remediation captured Worker mismatch');
   assert(terminalCaptured.worker.tree_sha === repository.terminal_worker_tree_sha, 'Terminal-remediation captured Worker tree mismatch');
   assert(terminalCaptured.git_relationship?.source_is_ancestor === true, 'Captured source is not an ancestor of the recovery Worker');
@@ -650,7 +744,7 @@ export function verifySelfHostingReceipt(receipt, {
   assert(terminalCaptured.git_relationship?.worker_session_created_at === terminalBranchCreatedAt || Math.abs(Date.parse(terminalCaptured.git_relationship?.worker_session_created_at) - Date.parse(terminalBranchCreatedAt)) < 2_000, 'Captured Worker branch creation is not bound to AO Worker session creation');
   assert(repository.terminal_source_is_ancestor === true && repository.terminal_merge_base_sha === terminalSourceHead, 'Live Git history does not confirm the captured recovery fork relationship');
   if (preMerge) assert(repository.terminal_branch_creation_sha === terminalSourceHead && repository.terminal_branch_creation_at === terminalBranchCreatedAt, 'Live Worker branch-creation evidence drifted from the published capture');
-  assert(activeAttempt.worktree_evidence_comment_id === terminalWorktreeCommentId, 'Recovery-chain attempt 2 does not bind the terminal worktree evidence');
+  assert(activeAttempt.worktree_evidence_comment_id === terminalWorktreeCommentId, 'Recovery-chain attempt 3 does not bind the terminal worktree evidence');
   const terminalSourceGitCommonDir = canonicalAbsolutePath(terminalCaptured.source.git_common_dir, 'terminal-remediation captured source git_common_dir');
   const terminalWorkerGitCommonDir = canonicalAbsolutePath(terminalCaptured.worker.git_common_dir, 'terminal-remediation captured Worker git_common_dir');
   assertPathResolvesWithin(terminalRoot, terminalSourceGitCommonDir, 'Terminal-remediation captured source git common directory');
@@ -722,7 +816,7 @@ export function verifySelfHostingReceipt(receipt, {
   assert(preflight.schema_version === PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION && preflight.issue_number === 63 && preflight.status === 'premerge_verified', 'Unsupported or unsuccessful immutable pre-merge evidence');
   const preflightVerifiedAt = timestamp(preflight.verified_at, 'pre-merge verified_at');
   assert(Date.parse(preflightVerifiedAt) >= Date.parse(terminalWorktreePublishedAt) && Date.parse(preflightVerifiedAt) <= Date.parse(premergePublishedAt), 'Pre-merge verification timestamp is outside its immutable publication window');
-  assert(preflight.standing_admission_comment_id === P0_R08_TERMINAL_ADMISSION_COMMENT && preflight.recovery_attempt === 2, 'Pre-merge evidence is outside the standing recovery chain');
+  assert(preflight.standing_admission_comment_id === P0_R08_TERMINAL_ADMISSION_COMMENT && preflight.final_admission_comment_id === P0_R08_FINAL_ADMISSION_COMMENT && preflight.recovery_attempt === 3, 'Pre-merge evidence is outside the final standing recovery chain');
   assert(preflight.remediation_pr?.number === remediationPr.number && preflight.remediation_pr?.head_sha === terminalFinalHead && preflight.remediation_pr?.tree_sha === repository.terminal_worker_tree_sha && preflight.remediation_pr?.reviewed_head === terminalReviewedHead, 'Pre-merge evidence does not bind the final PR head/tree/reviewed head');
   assert(JSON.stringify(preflight.remediation_pr?.review_evidence_ids) === JSON.stringify(remediationPr.codex_reviews.map((review) => review.evidence_id)), 'Pre-merge review evidence IDs drifted');
   assert(JSON.stringify(preflight.remediation_pr?.resolved_finding_comment_ids) === JSON.stringify(remediationPr.finding_dispositions.map((finding) => finding.comment_id)), 'Pre-merge resolved finding IDs drifted');

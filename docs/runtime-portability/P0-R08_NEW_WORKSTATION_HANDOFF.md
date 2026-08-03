@@ -25,7 +25,7 @@ the failed-attempt checkout, or any earlier admission.
   the runtime into retry-specific managed store and cache directories.
 - Confirm there is no trusted PATH `ao`. A hostile same-name binary is allowed
   only as a fail-closed probe and must never execute.
-- Runtime Ref: `runtime.agent_orchestrator.v0_11_2_p0_1`.
+- Runtime Ref: `runtime.agent_orchestrator.v0_11_2_p0_2`.
 
 ## Bootstrap the admitted exact main
 
@@ -169,12 +169,33 @@ JSON body string is 3,712 UTF-8 bytes with SHA-256
 `431e128a4ffe100b1a74a327778796480513f6fd06a5ab9a8df5c2e5c5df1284`.
 It admits at most two additional sequential non-principal recovery attempts
 from exact main `59cdf7c0ddfedfe4438eaeeff485146534fae287` / tree
-`044f49e5fe8cbfe2382001436d1e060b9bbb0e07`. This document covers attempt 1
-under that standing authority (ordered recovery-chain attempt 2 after failed
-PR #72). PR #71 remains the sole principal delivery.
+`044f49e5fe8cbfe2382001436d1e060b9bbb0e07`.
+
+PR #73 consumed the first additional slot and is immutable
+`failed_merge_path_provenance`: its CI, two reviews, nine finding
+dispositions, worktree evidence `5163418525`, and premerge evidence
+`5163443629` passed, but guarded `gh pr merge` performed the provider
+mutation rather than AO. Owner disposition `5163542954` is exactly 3,574
+UTF-8 bytes with SHA-256
+`d8ff4994fba918ed8ecfb954ba1352da21661a405c5331f5f8422bdb8ce7be5c`.
+It binds HEAD `d504a154f946da57284bf05b9788b5aa7e87a0ce`, merge/current
+main `fe9bcd9eeba08453aeb003036a5dce76926314ff`, and tree
+`a619bcc0fc57a7312b36368501ba54714eb2373e` without relabeling that merge as
+AO-executed.
+
+Owner blocker `5163606282` (2,036 UTF-8 bytes, SHA-256
+`0fb549f8ff0651a87fe83c1f1179605866a864b36adc7b62092655f3cf05f401`)
+records the p0.1 architectural 501. Unedited Owner admission `5163994984`,
+created and last updated at `2026-08-03T08:23:19Z`, is exactly 5,406 UTF-8
+bytes with SHA-256
+`2005f4deceae2f69a9e332a040fb72664dbd2d0618cfa119ef7c00894599e1ca`.
+It authorizes ordered recovery-chain attempt 3 and PR #74 as the second and
+final additional slot. PR #71 remains the sole principal delivery; PR #75 is
+not admitted.
 
 The recovery PR body must link issue #63, standing admission comment
-`5158510418`, sole principal PR #71, and failed chain attempt PR #72. It must
+`5158510418`, sole principal PR #71, failed chain attempts PR #72 and PR #73,
+blocker `5163606282`, and final admission `5163994984`. It must
 not contain `Closes #63`, `Fixes #63`, `Resolves #63`, or equivalent
 auto-close wording. No unrelated or unordered issue-linked delivery is
 allowed.
@@ -185,10 +206,14 @@ This run uses the fresh clone and isolated AO state below:
 - `AO_DATA_DIR`: `/home/guoqy/p0-r08-terminal-remediation/ao-state/data`
 - `AO_RUN_FILE`: `/home/guoqy/p0-r08-terminal-remediation/ao-state/running.json`
 
-It intentionally reuses only the already verified immutable runtime artifact
-at `/home/guoqy/p0-r08-retry-workstation/runtime-store/runtime.agent_orchestrator.v0_11_2_p0_1/linux-x64/711178ebe07d436db36020eb08f0c4e29613f97b/bin/ao`,
+It uses only the Owner-admitted p0.2 runtime artifact at
+`/home/guoqy/p0-r08-retry-workstation/runtime-store/runtime.agent_orchestrator.v0_11_2_p0_2/linux-x64/aae8a684357271acc7ad2fa1d4116c7c65c8fa9d/bin/ao`,
 whose SHA-256 is
-`a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34`.
+`ad7fd23c6a3f495e2d10b130cf23227c14e30573db5c2c01b68d8214c5965b4d`.
+Its annotated tag object is `450ae009e2c1eb48cdf9c19be676b4a4ff01e611`,
+commit `aae8a684357271acc7ad2fa1d4116c7c65c8fa9d`, tree/integrity
+`e8adb9a31068810becfb5d31b46688b04202cf81`, and linux/arm64 binary
+SHA-256 `972181d92085fb6772fd9a8edf688f68c290976eda67a282ba1ac83d985d2dc6`.
 No prior AO database, sessions, project, daemon, worktree, or re-engagement
 state may be read. Do not claim a remediation-specific runtime store or cache:
 neither was created or used.
@@ -221,23 +246,23 @@ Sharing a Git common directory alone is insufficient.
 
 ```bash
 SOURCE_ROOT=/home/guoqy/p0-r08-terminal-remediation/ao-pilot
-WORKER_ROOT=/home/guoqy/p0-r08-terminal-remediation/ao-state/data/worktrees/ao-pilot-remediation/ao-pilot-remediation-3
-RUNTIME_BINARY=/home/guoqy/p0-r08-retry-workstation/runtime-store/runtime.agent_orchestrator.v0_11_2_p0_1/linux-x64/711178ebe07d436db36020eb08f0c4e29613f97b/bin/ao
+WORKER_ROOT=/home/guoqy/p0-r08-terminal-remediation/ao-state/data/worktrees/ao-pilot-remediation/ao-pilot-remediation-4
+RUNTIME_BINARY=/home/guoqy/p0-r08-retry-workstation/runtime-store/runtime.agent_orchestrator.v0_11_2_p0_2/linux-x64/aae8a684357271acc7ad2fa1d4116c7c65c8fa9d/bin/ao
 AO_DATA_DIR=/home/guoqy/p0-r08-terminal-remediation/ao-state/data \
 AO_RUN_FILE=/home/guoqy/p0-r08-terminal-remediation/ao-state/running.json \
 npm --prefix "$WORKER_ROOT" run publish:self-hosting-worktree -- \
   --source-root "$SOURCE_ROOT" \
   --worker-root "$WORKER_ROOT" \
-  --worker-session-id ao-pilot-remediation-3 \
+  --worker-session-id ao-pilot-remediation-4 \
   --orchestrator-session-id ao-pilot-remediation-1 \
   --runtime-binary "$RUNTIME_BINARY" \
-  --out /tmp/p0-r08-standing-recovery-1-worktree-evidence.json \
-  --publication-receipt-out /tmp/p0-r08-standing-recovery-1-worktree-publication.json
+  --out /tmp/p0-r08-standing-recovery-2-worktree-evidence.json \
+  --publication-receipt-out /tmp/p0-r08-standing-recovery-2-worktree-publication.json
 ```
 
 After CI is green, both formal reviews are complete, every finding disposition
 is recorded and resolved, and the worktree publication receipt is copied into
-the pending v5 receipt, the Orchestrator must run this executable staged gate
+the pending v6 receipt, the Orchestrator must run this executable staged gate
 from the exact Worker HEAD. The output path is created exclusively and contains
 canonical JSON with no trailing newline:
 
@@ -245,12 +270,13 @@ canonical JSON with no trailing newline:
 npm --prefix "$WORKER_ROOT" run verify:self-hosting -- \
   --receipt /tmp/p0-r08-workstation-self-hosting-receipt.json \
   --pre-merge \
-  --preflight-evidence-out /tmp/p0-r08-standing-recovery-1-preflight-evidence.json \
+  --preflight-evidence-out /tmp/p0-r08-standing-recovery-2-preflight-evidence.json \
   --repository-root "$WORKER_ROOT"
 ```
 
 The `--pre-merge` mode validates the complete immutable v2 principal proof,
-standing admission, failed PR #72 chain entry and disposition, ordered live PR
+standing/final admissions, failed PR #72 and PR #73 chain entries and
+dispositions, p0.2 runtime transition, ordered live PR
 topology, all completed reviews and findings, final-head CI, Git ancestry/fork
 relationship, reviewed-head ancestry, and Orchestrator-bound worktree
 publication/readback. It requires `release:check` to execute from a checkout
@@ -273,13 +299,13 @@ Worker head/tree bindings and writes a durable publication receipt:
 AO_DATA_DIR=/home/guoqy/p0-r08-terminal-remediation/ao-state/data \
 AO_RUN_FILE=/home/guoqy/p0-r08-terminal-remediation/ao-state/running.json \
 npm --prefix "$WORKER_ROOT" run publish:self-hosting-preflight -- \
-  --evidence /tmp/p0-r08-standing-recovery-1-preflight-evidence.json \
+  --evidence /tmp/p0-r08-standing-recovery-2-preflight-evidence.json \
   --source-root "$SOURCE_ROOT" \
   --worker-root "$WORKER_ROOT" \
-  --worker-session-id ao-pilot-remediation-3 \
+  --worker-session-id ao-pilot-remediation-4 \
   --orchestrator-session-id ao-pilot-remediation-1 \
   --runtime-binary "$RUNTIME_BINARY" \
-  --publication-receipt-out /tmp/p0-r08-standing-recovery-1-preflight-publication.json
+  --publication-receipt-out /tmp/p0-r08-standing-recovery-2-preflight-publication.json
 ```
 
 Before final verification, replace `terminal_remediation.premerge_verification`
@@ -294,20 +320,21 @@ exact merge SHA/tree, invoke `orchestrator done` through the literal pinned
 binary, publish that command evidence, and clean only the remediation AO
 sessions/worktrees/branches/project/daemon state. Record those facts under
 `terminal_remediation.exact_main_replay` and `terminal_remediation.cleanup`.
-The final v5 verifier preserves and revalidates the original v2 admission,
+The final v6 verifier preserves and revalidates the original v2 admission,
 principal PR #71, comments `5157857462` and `5157899599`, and cleanup proof;
-then it independently validates the exact two-entry ordered recovery chain:
-failed PR #72 plus this recovery delivery. It binds the standing admission,
-the PR #72 failure disposition and both PR #72 reviews, exactly one
-post-standing-admission recovery PR, that PR's reviews/CI/merge SHA/tree, and
+then it independently validates the exact three-entry ordered recovery chain:
+failed PR #72, `failed_merge_path_provenance` PR #73, and final PR #74. It
+binds both Owner admissions, the PR #72 failure disposition/reviews, every
+immutable PR #73 review/finding/publication/outcome, the architectural
+blocker, the p0.2 runtime transition, and PR #74 reviews/CI/merge SHA/tree, and
 requires the verifier checkout to equal resulting exact current main. Any
 additional, omitted, duplicated, or reordered delivery fails closed.
 
-For this authorized no-Review-3 repair, the final verifier additionally derives
-from Git that Review 2's exact reviewed head
-`338805cf4a53963d400cadc5556511616b95784d` is an ancestor of the repaired final
-head and that their merge base is exactly that reviewed head. An unrelated or
-force-pushed sibling cannot use the post-Review-2 repair exception.
+For any authorized no-Review-3 repair on PR #74, the final verifier additionally
+derives from Git that Review 2's exact reviewed head is an ancestor of the
+repaired final head and that their merge base is exactly that reviewed head.
+An unrelated or force-pushed sibling cannot use the post-Review-2 repair
+exception.
 
 A connector clean completion may also be an unedited issue comment authored
 through the `chatgpt-codex-connector` GitHub App whose body begins exactly

@@ -32,6 +32,29 @@ import {
   P0_R08_FAILED_TERMINAL_DISPOSITION_SHA256,
   P0_R08_FAILED_TERMINAL_HEAD,
   P0_R08_FAILED_TERMINAL_PR,
+  P0_R08_FAILED_MERGE_PATH_DISPOSITION_BYTES,
+  P0_R08_FAILED_MERGE_PATH_DISPOSITION_COMMENT,
+  P0_R08_FAILED_MERGE_PATH_DISPOSITION_SHA256,
+  P0_R08_FAILED_MERGE_PATH_HEAD,
+  P0_R08_FAILED_MERGE_PATH_PR,
+  P0_R08_FAILED_MERGE_PATH_REVIEWED_HEAD,
+  P0_R08_ARCHITECTURAL_BLOCKER_BYTES,
+  P0_R08_ARCHITECTURAL_BLOCKER_COMMENT,
+  P0_R08_ARCHITECTURAL_BLOCKER_SHA256,
+  P0_R08_FINAL_ADMISSION_BYTES,
+  P0_R08_FINAL_ADMISSION_COMMENT,
+  P0_R08_FINAL_ADMISSION_SHA256,
+  P0_R08_FINAL_ADMITTED_MAIN,
+  P0_R08_FINAL_ADMITTED_TREE,
+  P0_R08_FINAL_RECOVERY_PR,
+  P0_R08_RUNTIME_ARM64_SHA256,
+  P0_R08_RUNTIME_COMMIT,
+  P0_R08_RUNTIME_PR,
+  P0_R08_RUNTIME_REF,
+  P0_R08_RUNTIME_TAG,
+  P0_R08_RUNTIME_TAG_OBJECT,
+  P0_R08_RUNTIME_TREE,
+  P0_R08_RUNTIME_X64_SHA256,
   P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT,
   P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT_SHA256,
   P0_R08_FIRST_TERMINAL_ADMITTED_MAIN,
@@ -271,21 +294,101 @@ function validSelfHostingReceipt() {
       }, {
         attempt: 2,
         kind: 'terminal_recovery_delivery',
-        disposition: 'passed',
+        disposition: 'failed_merge_path_provenance',
         predecessor_pr_number: P0_R08_FAILED_TERMINAL_PR,
         admission_comment_id: P0_R08_TERMINAL_ADMISSION_COMMENT,
-        pr_number: 73,
+        pr: {
+          number: P0_R08_FAILED_MERGE_PATH_PR,
+          url: 'https://github.com/Samsen879/ao-pilot/pull/73',
+          head_sha: P0_R08_FAILED_MERGE_PATH_HEAD,
+          reviewed_head: P0_R08_FAILED_MERGE_PATH_REVIEWED_HEAD,
+          codex_reviews: [{
+            attempt: 1,
+            kind: 'submitted_review',
+            evidence_id: 4838853686,
+            request_comment_id: 5158629433,
+            head_sha: 'e3108ca40061fb314cc5f54fc8039656d2f89dc0',
+            completed_at: '2026-08-02T14:52:10Z',
+          }, {
+            attempt: 2,
+            kind: 'submitted_review',
+            evidence_id: 4840588410,
+            request_comment_id: 5161943701,
+            head_sha: P0_R08_FAILED_MERGE_PATH_REVIEWED_HEAD,
+            completed_at: '2026-08-03T03:27:03Z',
+          }],
+          finding_comment_ids: [3699415314, 3699415317, 3699415320, 3701145692, 3701145696, 3701145702, 3701145705, 3701145707, 3701145710],
+          worktree_evidence_comment_id: 5163418525,
+          premerge_evidence_comment_id: 5163443629,
+          merge_sha: P0_R08_FINAL_ADMITTED_MAIN,
+          merge_tree_sha: P0_R08_FINAL_ADMITTED_TREE,
+          merged_at: '2026-08-03T07:23:43Z',
+        },
+        failure: {
+          disposition_comment_id: P0_R08_FAILED_MERGE_PATH_DISPOSITION_COMMENT,
+          disposition_comment_body_bytes: P0_R08_FAILED_MERGE_PATH_DISPOSITION_BYTES,
+          disposition_comment_body_sha256: P0_R08_FAILED_MERGE_PATH_DISPOSITION_SHA256,
+          disposition_created_at: '2026-08-03T07:32:36Z',
+          disposition_updated_at: '2026-08-03T07:32:36Z',
+          architectural_blocker_comment_id: P0_R08_ARCHITECTURAL_BLOCKER_COMMENT,
+          provider_mutation: 'gh_pr_merge_exact_head_guarded',
+          ao_merge_executed: false,
+          reason_codes: ['pinned_ao_merge_route_not_implemented', 'provider_mutation_not_executed_by_ao'],
+        },
+      }, {
+        attempt: 3,
+        kind: 'terminal_recovery_delivery',
+        disposition: 'passed',
+        predecessor_pr_number: P0_R08_FAILED_MERGE_PATH_PR,
+        admission_comment_id: P0_R08_FINAL_ADMISSION_COMMENT,
+        pr_number: P0_R08_FINAL_RECOVERY_PR,
         worktree_evidence_comment_id: 188,
       }],
+    },
+    runtime_transition: {
+      architectural_blocker: {
+        comment_id: P0_R08_ARCHITECTURAL_BLOCKER_COMMENT,
+        comment_body_bytes: P0_R08_ARCHITECTURAL_BLOCKER_BYTES,
+        comment_body_sha256: P0_R08_ARCHITECTURAL_BLOCKER_SHA256,
+        created_at: '2026-08-03T07:40:30Z',
+        updated_at: '2026-08-03T07:40:30Z',
+      },
+      admission: {
+        comment_id: P0_R08_FINAL_ADMISSION_COMMENT,
+        comment_body_bytes: P0_R08_FINAL_ADMISSION_BYTES,
+        comment_body_sha256: P0_R08_FINAL_ADMISSION_SHA256,
+        created_at: '2026-08-03T08:23:19Z',
+        updated_at: '2026-08-03T08:23:19Z',
+      },
+      predecessor: {
+        runtime_ref: 'runtime.agent_orchestrator.v0_11_2_p0_1',
+        commit_sha: '711178ebe07d436db36020eb08f0c4e29613f97b',
+        tree_sha: '479fba6fd44f251f0c66fafc5cb5d638a6ff590a',
+        linux_x64_binary_sha256: 'a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34',
+      },
+      successor: {
+        runtime_ref: P0_R08_RUNTIME_REF,
+        runtime_pr_number: P0_R08_RUNTIME_PR,
+        runtime_pr_base: 'runtime-baseline/v0.11.2',
+        bootstrap_merge_exception: 'owner_gh_pr_merge_runtime_pr_8_only',
+        tag: P0_R08_RUNTIME_TAG,
+        tag_object_sha: P0_R08_RUNTIME_TAG_OBJECT,
+        commit_sha: P0_R08_RUNTIME_COMMIT,
+        tree_sha: P0_R08_RUNTIME_TREE,
+        integrity: { algorithm: 'git-tree-sha1', digest: P0_R08_RUNTIME_TREE },
+        linux_x64_binary_sha256: P0_R08_RUNTIME_X64_SHA256,
+        linux_arm64_binary_sha256: P0_R08_RUNTIME_ARM64_SHA256,
+      },
     },
     terminal_remediation: {
       admission: {
         issue_number: 63,
-        comment_id: P0_R08_TERMINAL_ADMISSION_COMMENT,
-        comment_body_sha256: P0_R08_TERMINAL_ADMISSION_COMMENT_SHA256,
+        comment_id: P0_R08_FINAL_ADMISSION_COMMENT,
+        comment_body_bytes: P0_R08_FINAL_ADMISSION_BYTES,
+        comment_body_sha256: P0_R08_FINAL_ADMISSION_SHA256,
         principal_pr_number: P0_R08_PRINCIPAL_PR,
-        admitted_main_sha: P0_R08_TERMINAL_ADMITTED_MAIN,
-        admitted_tree_sha: P0_R08_TERMINAL_ADMITTED_TREE,
+        admitted_main_sha: P0_R08_FINAL_ADMITTED_MAIN,
+        admitted_tree_sha: P0_R08_FINAL_ADMITTED_TREE,
       },
       environment: {
         kind: 'isolated_terminal_remediation',
@@ -300,8 +403,8 @@ function validSelfHostingReceipt() {
       source: {
         repository: 'https://github.com/Samsen879/ao-pilot.git',
         clone_path: `${P0_R08_TERMINAL_ROOT}/ao-pilot`,
-        clone_head_sha: P0_R08_TERMINAL_ADMITTED_MAIN,
-        clone_tree_sha: P0_R08_TERMINAL_ADMITTED_TREE,
+        clone_head_sha: P0_R08_FINAL_ADMITTED_MAIN,
+        clone_tree_sha: P0_R08_FINAL_ADMITTED_TREE,
         clean_before_bootstrap: true,
       },
       delivery: {
@@ -333,8 +436,8 @@ function validSelfHostingReceipt() {
         review_repairs_same_worker_pr: true,
         github_merge_outcome_confirmed: true,
         remediation_pr: {
-          number: 73,
-          url: 'https://github.com/Samsen879/ao-pilot/pull/73',
+          number: P0_R08_FINAL_RECOVERY_PR,
+          url: 'https://github.com/Samsen879/ao-pilot/pull/74',
           head_sha: '6'.repeat(40),
           reviewed_head: '6'.repeat(40),
           ci_conclusion: 'success',
@@ -440,7 +543,7 @@ function validEvidence(receipt) {
         merged_at: '2026-08-03T02:00:00.000Z',
         linked_issue_63: true,
       },
-      terminal_remediation_admission: {
+      standing_recovery_admission: {
         comment_id: P0_R08_TERMINAL_ADMISSION_COMMENT,
         issue_number: 63,
         author: 'Samsen879',
@@ -449,6 +552,16 @@ function validEvidence(receipt) {
         updated_at: '2026-08-02T14:24:49Z',
         body_bytes: P0_R08_TERMINAL_ADMISSION_COMMENT_BYTES,
         body_sha256: P0_R08_TERMINAL_ADMISSION_COMMENT_SHA256,
+      },
+      terminal_remediation_admission: {
+        comment_id: P0_R08_FINAL_ADMISSION_COMMENT,
+        issue_number: 63,
+        author: 'Samsen879',
+        author_association: 'OWNER',
+        created_at: '2026-08-03T08:23:19Z',
+        updated_at: '2026-08-03T08:23:19Z',
+        body_bytes: P0_R08_FINAL_ADMISSION_BYTES,
+        body_sha256: P0_R08_FINAL_ADMISSION_SHA256,
       },
       first_terminal_admission: {
         comment_id: P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT,
@@ -477,6 +590,55 @@ function validEvidence(receipt) {
         updated_at: '2026-08-02T14:29:13Z',
         body_sha256: P0_R08_FAILED_TERMINAL_DISPOSITION_SHA256,
       },
+      failed_merge_path_pr: {
+        number: P0_R08_FAILED_MERGE_PATH_PR,
+        merged: true,
+        merge_sha: P0_R08_FINAL_ADMITTED_MAIN,
+        merge_tree_sha: P0_R08_FINAL_ADMITTED_TREE,
+        head_sha: P0_R08_FAILED_MERGE_PATH_HEAD,
+        base_ref: 'main',
+        merged_at: '2026-08-03T07:23:43Z',
+      },
+      failed_merge_path_disposition: {
+        comment_id: P0_R08_FAILED_MERGE_PATH_DISPOSITION_COMMENT,
+        issue_number: 63,
+        author: 'Samsen879',
+        author_association: 'OWNER',
+        created_at: '2026-08-03T07:32:36Z',
+        updated_at: '2026-08-03T07:32:36Z',
+        body_bytes: P0_R08_FAILED_MERGE_PATH_DISPOSITION_BYTES,
+        body_sha256: P0_R08_FAILED_MERGE_PATH_DISPOSITION_SHA256,
+      },
+      failed_merge_path_worktree_evidence: {
+        comment_id: 5163418525, issue_number: 63, author: 'Samsen879', author_association: 'OWNER',
+        created_at: '2026-08-03T07:17:13Z', updated_at: '2026-08-03T07:17:13Z',
+      },
+      failed_merge_path_premerge_evidence: {
+        comment_id: 5163443629, issue_number: 63, author: 'Samsen879', author_association: 'OWNER',
+        created_at: '2026-08-03T07:20:16Z', updated_at: '2026-08-03T07:20:16Z',
+      },
+      architectural_blocker: {
+        comment_id: P0_R08_ARCHITECTURAL_BLOCKER_COMMENT,
+        issue_number: 63,
+        author: 'Samsen879',
+        author_association: 'OWNER',
+        created_at: '2026-08-03T07:40:30Z',
+        updated_at: '2026-08-03T07:40:30Z',
+        body_bytes: P0_R08_ARCHITECTURAL_BLOCKER_BYTES,
+        body_sha256: P0_R08_ARCHITECTURAL_BLOCKER_SHA256,
+      },
+      runtime_pr: {
+        number: P0_R08_RUNTIME_PR,
+        merged: true,
+        base_ref: 'runtime-baseline/v0.11.2',
+        merge_sha: P0_R08_RUNTIME_COMMIT,
+        merge_tree_sha: P0_R08_RUNTIME_TREE,
+      },
+      runtime_tag: {
+        tag: P0_R08_RUNTIME_TAG,
+        tag_object_sha: P0_R08_RUNTIME_TAG_OBJECT,
+        commit_sha: P0_R08_RUNTIME_COMMIT,
+      },
       terminal_remediation_pr: {
         number: receipt.terminal_remediation.delivery.remediation_pr.number,
         merged: true,
@@ -485,13 +647,16 @@ function validEvidence(receipt) {
         head_sha: receipt.terminal_remediation.delivery.remediation_pr.head_sha,
         head_ref: receipt.terminal_remediation.delivery.worker_branch,
         base_ref: 'main',
-        created_at: '2026-08-02T14:30:00.000Z',
+        created_at: '2026-08-03T08:30:00.000Z',
         merged_at: '2026-08-04T02:00:00.000Z',
         linked_issue_63: true,
         auto_closes_issue_63: false,
         binds_terminal_admission: true,
         binds_principal_pr_71: true,
         binds_failed_terminal_pr_72: true,
+        binds_failed_merge_path_pr_73: true,
+        binds_architectural_blocker: true,
+        binds_final_admission: true,
       },
       issue_linked_prs: [{
         repository: 'Samsen879/ao-pilot',
@@ -509,9 +674,16 @@ function validEvidence(receipt) {
         base_ref: 'main',
       }, {
         repository: 'Samsen879/ao-pilot',
+        number: P0_R08_FAILED_MERGE_PATH_PR,
+        url: 'https://github.com/Samsen879/ao-pilot/pull/73',
+        created_at: '2026-08-02T14:44:39.000Z',
+        head_ref: 'ao/p0-r08-standing-recovery-1',
+        base_ref: 'main',
+      }, {
+        repository: 'Samsen879/ao-pilot',
         number: receipt.terminal_remediation.delivery.remediation_pr.number,
         url: receipt.terminal_remediation.delivery.remediation_pr.url,
-        created_at: '2026-08-02T14:30:00.000Z',
+        created_at: '2026-08-03T08:30:00.000Z',
         head_ref: receipt.terminal_remediation.delivery.worker_branch,
         base_ref: 'main',
       }],
@@ -535,6 +707,21 @@ function validEvidence(receipt) {
         completed_at: review.completed_at,
         actor: 'chatgpt-codex-connector[bot]',
         completed: true,
+      })),
+      failed_merge_path_codex_reviews: receipt.terminal_recovery_chain.attempts[1].pr.codex_reviews.map((review) => ({
+        kind: review.kind,
+        evidence_id: review.evidence_id,
+        request_comment_id: review.request_comment_id,
+        request_valid: true,
+        head_sha: review.head_sha,
+        completed_at: review.completed_at,
+        actor: 'chatgpt-codex-connector[bot]',
+        completed: true,
+      })),
+      failed_merge_path_review_findings: receipt.terminal_recovery_chain.attempts[1].pr.finding_comment_ids.map((commentId, index) => ({
+        comment_id: commentId,
+        review_id: index < 3 ? 4838853686 : 4840588410,
+        resolved: true,
       })),
       terminal_check_runs: ['fresh-clone-runtime', 'test (20)', 'test (22)'].map((name) => ({ name, conclusion: 'success' })),
       terminal_codex_reviews: receipt.terminal_remediation.delivery.remediation_pr.codex_reviews.map((review) => ({
@@ -610,7 +797,7 @@ function validEvidence(receipt) {
         body_bytes: 1234,
         body_sha256: 'a'.repeat(64),
         payload: {
-          schema_version: 'ao.workstation-worktree-evidence.v5',
+          schema_version: 'ao.workstation-worktree-evidence.v6',
           issue_number: 63,
           captured_at: '2026-08-04T01:45:00.000Z',
           source: {
@@ -626,10 +813,11 @@ function validEvidence(receipt) {
           },
           recovery_chain: {
             standing_admission_comment_id: P0_R08_TERMINAL_ADMISSION_COMMENT,
-            attempt: 2,
-            prior_attempt_pr_number: P0_R08_FAILED_TERMINAL_PR,
-            admitted_main_sha: P0_R08_TERMINAL_ADMITTED_MAIN,
-            admitted_tree_sha: P0_R08_TERMINAL_ADMITTED_TREE,
+            final_admission_comment_id: P0_R08_FINAL_ADMISSION_COMMENT,
+            attempt: 3,
+            prior_attempt_pr_number: P0_R08_FAILED_MERGE_PATH_PR,
+            admitted_main_sha: P0_R08_FINAL_ADMITTED_MAIN,
+            admitted_tree_sha: P0_R08_FINAL_ADMITTED_TREE,
           },
           worker: {
             session_id: receipt.terminal_remediation.delivery.worker_session_id,
@@ -717,7 +905,8 @@ function validEvidence(receipt) {
       verified_at: '2026-08-04T01:57:00.000Z',
       status: 'premerge_verified',
       standing_admission_comment_id: P0_R08_TERMINAL_ADMISSION_COMMENT,
-      recovery_attempt: 2,
+      final_admission_comment_id: P0_R08_FINAL_ADMISSION_COMMENT,
+      recovery_attempt: 3,
       remediation_pr: {
         number: receipt.terminal_remediation.delivery.remediation_pr.number,
         head_sha: receipt.terminal_remediation.delivery.remediation_pr.head_sha,
@@ -758,7 +947,7 @@ function validEvidence(receipt) {
 function validPreMergeReceipt() {
   const receipt = validSelfHostingReceipt();
   receipt.status = 'pending';
-  receipt.terminal_recovery_chain.attempts[1].disposition = 'pending';
+  receipt.terminal_recovery_chain.attempts[2].disposition = 'pending';
   receipt.terminal_remediation.delivery.github_merge_outcome_confirmed = false;
   receipt.terminal_remediation.delivery.remediation_pr.merged = false;
   receipt.terminal_remediation.delivery.remediation_pr.merge_sha = null;
@@ -836,11 +1025,12 @@ describe('fresh-clone and protected self-hosting gates', () => {
       cleanup: { orchestrator_done_evidence_comment_id: 5157899599 },
       terminal_remediation: {
         admission: {
-          comment_id: P0_R08_TERMINAL_ADMISSION_COMMENT,
-          comment_body_sha256: P0_R08_TERMINAL_ADMISSION_COMMENT_SHA256,
+          comment_id: P0_R08_FINAL_ADMISSION_COMMENT,
+          comment_body_bytes: P0_R08_FINAL_ADMISSION_BYTES,
+          comment_body_sha256: P0_R08_FINAL_ADMISSION_SHA256,
           principal_pr_number: P0_R08_PRINCIPAL_PR,
-          admitted_main_sha: P0_R08_TERMINAL_ADMITTED_MAIN,
-          admitted_tree_sha: P0_R08_TERMINAL_ADMITTED_TREE,
+          admitted_main_sha: P0_R08_FINAL_ADMITTED_MAIN,
+          admitted_tree_sha: P0_R08_FINAL_ADMITTED_TREE,
         },
       },
       terminal_recovery_chain: {
@@ -856,8 +1046,14 @@ describe('fresh-clone and protected self-hosting gates', () => {
         },
         attempts: [
           expect.objectContaining({ attempt: 1, disposition: 'failed_premerge_gates', pr: { number: 72, url: 'https://github.com/Samsen879/ao-pilot/pull/72', head_sha: P0_R08_FAILED_TERMINAL_HEAD, reviewed_head: P0_R08_FAILED_TERMINAL_HEAD, codex_reviews: expect.any(Array), merge_sha: P0_R08_TERMINAL_ADMITTED_MAIN, merge_tree_sha: P0_R08_TERMINAL_ADMITTED_TREE, merged_at: '2026-08-02T14:15:52Z' } }),
-          expect.objectContaining({ attempt: 2, predecessor_pr_number: 72 }),
+          expect.objectContaining({ attempt: 2, disposition: 'failed_merge_path_provenance', predecessor_pr_number: 72, pr: expect.objectContaining({ number: 73 }) }),
+          expect.objectContaining({ attempt: 3, predecessor_pr_number: 73, pr_number: 74 }),
         ],
+      },
+      runtime_transition: {
+        architectural_blocker: { comment_id: P0_R08_ARCHITECTURAL_BLOCKER_COMMENT },
+        admission: { comment_id: P0_R08_FINAL_ADMISSION_COMMENT },
+        successor: { runtime_pr_number: P0_R08_RUNTIME_PR, tag_object_sha: P0_R08_RUNTIME_TAG_OBJECT },
       },
     });
   });
@@ -1011,7 +1207,7 @@ describe('fresh-clone and protected self-hosting gates', () => {
     })).toMatchObject({
       status: 'premerge_verified',
       principal_pr: 71,
-      terminal_recovery_pr: 73,
+      terminal_recovery_pr: 74,
       worktree_evidence_comment: 188,
       orchestrator_session_id: 'or-terminal',
     });
@@ -1144,7 +1340,7 @@ describe('fresh-clone and protected self-hosting gates', () => {
     remediation.reviewed_head = '6'.repeat(40);
     remediation.finding_dispositions = [{ comment_id: 301, review_id: 202, disposition: 'fixed', resolved: true }];
     remediation.post_review_2_repair = {
-      authorization_ref: 'https://github.com/Samsen879/ao-pilot/issues/63#issuecomment-5158510418',
+      authorization_ref: 'https://github.com/Samsen879/ao-pilot/issues/63#issuecomment-5163994984',
       final_head_sha: '7'.repeat(40), finding_comment_ids: [301],
     };
     const evidence = validEvidence(receipt);
@@ -1443,7 +1639,7 @@ describe('fresh-clone and protected self-hosting gates', () => {
         capturedAt: '2026-08-03T01:45:00.000Z',
       });
       expect(evidence).toMatchObject({
-        schema_version: 'ao.workstation-worktree-evidence.v5',
+        schema_version: 'ao.workstation-worktree-evidence.v6',
         source: {
           clone_path: fs.realpathSync(sourceRoot),
           head_sha: sourceHead,
@@ -1746,12 +1942,20 @@ describe('fresh-clone and protected self-hosting gates', () => {
     ['standing baseline drift', (receipt) => { receipt.terminal_recovery_chain.standing_admission.admitted_main_sha = 'f'.repeat(40); }],
     ['widened attempt authority', (receipt) => { receipt.terminal_recovery_chain.standing_admission.max_additional_recovery_attempts = 3; }],
     ['unordered attempts', (receipt) => { receipt.terminal_recovery_chain.attempts.reverse(); }],
-    ['arbitrary extra attempt', (receipt) => { receipt.terminal_recovery_chain.attempts.push({ attempt: 3 }); }],
+    ['arbitrary extra attempt', (receipt) => { receipt.terminal_recovery_chain.attempts.push({ attempt: 4 }); }],
     ['missing failed Review 2', (receipt) => { receipt.terminal_recovery_chain.attempts[0].pr.codex_reviews.pop(); }],
     ['rewritten failed disposition', (receipt) => { receipt.terminal_recovery_chain.attempts[0].disposition = 'passed'; }],
     ['missing failed gate', (receipt) => { receipt.terminal_recovery_chain.attempts[0].failure.premerge_worktree_evidence_published = true; }],
-    ['reused failed PR as recovery', (receipt) => { receipt.terminal_recovery_chain.attempts[1].pr_number = 72; }],
-    ['unbound attempt evidence', (receipt) => { receipt.terminal_recovery_chain.attempts[1].worktree_evidence_comment_id = 999; }],
+    ['rewritten PR #73 disposition', (receipt) => { receipt.terminal_recovery_chain.attempts[1].disposition = 'passed'; }],
+    ['missing PR #73 finding evidence', (receipt) => { receipt.terminal_recovery_chain.attempts[1].pr.finding_comment_ids.pop(); }],
+    ['drifted PR #73 merge provenance', (receipt) => { receipt.terminal_recovery_chain.attempts[1].failure.ao_merge_executed = true; }],
+    ['reused failed PR as recovery', (receipt) => { receipt.terminal_recovery_chain.attempts[2].pr_number = 73; }],
+    ['unbound attempt evidence', (receipt) => { receipt.terminal_recovery_chain.attempts[2].worktree_evidence_comment_id = 999; }],
+    ['arbitrary chain field', (receipt) => { receipt.terminal_recovery_chain.extra = true; }],
+    ['arbitrary attempt field', (receipt) => { receipt.terminal_recovery_chain.attempts[2].extra = true; }],
+    ['missing final admission', (receipt) => { delete receipt.runtime_transition.admission; }],
+    ['drifted runtime tag object', (receipt) => { receipt.runtime_transition.successor.tag_object_sha = 'f'.repeat(40); }],
+    ['arbitrary runtime transition field', (receipt) => { receipt.runtime_transition.successor.extra = true; }],
   ])('fails closed for ordered recovery-chain violation: %s', (_name, mutate) => {
     const receipt = validSelfHostingReceipt();
     const evidence = validEvidence(receipt);
@@ -1763,7 +1967,7 @@ describe('fresh-clone and protected self-hosting gates', () => {
     const receipt = validSelfHostingReceipt();
     const evidence = validEvidence(receipt);
     delete evidence.githubEvidence.terminal_worktree_capture.payload.recovery_chain;
-    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('ordered standing recovery attempt 2');
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('ordered final recovery attempt 3');
   });
 
   it.each([
@@ -1917,8 +2121,8 @@ describe('fresh-clone and protected self-hosting gates', () => {
     const evidence = validEvidence(receipt);
     evidence.githubEvidence.issue_linked_prs.push({
       repository: 'Samsen879/ao-pilot',
-      number: 74,
-      url: 'https://github.com/Samsen879/ao-pilot/pull/74',
+      number: 75,
+      url: 'https://github.com/Samsen879/ao-pilot/pull/75',
       created_at: '2026-08-02T12:30:00.000Z',
       head_ref: 'ao/p0-r08-extra-retry',
       base_ref: 'main',
@@ -1926,30 +2130,30 @@ describe('fresh-clone and protected self-hosting gates', () => {
     expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('exactly one post-admission retry principal PR');
   });
 
-  it('accepts the live layered issue-linked shape with sole principal PR #71 then ordered recovery PRs #72 and #73', () => {
+  it('accepts the live layered issue-linked shape with sole principal PR #71 then ordered recovery PRs #72, #73, and #74', () => {
     const receipt = validSelfHostingReceipt();
     const evidence = validEvidence(receipt);
 
-    expect(evidence.githubEvidence.issue_linked_prs.map((linkedPr) => linkedPr.number)).toEqual([71, 72, 73]);
+    expect(evidence.githubEvidence.issue_linked_prs.map((linkedPr) => linkedPr.number)).toEqual([71, 72, 73, 74]);
     expect(verifySelfHostingReceipt(receipt, evidence)).toMatchObject({
       principal_pr: 71,
-      terminal_remediation_pr: 73,
+      terminal_remediation_pr: 74,
     });
   });
 
   it('rejects an arbitrary extra linked delivery in the terminal recovery layer', () => {
     const receipt = validSelfHostingReceipt();
     const evidence = validEvidence(receipt);
-    evidence.githubEvidence.issue_linked_prs.splice(2, 0, {
+    evidence.githubEvidence.issue_linked_prs.splice(3, 0, {
       repository: 'Samsen879/ao-pilot',
-      number: 74,
-      url: 'https://github.com/Samsen879/ao-pilot/pull/74',
-      created_at: '2026-08-02T14:20:00.000Z',
+      number: 75,
+      url: 'https://github.com/Samsen879/ao-pilot/pull/75',
+      created_at: '2026-08-03T08:31:00.000Z',
       head_ref: 'ao/p0-r08-arbitrary-extra-delivery',
       base_ref: 'main',
     });
 
-    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('terminal recovery deliveries must be exactly ordered PR #72 then the active recovery PR');
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('exactly one admitted terminal-remediation PR');
   });
 
   it('excludes cross-referenced pull requests from external repositories before dedupe and count', () => {
