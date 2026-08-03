@@ -82,6 +82,33 @@ function validSupervisorProcessBinding(sessionId = 'or-terminal') {
   };
 }
 
+function validPremergePublicationAuthority(payload) {
+  return {
+    sourceRoot: '/source',
+    workerRoot: '/worker',
+    workerSessionId: 'worker-terminal',
+    orchestratorSessionId: 'or-terminal',
+    runtimeBinary: P0_R08_TERMINAL_RUNTIME_BINARY,
+    env: {
+      AO_SESSION_ID: 'or-terminal',
+      AO_PROJECT_ID: 'ao-pilot-remediation',
+      AO_ISSUE_ID: '63',
+      AO_RUNTIME_LAUNCH_ID: 'launch-or-terminal',
+    },
+    sessionGet: (_binary, args) => ({ session: args[2] === 'worker-terminal' ? {
+      id: 'worker-terminal', projectId: 'ao-pilot-remediation', issueId: '63', kind: 'worker', createdAt: '2026-08-02T14:29:56.794Z',
+    } : {
+      id: 'or-terminal', projectId: 'ao-pilot-remediation', issueId: '63', kind: 'orchestrator', activity: { state: 'active' }, isTerminated: false,
+    } }),
+    probes: {
+      resolveRuntimeBinary: () => P0_R08_TERMINAL_RUNTIME_BINARY,
+      runtimeDigest: () => P0_R08_TERMINAL_RUNTIME_BINARY_SHA256,
+      inspectAoSupervisorProcess: () => validSupervisorProcessBinding(),
+      captureWorktreeEvidence: () => ({ worker: { head_sha: payload.remediation_pr.head_sha, tree_sha: payload.remediation_pr.tree_sha } }),
+    },
+  };
+}
+
 function validSelfHostingReceipt() {
   const runtime = loadRuntimeLock().lock;
   return {
@@ -1027,41 +1054,64 @@ describe('fresh-clone and protected self-hosting gates', () => {
     const payload = createPremergeVerificationEvidence({ receipt, result, evidence, verifiedAt: '2026-08-04T01:57:00.000Z' });
     const evidencePath = path.join(root, 'preflight.json');
     fs.writeFileSync(evidencePath, JSON.stringify(payload, null, 2));
-    const authorityOptions = {
-      sourceRoot: '/source', workerRoot: '/worker', workerSessionId: 'worker-terminal', orchestratorSessionId: 'or-terminal',
-      runtimeBinary: P0_R08_TERMINAL_RUNTIME_BINARY,
-      env: { AO_SESSION_ID: 'or-terminal', AO_PROJECT_ID: 'ao-pilot-remediation', AO_ISSUE_ID: '63', AO_RUNTIME_LAUNCH_ID: 'launch-or-terminal' },
-      sessionGet: (_binary, args) => ({ session: args[2] === 'worker-terminal' ? {
-        id: 'worker-terminal', projectId: 'ao-pilot-remediation', issueId: '63', kind: 'worker', createdAt: '2026-08-02T14:29:56.794Z',
-      } : {
-        id: 'or-terminal', projectId: 'ao-pilot-remediation', issueId: '63', kind: 'orchestrator', activity: { state: 'active' }, isTerminated: false,
-      } }),
-      probes: {
-        resolveRuntimeBinary: () => P0_R08_TERMINAL_RUNTIME_BINARY,
-        runtimeDigest: () => P0_R08_TERMINAL_RUNTIME_BINARY_SHA256,
-        inspectAoSupervisorProcess: () => validSupervisorProcessBinding(),
-        captureWorktreeEvidence: () => ({ worker: { head_sha: payload.remediation_pr.head_sha, tree_sha: payload.remediation_pr.tree_sha } }),
-      },
-    };
+    const authorityOptions = validPremergePublicationAuthority(payload);
+    let readBackCompleted = false;
     try {
       const publication = publishOrchestratorBoundPremergeEvidence({
         evidencePath,
         publicationReceiptPath: path.join(root, 'publication.json'),
         authorityOptions,
         publish: () => ({ id: 5159000003 }),
-        readBack: () => ({
-          id: 5159000003, user: { login: 'Samsen879' }, author_association: 'OWNER',
-          created_at: '2026-08-04T01:58:00.000Z', updated_at: '2026-08-04T01:58:00.000Z',
-          body: fs.readFileSync(evidencePath, 'utf8'),
-        }),
-        now: () => '2026-08-04T01:59:00.000Z',
+        readBack: () => {
+          readBackCompleted = true;
+          return {
+            id: 5159000003, user: { login: 'Samsen879' }, author_association: 'OWNER',
+            created_at: '2026-08-04T01:58:00.000Z', updated_at: '2026-08-04T01:58:00.000Z',
+            body: fs.readFileSync(evidencePath, 'utf8'),
+          };
+        },
+        now: () => {
+          expect(readBackCompleted).toBe(true);
+          return '2026-08-04T01:57:59.750Z';
+        },
       });
       expect(publication).toMatchObject({
         schema_version: PREMERGE_VERIFICATION_PUBLICATION_SCHEMA_VERSION,
         comment_id: 5159000003,
+        published_at: '2026-08-04T01:58:00.000Z',
+        read_back_at: '2026-08-04T01:58:00.000Z',
         exact_body_read_back: true,
         process_binding: validSupervisorProcessBinding(),
       });
+    } finally {
+      removeTemporaryRoot(root);
+    }
+  });
+
+  it('does not sample or persist a readback timestamp when GitHub readback fails', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-preflight-sequencing-'));
+    const receipt = validPreMergeReceipt();
+    const evidence = validPreMergeEvidence(receipt);
+    const result = verifySelfHostingReceipt(receipt, { ...evidence, requirePublication: false, stage: 'pre_merge' });
+    const payload = createPremergeVerificationEvidence({ receipt, result, evidence, verifiedAt: '2026-08-04T01:57:00.000Z' });
+    const evidencePath = path.join(root, 'preflight.json');
+    const publicationReceiptPath = path.join(root, 'publication.json');
+    fs.writeFileSync(evidencePath, JSON.stringify(payload, null, 2));
+    let nowCalled = false;
+    try {
+      expect(() => publishOrchestratorBoundPremergeEvidence({
+        evidencePath,
+        publicationReceiptPath,
+        authorityOptions: validPremergePublicationAuthority(payload),
+        publish: () => ({ id: 5159000004 }),
+        readBack: () => { throw new Error('GitHub readback failed'); },
+        now: () => {
+          nowCalled = true;
+          return '2026-08-04T01:58:00.000Z';
+        },
+      })).toThrow('GitHub readback failed');
+      expect(nowCalled).toBe(false);
+      expect(fs.existsSync(publicationReceiptPath)).toBe(false);
     } finally {
       removeTemporaryRoot(root);
     }

@@ -107,7 +107,12 @@ export function publishOrchestratorBoundPremergeEvidence({
   assert(observed?.user?.login === 'Samsen879' && observed?.author_association === 'OWNER', 'Pre-merge evidence was not published by the Owner credential');
   assert(observed?.created_at === observed?.updated_at, 'Published pre-merge evidence was edited');
   assert(observed?.body === raw, 'Pre-merge evidence readback body differs from the published payload');
-  const readBackAt = now();
+  const publishedAtMilliseconds = Date.parse(observed.created_at);
+  assert(!Number.isNaN(publishedAtMilliseconds), 'Published pre-merge evidence has an invalid created_at timestamp');
+  const sampledAfterReadBack = now();
+  const sampledAfterReadBackMilliseconds = Date.parse(sampledAfterReadBack);
+  assert(!Number.isNaN(sampledAfterReadBackMilliseconds), 'Invalid post-readback timestamp sample');
+  const readBackAt = new Date(Math.max(publishedAtMilliseconds, sampledAfterReadBackMilliseconds)).toISOString();
   const receipt = {
     schema_version: PREMERGE_VERIFICATION_PUBLICATION_SCHEMA_VERSION,
     issue_number: 63,
@@ -122,7 +127,7 @@ export function publishOrchestratorBoundPremergeEvidence({
     runtime_binary_sha256: authority.orchestrator_provenance.runtime_binary_sha256,
     process_binding: authority.orchestrator_provenance.process_binding,
   };
-  assert(Date.parse(receipt.read_back_at) >= Date.parse(receipt.published_at), 'Pre-merge evidence readback timestamp predates publication');
+  assert(Date.parse(receipt.read_back_at) >= publishedAtMilliseconds, 'Pre-merge evidence readback timestamp predates publication');
   fs.writeFileSync(path.resolve(publicationReceiptPath), `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx' });
   return receipt;
 }
