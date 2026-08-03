@@ -218,6 +218,16 @@ No prior AO database, sessions, project, daemon, worktree, or re-engagement
 state may be read. Do not claim a remediation-specific runtime store or cache:
 neither was created or used.
 
+The receipt's top-level `runtime` and `bootstrap` remain immutable historical
+principal evidence and therefore continue to name p0.1 commit
+`711178ebe07d436db36020eb08f0c4e29613f97b`, tree
+`479fba6fd44f251f0c66fafc5cb5d638a6ff590a`, and linux/x64 digest
+`a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34`.
+Do not rewrite the runtime used to produce done comment `5157899599`.
+Represent p0.2 only in `runtime_transition.successor` and
+`terminal_remediation.environment`, including terminal publication and command
+provenance beneath that remediation layer.
+
 Before merge, run `publish:self-hosting-worktree` from the active Orchestrator
 session. The command fails unless `AO_SESSION_ID` equals
 `ao-pilot-remediation-1`, the pinned AO reports that exact active session as
@@ -235,7 +245,7 @@ bytes. Record the comment and generated publication receipt in
 `terminal_remediation.delivery.worktree_evidence_comment_id` and
 `terminal_remediation.delivery.worktree_evidence_publication`.
 
-The v5 capture derives both source and Worker commit/tree IDs from Git. It
+The v6 capture derives both source and Worker commit/tree IDs from Git. It
 requires the source HEAD/tree to equal the standing baseline, proves that
 source HEAD is an ancestor of Worker HEAD, and requires the merge base to equal
 the admitted source commit. Independently, it reads the oldest branch-creation
@@ -262,7 +272,7 @@ npm --prefix "$WORKER_ROOT" run publish:self-hosting-worktree -- \
 
 After CI is green, both formal reviews are complete, every finding disposition
 is recorded and resolved, and the worktree publication receipt is copied into
-the pending v6 receipt, the Orchestrator must run this executable staged gate
+the pending v7 receipt, the Orchestrator must run this executable staged gate
 from the exact Worker HEAD. The output path is created exclusively and contains
 canonical JSON with no trailing newline:
 
@@ -315,18 +325,45 @@ comment and rejects a missing, post-merge, edited, digest-drifted, head/tree-
 drifted, finding-drifted, worktree-identity-drifted, or differently supervised
 preflight artifact.
 
-After the recovery PR merges, replay `npm run release:check` on its
+Only after that immutable preflight exists may the active Orchestrator invoke
+the literal command below. Preserve its trimmed stdout exactly; p0.2 success
+must have the form `merged PR #74 using squash (head <HEAD>, merge commit
+<MERGE_SHA>)`.
+
+```bash
+/home/guoqy/p0-r08-retry-workstation/runtime-store/runtime.agent_orchestrator.v0_11_2_p0_2/linux-x64/aae8a684357271acc7ad2fa1d4116c7c65c8fa9d/bin/ao pr merge 74
+```
+
+Immediately read back PR #74 and exact `main` SHA/tree. Publish one canonical
+JSON issue #63 comment with schema
+`ao.workstation-terminal-merge-evidence.v1`. It must bind the completion
+timestamp, Orchestrator session, recovery attempt 3, premerge comment ID and
+digest; the literal runtime path/digest, exact arguments, zero exit, and exact
+stdout; and effect fields `provider_mutation: github_squash_merge`,
+`exact_head_guarded: true`, `ao_merge_executed: true`,
+`github_readback_confirmed: true`, PR number/method, exact head, merge commit,
+and exact main SHA/tree. Copy the same p0.2 Orchestrator provenance used by the
+worktree/premerge evidence. Read the issue comment back byte-for-byte and
+record its ID, byte count, SHA-256, timestamps, p0.2 runtime identity, and the
+same supervisor process binding under
+`terminal_remediation.merge_execution`. A direct `gh pr merge`, a successful
+GitHub outcome without this immutable AO execution/effect record, a different
+runtime or supervisor, an absent exact-head guard, or any merge/main readback
+drift fails closed.
+
+After the recovery PR merges through that AO command, replay `npm run release:check` on its
 exact merge SHA/tree, invoke `orchestrator done` through the literal pinned
 binary, publish that command evidence, and clean only the remediation AO
 sessions/worktrees/branches/project/daemon state. Record those facts under
 `terminal_remediation.exact_main_replay` and `terminal_remediation.cleanup`.
-The final v6 verifier preserves and revalidates the original v2 admission,
+The final v7 verifier preserves and revalidates the original v2 admission,
 principal PR #71, comments `5157857462` and `5157899599`, and cleanup proof;
 then it independently validates the exact three-entry ordered recovery chain:
 failed PR #72, `failed_merge_path_provenance` PR #73, and final PR #74. It
 binds both Owner admissions, the PR #72 failure disposition/reviews, every
 immutable PR #73 review/finding/publication/outcome, the architectural
-blocker, the p0.2 runtime transition, and PR #74 reviews/CI/merge SHA/tree, and
+blocker, the p0.2 runtime transition, immutable AO merge execution/effect
+provenance, and PR #74 reviews/CI/merge SHA/tree, and
 requires the verifier checkout to equal resulting exact current main. Any
 additional, omitted, duplicated, or reordered delivery fails closed.
 

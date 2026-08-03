@@ -1,5 +1,5 @@
 {
-  "schema_version": "ao.workstation-self-hosting-receipt.v6",
+  "schema_version": "ao.workstation-self-hosting-receipt.v7",
   "status": "pending",
   "performed_at": "REPLACE_WITH_ISO_8601",
   "environment": {
@@ -32,15 +32,15 @@
     "historical_tree_sha": "e3553f50aba65c413d4a5063bfd4ceb4510e0166"
   },
   "runtime": {
-    "runtime_ref": "runtime.agent_orchestrator.v0_11_2_p0_2",
+    "runtime_ref": "runtime.agent_orchestrator.v0_11_2_p0_1",
     "repository": "https://github.com/Samsen879/agent-orchestrator.git",
-    "version": "0.11.2-p0.2",
-    "tag": "ao-pilot-runtime-v0.11.2-p0.2",
-    "commit_sha": "aae8a684357271acc7ad2fa1d4116c7c65c8fa9d",
-    "tree_sha": "e8adb9a31068810becfb5d31b46688b04202cf81",
+    "version": "0.11.2-p0.1",
+    "tag": "ao-pilot-runtime-v0.11.2-p0.1",
+    "commit_sha": "711178ebe07d436db36020eb08f0c4e29613f97b",
+    "tree_sha": "479fba6fd44f251f0c66fafc5cb5d638a6ff590a",
     "integrity": {
       "algorithm": "git-tree-sha1",
-      "digest": "e8adb9a31068810becfb5d31b46688b04202cf81"
+      "digest": "479fba6fd44f251f0c66fafc5cb5d638a6ff590a"
     },
     "binary_path": "REPLACE_WITH_MANAGED_ABSOLUTE_PATH",
     "binary_sha256": "REPLACE_WITH_LOCKED_64_HEX",
@@ -353,6 +353,7 @@
       }
     },
     "premerge_verification": null,
+    "merge_execution": null,
     "exact_main_replay": {
       "passed": false,
       "release_check_passed": false,

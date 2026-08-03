@@ -8,7 +8,9 @@ import {
 } from './premerge-verification-evidence.js';
 import { loadRuntimeLock } from './runtime-lock.js';
 
-export const SELF_HOSTING_RECEIPT_SCHEMA_VERSION = 'ao.workstation-self-hosting-receipt.v6';
+export const SELF_HOSTING_RECEIPT_SCHEMA_VERSION = 'ao.workstation-self-hosting-receipt.v7';
+export const TERMINAL_MERGE_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-terminal-merge-evidence.v1';
+export const TERMINAL_MERGE_PUBLICATION_SCHEMA_VERSION = 'ao.workstation-terminal-merge-publication.v1';
 export const P0_R08_RETRY_ADMISSION_PR = 70;
 export const P0_R08_RETRY_ADMISSION_ISSUE = 63;
 export const P0_R08_RETRY_ADMISSION_COMMENT = 5157524210;
@@ -52,6 +54,12 @@ export const P0_R08_FINAL_ADMISSION_SHA256 = '2005f4deceae2f69a9e332a040fb72664d
 export const P0_R08_FINAL_ADMITTED_MAIN = 'fe9bcd9eeba08453aeb003036a5dce76926314ff';
 export const P0_R08_FINAL_ADMITTED_TREE = 'a619bcc0fc57a7312b36368501ba54714eb2373e';
 export const P0_R08_FINAL_RECOVERY_PR = 74;
+export const P0_R08_PRINCIPAL_RUNTIME_REF = 'runtime.agent_orchestrator.v0_11_2_p0_1';
+export const P0_R08_PRINCIPAL_RUNTIME_TAG = 'ao-pilot-runtime-v0.11.2-p0.1';
+export const P0_R08_PRINCIPAL_RUNTIME_COMMIT = '711178ebe07d436db36020eb08f0c4e29613f97b';
+export const P0_R08_PRINCIPAL_RUNTIME_TREE = '479fba6fd44f251f0c66fafc5cb5d638a6ff590a';
+export const P0_R08_PRINCIPAL_RUNTIME_X64_SHA256 = 'a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34';
+export const P0_R08_PRINCIPAL_RUNTIME_ARM64_SHA256 = '132164dc29349ea2082d77d6758b3617be81c7cfcf27d3f0ba9a88d65a88c752';
 export const P0_R08_RUNTIME_PR = 8;
 export const P0_R08_RUNTIME_REF = 'runtime.agent_orchestrator.v0_11_2_p0_2';
 export const P0_R08_RUNTIME_TAG = 'ao-pilot-runtime-v0.11.2-p0.2';
@@ -419,22 +427,17 @@ export function verifySelfHostingReceipt(receipt, {
   assert(activeAttempt.admission_comment_id === P0_R08_FINAL_ADMISSION_COMMENT && activeAttempt.pr_number === P0_R08_FINAL_RECOVERY_PR, 'Current recovery delivery is not bound to final Owner admission/PR #74');
 
   const runtime = object(value.runtime, 'runtime');
-  assert(runtime.runtime_ref === runtimeLock.runtime_ref, 'Runtime ref does not match the committed lock');
-  assert(runtime.repository === runtimeLock.artifact.repository, 'Runtime repository does not match the committed lock');
-  assert(runtime.version === runtimeLock.artifact.version, 'Runtime version does not match the committed lock');
-  assert(runtime.tag === runtimeLock.artifact.ref.name, 'Runtime tag does not match the committed lock');
-  assert(runtime.commit_sha === runtimeLock.artifact.ref.commit_sha, 'Runtime commit does not match the committed lock');
-  assert(runtime.tree_sha === runtimeLock.artifact.ref.tree_sha, 'Runtime tree does not match the committed lock');
-  assert(runtime.integrity?.algorithm === runtimeLock.artifact.integrity.algorithm, 'Runtime integrity algorithm mismatch');
-  assert(runtime.integrity?.digest === runtimeLock.artifact.integrity.digest, 'Runtime integrity digest mismatch');
+  assert(runtime.runtime_ref === P0_R08_PRINCIPAL_RUNTIME_REF, 'Historical principal runtime ref mismatch');
+  assert(runtime.repository === 'https://github.com/Samsen879/agent-orchestrator.git', 'Historical principal runtime repository mismatch');
+  assert(runtime.version === '0.11.2-p0.1' && runtime.tag === P0_R08_PRINCIPAL_RUNTIME_TAG, 'Historical principal runtime version/tag mismatch');
+  assert(runtime.commit_sha === P0_R08_PRINCIPAL_RUNTIME_COMMIT && runtime.tree_sha === P0_R08_PRINCIPAL_RUNTIME_TREE, 'Historical principal runtime commit/tree mismatch');
+  assert(runtime.integrity?.algorithm === 'git-tree-sha1' && runtime.integrity?.digest === P0_R08_PRINCIPAL_RUNTIME_TREE, 'Historical principal runtime integrity mismatch');
   const runtimeBinaryPath = canonicalAbsolutePath(runtime.binary_path, 'runtime.binary_path');
   assert(/^[0-9a-f]{64}$/.test(string(runtime.binary_sha256, 'runtime.binary_sha256')), 'Invalid runtime.binary_sha256');
   const runtimeTarget = object(runtime.target, 'runtime.target');
-  const lockedTarget = runtimeLock.compatibility.platforms.find((target) => (
-    target.os === runtimeTarget.os && target.arch === runtimeTarget.arch
-  ));
-  assert(lockedTarget != null, 'Runtime target is not supported by the lock');
-  assert(lockedTarget.binary_sha256 === runtime.binary_sha256, 'Runtime binary digest does not match the workstation target');
+  const principalDigests = { x64: P0_R08_PRINCIPAL_RUNTIME_X64_SHA256, arm64: P0_R08_PRINCIPAL_RUNTIME_ARM64_SHA256 };
+  assert(runtimeTarget.os === 'linux' && Object.hasOwn(principalDigests, runtimeTarget.arch), 'Historical principal runtime target is unsupported');
+  assert(principalDigests[runtimeTarget.arch] === runtime.binary_sha256, 'Historical principal runtime binary digest mismatch');
   const expectedRuntimeBinary = `${runtimeStore}/${runtime.runtime_ref}/${runtimeTarget.os}-${runtimeTarget.arch}/${runtime.commit_sha}/bin/ao`;
   assert(runtimeBinaryPath === expectedRuntimeBinary, 'Runtime binary is not in the retry-specific managed store');
   assertPathResolvesWithin(retryRoot, runtimeBinaryPath, 'Runtime binary');
@@ -611,8 +614,9 @@ export function verifySelfHostingReceipt(receipt, {
     assert(pathWithin(terminalRoot, candidate), `Terminal-remediation ${field} escapes its root`);
     assertPathResolvesWithin(terminalRoot, candidate, `Terminal-remediation ${field}`);
   }
-  assert(terminalEnvironment.runtime_binary_path === runtimeBinaryPath, 'Terminal remediation did not reuse the verified immutable runtime binary');
-  assert(terminalEnvironment.runtime_binary_sha256 === runtime.binary_sha256, 'Terminal-remediation runtime digest mismatch');
+  assert(runtimeLock.runtime_ref === P0_R08_RUNTIME_REF && runtimeLock.artifact.ref.commit_sha === P0_R08_RUNTIME_COMMIT && runtimeLock.artifact.ref.tree_sha === P0_R08_RUNTIME_TREE, 'Committed lock is not the admitted p0.2 successor runtime');
+  assert(terminalEnvironment.runtime_binary_path === P0_R08_TERMINAL_RUNTIME_BINARY, 'Terminal remediation did not use the admitted immutable p0.2 runtime binary');
+  assert(terminalEnvironment.runtime_binary_sha256 === P0_R08_TERMINAL_RUNTIME_BINARY_SHA256, 'Terminal-remediation p0.2 runtime digest mismatch');
 
   const terminalSource = object(terminal.source, 'terminal_remediation.source');
   assert(terminalSource.repository === source.repository, 'Terminal-remediation source repository mismatch');
@@ -707,6 +711,7 @@ export function verifySelfHostingReceipt(receipt, {
   let terminalMergeTree = null;
   let terminalMergedAt = null;
   if (preMerge) {
+    assert(terminal.merge_execution == null, 'Pre-merge receipt must not claim AO merge execution evidence');
     falsehood(remediationPr.merged, 'terminal_remediation.delivery.remediation_pr.merged');
     assert(remediationPr.merge_sha == null && remediationPr.merge_tree_sha == null, 'Pre-merge receipt must not claim a merge SHA/tree');
     assert(liveRemediationPr.merged === false && liveRemediationPr.merge_sha == null && liveRemediationPr.merge_tree_sha == null && liveRemediationPr.merged_at == null, 'Live recovery PR already has a merge outcome during pre-merge verification');
@@ -832,6 +837,46 @@ export function verifySelfHostingReceipt(receipt, {
   assert(premergePublication.runtime_binary_path === P0_R08_TERMINAL_RUNTIME_BINARY && premergePublication.runtime_binary_sha256 === P0_R08_TERMINAL_RUNTIME_BINARY_SHA256, 'Pre-merge publication runtime provenance mismatch');
   assert(JSON.stringify(premergePublication.process_binding) === JSON.stringify(worktreeProcessBinding), 'Pre-merge publication did not run under the same AO Orchestrator supervisor');
 
+  const mergeExecution = exactKeys(terminal.merge_execution, 'terminal_remediation.merge_execution', ['evidence_comment_id', 'publication']);
+  const mergeEvidenceCommentId = Number(mergeExecution.evidence_comment_id);
+  assert(Number.isSafeInteger(mergeEvidenceCommentId) && mergeEvidenceCommentId > 0, 'Invalid immutable AO merge evidence comment ID');
+  const mergeCapture = object(github.terminal_merge_capture, 'GitHub terminal-remediation AO merge evidence');
+  assert(mergeCapture.comment_id === mergeEvidenceCommentId && mergeCapture.issue_number === 63 && mergeCapture.author === 'Samsen879' && mergeCapture.author_association === 'OWNER', 'Immutable AO merge evidence identity mismatch');
+  const mergePublishedAt = timestamp(mergeCapture.created_at, 'AO merge evidence created_at');
+  assert(mergeCapture.updated_at === mergePublishedAt && Date.parse(mergePublishedAt) >= Date.parse(terminalMergedAt), 'AO merge evidence was edited or published before the merge');
+  const mergePayload = exactKeys(mergeCapture.payload, 'AO merge evidence payload', [
+    'schema_version', 'issue_number', 'completed_at', 'orchestrator_session_id',
+    'recovery_attempt', 'premerge_evidence', 'command', 'effect', 'orchestrator_provenance',
+  ]);
+  assert(mergePayload.schema_version === TERMINAL_MERGE_EVIDENCE_SCHEMA_VERSION && mergePayload.issue_number === 63 && mergePayload.orchestrator_session_id === terminalOrchestratorSessionId && mergePayload.recovery_attempt === 3, 'AO merge evidence is outside the admitted terminal recovery operation');
+  const mergeCompletedAt = timestamp(mergePayload.completed_at, 'AO merge evidence completed_at');
+  assert(Date.parse(mergeCompletedAt) >= Date.parse(terminalMergedAt) && Date.parse(mergeCompletedAt) <= Date.parse(mergePublishedAt), 'AO merge execution completion is outside its immutable post-merge publication window');
+  const mergePreflight = exactKeys(mergePayload.premerge_evidence, 'AO merge evidence premerge_evidence', ['comment_id', 'payload_sha256']);
+  assert(mergePreflight.comment_id === premergeEvidenceCommentId && mergePreflight.payload_sha256 === premergeCapture.body_sha256, 'AO merge execution is not bound to the immutable pre-merge proof');
+  const mergeCommand = exactKeys(mergePayload.command, 'AO merge evidence command', ['runtime_binary_path', 'runtime_binary_sha256', 'args', 'exit_code', 'stdout']);
+  assert(mergeCommand.runtime_binary_path === P0_R08_TERMINAL_RUNTIME_BINARY && mergeCommand.runtime_binary_sha256 === P0_R08_TERMINAL_RUNTIME_BINARY_SHA256, 'AO merge command did not use the admitted immutable p0.2 binary');
+  assert(JSON.stringify(mergeCommand.args) === JSON.stringify(['pr', 'merge', String(remediationPr.number)]), 'Unexpected AO merge command');
+  assert(mergeCommand.exit_code === 0, 'Pinned AO merge command did not succeed');
+  assert(mergeCommand.stdout === `merged PR #${remediationPr.number} using squash (head ${terminalFinalHead}, merge commit ${terminalMergeSha})`, 'Pinned AO merge command result mismatch');
+  const mergeEffect = exactKeys(mergePayload.effect, 'AO merge evidence effect', [
+    'provider_mutation', 'exact_head_guarded', 'ao_merge_executed', 'github_readback_confirmed',
+    'pr_number', 'method', 'head_sha', 'merge_commit_sha', 'main_sha', 'main_tree_sha',
+  ]);
+  assert(mergeEffect.provider_mutation === 'github_squash_merge' && mergeEffect.exact_head_guarded === true && mergeEffect.ao_merge_executed === true && mergeEffect.github_readback_confirmed === true, 'AO merge effect provenance is incomplete');
+  assert(mergeEffect.pr_number === remediationPr.number && mergeEffect.method === 'squash' && mergeEffect.head_sha === terminalFinalHead && mergeEffect.merge_commit_sha === terminalMergeSha, 'AO merge effect does not bind PR #74 exact HEAD/outcome');
+  assert(mergeEffect.main_sha === terminalMergeSha && mergeEffect.main_tree_sha === terminalMergeTree, 'AO merge effect does not bind exact main SHA/tree readback');
+  assert(JSON.stringify(mergePayload.orchestrator_provenance) === JSON.stringify(orchestratorProvenance), 'AO merge evidence Orchestrator provenance differs from pre-merge evidence');
+  const mergePublication = exactKeys(mergeExecution.publication, 'terminal_remediation.merge_execution.publication', [
+    'schema_version', 'issue_number', 'comment_id', 'published_at', 'read_back_at',
+    'payload_bytes', 'payload_sha256', 'exact_body_read_back', 'orchestrator_session_id',
+    'runtime_binary_path', 'runtime_binary_sha256', 'process_binding',
+  ]);
+  assert(mergePublication.schema_version === TERMINAL_MERGE_PUBLICATION_SCHEMA_VERSION && mergePublication.issue_number === 63 && mergePublication.comment_id === mergeEvidenceCommentId && mergePublication.orchestrator_session_id === terminalOrchestratorSessionId, 'AO merge publication receipt identity mismatch');
+  assert(mergePublication.payload_bytes === mergeCapture.body_bytes && mergePublication.payload_sha256 === mergeCapture.body_sha256 && mergePublication.published_at === mergePublishedAt, 'AO merge publication payload/timestamp mismatch');
+  assert(Date.parse(timestamp(mergePublication.read_back_at, 'AO merge evidence read_back_at')) >= Date.parse(mergePublishedAt) && mergePublication.exact_body_read_back === true, 'AO merge publication lacks exact post-publication readback');
+  assert(mergePublication.runtime_binary_path === P0_R08_TERMINAL_RUNTIME_BINARY && mergePublication.runtime_binary_sha256 === P0_R08_TERMINAL_RUNTIME_BINARY_SHA256, 'AO merge publication runtime provenance mismatch');
+  assert(JSON.stringify(mergePublication.process_binding) === JSON.stringify(worktreeProcessBinding), 'AO merge publication did not run under the same p0.2 Orchestrator supervisor');
+
   const terminalReplay = object(terminal.exact_main_replay, 'terminal_remediation.exact_main_replay');
   truth(terminalReplay.passed, 'terminal_remediation.exact_main_replay.passed');
   truth(terminalReplay.release_check_passed, 'terminal_remediation.exact_main_replay.release_check_passed');
@@ -850,7 +895,7 @@ export function verifySelfHostingReceipt(receipt, {
   assert(terminalDone.schema_version === ORCHESTRATOR_DONE_EVIDENCE_SCHEMA_VERSION && terminalDone.issue_number === 63 && terminalDone.orchestrator_session_id === terminalOrchestratorSessionId, 'Terminal-remediation done payload mismatch');
   const terminalDoneCompletedAt = timestamp(terminalDone.completed_at, 'terminal-remediation done completed_at');
   assert(Date.parse(terminalDoneCompletedAt) >= Date.parse(terminalMergedAt) && Date.parse(terminalDoneCompletedAt) <= Date.parse(terminalDonePublishedAt), 'Terminal-remediation done evidence is outside the post-merge publication window');
-  assert(terminalDone.command.runtime_binary_path === runtimeBinaryPath && terminalDone.command.exit_code === 0, 'Terminal-remediation done used unverified runtime or failed');
+  assert(terminalDone.command.runtime_binary_path === P0_R08_TERMINAL_RUNTIME_BINARY && terminalDone.command.exit_code === 0, 'Terminal-remediation done used unverified p0.2 runtime or failed');
   assert(JSON.stringify(terminalDone.command.args) === JSON.stringify(['orchestrator', 'done', '--session', terminalOrchestratorSessionId]), 'Unexpected terminal-remediation done command');
   assert(terminalDone.command.stdout === `Orchestrator ${terminalOrchestratorSessionId} marked done.`, 'Terminal-remediation done confirmation mismatch');
   truth(terminalCleanup.orchestrator_done, 'terminal_remediation.cleanup.orchestrator_done');

@@ -243,6 +243,7 @@ function collectEvidence(receipt, repositoryRoot, { preMerge = false } = {}) {
       orchestrator_done_capture: jsonIssueCommentEvidence(receipt.cleanup.orchestrator_done_evidence_comment_id, repositoryRoot),
       terminal_worktree_capture: jsonIssueCommentEvidence(receipt.terminal_remediation.delivery.worktree_evidence_comment_id, repositoryRoot),
       terminal_premerge_capture: preMerge ? null : jsonIssueCommentEvidence(receipt.terminal_remediation.premerge_verification.evidence_comment_id, repositoryRoot),
+      terminal_merge_capture: preMerge ? null : jsonIssueCommentEvidence(receipt.terminal_remediation.merge_execution.evidence_comment_id, repositoryRoot),
       terminal_orchestrator_done_capture: preMerge ? null : jsonIssueCommentEvidence(receipt.terminal_remediation.cleanup.orchestrator_done_evidence_comment_id, repositoryRoot),
     },
   };
