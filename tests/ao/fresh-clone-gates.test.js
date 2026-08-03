@@ -475,6 +475,13 @@ function validEvidence(receipt) {
         base_ref: 'main',
       }, {
         repository: 'Samsen879/ao-pilot',
+        number: P0_R08_FAILED_TERMINAL_PR,
+        url: 'https://github.com/Samsen879/ao-pilot/pull/72',
+        created_at: '2026-08-02T13:40:00.000Z',
+        head_ref: 'ao/p0-r08-terminal-remediation',
+        base_ref: 'main',
+      }, {
+        repository: 'Samsen879/ao-pilot',
         number: receipt.terminal_remediation.delivery.remediation_pr.number,
         url: receipt.terminal_remediation.delivery.remediation_pr.url,
         created_at: '2026-08-02T14:30:00.000Z',
@@ -1860,13 +1867,39 @@ describe('fresh-clone and protected self-hosting gates', () => {
     const evidence = validEvidence(receipt);
     evidence.githubEvidence.issue_linked_prs.push({
       repository: 'Samsen879/ao-pilot',
-      number: 72,
-      url: 'https://github.com/Samsen879/ao-pilot/pull/72',
+      number: 74,
+      url: 'https://github.com/Samsen879/ao-pilot/pull/74',
       created_at: '2026-08-02T12:30:00.000Z',
       head_ref: 'ao/p0-r08-extra-retry',
       base_ref: 'main',
     });
     expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('exactly one post-admission retry principal PR');
+  });
+
+  it('accepts the live layered issue-linked shape with sole principal PR #71 then ordered recovery PRs #72 and #73', () => {
+    const receipt = validSelfHostingReceipt();
+    const evidence = validEvidence(receipt);
+
+    expect(evidence.githubEvidence.issue_linked_prs.map((linkedPr) => linkedPr.number)).toEqual([71, 72, 73]);
+    expect(verifySelfHostingReceipt(receipt, evidence)).toMatchObject({
+      principal_pr: 71,
+      terminal_remediation_pr: 73,
+    });
+  });
+
+  it('rejects an arbitrary extra linked delivery in the terminal recovery layer', () => {
+    const receipt = validSelfHostingReceipt();
+    const evidence = validEvidence(receipt);
+    evidence.githubEvidence.issue_linked_prs.splice(2, 0, {
+      repository: 'Samsen879/ao-pilot',
+      number: 74,
+      url: 'https://github.com/Samsen879/ao-pilot/pull/74',
+      created_at: '2026-08-02T14:20:00.000Z',
+      head_ref: 'ao/p0-r08-arbitrary-extra-delivery',
+      base_ref: 'main',
+    });
+
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('terminal recovery deliveries must be exactly ordered PR #72 then the active recovery PR');
   });
 
   it('excludes cross-referenced pull requests from external repositories before dedupe and count', () => {

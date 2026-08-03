@@ -295,7 +295,8 @@ export function verifySelfHostingReceipt(receipt, {
   assert(sha(failedAdmission.admitted_main_sha, 'failed terminal admitted_main_sha') === P0_R08_FIRST_TERMINAL_ADMITTED_MAIN && sha(failedAdmission.admitted_tree_sha, 'failed terminal admitted_tree_sha') === P0_R08_FIRST_TERMINAL_ADMITTED_TREE, 'Failed attempt admission baseline mismatch');
   const liveFirstAdmission = object(github.first_terminal_admission, 'GitHub first terminal admission');
   assert(liveFirstAdmission.comment_id === P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT && liveFirstAdmission.issue_number === 63 && liveFirstAdmission.author === 'Samsen879' && liveFirstAdmission.author_association === 'OWNER', 'First terminal admission identity mismatch');
-  assert(liveFirstAdmission.created_at === liveFirstAdmission.updated_at && liveFirstAdmission.body_sha256 === P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT_SHA256, 'First terminal admission was edited or drifted');
+  const firstTerminalAdmittedAt = timestamp(liveFirstAdmission.created_at, 'first terminal admission created_at');
+  assert(firstTerminalAdmittedAt === liveFirstAdmission.updated_at && liveFirstAdmission.body_sha256 === P0_R08_FIRST_TERMINAL_ADMISSION_COMMENT_SHA256, 'First terminal admission was edited or drifted');
 
   const failedPr = object(failedAttempt.pr, 'terminal_recovery_chain.attempts[0].pr');
   assert(failedPr.number === P0_R08_FAILED_TERMINAL_PR && failedPr.url === 'https://github.com/Samsen879/ao-pilot/pull/72', 'Failed recovery attempt is not PR #72');
@@ -395,7 +396,7 @@ export function verifySelfHostingReceipt(receipt, {
     const createdAt = timestamp(item.created_at, `issue-linked PR #${item.number} created_at`);
     return item.number !== P0_R08_RETRY_ADMISSION_PR
       && Date.parse(createdAt) >= Date.parse(retryAdmittedAt)
-      && Date.parse(createdAt) < Date.parse(terminalAdmittedAt);
+      && Date.parse(createdAt) < Date.parse(firstTerminalAdmittedAt);
   });
   assert(postAdmissionLinkedPrs.length === 1, 'Issue #63 must have exactly one post-admission retry principal PR');
   assert(postAdmissionLinkedPrs[0].number === principalPr.number, 'Receipt principal PR is not the sole post-admission issue-linked retry PR');
@@ -572,6 +573,9 @@ export function verifySelfHostingReceipt(receipt, {
   assert(liveRemediationPr.head_sha === terminalFinalHead, 'Terminal-remediation PR final HEAD mismatch');
   const terminalLinkedPrs = github.issue_linked_prs.filter((linkedPr) => Date.parse(timestamp(linkedPr.created_at, `issue-linked PR #${linkedPr.number} created_at`)) >= Date.parse(terminalAdmittedAt));
   assert(terminalLinkedPrs.length === 1 && terminalLinkedPrs[0].number === remediationPr.number, 'Issue #63 must have exactly one admitted terminal-remediation PR and no extra linked deliveries');
+  const terminalRecoveryLinkedPrs = github.issue_linked_prs.filter((linkedPr) => Date.parse(timestamp(linkedPr.created_at, `issue-linked PR #${linkedPr.number} created_at`)) >= Date.parse(firstTerminalAdmittedAt));
+  assert(JSON.stringify(terminalRecoveryLinkedPrs.map((linkedPr) => linkedPr.number)) === JSON.stringify([P0_R08_FAILED_TERMINAL_PR, remediationPr.number]), 'Issue #63 terminal recovery deliveries must be exactly ordered PR #72 then the active recovery PR');
+  assert(Date.parse(terminalRecoveryLinkedPrs[0].created_at) < Date.parse(terminalAdmittedAt), 'Failed PR #72 is not isolated to the first terminal-admission layer');
   assert(remediationPr.ci_conclusion === 'success', 'Terminal-remediation PR CI is not green');
   assert(Array.isArray(github.terminal_check_runs), 'Live terminal-remediation CI evidence is unavailable');
   for (const checkName of REQUIRED_CI_CHECKS) assert(github.terminal_check_runs.some((check) => check.name === checkName && check.conclusion === 'success'), `Terminal-remediation required CI is not green: ${checkName}`);
