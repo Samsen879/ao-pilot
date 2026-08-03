@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 import { ORCHESTRATOR_DONE_EVIDENCE_SCHEMA_VERSION } from './orchestrator-done-evidence.js';
 import {
@@ -9,8 +10,8 @@ import {
 import { loadRuntimeLock } from './runtime-lock.js';
 
 export const SELF_HOSTING_RECEIPT_SCHEMA_VERSION = 'ao.workstation-self-hosting-receipt.v7';
-export const TERMINAL_MERGE_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-terminal-merge-evidence.v1';
-export const TERMINAL_MERGE_PUBLICATION_SCHEMA_VERSION = 'ao.workstation-terminal-merge-publication.v1';
+export const TERMINAL_MERGE_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-terminal-merge-evidence.v2';
+export const TERMINAL_MERGE_PUBLICATION_SCHEMA_VERSION = 'ao.workstation-terminal-merge-publication.v2';
 export const P0_R08_RETRY_ADMISSION_PR = 70;
 export const P0_R08_RETRY_ADMISSION_ISSUE = 63;
 export const P0_R08_RETRY_ADMISSION_COMMENT = 5157524210;
@@ -678,6 +679,14 @@ export function verifySelfHostingReceipt(receipt, {
   assert(Array.isArray(github.terminal_check_runs), 'Live terminal-remediation CI evidence is unavailable');
   for (const checkName of REQUIRED_CI_CHECKS) assert(github.terminal_check_runs.some((check) => check.name === checkName && check.conclusion === 'success'), `Terminal-remediation required CI is not green: ${checkName}`);
   const terminalReviews = verifyCompletedCodexReviews(remediationPr.codex_reviews, github.terminal_codex_reviews);
+  assert(Array.isArray(github.terminal_codex_review_requests), 'Raw terminal-remediation Owner review requests are unavailable');
+  assert(github.terminal_codex_review_requests.length === remediationPr.codex_reviews.length, 'Terminal-remediation has an extra, missing, or pending Owner review request');
+  for (let index = 0; index < github.terminal_codex_review_requests.length; index += 1) {
+    const request = exactKeys(github.terminal_codex_review_requests[index], `terminal-remediation Owner review request ${index + 1}`, ['comment_id', 'head_sha', 'requested_at']);
+    const receiptReview = remediationPr.codex_reviews[index];
+    assert(request.comment_id === receiptReview.request_comment_id && request.head_sha === receiptReview.head_sha, `Terminal-remediation Owner review request ${index + 1} drifted from its receipt-bound review`);
+    assert(Date.parse(timestamp(request.requested_at, `terminal-remediation Owner review request ${index + 1} requested_at`)) <= Date.parse(receiptReview.completed_at), `Terminal-remediation Owner review request ${index + 1} postdates its completion`);
+  }
   assert(Array.isArray(github.terminal_review_findings), 'Live terminal-remediation review finding evidence is unavailable');
   assert(Array.isArray(remediationPr.finding_dispositions), 'Terminal-remediation finding dispositions are unavailable');
   assert(remediationPr.finding_dispositions.length === github.terminal_review_findings.length, 'Terminal-remediation finding disposition evidence is incomplete');
@@ -846,7 +855,7 @@ export function verifySelfHostingReceipt(receipt, {
   assert(mergeCapture.updated_at === mergePublishedAt && Date.parse(mergePublishedAt) >= Date.parse(terminalMergedAt), 'AO merge evidence was edited or published before the merge');
   const mergePayload = exactKeys(mergeCapture.payload, 'AO merge evidence payload', [
     'schema_version', 'issue_number', 'completed_at', 'orchestrator_session_id',
-    'recovery_attempt', 'premerge_evidence', 'command', 'effect', 'orchestrator_provenance',
+    'recovery_attempt', 'premerge_evidence', 'command', 'effect', 'execution_binding', 'orchestrator_provenance',
   ]);
   assert(mergePayload.schema_version === TERMINAL_MERGE_EVIDENCE_SCHEMA_VERSION && mergePayload.issue_number === 63 && mergePayload.orchestrator_session_id === terminalOrchestratorSessionId && mergePayload.recovery_attempt === 3, 'AO merge evidence is outside the admitted terminal recovery operation');
   const mergeCompletedAt = timestamp(mergePayload.completed_at, 'AO merge evidence completed_at');
@@ -865,6 +874,23 @@ export function verifySelfHostingReceipt(receipt, {
   assert(mergeEffect.provider_mutation === 'github_squash_merge' && mergeEffect.exact_head_guarded === true && mergeEffect.ao_merge_executed === true && mergeEffect.github_readback_confirmed === true, 'AO merge effect provenance is incomplete');
   assert(mergeEffect.pr_number === remediationPr.number && mergeEffect.method === 'squash' && mergeEffect.head_sha === terminalFinalHead && mergeEffect.merge_commit_sha === terminalMergeSha, 'AO merge effect does not bind PR #74 exact HEAD/outcome');
   assert(mergeEffect.main_sha === terminalMergeSha && mergeEffect.main_tree_sha === terminalMergeTree, 'AO merge effect does not bind exact main SHA/tree readback');
+  const mergeBinding = exactKeys(mergePayload.execution_binding, 'AO merge execution binding', [
+    'schema_version', 'helper', 'helper_source_sha256', 'guarded_head_sha', 'premerge_payload_sha256',
+    'subprocess_stdout_sha256', 'premerge_read_back_at', 'subprocess_started_at',
+    'subprocess_completed_at', 'github_read_back_at', 'process_binding',
+  ]);
+  assert(mergeBinding.schema_version === 'ao.workstation-terminal-merge-operation.v1' && mergeBinding.helper === 'publish:self-hosting-merge', 'AO merge record was not produced by the pinned-runtime merge helper');
+  assert(mergeBinding.helper_source_sha256 === createHash('sha256').update(fs.readFileSync(new URL('./terminal-merge-publication.js', import.meta.url))).digest('hex'), 'AO merge helper source digest drifted from the verified repository implementation');
+  assert(mergeBinding.guarded_head_sha === terminalFinalHead && mergeBinding.premerge_payload_sha256 === premergeCapture.body_sha256, 'AO merge helper exact-head/preflight guard drifted');
+  assert(mergeBinding.subprocess_stdout_sha256 === createHash('sha256').update(mergeCommand.stdout).digest('hex'), 'AO merge helper subprocess output binding drifted');
+  const premergeReadAt = timestamp(mergeBinding.premerge_read_back_at, 'AO merge premerge_read_back_at');
+  const subprocessStartedAt = timestamp(mergeBinding.subprocess_started_at, 'AO merge subprocess_started_at');
+  const subprocessCompletedAt = timestamp(mergeBinding.subprocess_completed_at, 'AO merge subprocess_completed_at');
+  const githubReadAt = timestamp(mergeBinding.github_read_back_at, 'AO merge github_read_back_at');
+  assert(Date.parse(premergeReadAt) >= Date.parse(premergePublishedAt) && Date.parse(premergeReadAt) <= Date.parse(subprocessStartedAt), 'AO merge helper did not read immutable pre-merge evidence before subprocess execution');
+  assert(Date.parse(subprocessStartedAt) <= Date.parse(subprocessCompletedAt) && Date.parse(subprocessCompletedAt) <= Date.parse(githubReadAt), 'AO merge helper subprocess/readback ordering is invalid');
+  assert(githubReadAt === mergeCompletedAt && Date.parse(githubReadAt) >= Date.parse(terminalMergedAt), 'AO merge helper live readback does not bind merge completion');
+  assert(JSON.stringify(mergeBinding.process_binding) === JSON.stringify(worktreeProcessBinding), 'AO merge helper subprocess was not bound to the same p0.2 Orchestrator supervisor');
   assert(JSON.stringify(mergePayload.orchestrator_provenance) === JSON.stringify(orchestratorProvenance), 'AO merge evidence Orchestrator provenance differs from pre-merge evidence');
   const mergePublication = exactKeys(mergeExecution.publication, 'terminal_remediation.merge_execution.publication', [
     'schema_version', 'issue_number', 'comment_id', 'published_at', 'read_back_at',

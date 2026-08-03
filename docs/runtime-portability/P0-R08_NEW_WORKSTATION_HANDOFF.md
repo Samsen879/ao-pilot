@@ -106,8 +106,13 @@ database ID as `request_comment_id` for every receipt review entry, including a
 submitted review. Review repairs remain in the same
 Worker/worktree/PR, and a fresh request is required after every new HEAD except
 the already-authorized post-Review-2 repair case. The AO may merge only under
-the issue's review policy and green required CI. After
-the final merge-candidate HEAD is known, but before merge or worktree cleanup, capture
+the issue's review policy and green required CI.
+
+The verifier also collects the raw valid Owner exact-head request comments;
+any third request fails closed even if it is still pending and has no connector
+completion.
+
+After the final merge-candidate HEAD is known, but before merge or worktree cleanup, capture
 the actual Git binding and publish the exact generated JSON to issue #63:
 
 ```bash
@@ -325,18 +330,30 @@ comment and rejects a missing, post-merge, edited, digest-drifted, head/tree-
 drifted, finding-drifted, worktree-identity-drifted, or differently supervised
 preflight artifact.
 
-Only after that immutable preflight exists may the active Orchestrator invoke
-the literal command below. Preserve its trimmed stdout exactly; p0.2 success
-must have the form `merged PR #74 using squash (head <HEAD>, merge commit
-<MERGE_SHA>)`.
+Only after that immutable preflight exists may the active Orchestrator run the
+atomic merge publisher below. The helper re-reads and hashes the immutable
+preflight, recaptures the exact Worker HEAD/tree and p0.2 supervisor ancestry,
+then invokes the literal pinned p0.2 binary with exactly `pr merge 74`. It does
+not accept Owner-authored merge JSON or an alternate merge command.
 
 ```bash
-/home/guoqy/p0-r08-retry-workstation/runtime-store/runtime.agent_orchestrator.v0_11_2_p0_2/linux-x64/aae8a684357271acc7ad2fa1d4116c7c65c8fa9d/bin/ao pr merge 74
+AO_DATA_DIR=/home/guoqy/p0-r08-terminal-remediation/ao-state/data \
+AO_RUN_FILE=/home/guoqy/p0-r08-terminal-remediation/ao-state/running.json \
+npm --prefix "$WORKER_ROOT" run publish:self-hosting-merge -- \
+  --premerge-comment-id '<PREFLIGHT-EVIDENCE-COMMENT-ID>' \
+  --premerge-payload-sha256 '<PREFLIGHT-EVIDENCE-SHA256>' \
+  --source-root "$SOURCE_ROOT" \
+  --worker-root "$WORKER_ROOT" \
+  --worker-session-id ao-pilot-remediation-4 \
+  --orchestrator-session-id ao-pilot-remediation-1 \
+  --runtime-binary "$RUNTIME_BINARY" \
+  --out /tmp/p0-r08-standing-recovery-2-merge-evidence.json \
+  --publication-receipt-out /tmp/p0-r08-standing-recovery-2-merge-publication.json
 ```
 
-Immediately read back PR #74 and exact `main` SHA/tree. Publish one canonical
-JSON issue #63 comment with schema
-`ao.workstation-terminal-merge-evidence.v1`. It must bind the completion
+The same helper immediately reads back PR #74 and exact `main` SHA/tree and
+publishes one canonical JSON issue #63 comment with schema
+`ao.workstation-terminal-merge-evidence.v2`. It binds the completion
 timestamp, Orchestrator session, recovery attempt 3, premerge comment ID and
 digest; the literal runtime path/digest, exact arguments, zero exit, and exact
 stdout; and effect fields `provider_mutation: github_squash_merge`,
@@ -346,7 +363,10 @@ and exact main SHA/tree. Copy the same p0.2 Orchestrator provenance used by the
 worktree/premerge evidence. Read the issue comment back byte-for-byte and
 record its ID, byte count, SHA-256, timestamps, p0.2 runtime identity, and the
 same supervisor process binding under
-`terminal_remediation.merge_execution`. A direct `gh pr merge`, a successful
+`terminal_remediation.merge_execution`. Its merge-operation binding records
+the ordered preflight readback, actual subprocess start/completion, live
+GitHub readback, helper identity, and the same supervisor process identity. A
+direct `gh pr merge`, a successful
 GitHub outcome without this immutable AO execution/effect record, a different
 runtime or supervisor, an absent exact-head guard, or any merge/main readback
 drift fails closed.

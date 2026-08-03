@@ -9,6 +9,7 @@ import { createPremergeVerificationEvidence } from './ao/lib/premerge-verificati
 
 import {
   collectCodexReviewEvidence,
+  ownerExactHeadReviewRequests,
 } from './ao/lib/codex-review-evidence.js';
 import { issueLinkedPrEvidenceFromTimeline } from './ao/lib/issue-linked-pr-evidence.js';
 import {
@@ -112,6 +113,20 @@ function codexReviewEvidence(principalPr, repositoryRoot) {
   });
 }
 
+function terminalCodexReviewEvidence(principalPr, repositoryRoot) {
+  const comments = runJson('gh', ['api', `repos/Samsen879/ao-pilot/issues/${principalPr}/comments?per_page=100`], { cwd: repositoryRoot });
+  return {
+    requests: ownerExactHeadReviewRequests(comments),
+    completed: collectCodexReviewEvidence({
+      comments,
+      reviews: runJson('gh', ['api', `repos/Samsen879/ao-pilot/pulls/${principalPr}/reviews`], { cwd: repositoryRoot }),
+      reactionsForComment(commentId) {
+        return runJson('gh', ['api', `repos/Samsen879/ao-pilot/issues/comments/${commentId}/reactions`], { cwd: repositoryRoot });
+      },
+    }),
+  };
+}
+
 function issueLinkedPrEvidence(repositoryRoot) {
   const query = 'query { repository(owner:"Samsen879", name:"ao-pilot") { issue(number:63) { timelineItems(first:100, itemTypes:[CROSS_REFERENCED_EVENT]) { pageInfo { hasNextPage } nodes { ... on CrossReferencedEvent { source { __typename ... on PullRequest { repository { nameWithOwner } number url createdAt headRefName baseRefName } } } } } } } }';
   const timeline = runJson('gh', ['api', 'graphql', '-f', `query=${query}`], { cwd: repositoryRoot })
@@ -190,6 +205,7 @@ function collectEvidence(receipt, repositoryRoot, { preMerge = false } = {}) {
     };
   }
   const terminalChecks = runJson('gh', ['api', `repos/Samsen879/ao-pilot/commits/${remediationHead}/check-runs`], { cwd: repositoryRoot });
+  const terminalReviews = terminalCodexReviewEvidence(remediationPr, repositoryRoot);
   return {
     repositoryEvidence: {
       current_main_sha: currentMain,
@@ -235,7 +251,8 @@ function collectEvidence(receipt, repositoryRoot, { preMerge = false } = {}) {
       failed_terminal_codex_reviews: codexReviewEvidence(P0_R08_FAILED_TERMINAL_PR, repositoryRoot),
       failed_merge_path_codex_reviews: codexReviewEvidence(P0_R08_FAILED_MERGE_PATH_PR, repositoryRoot),
       terminal_check_runs: terminalChecks.check_runs.map((check) => ({ name: check.name, conclusion: check.conclusion })),
-      terminal_codex_reviews: codexReviewEvidence(remediationPr, repositoryRoot),
+      terminal_codex_reviews: terminalReviews.completed,
+      terminal_codex_review_requests: terminalReviews.requests,
       review_findings: reviewFindingEvidence(principalPr, repositoryRoot),
       terminal_review_findings: reviewFindingEvidence(remediationPr, repositoryRoot),
       failed_merge_path_review_findings: reviewFindingEvidence(P0_R08_FAILED_MERGE_PATH_PR, repositoryRoot),

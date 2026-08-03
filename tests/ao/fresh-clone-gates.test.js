@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 
 import { describe, expect, it } from '@jest/globals';
@@ -99,6 +100,10 @@ import {
   createPremergeVerificationEvidence,
   publishOrchestratorBoundPremergeEvidence,
 } from '../../scripts/ao/lib/premerge-verification-evidence.js';
+import {
+  TERMINAL_MERGE_OPERATION_SCHEMA_VERSION,
+  executeAndPublishTerminalMergeEvidence,
+} from '../../scripts/ao/lib/terminal-merge-publication.js';
 
 function validSupervisorProcessBinding(sessionId = 'or-terminal') {
   return {
@@ -772,6 +777,11 @@ function validEvidence(receipt) {
         actor: 'chatgpt-codex-connector[bot]',
         completed: true,
       })),
+      terminal_codex_review_requests: receipt.terminal_remediation.delivery.remediation_pr.codex_reviews.map((review) => ({
+        comment_id: review.request_comment_id,
+        head_sha: review.head_sha,
+        requested_at: new Date(Date.parse(review.completed_at) - 60_000).toISOString(),
+      })),
       review_findings: [],
       terminal_review_findings: [],
       worktree_capture: {
@@ -936,6 +946,19 @@ function validEvidence(receipt) {
             merge_commit_sha: receipt.terminal_remediation.delivery.remediation_pr.merge_sha,
             main_sha: receipt.terminal_remediation.delivery.remediation_pr.merge_sha,
             main_tree_sha: receipt.terminal_remediation.delivery.remediation_pr.merge_tree_sha,
+          },
+          execution_binding: {
+            schema_version: TERMINAL_MERGE_OPERATION_SCHEMA_VERSION,
+            helper: 'publish:self-hosting-merge',
+            helper_source_sha256: createHash('sha256').update(fs.readFileSync('scripts/ao/lib/terminal-merge-publication.js')).digest('hex'),
+            guarded_head_sha: receipt.terminal_remediation.delivery.remediation_pr.head_sha,
+            premerge_payload_sha256: 'b'.repeat(64),
+            subprocess_stdout_sha256: createHash('sha256').update(`merged PR #${receipt.terminal_remediation.delivery.remediation_pr.number} using squash (head ${receipt.terminal_remediation.delivery.remediation_pr.head_sha}, merge commit ${receipt.terminal_remediation.delivery.remediation_pr.merge_sha})`).digest('hex'),
+            premerge_read_back_at: '2026-08-04T01:59:00.000Z',
+            subprocess_started_at: '2026-08-04T01:59:01.000Z',
+            subprocess_completed_at: '2026-08-04T02:00:30.000Z',
+            github_read_back_at: '2026-08-04T02:01:00.000Z',
+            process_binding: validSupervisorProcessBinding(),
           },
           orchestrator_provenance: null,
         },
@@ -1300,6 +1323,18 @@ describe('fresh-clone and protected self-hosting gates', () => {
     expect(() => verifySelfHostingReceipt(receipt, validEvidence(receipt))).toThrow('Historical principal runtime ref mismatch');
   });
 
+  it('documents p0.2 as canonical while retaining p0.1 only as historical principal evidence', () => {
+    const runtimeDoc = fs.readFileSync('docs/AO_RUNTIME.md', 'utf8');
+    expect(runtimeDoc).toContain(`runtime ref: \`${P0_R08_RUNTIME_REF}\``);
+    expect(runtimeDoc).toContain(`immutable tag: \`${P0_R08_RUNTIME_TAG}\``);
+    expect(runtimeDoc).toContain(`annotated tag object: \`${P0_R08_RUNTIME_TAG_OBJECT}\``);
+    expect(runtimeDoc).toContain(`commit: \`${P0_R08_RUNTIME_COMMIT}\``);
+    expect(runtimeDoc).toContain(`tree/integrity: \`${P0_R08_RUNTIME_TREE}\``);
+    expect(runtimeDoc).toContain(P0_R08_RUNTIME_X64_SHA256);
+    expect(runtimeDoc).toContain(P0_R08_RUNTIME_ARM64_SHA256);
+    expect(runtimeDoc).toContain('p0.1 tag/commit/tree and binary digests remain immutable historical');
+  });
+
   it.each([
     ['missing immutable AO merge record', (receipt) => { receipt.terminal_remediation.merge_execution = null; }],
     ['direct/manual merge substitution', (_receipt, evidence) => { evidence.githubEvidence.terminal_merge_capture.payload.effect.ao_merge_executed = false; }],
@@ -1312,10 +1347,43 @@ describe('fresh-clone and protected self-hosting gates', () => {
     ['edited merge evidence', (_receipt, evidence) => { evidence.githubEvidence.terminal_merge_capture.updated_at = '2026-08-04T02:03:00.000Z'; }],
     ['missing merge evidence readback', (receipt) => { receipt.terminal_remediation.merge_execution.publication.exact_body_read_back = false; }],
     ['arbitrary merge effect field', (_receipt, evidence) => { evidence.githubEvidence.terminal_merge_capture.payload.effect.extra = true; }],
+    ['missing atomic helper binding', (_receipt, evidence) => { delete evidence.githubEvidence.terminal_merge_capture.payload.execution_binding; }],
+    ['fabricated helper identity', (_receipt, evidence) => { evidence.githubEvidence.terminal_merge_capture.payload.execution_binding.helper = 'owner-authored-json'; }],
+    ['helper source digest drift', (_receipt, evidence) => { evidence.githubEvidence.terminal_merge_capture.payload.execution_binding.helper_source_sha256 = 'f'.repeat(64); }],
+    ['subprocess/readback order drift', (_receipt, evidence) => { evidence.githubEvidence.terminal_merge_capture.payload.execution_binding.subprocess_completed_at = '2026-08-04T02:01:01.000Z'; }],
+    ['merge helper process drift', (_receipt, evidence) => { evidence.githubEvidence.terminal_merge_capture.payload.execution_binding.process_binding.supervisor_process_start_token = 'other'; }],
   ])('fails closed for AO merge execution/effect provenance: %s', (_name, mutate) => {
     const receipt = validSelfHostingReceipt();
     const evidence = validEvidence(receipt);
     mutate(receipt, evidence);
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow();
+  });
+
+  it('rejects a pending third Owner review request even when two completed reviews pass', () => {
+    const receipt = validSelfHostingReceipt();
+    const remediation = receipt.terminal_remediation.delivery.remediation_pr;
+    remediation.codex_reviews.push({
+      attempt: 2, kind: 'submitted_review', evidence_id: 202, request_comment_id: 200,
+      head_sha: remediation.head_sha, completed_at: '2026-08-04T01:30:00.000Z',
+    });
+    const evidence = validEvidence(receipt);
+    evidence.githubEvidence.terminal_codex_review_requests.push({
+      comment_id: 201,
+      head_sha: remediation.head_sha,
+      requested_at: '2026-08-04T01:31:00.000Z',
+    });
+    expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow('extra, missing, or pending Owner review request');
+  });
+
+  it.each([
+    ['missing raw request', (requests) => { requests.pop(); }],
+    ['request ID drift', (requests) => { requests[0].comment_id += 1; }],
+    ['request HEAD drift', (requests) => { requests[0].head_sha = 'f'.repeat(40); }],
+    ['arbitrary request field', (requests) => { requests[0].extra = true; }],
+  ])('fails closed for terminal Owner review-request evidence: %s', (_name, mutate) => {
+    const receipt = validSelfHostingReceipt();
+    const evidence = validEvidence(receipt);
+    mutate(evidence.githubEvidence.terminal_codex_review_requests);
     expect(() => verifySelfHostingReceipt(receipt, evidence)).toThrow();
   });
 
@@ -1743,6 +1811,115 @@ describe('fresh-clone and protected self-hosting gates', () => {
           body: `${JSON.stringify(payload, null, 2)}\n`,
         }),
       })).toThrow('readback body differs');
+    } finally {
+      removeTemporaryRoot(root);
+    }
+  });
+
+  it('atomically executes the literal pinned AO merge and publishes its live effect readback', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-merge-helper-'));
+    const payloadPath = path.join(root, 'merge.json');
+    const publicationReceiptPath = path.join(root, 'publication.json');
+    const head = '7'.repeat(40);
+    const tree = '8'.repeat(40);
+    const merge = '9'.repeat(40);
+    const mainTree = 'a'.repeat(40);
+    const premergePayload = {
+      schema_version: PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION,
+      status: 'premerge_verified',
+      remediation_pr: { number: 74, head_sha: head, tree_sha: tree },
+      orchestrator_provenance: { session_id: 'or-terminal', process_binding: validSupervisorProcessBinding() },
+    };
+    const premergeRaw = JSON.stringify(premergePayload);
+    const premergeDigest = createHash('sha256').update(premergeRaw).digest('hex');
+    const times = [
+      '2026-08-04T01:59:00.000Z', '2026-08-04T01:59:01.000Z',
+      '2026-08-04T02:00:30.000Z', '2026-08-04T02:01:00.000Z',
+      '2026-08-04T02:03:00.000Z',
+    ];
+    let executed = false;
+    try {
+      const result = executeAndPublishTerminalMergeEvidence({
+        premergeCommentId: 5165000000,
+        premergePayloadSha256: premergeDigest,
+        payloadPath,
+        publicationReceiptPath,
+        authorityOptions: validPremergePublicationAuthority({ remediation_pr: { head_sha: head, tree_sha: tree } }),
+        readIssueComment: (commentId) => commentId === 5165000000 ? {
+          id: commentId, user: { login: 'Samsen879' }, author_association: 'OWNER',
+          created_at: '2026-08-04T01:58:00.000Z', updated_at: '2026-08-04T01:58:00.000Z', body: premergeRaw,
+        } : {
+          id: commentId, user: { login: 'Samsen879' }, author_association: 'OWNER',
+          created_at: '2026-08-04T02:02:00.000Z', updated_at: '2026-08-04T02:02:00.000Z', body: fs.readFileSync(payloadPath, 'utf8'),
+        },
+        executeMerge: (binary, args) => {
+          expect(binary).toBe(P0_R08_TERMINAL_RUNTIME_BINARY);
+          expect(args).toEqual(['pr', 'merge', '74']);
+          executed = true;
+          return `merged PR #74 using squash (head ${head}, merge commit ${merge})`;
+        },
+        readPull: () => ({ number: 74, merged: true, head: { sha: head }, merge_commit_sha: merge, merged_at: '2026-08-04T02:00:00.000Z' }),
+        readMain: () => ({ sha: merge, commit: { tree: { sha: mainTree } } }),
+        publish: () => ({ id: 5165000001 }),
+        now: () => times.shift(),
+      });
+      expect(executed).toBe(true);
+      expect(result.payload).toMatchObject({
+        schema_version: TERMINAL_MERGE_EVIDENCE_SCHEMA_VERSION,
+        command: { runtime_binary_path: P0_R08_TERMINAL_RUNTIME_BINARY, args: ['pr', 'merge', '74'], exit_code: 0 },
+        effect: { exact_head_guarded: true, ao_merge_executed: true, github_readback_confirmed: true, head_sha: head, merge_commit_sha: merge, main_tree_sha: mainTree },
+        execution_binding: { schema_version: TERMINAL_MERGE_OPERATION_SCHEMA_VERSION, helper: 'publish:self-hosting-merge', helper_source_sha256: expect.stringMatching(/^[0-9a-f]{64}$/), guarded_head_sha: head, premerge_payload_sha256: premergeDigest, subprocess_stdout_sha256: expect.stringMatching(/^[0-9a-f]{64}$/), process_binding: validSupervisorProcessBinding() },
+      });
+      expect(JSON.parse(fs.readFileSync(publicationReceiptPath, 'utf8'))).toEqual(result.publication);
+    } finally {
+      removeTemporaryRoot(root);
+    }
+  });
+
+  it.each([
+    ['fabricated premerge digest', { digest: 'f'.repeat(64) }],
+    ['manual/direct outcome without subprocess success', { executeError: new Error('AO subprocess was not executed') }],
+    ['GitHub head drift', { pullHead: 'f'.repeat(40) }],
+    ['main readback drift', { mainSha: 'f'.repeat(40) }],
+    ['publication body drift', { publicationSuffix: '\n' }],
+  ])('terminal merge helper fails closed for %s', (_name, mutation) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-r08-merge-helper-fail-'));
+    const head = '7'.repeat(40);
+    const tree = '8'.repeat(40);
+    const merge = '9'.repeat(40);
+    const premergePayload = {
+      schema_version: PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION,
+      status: 'premerge_verified', remediation_pr: { number: 74, head_sha: head, tree_sha: tree },
+      orchestrator_provenance: { session_id: 'or-terminal', process_binding: validSupervisorProcessBinding() },
+    };
+    const raw = JSON.stringify(premergePayload);
+    const payloadPath = path.join(root, 'merge.json');
+    try {
+      expect(() => executeAndPublishTerminalMergeEvidence({
+        premergeCommentId: 5165000000,
+        premergePayloadSha256: mutation.digest ?? createHash('sha256').update(raw).digest('hex'),
+        payloadPath,
+        publicationReceiptPath: path.join(root, 'publication.json'),
+        authorityOptions: validPremergePublicationAuthority({ remediation_pr: { head_sha: head, tree_sha: tree } }),
+        readIssueComment: (commentId) => commentId === 5165000000 ? {
+          id: commentId, user: { login: 'Samsen879' }, author_association: 'OWNER',
+          created_at: '2026-08-04T01:58:00.000Z', updated_at: '2026-08-04T01:58:00.000Z', body: raw,
+        } : {
+          id: commentId, user: { login: 'Samsen879' }, author_association: 'OWNER',
+          created_at: '2026-08-04T02:02:00.000Z', updated_at: '2026-08-04T02:02:00.000Z', body: `${fs.readFileSync(payloadPath, 'utf8')}${mutation.publicationSuffix ?? ''}`,
+        },
+        executeMerge: () => {
+          if (mutation.executeError) throw mutation.executeError;
+          return `merged PR #74 using squash (head ${head}, merge commit ${merge})`;
+        },
+        readPull: () => ({ number: 74, merged: true, head: { sha: mutation.pullHead ?? head }, merge_commit_sha: merge, merged_at: '2026-08-04T02:00:00.000Z' }),
+        readMain: () => ({ sha: mutation.mainSha ?? merge, commit: { tree: { sha: 'a'.repeat(40) } } }),
+        publish: () => ({ id: 5165000001 }),
+        now: (() => {
+          const values = ['2026-08-04T01:59:00.000Z', '2026-08-04T01:59:01.000Z', '2026-08-04T02:00:30.000Z', '2026-08-04T02:01:00.000Z', '2026-08-04T02:03:00.000Z'];
+          return () => values.shift();
+        })(),
+      })).toThrow();
     } finally {
       removeTemporaryRoot(root);
     }

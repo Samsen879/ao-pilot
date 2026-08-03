@@ -23,23 +23,28 @@ npm run verify:runtime-bootstrap
 
 ## Canonical runtime
 
-- runtime ref: `runtime.agent_orchestrator.v0_11_2_p0_1`
+- runtime ref: `runtime.agent_orchestrator.v0_11_2_p0_2`
 - repository: `https://github.com/Samsen879/agent-orchestrator.git`
 - upstream package identity: `@aoagents/ao@0.11.2` (identity only; not install
   authority for the fork delta)
-- immutable tag: `ao-pilot-runtime-v0.11.2-p0.1`
-- annotated tag object: `06ba07935cbacb7ff304779a2c1060ce98778200`
-- commit: `711178ebe07d436db36020eb08f0c4e29613f97b`
-- tree/integrity: `479fba6fd44f251f0c66fafc5cb5d638a6ff590a`
+- immutable tag: `ao-pilot-runtime-v0.11.2-p0.2`
+- annotated tag object: `450ae009e2c1eb48cdf9c19be676b4a4ff01e611`
+- commit: `aae8a684357271acc7ad2fa1d4116c7c65c8fa9d`
+- tree/integrity: `e8adb9a31068810becfb5d31b46688b04202cf81`
 - source toolchain: Go `1.25.7`, `CGO_ENABLED=0`
 - managed binary relative path: `bin/ao`
 - Linux x64 expected binary SHA-256:
-  `a403e096203e68e94dde5f45922b0880a4a2dd662c38aab3f0af6d47ec56aa34`
+  `ad7fd23c6a3f495e2d10b130cf23227c14e30573db5c2c01b68d8214c5965b4d`
 - Linux arm64 expected binary SHA-256:
-  `132164dc29349ea2082d77d6758b3617be81c7cfcf27d3f0ba9a88d65a88c752`
+  `972181d92085fb6772fd9a8edf688f68c290976eda67a282ba1ac83d985d2dc6`
 - ao-pilot compatibility: `>=0.2.0` and `<0.3.0`
 
 No GitHub Release or npm publication is implied by this source lock.
+
+The p0.1 tag/commit/tree and binary digests remain immutable historical
+evidence for the principal/bootstrap proof produced before this canonical
+p0.2 transition. They are not the current runtime lock and must not be
+rewritten in that historical receipt layer.
 
 ## Managed provenance contract
 
