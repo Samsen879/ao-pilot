@@ -454,3 +454,70 @@ predate the live GitHub merge timestamp and executes `npm run release:check`
 itself on the checked-out exact merge SHA.
 
 Only after #63 merges and exact-main replay passes may #12 be marked admitted.
+
+## Owner-authorized audit-only terminal recovery (PR #75)
+
+Owner admission comment `5173330402` supersedes only the terminal outcome of
+the prior v7 receipt; it does not rewrite that receipt or any PR #71–#74
+evidence. Its immutable identity is 3,765 UTF-8 bytes with SHA-256
+`4eda52b054ddda51d5c998c7f89d25a9006d50a966982cda8a30cf71c3ea66e5`.
+The admitted source is exact main
+`fc616e318160ac23849d52af3a5f763eba9ffebf`, tree
+`379668d84df17b1f33e737abf12e66d5422a220f`, and the only authorized delivery
+is non-closing audit-recovery PR #75. PR #76 and any additional delivery are
+prohibited.
+
+The immutable predecessor is receipt comment `5169507539` (21,541 UTF-8
+bytes, SHA-256
+`67c40f2d76247ad49aa7561e9b6124b72a81a985e165e798aa91d6fbd8ef126e`).
+It remains a v7 `passed` receipt for PR #74, but its protected outcome is the
+failed `workstation-self-hosting-proof` run `30836059504`. That run is bound as
+workflow `325479877`, `workflow_dispatch`, admitted head `fc616e3`, completed
+failure after two attempts, with jobs `91761405074` and `91762073346`. The
+bounded failure reason remains one high-severity `brace-expansion@5.0.8`
+finding, `GHSA-rgw5-rvv9-x895`, affected range `>=4.0.0 <5.0.9`, with a fix
+available at `5.0.9`. Never edit the predecessor receipt or describe its
+protected run as successful.
+
+Use the existing p0.2 runtime and this AO-created Worker only. Publish the
+worktree evidence with the same command shape documented above, but use source
+main `fc616e3`, Worker `ao-pilot-remediation-6`, Orchestrator
+`ao-pilot-remediation-5`, branch `ao/p0-r08-audit-recovery`, recovery attempt
+4, predecessor PR #74, and admission `5173330402`. The worktree publisher
+emits `ao.workstation-worktree-evidence.v7` for that admitted source. Copy the
+v8 template to a local receipt path, fill the worktree publication and exact
+PR #75 head/review evidence, and run the staged verifier:
+
+```bash
+npm --prefix "$WORKER_ROOT" run verify:self-hosting -- \
+  --receipt /tmp/p0-r08-audit-recovery-receipt.json \
+  --pre-merge \
+  --preflight-evidence-out /tmp/p0-r08-audit-recovery-preflight.json \
+  --repository-root "$WORKER_ROOT"
+```
+
+The v8 collector resolves historical PR #74 from immutable GitHub PR/comment
+APIs. It deliberately does not require the deleted PR #74 source branch or its
+orphan head object to exist in a fresh clone. Local Git object and ancestry
+checks apply only to admitted main and the active PR #75 Worker head.
+
+Publish the generated v3 preflight through
+`publish:self-hosting-preflight`, then merge only with
+`publish:self-hosting-merge`. When the preflight schema is v3, the merge helper
+invokes the literal exact p0.2 command `ao pr merge 75`, preserves its guarded
+HEAD, and reads back PR #75 plus exact `main`. A direct `gh pr merge`, another
+runtime/supervisor, or PR #76 is not authorized.
+
+After merge, replay `npm run release:check` and `npm audit` on the exact main
+SHA/tree. Publish immutable p0.2 `orchestrator done` evidence, then publish one
+Owner-authored canonical JSON cleanup comment with schema
+`ao.workstation-audit-recovery-cleanup.v1`, issue 63, PR 75, and true observed
+fields for Orchestrator/Worker stop, Worker worktree removal, remote Worker
+branch removal, project removal, daemon stop, absent leases, and absent stale
+ownership. The final v8 verifier binds both comments; cleanup booleans in the
+receipt alone are not evidence.
+
+Finally publish the exact v8 receipt, verify its comment readback, and dispatch
+`workstation-self-hosting-proof` from the exact merged main with that new
+receipt/comment. Only a successful protected run permits issue #63 closure and
+explicit #12 admission.

@@ -29,6 +29,14 @@ import {
   P0_R08_TERMINAL_ADMISSION_COMMENT,
   verifySelfHostingReceipt,
 } from './ao/lib/self-hosting-receipt.js';
+import {
+  AUDIT_RECOVERY_ADMISSION_COMMENT,
+  AUDIT_RECOVERY_FAILED_RUN,
+  AUDIT_RECOVERY_PREDECESSOR_PR,
+  AUDIT_RECOVERY_RECEIPT_COMMENT,
+  AUDIT_RECOVERY_RECEIPT_SCHEMA_VERSION,
+  verifyAuditRecoveryReceipt,
+} from './ao/lib/audit-recovery-receipt.js';
 
 function usage() {
   return 'Usage: npm run verify:self-hosting -- --receipt <path> [--pre-merge --preflight-evidence-out <path>] [--issue-comment-id <id>] [--repository-root <path>]';
@@ -76,6 +84,10 @@ function pullEvidence(number, repositoryRoot, repository = 'Samsen879/ao-pilot')
     binds_failed_merge_path_pr_73: /(?:\bPR\s*#73\b|\bfailed[^\n]*#73\b)/i.test(body),
     binds_architectural_blocker: /\b5163606282\b/.test(body),
     binds_final_admission: /\b5163994984\b/.test(body),
+    binds_audit_admission: /\b5173330402\b/.test(body),
+    binds_predecessor_receipt: /\b5169507539\b/.test(body),
+    binds_failed_workflow: /\b30836059504\b/.test(body),
+    binds_predecessor_pr_74: /(?:\bPR\s*#74\b|\bpredecessor[^\n]*#74\b)/i.test(body),
   };
 }
 
@@ -266,13 +278,108 @@ function collectEvidence(receipt, repositoryRoot, { preMerge = false } = {}) {
   };
 }
 
-function publicationEvidence(commentId, rawReceipt, repositoryRoot) {
+function workflowJobEvidence(runId, attempt, repositoryRoot) {
+  const jobs = runJson('gh', ['api', `repos/Samsen879/ao-pilot/actions/runs/${runId}/attempts/${attempt}/jobs`], { cwd: repositoryRoot }).jobs;
+  if (jobs.length !== 1) throw new Error(`Protected workflow attempt ${attempt} must have exactly one job`);
+  const job = jobs[0];
+  return {
+    run_attempt: attempt,
+    id: job.id,
+    name: job.name,
+    conclusion: job.conclusion,
+    head_sha: job.head_sha,
+    steps: job.steps.map((step) => ({ name: step.name, conclusion: step.conclusion, number: step.number })),
+  };
+}
+
+function collectAuditRecoveryEvidence(receipt, repositoryRoot, { preMerge = false } = {}) {
+  const recovery = receipt.audit_recovery;
+  const head = recovery.delivery.pr.head_sha;
+  const reviewedHead = recovery.delivery.pr.reviewed_head;
+  const currentCommit = run('git', ['rev-parse', 'HEAD^{commit}'], { cwd: repositoryRoot });
+  const currentTree = run('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repositoryRoot });
+  const sourceCommit = recovery.source.head_sha;
+  run('git', ['cat-file', '-e', `${sourceCommit}^{commit}`], { cwd: repositoryRoot });
+  const sourceTree = run('git', ['rev-parse', `${sourceCommit}^{tree}`], { cwd: repositoryRoot });
+  run('git', ['merge-base', '--is-ancestor', sourceCommit, currentCommit], { cwd: repositoryRoot });
+  const mergeBase = run('git', ['merge-base', sourceCommit, currentCommit], { cwd: repositoryRoot });
+  let reviewedHeadIsAncestor = reviewedHead === head;
+  let reviewedHeadMergeBase = reviewedHead;
+  if (reviewedHead !== head) {
+    run('git', ['merge-base', '--is-ancestor', reviewedHead, head], { cwd: repositoryRoot });
+    reviewedHeadIsAncestor = true;
+    reviewedHeadMergeBase = run('git', ['merge-base', reviewedHead, head], { cwd: repositoryRoot });
+  }
+  const checks = runJson('gh', ['api', `repos/Samsen879/ao-pilot/commits/${head}/check-runs`], { cwd: repositoryRoot });
+  const reviews = terminalCodexReviewEvidence(75, repositoryRoot);
+  const failedRun = runJson('gh', ['api', `repos/Samsen879/ao-pilot/actions/runs/${AUDIT_RECOVERY_FAILED_RUN}`], { cwd: repositoryRoot });
+  const packageJson = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'package.json'), 'utf8'));
+  const packageLock = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'package-lock.json'), 'utf8'));
+  const braceExpansionLock = packageLock.packages?.['node_modules/brace-expansion'];
+  const audit = runJson('npm', ['audit', '--json'], { cwd: repositoryRoot, timeout: 5 * 60 * 1000 });
+  return {
+    repositoryEvidence: {
+      current_commit_sha: currentCommit,
+      current_tree_sha: currentTree,
+      source_commit_sha: sourceCommit,
+      source_tree_sha: sourceTree,
+      source_is_ancestor: true,
+      merge_base_sha: mergeBase,
+      reviewed_head_is_ancestor: reviewedHeadIsAncestor,
+      reviewed_head_merge_base_sha: reviewedHeadMergeBase,
+      release_check_passed: true,
+      brace_expansion_override: packageJson.overrides?.['brace-expansion'] ?? null,
+      brace_expansion_lock_version: braceExpansionLock?.version ?? null,
+      brace_expansion_lock_integrity: braceExpansionLock?.integrity ?? null,
+      audit_vulnerability_total: audit.metadata?.vulnerabilities?.total ?? null,
+    },
+    githubEvidence: {
+      issue_63: (() => {
+        const issue = runJson('gh', ['api', 'repos/Samsen879/ao-pilot/issues/63'], { cwd: repositoryRoot });
+        return { number: issue.number, state: issue.state };
+      })(),
+      predecessor_receipt: jsonIssueCommentEvidence(AUDIT_RECOVERY_RECEIPT_COMMENT, repositoryRoot),
+      predecessor_pr: pullEvidence(AUDIT_RECOVERY_PREDECESSOR_PR, repositoryRoot),
+      failed_protected_run: {
+        id: failedRun.id,
+        workflow_id: failedRun.workflow_id,
+        event: failedRun.event,
+        head_sha: failedRun.head_sha,
+        status: failedRun.status,
+        conclusion: failedRun.conclusion,
+        run_attempt: failedRun.run_attempt,
+        created_at: failedRun.created_at,
+        updated_at: failedRun.updated_at,
+      },
+      failed_protected_jobs: [
+        workflowJobEvidence(AUDIT_RECOVERY_FAILED_RUN, 1, repositoryRoot),
+        workflowJobEvidence(AUDIT_RECOVERY_FAILED_RUN, 2, repositoryRoot),
+      ],
+      audit_recovery_admission: admissionEvidence(AUDIT_RECOVERY_ADMISSION_COMMENT, repositoryRoot),
+      audit_recovery_pr: pullEvidence(75, repositoryRoot),
+      issue_linked_prs: issueLinkedPrEvidence(repositoryRoot),
+      audit_check_runs: checks.check_runs.map((check) => ({ name: check.name, conclusion: check.conclusion })),
+      audit_codex_reviews: reviews.completed,
+      audit_codex_review_requests: reviews.requests,
+      audit_review_findings: reviewFindingEvidence(75, repositoryRoot),
+      audit_worktree_capture: jsonIssueCommentEvidence(recovery.delivery.worktree_evidence_comment_id, repositoryRoot),
+      audit_premerge_capture: preMerge ? null : jsonIssueCommentEvidence(recovery.premerge_verification.evidence_comment_id, repositoryRoot),
+      audit_merge_capture: preMerge ? null : jsonIssueCommentEvidence(recovery.merge_execution.evidence_comment_id, repositoryRoot),
+      audit_orchestrator_done_capture: preMerge ? null : jsonIssueCommentEvidence(recovery.cleanup.orchestrator_done_evidence_comment_id, repositoryRoot),
+      audit_cleanup_capture: preMerge ? null : jsonIssueCommentEvidence(recovery.cleanup.cleanup_evidence_comment_id, repositoryRoot),
+    },
+  };
+}
+
+function publicationEvidence(commentId, rawReceipt, repositoryRoot, { exactBytes = false } = {}) {
   const comment = runJson('gh', ['api', `repos/Samsen879/ao-pilot/issues/comments/${commentId}`], { cwd: repositoryRoot });
   return {
     issue_number: Number(comment.issue_url?.match(/\/issues\/(\d+)$/)?.[1] ?? 0),
     author: comment.user?.login ?? null,
     created_at: comment.created_at ?? null,
-    exact_bytes_match: String(comment.body ?? '').trimEnd() === rawReceipt.trimEnd(),
+    exact_bytes_match: exactBytes
+      ? String(comment.body ?? '') === rawReceipt
+      : String(comment.body ?? '').trimEnd() === rawReceipt.trimEnd(),
   };
 }
 
@@ -301,10 +408,14 @@ if (argv.includes('--help') || argv.includes('-h')) {
       const rawReceipt = fs.readFileSync(resolvedReceiptPath, 'utf8');
       const receipt = loadSelfHostingReceipt(resolvedReceiptPath);
       run('npm', ['run', 'release:check'], { cwd: resolvedRepositoryRoot, timeout: 30 * 60 * 1000 });
-      const evidence = collectEvidence(receipt, resolvedRepositoryRoot, { preMerge });
-      const result = verifySelfHostingReceipt(receipt, {
+      const isAuditRecovery = receipt.schema_version === AUDIT_RECOVERY_RECEIPT_SCHEMA_VERSION;
+      const evidence = isAuditRecovery
+        ? collectAuditRecoveryEvidence(receipt, resolvedRepositoryRoot, { preMerge })
+        : collectEvidence(receipt, resolvedRepositoryRoot, { preMerge });
+      const verifier = isAuditRecovery ? verifyAuditRecoveryReceipt : verifySelfHostingReceipt;
+      const result = verifier(receipt, {
         ...evidence,
-        publicationEvidence: commentId == null ? null : publicationEvidence(commentId, rawReceipt, resolvedRepositoryRoot),
+        publicationEvidence: commentId == null ? null : publicationEvidence(commentId, rawReceipt, resolvedRepositoryRoot, { exactBytes: isAuditRecovery }),
         requirePublication: preMerge ? false : commentId != null,
         stage: preMerge ? 'pre_merge' : 'final',
       });

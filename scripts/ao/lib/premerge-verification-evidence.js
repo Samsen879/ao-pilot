@@ -8,6 +8,7 @@ import {
 } from './orchestrator-worktree-publication.js';
 
 export const PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-premerge-verification-evidence.v2';
+export const AUDIT_PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-premerge-verification-evidence.v3';
 export const PREMERGE_VERIFICATION_PUBLICATION_SCHEMA_VERSION = 'ao.workstation-premerge-verification-publication.v1';
 
 function assert(condition, message) {
@@ -21,40 +22,45 @@ function sha256(value) {
 export function createPremergeVerificationEvidence({ receipt, result, evidence, verifiedAt = new Date().toISOString() }) {
   assert(result?.status === 'premerge_verified', 'Cannot persist an unsuccessful pre-merge verification');
   assert(!Number.isNaN(Date.parse(verifiedAt)), 'Invalid pre-merge verification timestamp');
-  const delivery = receipt.terminal_remediation.delivery;
-  const remediationPr = delivery.remediation_pr;
+  const auditRecovery = receipt.audit_recovery ?? null;
+  const delivery = auditRecovery?.delivery ?? receipt.terminal_remediation.delivery;
+  const remediationPr = delivery.pr ?? delivery.remediation_pr;
   const repository = evidence.repositoryEvidence;
-  const worktreeCapture = evidence.githubEvidence.terminal_worktree_capture;
+  const worktreeCapture = auditRecovery == null
+    ? evidence.githubEvidence.terminal_worktree_capture
+    : evidence.githubEvidence.audit_worktree_capture;
   const publication = delivery.worktree_evidence_publication;
   return {
-    schema_version: PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION,
+    schema_version: auditRecovery == null
+      ? PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION
+      : AUDIT_PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION,
     issue_number: 63,
     verified_at: verifiedAt,
     status: result.status,
-    standing_admission_comment_id: 5158510418,
-    final_admission_comment_id: 5163994984,
-    recovery_attempt: 3,
+    standing_admission_comment_id: auditRecovery == null ? 5158510418 : 5173330402,
+    final_admission_comment_id: auditRecovery == null ? 5163994984 : 5173330402,
+    recovery_attempt: auditRecovery == null ? 3 : 4,
     remediation_pr: {
       number: remediationPr.number,
       head_sha: remediationPr.head_sha,
-      tree_sha: repository.current_main_tree_sha,
+      tree_sha: repository.current_main_tree_sha ?? repository.current_tree_sha,
       reviewed_head: remediationPr.reviewed_head,
       review_evidence_ids: remediationPr.codex_reviews.map((review) => review.evidence_id),
       resolved_finding_comment_ids: remediationPr.finding_dispositions.map((finding) => finding.comment_id),
     },
     release_check: {
       command: 'npm run release:check',
-      checkout_head_sha: repository.current_main_sha,
-      checkout_tree_sha: repository.current_main_tree_sha,
+      checkout_head_sha: repository.current_main_sha ?? repository.current_commit_sha,
+      checkout_tree_sha: repository.current_main_tree_sha ?? repository.current_tree_sha,
       passed: repository.release_check_passed === true,
     },
     git_relationship: {
-      reviewed_head_is_ancestor: repository.terminal_reviewed_head_is_ancestor,
-      reviewed_head_merge_base_sha: repository.terminal_reviewed_head_merge_base_sha,
-      source_is_ancestor: repository.terminal_source_is_ancestor,
-      source_merge_base_sha: repository.terminal_merge_base_sha,
-      branch_creation_sha: repository.terminal_branch_creation_sha,
-      branch_creation_at: repository.terminal_branch_creation_at,
+      reviewed_head_is_ancestor: repository.terminal_reviewed_head_is_ancestor ?? repository.reviewed_head_is_ancestor,
+      reviewed_head_merge_base_sha: repository.terminal_reviewed_head_merge_base_sha ?? repository.reviewed_head_merge_base_sha,
+      source_is_ancestor: repository.terminal_source_is_ancestor ?? repository.source_is_ancestor,
+      source_merge_base_sha: repository.terminal_merge_base_sha ?? repository.merge_base_sha,
+      branch_creation_sha: repository.terminal_branch_creation_sha ?? repository.branch_creation_sha ?? auditRecovery?.source.head_sha,
+      branch_creation_at: repository.terminal_branch_creation_at ?? repository.branch_creation_at ?? worktreeCapture.payload?.git_relationship?.branch_creation_at,
     },
     worktree_evidence: {
       comment_id: worktreeCapture.comment_id,
@@ -95,7 +101,7 @@ export function publishOrchestratorBoundPremergeEvidence({
   const raw = fs.readFileSync(resolvedEvidencePath, 'utf8');
   const payload = JSON.parse(raw);
   assert(raw === JSON.stringify(payload, null, 2), 'Pre-merge evidence is not canonical no-trailing-newline JSON');
-  assert(payload.schema_version === PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION && payload.issue_number === 63, 'Unsupported pre-merge verification evidence');
+  assert([PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION, AUDIT_PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION].includes(payload.schema_version) && payload.issue_number === 63, 'Unsupported pre-merge verification evidence');
   assert(payload.status === 'premerge_verified', 'Pre-merge evidence does not record a successful gate');
   assert(payload.remediation_pr.head_sha === authority.worker.head_sha && payload.remediation_pr.tree_sha === authority.worker.tree_sha, 'Pre-merge evidence does not match the current AO Worker head/tree');
   assert(payload.orchestrator_provenance.session_id === authority.orchestrator_provenance.session_id, 'Pre-merge evidence belongs to a different Orchestrator');

@@ -1097,80 +1097,48 @@ function validPreMergeEvidence(receipt) {
 }
 
 describe('fresh-clone and protected self-hosting gates', () => {
-  it('pins the retry receipt template to PR #70 and the owner admission comment', () => {
+  it('pins the audit recovery template to immutable PR #74 receipt/run evidence and PR #75', () => {
     const template = JSON.parse(fs.readFileSync(
       'docs/runtime-portability/p0-r08-workstation-self-hosting-receipt.template.json',
       'utf8',
     ));
     expect(template).toMatchObject({
-      schema_version: SELF_HOSTING_RECEIPT_SCHEMA_VERSION,
-      source: {
-        admission_pr_number: P0_R08_RETRY_ADMISSION_PR,
-        clone_head_sha: P0_R08_RETRY_ADMITTED_MAIN,
-        clone_tree_sha: P0_R08_RETRY_ADMITTED_TREE,
+      schema_version: 'ao.workstation-self-hosting-receipt.v8',
+      predecessor: {
+        receipt: {
+          comment_id: 5169507539,
+          body_bytes: 21541,
+          body_sha256: '67c40f2d76247ad49aa7561e9b6124b72a81a985e165e798aa91d6fbd8ef126e',
+        },
+        pr: { number: 74, merge_sha: 'fc616e318160ac23849d52af3a5f763eba9ffebf' },
+        protected_workflow: {
+          run_id: 30836059504,
+          workflow_id: 325479877,
+          conclusion: 'failure',
+          run_attempt: 2,
+          attempt_jobs: [91761405074, 91762073346],
+          failure: { audit_advisory: 'GHSA-rgw5-rvv9-x895', package: 'brace-expansion', patched_version: '5.0.9' },
+        },
       },
-      retry_admission: {
-        issue_number: 63,
-        comment_id: P0_R08_RETRY_ADMISSION_COMMENT,
-        comment_body_sha256: P0_R08_RETRY_ADMISSION_COMMENT_SHA256,
-        historical_pr_number: P0_R08_RETRY_ADMISSION_PR,
-        historical_merge_sha: P0_R08_RETRY_ADMITTED_MAIN,
-        historical_tree_sha: P0_R08_RETRY_ADMITTED_TREE,
-      },
-      environment: {
-        retry_root: P0_R08_RETRY_ROOT,
-        ao_data_dir: P0_R08_RETRY_AO_DATA_DIR,
-        ao_run_file: P0_R08_RETRY_AO_RUN_FILE,
-        runtime_store: P0_R08_RETRY_RUNTIME_STORE,
-        runtime_cache: P0_R08_RETRY_RUNTIME_CACHE,
-      },
-      runtime: {
-        runtime_ref: P0_R08_PRINCIPAL_RUNTIME_REF,
-        tag: P0_R08_PRINCIPAL_RUNTIME_TAG,
-        commit_sha: P0_R08_PRINCIPAL_RUNTIME_COMMIT,
-        tree_sha: P0_R08_PRINCIPAL_RUNTIME_TREE,
-      },
-      delivery: {
-        worktree_evidence_comment_id: 5157857462,
-        principal_pr: { number: 71 },
-      },
-      cleanup: { orchestrator_done_evidence_comment_id: 5157899599 },
-      terminal_remediation: {
+      audit_recovery: {
         admission: {
-          comment_id: P0_R08_FINAL_ADMISSION_COMMENT,
-          comment_body_bytes: P0_R08_FINAL_ADMISSION_BYTES,
-          comment_body_sha256: P0_R08_FINAL_ADMISSION_SHA256,
-          principal_pr_number: P0_R08_PRINCIPAL_PR,
-          admitted_main_sha: P0_R08_FINAL_ADMITTED_MAIN,
-          admitted_tree_sha: P0_R08_FINAL_ADMITTED_TREE,
+          comment_id: 5173330402,
+          body_bytes: 3765,
+          body_sha256: '4eda52b054ddda51d5c998c7f89d25a9006d50a966982cda8a30cf71c3ea66e5',
         },
-        environment: {
-          runtime_binary_path: P0_R08_TERMINAL_RUNTIME_BINARY,
-          runtime_binary_sha256: P0_R08_TERMINAL_RUNTIME_BINARY_SHA256,
+        source: {
+          head_sha: 'fc616e318160ac23849d52af3a5f763eba9ffebf',
+          tree_sha: '379668d84df17b1f33e737abf12e66d5422a220f',
         },
+        runtime: {
+          runtime_ref: P0_R08_RUNTIME_REF,
+          commit_sha: P0_R08_RUNTIME_COMMIT,
+          tree_sha: P0_R08_RUNTIME_TREE,
+          binary_sha256: P0_R08_RUNTIME_X64_SHA256,
+        },
+        delivery: { worker_branch: 'ao/p0-r08-audit-recovery', pr: { number: 75, merged: false } },
+        premerge_verification: null,
         merge_execution: null,
-      },
-      terminal_recovery_chain: {
-        schema_version: TERMINAL_RECOVERY_CHAIN_SCHEMA_VERSION,
-        standing_admission: {
-          comment_id: P0_R08_TERMINAL_ADMISSION_COMMENT,
-          comment_body_bytes: P0_R08_TERMINAL_ADMISSION_COMMENT_BYTES,
-          comment_body_sha256: P0_R08_TERMINAL_ADMISSION_COMMENT_SHA256,
-          admitted_main_sha: P0_R08_TERMINAL_ADMITTED_MAIN,
-          admitted_tree_sha: P0_R08_TERMINAL_ADMITTED_TREE,
-          principal_pr_number: P0_R08_PRINCIPAL_PR,
-          max_additional_recovery_attempts: 2,
-        },
-        attempts: [
-          expect.objectContaining({ attempt: 1, disposition: 'failed_premerge_gates', pr: { number: 72, url: 'https://github.com/Samsen879/ao-pilot/pull/72', head_sha: P0_R08_FAILED_TERMINAL_HEAD, reviewed_head: P0_R08_FAILED_TERMINAL_HEAD, codex_reviews: expect.any(Array), merge_sha: P0_R08_TERMINAL_ADMITTED_MAIN, merge_tree_sha: P0_R08_TERMINAL_ADMITTED_TREE, merged_at: '2026-08-02T14:15:52Z' } }),
-          expect.objectContaining({ attempt: 2, disposition: 'failed_merge_path_provenance', predecessor_pr_number: 72, pr: expect.objectContaining({ number: 73 }) }),
-          expect.objectContaining({ attempt: 3, predecessor_pr_number: 73, pr_number: 74 }),
-        ],
-      },
-      runtime_transition: {
-        architectural_blocker: { comment_id: P0_R08_ARCHITECTURAL_BLOCKER_COMMENT },
-        admission: { comment_id: P0_R08_FINAL_ADMISSION_COMMENT },
-        successor: { runtime_pr_number: P0_R08_RUNTIME_PR, tag_object_sha: P0_R08_RUNTIME_TAG_OBJECT },
       },
     });
   });

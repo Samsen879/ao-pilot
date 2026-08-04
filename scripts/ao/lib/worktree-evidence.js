@@ -12,8 +12,15 @@ import {
   P0_R08_TERMINAL_ADMISSION_COMMENT,
   P0_R08_TERMINAL_ROOT,
 } from './self-hosting-receipt.js';
+import {
+  AUDIT_RECOVERY_ADMISSION_COMMENT,
+  AUDIT_RECOVERY_ADMITTED_MAIN,
+  AUDIT_RECOVERY_ADMITTED_TREE,
+  AUDIT_RECOVERY_PREDECESSOR_PR,
+} from './audit-recovery-receipt.js';
 
 export const WORKTREE_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-worktree-evidence.v6';
+export const AUDIT_WORKTREE_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-worktree-evidence.v7';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -102,27 +109,31 @@ export function inspectWorktreeBinding({
 
 export function captureWorktreeEvidence({ env = process.env, ...options }) {
   const evidence = inspectWorktreeBinding(options);
-  assert(evidence.source.head_sha === P0_R08_FINAL_ADMITTED_MAIN, 'Source worktree is not at the final admitted terminal-remediation main');
-  assert(evidence.source.tree_sha === P0_R08_FINAL_ADMITTED_TREE, 'Source worktree tree is not the final admitted terminal-remediation tree');
-  assert(evidence.git_relationship.merge_base_sha === P0_R08_FINAL_ADMITTED_MAIN, 'Worker merge base is not the final-admission baseline');
-  assert(evidence.git_relationship.branch_creation_sha === P0_R08_FINAL_ADMITTED_MAIN, 'Worker branch was not created at the final-admission baseline');
+  const auditRecovery = evidence.source.head_sha === AUDIT_RECOVERY_ADMITTED_MAIN;
+  const admittedMain = auditRecovery ? AUDIT_RECOVERY_ADMITTED_MAIN : P0_R08_FINAL_ADMITTED_MAIN;
+  const admittedTree = auditRecovery ? AUDIT_RECOVERY_ADMITTED_TREE : P0_R08_FINAL_ADMITTED_TREE;
+  assert(evidence.source.head_sha === admittedMain, 'Source worktree is not at the admitted terminal-recovery main');
+  assert(evidence.source.tree_sha === admittedTree, 'Source worktree tree is not the admitted terminal-recovery tree');
+  assert(evidence.git_relationship.merge_base_sha === admittedMain, 'Worker merge base is not the admitted recovery baseline');
+  assert(evidence.git_relationship.branch_creation_sha === admittedMain, 'Worker branch was not created at the admitted recovery baseline');
   assert(path.dirname(evidence.source.clone_path) === P0_R08_TERMINAL_ROOT, 'Source worktree is outside the terminal-remediation root');
   assert(env.AO_DATA_DIR === P0_R08_TERMINAL_AO_DATA_DIR, 'AO_DATA_DIR is not terminal-remediation-specific');
   assert(env.AO_RUN_FILE === P0_R08_TERMINAL_AO_RUN_FILE, 'AO_RUN_FILE is not terminal-remediation-specific');
   return {
     ...evidence,
+    schema_version: auditRecovery ? AUDIT_WORKTREE_EVIDENCE_SCHEMA_VERSION : WORKTREE_EVIDENCE_SCHEMA_VERSION,
     isolation: {
       remediation_root: P0_R08_TERMINAL_ROOT,
       ao_data_dir: env.AO_DATA_DIR,
       ao_run_file: env.AO_RUN_FILE,
     },
     recovery_chain: {
-      standing_admission_comment_id: P0_R08_TERMINAL_ADMISSION_COMMENT,
-      final_admission_comment_id: P0_R08_FINAL_ADMISSION_COMMENT,
-      attempt: 3,
-      prior_attempt_pr_number: P0_R08_FAILED_MERGE_PATH_PR,
-      admitted_main_sha: P0_R08_FINAL_ADMITTED_MAIN,
-      admitted_tree_sha: P0_R08_FINAL_ADMITTED_TREE,
+      standing_admission_comment_id: auditRecovery ? AUDIT_RECOVERY_ADMISSION_COMMENT : P0_R08_TERMINAL_ADMISSION_COMMENT,
+      final_admission_comment_id: auditRecovery ? AUDIT_RECOVERY_ADMISSION_COMMENT : P0_R08_FINAL_ADMISSION_COMMENT,
+      attempt: auditRecovery ? 4 : 3,
+      prior_attempt_pr_number: auditRecovery ? AUDIT_RECOVERY_PREDECESSOR_PR : P0_R08_FAILED_MERGE_PATH_PR,
+      admitted_main_sha: admittedMain,
+      admitted_tree_sha: admittedTree,
     },
   };
 }
