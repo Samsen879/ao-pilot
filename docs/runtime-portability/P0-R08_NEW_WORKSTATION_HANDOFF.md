@@ -499,7 +499,19 @@ npm --prefix "$WORKER_ROOT" run verify:self-hosting -- \
 The v8 collector resolves historical PR #74 from immutable GitHub PR/comment
 APIs. It deliberately does not require the deleted PR #74 source branch or its
 orphan head object to exist in a fresh clone. Local Git object and ancestry
-checks apply only to admitted main and the active PR #75 Worker head.
+checks apply only to admitted main and the active PR #75 Worker head. It also
+hashes the immutable attempt-2 job log, requires that log to show the single
+high-severity npm result, and binds the advisory, affected range, exact
+`brace-expansion@5.0.8` lock entry, and `5.0.9` patch to the live GitHub
+advisory record.
+
+Review 2 is the final connector round. A descendant repair is valid only when
+Review 2 was a submitted review with findings and `post_review_2_repair` binds
+review `4849879159`, the final descendant SHA, and every resolved Review-2
+finding ID. Before either v3 publication or `ao pr merge 75`, the p0.2 helper
+reruns `release:check` and re-reads the exact PR head/tree, required CI,
+connector review IDs, every inline finding, its resolved state, and admitted
+source ancestry. Declarative preflight IDs or success booleans are insufficient.
 
 Publish the generated v3 preflight through
 `publish:self-hosting-preflight`, then merge only with

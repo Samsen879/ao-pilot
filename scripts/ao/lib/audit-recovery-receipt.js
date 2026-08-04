@@ -157,6 +157,30 @@ function verifyFailedWorkflow(predecessor, github) {
   const retrySteps = jobs[1].steps;
   assert(retrySteps.some((step) => step.name === 'Run npm ci' && step.conclusion === 'success'), 'Protected workflow retry npm ci did not succeed');
   assert(retrySteps.some((step) => step.name === 'Materialize bounded workstation receipt' && step.conclusion === 'success'), 'Protected workflow retry receipt materialization did not succeed');
+  const liveAudit = exactKeys(github.failed_protected_audit_evidence, 'live failed protected audit evidence', [
+    'job_id', 'run_attempt', 'log_bytes', 'log_sha256', 'npm_ci_high_vulnerability_count',
+    'audit_advisory', 'package', 'affected_range', 'observed_version', 'patched_version',
+    'fix_available', 'evidence_source',
+  ]);
+  assert(liveAudit.job_id === AUDIT_RECOVERY_ATTEMPT_2_JOB && liveAudit.run_attempt === 2, 'Live npm-audit evidence is not bound to protected attempt 2');
+  assert(Number.isSafeInteger(liveAudit.log_bytes) && liveAudit.log_bytes > 0 && /^[0-9a-f]{64}$/.test(liveAudit.log_sha256), 'Live protected job log identity is invalid');
+  assert(liveAudit.evidence_source === 'immutable_job_log_plus_exact_head_lock_audit', 'Unsupported protected npm-audit evidence source');
+  assert(liveAudit.npm_ci_high_vulnerability_count === failure.high_vulnerability_count, 'Protected job log high-vulnerability count drifted');
+  for (const field of ['audit_advisory', 'package', 'affected_range', 'observed_version', 'patched_version', 'fix_available']) {
+    assert(liveAudit[field] === failure[field], `Live protected npm-audit ${field} drifted`);
+  }
+}
+
+export function verifyAuditPostReview2Repair({ repair, finalHead, reviewedHead, completedReviews, liveFindings, repository }) {
+  const item = exactKeys(repair, 'audit recovery post_review_2_repair', ['authorization_ref', 'review_id', 'final_head_sha', 'finding_comment_ids']);
+  const review2 = completedReviews[1];
+  const review2Findings = liveFindings.filter((finding) => finding.review_id === review2?.evidence_id);
+  const repairFindingIds = [...item.finding_comment_ids].sort((a, b) => a - b);
+  const liveReview2FindingIds = review2Findings.map((finding) => finding.comment_id).sort((a, b) => a - b);
+  assert(completedReviews.length === 2 && review2?.kind === 'submitted_review' && review2Findings.length > 0, 'Audit recovery post-Review-2 repair requires submitted Review 2 findings');
+  assert(item.authorization_ref === 'https://github.com/Samsen879/ao-pilot/issues/63#issuecomment-5173330402' && item.review_id === review2.evidence_id && item.final_head_sha === finalHead, 'Audit recovery post-Review-2 repair is unauthorized or unbound');
+  assert(JSON.stringify(repairFindingIds) === JSON.stringify(liveReview2FindingIds) && review2Findings.every((finding) => finding.resolved === true), 'Audit recovery post-Review-2 repair does not bind every resolved Review 2 finding');
+  assert(repository.reviewed_head_is_ancestor === true && repository.reviewed_head_merge_base_sha === reviewedHead, 'Audit recovery final head does not descend from Review 2 head');
 }
 
 export function verifyAuditRecoveryReceipt(receipt, {
@@ -246,9 +270,7 @@ export function verifyAuditRecoveryReceipt(receipt, {
     assert(finding.disposition === 'fixed' && finding.resolved === true && live?.resolved === true, `Audit recovery finding ${finding.comment_id} is unresolved`);
   }
   if (finalHead !== reviewedHead) {
-    const repair = object(pr.post_review_2_repair, 'audit recovery post_review_2_repair');
-    assert(pr.codex_reviews.length === 2 && repair.authorization_ref === 'https://github.com/Samsen879/ao-pilot/issues/63#issuecomment-5173330402' && repair.final_head_sha === finalHead, 'Audit recovery post-Review-2 repair is unauthorized or unbound');
-    assert(repository.reviewed_head_is_ancestor === true && repository.reviewed_head_merge_base_sha === reviewedHead, 'Audit recovery final head does not descend from Review 2 head');
+    verifyAuditPostReview2Repair({ repair: pr.post_review_2_repair, finalHead, reviewedHead, completedReviews, liveFindings: github.audit_review_findings, repository });
   } else assert(pr.post_review_2_repair == null, 'Unexpected audit recovery post-Review-2 repair');
 
   const worktree = object(github.audit_worktree_capture, 'audit recovery worktree evidence');
@@ -282,6 +304,7 @@ export function verifyAuditRecoveryReceipt(receipt, {
     assert(recovery.exact_main_replay.main_sha == null && recovery.exact_main_replay.tree_sha == null, 'Pending audit recovery claims replay SHA/tree');
     assert(recovery.cleanup.orchestrator_done_evidence_comment_id === 0 && recovery.cleanup.cleanup_evidence_comment_id === 0, 'Pending audit recovery claims cleanup comments');
     for (const field of ['orchestrator_done', 'orchestrator_session_stopped', 'worker_session_stopped', 'worker_worktree_removed', 'remote_worker_branch_removed', 'project_removed', 'daemon_stopped', 'leases_absent', 'stale_ownership_absent']) falsehood(recovery.cleanup[field], `audit_recovery.cleanup.${field}`);
+    falsehood(value.claim.workstation_self_hosting, 'claim.workstation_self_hosting');
     falsehood(value.claim.p0_r08_satisfied, 'claim.p0_r08_satisfied');
     assert(publicationEvidence == null && requirePublication === false, 'Pre-merge audit verification cannot accept receipt publication');
     return { status: 'premerge_verified', schema_version: value.schema_version, issue_number: 63, audit_recovery_pr: 75, reviewed_head: reviewedHead, review_count: pr.codex_reviews.length, worktree_evidence_comment: worktree.comment_id, orchestrator_session_id: delivery.orchestrator_session_id };
@@ -295,6 +318,9 @@ export function verifyAuditRecoveryReceipt(receipt, {
   assert(preflight.comment_id === recovery.premerge_verification.evidence_comment_id && preflight.created_at === preflight.updated_at && Date.parse(preflight.created_at) <= Date.parse(livePr.merged_at), 'Audit recovery premerge evidence is missing, edited, or post-merge');
   assert(preflight.payload?.schema_version === 'ao.workstation-premerge-verification-evidence.v3' && preflight.payload?.status === 'premerge_verified' && preflight.payload?.recovery_attempt === 4, 'Unsupported audit recovery premerge payload');
   assert(preflight.payload?.standing_admission_comment_id === AUDIT_RECOVERY_ADMISSION_COMMENT && preflight.payload?.remediation_pr?.number === 75 && preflight.payload?.remediation_pr?.head_sha === finalHead, 'Audit recovery premerge payload drifted');
+  assert(JSON.stringify(preflight.payload?.remediation_pr?.review_evidence_ids) === JSON.stringify(pr.codex_reviews.map((review) => review.evidence_id)), 'Audit recovery premerge review evidence is not bound to the verified live reviews');
+  assert(JSON.stringify(preflight.payload?.remediation_pr?.resolved_finding_comment_ids) === JSON.stringify(pr.finding_dispositions.map((finding) => finding.comment_id)), 'Audit recovery premerge finding evidence is not bound to the verified live findings');
+  assert(preflight.payload?.release_check?.passed === true && preflight.payload?.release_check?.checkout_head_sha === finalHead && preflight.payload?.release_check?.checkout_tree_sha === mergeTree, 'Audit recovery premerge release evidence is not bound to the verified checkout');
   assert(JSON.stringify(preflight.payload?.orchestrator_provenance) === JSON.stringify(provenance), 'Audit recovery premerge Orchestrator provenance drifted');
   verifyPublication(recovery.premerge_verification.publication, preflight, {
     commentId: preflight.comment_id, orchestratorSessionId: delivery.orchestrator_session_id,
@@ -349,7 +375,7 @@ export function verifyAuditRecoveryReceipt(receipt, {
   ]);
   for (const field of ['orchestrator_done', 'orchestrator_session_stopped', 'worker_session_stopped', 'worker_worktree_removed', 'remote_worker_branch_removed', 'project_removed', 'daemon_stopped', 'leases_absent', 'stale_ownership_absent']) truth(cleanup[field], `audit_recovery.cleanup.${field}`);
   const done = object(github.audit_orchestrator_done_capture, 'audit recovery Orchestrator-done evidence');
-  assert(done.comment_id === cleanup.orchestrator_done_evidence_comment_id && done.author === 'Samsen879' && done.author_association === 'OWNER' && done.created_at === done.updated_at && done.payload?.orchestrator_session_id === delivery.orchestrator_session_id, 'Audit recovery durable Orchestrator-done evidence drifted');
+  assert(done.comment_id === cleanup.orchestrator_done_evidence_comment_id && done.issue_number === 63 && done.author === 'Samsen879' && done.author_association === 'OWNER' && done.created_at === done.updated_at && done.payload?.orchestrator_session_id === delivery.orchestrator_session_id, 'Audit recovery durable Orchestrator-done evidence drifted');
   assert(Date.parse(done.created_at) >= Date.parse(livePr.merged_at), 'Audit recovery Orchestrator-done evidence predates merge');
   const donePayload = exactKeys(done.payload, 'audit recovery Orchestrator-done payload', ['schema_version', 'issue_number', 'completed_at', 'orchestrator_session_id', 'command']);
   assert(donePayload.schema_version === 'ao.orchestrator-done-evidence.v1' && donePayload.issue_number === 63 && donePayload.orchestrator_session_id === delivery.orchestrator_session_id, 'Unsupported audit recovery Orchestrator-done evidence');

@@ -31,6 +31,8 @@ import {
 } from './ao/lib/self-hosting-receipt.js';
 import {
   AUDIT_RECOVERY_ADMISSION_COMMENT,
+  AUDIT_RECOVERY_ADMITTED_MAIN,
+  AUDIT_RECOVERY_ADVISORY,
   AUDIT_RECOVERY_FAILED_RUN,
   AUDIT_RECOVERY_PREDECESSOR_PR,
   AUDIT_RECOVERY_RECEIPT_COMMENT,
@@ -292,6 +294,38 @@ function workflowJobEvidence(runId, attempt, repositoryRoot) {
   };
 }
 
+function failedProtectedAuditEvidence(repositoryRoot) {
+  const jobId = 91762073346;
+  const logResult = spawnSync('gh', ['api', `repos/Samsen879/ao-pilot/actions/jobs/${jobId}/logs`], {
+    cwd: repositoryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024,
+  });
+  if (logResult.error || logResult.status !== 0) throw new Error(`Unable to read immutable protected job log ${jobId}`);
+  const log = logResult.stdout;
+  const highMatch = log.match(/\b(\d+) high severity vulnerabilit(?:y|ies)\b/);
+  if (highMatch == null || !log.includes('Run npm ci') || !log.includes('Run npm run verify:self-hosting')) throw new Error('Protected attempt-2 log lacks bounded npm-ci/verifier failure evidence');
+  const lock = JSON.parse(run('git', ['show', `${AUDIT_RECOVERY_ADMITTED_MAIN}:package-lock.json`], { cwd: repositoryRoot }));
+  const observedVersion = lock.packages?.['node_modules/brace-expansion']?.version ?? null;
+  const advisory = runJson('gh', ['api', `advisories/${AUDIT_RECOVERY_ADVISORY}`], { cwd: repositoryRoot });
+  const vulnerability = advisory.vulnerabilities?.find((item) => item.package?.ecosystem === 'npm' && item.package?.name === 'brace-expansion' && item.first_patched_version === '5.0.9');
+  const patchedVersion = typeof vulnerability?.first_patched_version === 'string'
+    ? vulnerability.first_patched_version
+    : vulnerability?.first_patched_version?.identifier ?? null;
+  return {
+    job_id: jobId,
+    run_attempt: 2,
+    log_bytes: Buffer.byteLength(log, 'utf8'),
+    log_sha256: createHash('sha256').update(log).digest('hex'),
+    npm_ci_high_vulnerability_count: Number(highMatch[1]),
+    audit_advisory: advisory.ghsa_id,
+    package: vulnerability?.package?.name ?? null,
+    affected_range: String(vulnerability?.vulnerable_version_range ?? '').replace(/([<>=])\s+/g, '$1').replace(/,\s*/g, ' '),
+    observed_version: observedVersion,
+    patched_version: patchedVersion,
+    fix_available: patchedVersion != null,
+    evidence_source: 'immutable_job_log_plus_exact_head_lock_audit',
+  };
+}
+
 function collectAuditRecoveryEvidence(receipt, repositoryRoot, { preMerge = false } = {}) {
   const recovery = receipt.audit_recovery;
   const head = recovery.delivery.pr.head_sha;
@@ -355,6 +389,7 @@ function collectAuditRecoveryEvidence(receipt, repositoryRoot, { preMerge = fals
         workflowJobEvidence(AUDIT_RECOVERY_FAILED_RUN, 1, repositoryRoot),
         workflowJobEvidence(AUDIT_RECOVERY_FAILED_RUN, 2, repositoryRoot),
       ],
+      failed_protected_audit_evidence: failedProtectedAuditEvidence(repositoryRoot),
       audit_recovery_admission: admissionEvidence(AUDIT_RECOVERY_ADMISSION_COMMENT, repositoryRoot),
       audit_recovery_pr: pullEvidence(75, repositoryRoot),
       issue_linked_prs: issueLinkedPrEvidence(repositoryRoot),

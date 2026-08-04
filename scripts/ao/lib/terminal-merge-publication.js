@@ -14,6 +14,7 @@ import { captureOrchestratorBoundWorktreeEvidence } from './orchestrator-worktre
 import { PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION } from './premerge-verification-evidence.js';
 import {
   AUDIT_PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION,
+  collectAuthenticatedAuditPremergeEvidence,
   validateAuditPremergeVerificationEvidence,
 } from './premerge-verification-evidence.js';
 import { AUDIT_RECOVERY_PR } from './audit-recovery-receipt.js';
@@ -72,6 +73,7 @@ export function executeAndPublishTerminalMergeEvidence({
   readMain = defaultReadMain,
   publish = defaultPublish,
   now = () => new Date().toISOString(),
+  authenticateAuditPremerge = collectAuthenticatedAuditPremergeEvidence,
 }) {
   assert(!fs.existsSync(path.resolve(payloadPath)) && !fs.existsSync(path.resolve(publicationReceiptPath)), 'AO merge evidence output paths must not exist before subprocess execution');
   const authority = captureOrchestratorBoundWorktreeEvidence(authorityOptions);
@@ -90,7 +92,7 @@ export function executeAndPublishTerminalMergeEvidence({
   assert([PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION, AUDIT_PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION].includes(premergePayload.schema_version) && premergePayload.status === 'premerge_verified', 'Unsupported pre-merge evidence');
   const auditRecovery = premergePayload.schema_version === AUDIT_PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION;
   const recoveryPr = auditRecovery ? AUDIT_RECOVERY_PR : P0_R08_FINAL_RECOVERY_PR;
-  if (auditRecovery) validateAuditPremergeVerificationEvidence(premergePayload, authority);
+  if (auditRecovery) validateAuditPremergeVerificationEvidence(premergePayload, authority, authenticateAuditPremerge(authority));
   assert(premergePayload.remediation_pr?.number === recoveryPr, 'Pre-merge evidence targets the wrong PR');
   assert(premergePayload.remediation_pr?.head_sha === authority.worker.head_sha && premergePayload.remediation_pr?.tree_sha === authority.worker.tree_sha, 'Pre-merge evidence does not guard the current exact Worker HEAD/tree');
   assert(premergePayload.orchestrator_provenance?.session_id === provenance.session_id, 'Pre-merge evidence belongs to a different Orchestrator');

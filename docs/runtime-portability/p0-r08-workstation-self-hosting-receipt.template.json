@@ -97,7 +97,12 @@
         "ci_conclusion": "success",
         "codex_reviews": [],
         "finding_dispositions": [],
-        "post_review_2_repair": null,
+        "post_review_2_repair": {
+          "authorization_ref": "https://github.com/Samsen879/ao-pilot/issues/63#issuecomment-5173330402",
+          "review_id": 4849879159,
+          "final_head_sha": "REPLACE_WITH_FINAL_REPAIR_40_HEX",
+          "finding_comment_ids": [3708869495, 3708869499, 3708869500, 3708869501, 3708869502]
+        },
         "merged": false,
         "merge_sha": null,
         "merge_tree_sha": null

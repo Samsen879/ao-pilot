@@ -11,6 +11,7 @@ import {
   AUDIT_RECOVERY_ADMITTED_MAIN,
   AUDIT_RECOVERY_PR,
 } from './audit-recovery-receipt.js';
+import { REQUIRED_CI_CHECKS } from './self-hosting-receipt.js';
 
 export const PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-premerge-verification-evidence.v2';
 export const AUDIT_PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-premerge-verification-evidence.v3';
@@ -30,7 +31,39 @@ function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
 }
 
-export function validateAuditPremergeVerificationEvidence(payload, authority) {
+function commandJson(command, args, options = {}) {
+  return JSON.parse(execFileSync(command, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...options }));
+}
+
+export function collectAuthenticatedAuditPremergeEvidence(authority) {
+  const workerRoot = authority?.worker?.worktree_path;
+  assert(typeof workerRoot === 'string' && workerRoot !== '', 'Authenticated pre-merge verification lacks the AO Worker worktree');
+  const head = execFileSync('git', ['rev-parse', 'HEAD^{commit}'], { cwd: workerRoot, encoding: 'utf8' }).trim();
+  const tree = execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: workerRoot, encoding: 'utf8' }).trim();
+  const reviews = commandJson('gh', ['api', 'repos/Samsen879/ao-pilot/pulls/75/reviews?per_page=100'], { cwd: workerRoot })
+    .filter((review) => review.user?.login === 'chatgpt-codex-connector[bot]')
+    .map((review) => review.id);
+  const findings = commandJson('gh', ['api', 'repos/Samsen879/ao-pilot/pulls/75/comments?per_page=100'], { cwd: workerRoot })
+    .filter((comment) => comment.user?.login === 'chatgpt-codex-connector[bot]');
+  const query = 'query { repository(owner:"Samsen879", name:"ao-pilot") { pullRequest(number:75) { reviewThreads(first:100) { nodes { isResolved comments(first:100) { nodes { databaseId } } } } } } }';
+  const threads = commandJson('gh', ['api', 'graphql', '-f', `query=${query}`], { cwd: workerRoot }).data.repository.pullRequest.reviewThreads.nodes;
+  const resolved = new Map();
+  for (const thread of threads) for (const comment of thread.comments.nodes) resolved.set(comment.databaseId, thread.isResolved === true);
+  const checks = commandJson('gh', ['api', `repos/Samsen879/ao-pilot/commits/${head}/check-runs`], { cwd: workerRoot }).check_runs;
+  execFileSync('npm', ['run', 'release:check'], { cwd: workerRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30 * 60 * 1000, maxBuffer: 16 * 1024 * 1024 });
+  execFileSync('git', ['merge-base', '--is-ancestor', AUDIT_RECOVERY_ADMITTED_MAIN, head], { cwd: workerRoot, stdio: 'ignore' });
+  return {
+    status: 'premerge_verified', head_sha: head, tree_sha: tree,
+    review_evidence_ids: reviews,
+    resolved_finding_comment_ids: findings.filter((finding) => resolved.get(finding.id) === true).map((finding) => finding.id),
+    all_finding_comment_ids: findings.map((finding) => finding.id),
+    required_ci_green: REQUIRED_CI_CHECKS.every((name) => checks.some((check) => check.name === name && check.conclusion === 'success')),
+    release_check_passed: true,
+    source_is_ancestor: true,
+  };
+}
+
+export function validateAuditPremergeVerificationEvidence(payload, authority, authenticated) {
   const value = exactKeys(payload, 'audit pre-merge evidence', [
     'schema_version', 'issue_number', 'verified_at', 'status',
     'standing_admission_comment_id', 'final_admission_comment_id', 'recovery_attempt',
@@ -68,6 +101,14 @@ export function validateAuditPremergeVerificationEvidence(payload, authority) {
   assert(authority?.worker?.head_sha === pr.head_sha && authority?.worker?.tree_sha === pr.tree_sha, 'Audit pre-merge evidence does not guard the current AO Worker head/tree');
   assert(JSON.stringify(value.orchestrator_provenance) === JSON.stringify(authority?.orchestrator_provenance), 'Audit pre-merge evidence does not match the current p0.2 Orchestrator provenance');
   assert(JSON.stringify(worktree.publication_process_binding) === JSON.stringify(authority?.orchestrator_provenance?.process_binding), 'Audit pre-merge worktree publication process differs from the current Orchestrator');
+  const live = exactKeys(authenticated, 'authenticated audit pre-merge verifier evidence', [
+    'status', 'head_sha', 'tree_sha', 'review_evidence_ids', 'resolved_finding_comment_ids',
+    'all_finding_comment_ids', 'required_ci_green', 'release_check_passed', 'source_is_ancestor',
+  ]);
+  assert(live.status === 'premerge_verified' && live.head_sha === pr.head_sha && live.tree_sha === pr.tree_sha, 'Authenticated verifier did not pass on the guarded head/tree');
+  assert(JSON.stringify([...live.review_evidence_ids].sort((a, b) => a - b)) === JSON.stringify([...pr.review_evidence_ids].sort((a, b) => a - b)), 'Audit pre-merge review IDs do not match authenticated live verifier evidence');
+  assert(JSON.stringify([...live.all_finding_comment_ids].sort((a, b) => a - b)) === JSON.stringify([...pr.resolved_finding_comment_ids].sort((a, b) => a - b)) && JSON.stringify([...live.resolved_finding_comment_ids].sort((a, b) => a - b)) === JSON.stringify([...pr.resolved_finding_comment_ids].sort((a, b) => a - b)), 'Audit pre-merge findings are incomplete or unresolved in authenticated live verifier evidence');
+  assert(live.required_ci_green === true && live.release_check_passed === true && live.source_is_ancestor === true, 'Authenticated pre-merge gates are not successful');
   return value;
 }
 
@@ -147,6 +188,7 @@ export function publishOrchestratorBoundPremergeEvidence({
   publish = defaultPublish,
   readBack = defaultReadBack,
   now = () => new Date().toISOString(),
+  authenticateAuditPremerge = collectAuthenticatedAuditPremergeEvidence,
 }) {
   const authority = captureOrchestratorBoundWorktreeEvidence(authorityOptions);
   const resolvedEvidencePath = path.resolve(evidencePath);
@@ -155,7 +197,7 @@ export function publishOrchestratorBoundPremergeEvidence({
   assert(raw === JSON.stringify(payload, null, 2), 'Pre-merge evidence is not canonical no-trailing-newline JSON');
   assert([PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION, AUDIT_PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION].includes(payload.schema_version) && payload.issue_number === 63, 'Unsupported pre-merge verification evidence');
   assert(payload.status === 'premerge_verified', 'Pre-merge evidence does not record a successful gate');
-  if (payload.schema_version === AUDIT_PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION) validateAuditPremergeVerificationEvidence(payload, authority);
+  if (payload.schema_version === AUDIT_PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION) validateAuditPremergeVerificationEvidence(payload, authority, authenticateAuditPremerge(authority));
   assert(payload.remediation_pr.head_sha === authority.worker.head_sha && payload.remediation_pr.tree_sha === authority.worker.tree_sha, 'Pre-merge evidence does not match the current AO Worker head/tree');
   assert(payload.orchestrator_provenance.session_id === authority.orchestrator_provenance.session_id, 'Pre-merge evidence belongs to a different Orchestrator');
   assert(payload.orchestrator_provenance.process_binding.supervisor_process_start_token === authority.orchestrator_provenance.process_binding.supervisor_process_start_token, 'Pre-merge evidence was not produced by the current Orchestrator supervisor process');

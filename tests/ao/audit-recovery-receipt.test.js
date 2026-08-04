@@ -13,6 +13,7 @@ import {
   AUDIT_RECOVERY_RECEIPT_COMMENT,
   AUDIT_RECOVERY_RECEIPT_SCHEMA_VERSION,
   AUDIT_RECOVERY_RECEIPT_SHA256,
+  verifyAuditPostReview2Repair,
   verifyAuditRecoveryReceipt,
 } from '../../scripts/ao/lib/audit-recovery-receipt.js';
 import {
@@ -176,6 +177,12 @@ function evidence(value) {
       predecessor_pr: { number: 74, merged: true, head_sha: AUDIT_RECOVERY_PREDECESSOR_HEAD, merge_sha: AUDIT_RECOVERY_ADMITTED_MAIN, merge_tree_sha: AUDIT_RECOVERY_ADMITTED_TREE },
       failed_protected_run: { id: 30836059504, workflow_id: 325479877, event: 'workflow_dispatch', head_sha: AUDIT_RECOVERY_ADMITTED_MAIN, status: 'completed', conclusion: 'failure', run_attempt: 2, created_at: '2026-08-03T17:17:16Z', updated_at: '2026-08-03T17:21:27Z' },
       failed_protected_jobs: [failedJob(2, 91762073346), failedJob(1, 91761405074)],
+      failed_protected_audit_evidence: {
+        job_id: 91762073346, run_attempt: 2, log_bytes: 10000, log_sha256: '4'.repeat(64),
+        npm_ci_high_vulnerability_count: 1, audit_advisory: 'GHSA-rgw5-rvv9-x895', package: 'brace-expansion',
+        affected_range: '>=4.0.0 <5.0.9', observed_version: '5.0.8', patched_version: '5.0.9',
+        fix_available: true, evidence_source: 'immutable_job_log_plus_exact_head_lock_audit',
+      },
       audit_recovery_admission: comment(AUDIT_RECOVERY_ADMISSION_COMMENT, '2026-08-04T00:52:17Z', AUDIT_RECOVERY_ADMISSION_BYTES, AUDIT_RECOVERY_ADMISSION_SHA256),
       audit_recovery_pr: {
         number: 75, base_ref: 'main', head_ref: 'ao/p0-r08-audit-recovery', head_sha: HEAD,
@@ -189,7 +196,7 @@ function evidence(value) {
       audit_codex_review_requests: [{ comment_id: REQUEST_ID, head_sha: HEAD, requested_at: '2026-08-04T01:59:00Z' }],
       audit_review_findings: [],
       audit_worktree_capture: comment(WORKTREE_COMMENT, '2026-08-04T01:10:00Z', 1000, 'e'.repeat(64), { schema_version: 'ao.workstation-worktree-evidence.v7', source: { head_sha: AUDIT_RECOVERY_ADMITTED_MAIN, tree_sha: AUDIT_RECOVERY_ADMITTED_TREE }, worker: { session_id: 'ao-pilot-remediation-6', worktree_path: '/home/guoqy/p0-r08-terminal-remediation/ao-state/data/worktrees/ao-pilot-remediation/ao-pilot-remediation-6', branch: 'ao/p0-r08-audit-recovery', head_sha: HEAD }, git_relationship: { branch_creation_at: '2026-08-04T00:54:25Z' }, recovery_chain: { attempt: 4, standing_admission_comment_id: AUDIT_RECOVERY_ADMISSION_COMMENT, prior_attempt_pr_number: 74, admitted_main_sha: AUDIT_RECOVERY_ADMITTED_MAIN, admitted_tree_sha: AUDIT_RECOVERY_ADMITTED_TREE }, orchestrator_provenance: provenance }),
-      audit_premerge_capture: comment(PREFLIGHT_COMMENT, '2026-08-04T02:10:00Z', 1100, 'f'.repeat(64), { schema_version: 'ao.workstation-premerge-verification-evidence.v3', status: 'premerge_verified', recovery_attempt: 4, standing_admission_comment_id: AUDIT_RECOVERY_ADMISSION_COMMENT, remediation_pr: { number: 75, head_sha: HEAD }, orchestrator_provenance: provenance }),
+      audit_premerge_capture: comment(PREFLIGHT_COMMENT, '2026-08-04T02:10:00Z', 1100, 'f'.repeat(64), { schema_version: 'ao.workstation-premerge-verification-evidence.v3', status: 'premerge_verified', recovery_attempt: 4, standing_admission_comment_id: AUDIT_RECOVERY_ADMISSION_COMMENT, remediation_pr: { number: 75, head_sha: HEAD, review_evidence_ids: [REVIEW_ID], resolved_finding_comment_ids: [] }, release_check: { passed: true, checkout_head_sha: HEAD, checkout_tree_sha: TREE }, orchestrator_provenance: provenance }),
       audit_merge_capture: comment(MERGE_COMMENT, '2026-08-04T02:21:00Z', 1200, '1'.repeat(64), {
         schema_version: 'ao.workstation-terminal-merge-evidence.v2', issue_number: 63,
         completed_at: '2026-08-04T02:20:30Z', orchestrator_session_id: 'ao-pilot-remediation-5', recovery_attempt: 4,
@@ -250,6 +257,9 @@ describe('P0-R08 audit-only recovery receipt', () => {
     expect(verifyAuditRecoveryReceipt(value, { ...observed, requirePublication: false, stage: 'pre_merge' })).toMatchObject({
       status: 'premerge_verified', audit_recovery_pr: 75,
     });
+    const prematureClaim = structuredClone(value);
+    prematureClaim.claim.workstation_self_hosting = true;
+    expect(() => verifyAuditRecoveryReceipt(prematureClaim, { ...observed, requirePublication: false, stage: 'pre_merge' })).toThrow('claim.workstation_self_hosting');
     const result = verifyAuditRecoveryReceipt(value, { ...observed, requirePublication: false, stage: 'pre_merge' });
     const artifact = createPremergeVerificationEvidence({ receipt: value, result, evidence: observed, verifiedAt: '2026-08-04T02:05:00Z' });
     expect(artifact).toMatchObject({
@@ -263,21 +273,55 @@ describe('P0-R08 audit-only recovery receipt', () => {
       worker: { head_sha: HEAD, tree_sha: observed.repositoryEvidence.current_tree_sha },
       orchestrator_provenance: observed.githubEvidence.audit_worktree_capture.payload.orchestrator_provenance,
     };
-    expect(validateAuditPremergeVerificationEvidence(artifact, authority)).toBe(artifact);
+    const authenticated = {
+      status: 'premerge_verified', head_sha: HEAD, tree_sha: observed.repositoryEvidence.current_tree_sha,
+      review_evidence_ids: [REVIEW_ID], resolved_finding_comment_ids: [], all_finding_comment_ids: [],
+      required_ci_green: true, release_check_passed: true, source_is_ancestor: true,
+    };
+    expect(validateAuditPremergeVerificationEvidence(artifact, authority, authenticated)).toBe(artifact);
     const failedRelease = structuredClone(artifact);
     failedRelease.release_check.passed = false;
-    expect(() => validateAuditPremergeVerificationEvidence(failedRelease, authority)).toThrow('release check');
+    expect(() => validateAuditPremergeVerificationEvidence(failedRelease, authority, authenticated)).toThrow('release check');
+    const forgedReviews = structuredClone(authenticated);
+    forgedReviews.review_evidence_ids = [999];
+    expect(() => validateAuditPremergeVerificationEvidence(artifact, authority, forgedReviews)).toThrow('review IDs');
+  });
+
+  it('permits a post-Review-2 descendant only when it binds every resolved Review-2 finding', () => {
+    const base = {
+      repair: { authorization_ref: 'https://github.com/Samsen879/ao-pilot/issues/63#issuecomment-5173330402', review_id: 7002, final_head_sha: MERGE, finding_comment_ids: [12, 11] },
+      finalHead: MERGE, reviewedHead: HEAD,
+      completedReviews: [
+        { kind: 'submitted_review', evidence_id: REVIEW_ID },
+        { kind: 'submitted_review', evidence_id: 7002 },
+      ],
+      liveFindings: [
+        { comment_id: 11, review_id: 7002, resolved: true },
+        { comment_id: 12, review_id: 7002, resolved: true },
+      ],
+      repository: { reviewed_head_is_ancestor: true, reviewed_head_merge_base_sha: HEAD },
+    };
+    expect(() => verifyAuditPostReview2Repair(base)).not.toThrow();
+    const missing = structuredClone(base);
+    missing.repair.finding_comment_ids = [11];
+    expect(() => verifyAuditPostReview2Repair(missing)).toThrow('every resolved Review 2 finding');
+    const clean = structuredClone(base);
+    clean.liveFindings = [];
+    clean.repair.finding_comment_ids = [];
+    expect(() => verifyAuditPostReview2Repair(clean)).toThrow('requires submitted Review 2 findings');
   });
 
   it.each([
     ['edited predecessor receipt', (_value, observed) => { observed.githubEvidence.predecessor_receipt.updated_at = '2026-08-03T17:16:00Z'; }],
     ['successful predecessor workflow rewrite', (value) => { value.predecessor.protected_workflow.conclusion = 'success'; }],
+    ['predecessor audit reason absent from live log-bound evidence', (_value, observed) => { observed.githubEvidence.failed_protected_audit_evidence.audit_advisory = 'GHSA-other'; }],
     ['missing live connector finding disposition', (value, observed) => { observed.githubEvidence.audit_review_findings.push({ comment_id: 99, review_id: REVIEW_ID, resolved: true }); }],
     ['reviewed head not bound to final connector review', (value) => { value.audit_recovery.delivery.pr.reviewed_head = '8'.repeat(40); }],
     ['extra PR #76', (_value, observed) => { observed.githubEvidence.issue_linked_prs.push({ repository: 'Samsen879/ao-pilot', number: 76, created_at: '2026-08-04T01:01:00Z' }); }],
     ['worktree supervisor drift', (_value, observed) => { observed.githubEvidence.audit_worktree_capture.payload.orchestrator_provenance.process_binding.supervisor_process_start_token = 'other'; }],
     ['fabricated AO merge helper identity', (_value, observed) => { observed.githubEvidence.audit_merge_capture.payload.execution_binding.helper = 'owner-authored-json'; }],
     ['incomplete Orchestrator-done payload', (_value, observed) => { delete observed.githubEvidence.audit_orchestrator_done_capture.payload.command.stdout; }],
+    ['Orchestrator-done comment published outside issue 63', (_value, observed) => { observed.githubEvidence.audit_orchestrator_done_capture.issue_number = 75; }],
     ['cleanup boolean without live evidence', (value) => { value.audit_recovery.cleanup.leases_absent = false; }],
   ])('fails closed for %s', (_name, mutate) => {
     const value = receipt();
