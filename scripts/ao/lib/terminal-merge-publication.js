@@ -12,6 +12,12 @@ import {
 } from './self-hosting-receipt.js';
 import { captureOrchestratorBoundWorktreeEvidence } from './orchestrator-worktree-publication.js';
 import { PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION } from './premerge-verification-evidence.js';
+import {
+  AUDIT_PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION,
+  collectAuthenticatedAuditPremergeEvidence,
+  validateAuditPremergeVerificationEvidence,
+} from './premerge-verification-evidence.js';
+import { AUDIT_RECOVERY_PR } from './audit-recovery-receipt.js';
 
 export const TERMINAL_MERGE_OPERATION_SCHEMA_VERSION = 'ao.workstation-terminal-merge-operation.v1';
 const HELPER_SOURCE_PATH = new URL('./terminal-merge-publication.js', import.meta.url);
@@ -36,8 +42,8 @@ function defaultExecuteMerge(runtimeBinary, args) {
   }).trim();
 }
 
-function defaultReadPull() {
-  return JSON.parse(execFileSync('gh', ['api', `repos/Samsen879/ao-pilot/pulls/${P0_R08_FINAL_RECOVERY_PR}`], {
+function defaultReadPull(prNumber = AUDIT_RECOVERY_PR) {
+  return JSON.parse(execFileSync('gh', ['api', `repos/Samsen879/ao-pilot/pulls/${prNumber}`], {
     encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
   }));
 }
@@ -67,6 +73,7 @@ export function executeAndPublishTerminalMergeEvidence({
   readMain = defaultReadMain,
   publish = defaultPublish,
   now = () => new Date().toISOString(),
+  authenticateAuditPremerge = collectAuthenticatedAuditPremergeEvidence,
 }) {
   assert(!fs.existsSync(path.resolve(payloadPath)) && !fs.existsSync(path.resolve(publicationReceiptPath)), 'AO merge evidence output paths must not exist before subprocess execution');
   const authority = captureOrchestratorBoundWorktreeEvidence(authorityOptions);
@@ -82,26 +89,29 @@ export function executeAndPublishTerminalMergeEvidence({
   assert(premerge?.created_at === premerge?.updated_at, 'Pre-merge evidence was edited');
   assert(sha256(premergeRaw) === premergePayloadSha256, 'Pre-merge evidence digest mismatch');
   const premergePayload = JSON.parse(premergeRaw);
-  assert(premergePayload.schema_version === PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION && premergePayload.status === 'premerge_verified', 'Unsupported pre-merge evidence');
-  assert(premergePayload.remediation_pr?.number === P0_R08_FINAL_RECOVERY_PR, 'Pre-merge evidence targets the wrong PR');
+  assert([PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION, AUDIT_PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION].includes(premergePayload.schema_version) && premergePayload.status === 'premerge_verified', 'Unsupported pre-merge evidence');
+  const auditRecovery = premergePayload.schema_version === AUDIT_PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION;
+  const recoveryPr = auditRecovery ? AUDIT_RECOVERY_PR : P0_R08_FINAL_RECOVERY_PR;
+  if (auditRecovery) validateAuditPremergeVerificationEvidence(premergePayload, authority, authenticateAuditPremerge(authority));
+  assert(premergePayload.remediation_pr?.number === recoveryPr, 'Pre-merge evidence targets the wrong PR');
   assert(premergePayload.remediation_pr?.head_sha === authority.worker.head_sha && premergePayload.remediation_pr?.tree_sha === authority.worker.tree_sha, 'Pre-merge evidence does not guard the current exact Worker HEAD/tree');
   assert(premergePayload.orchestrator_provenance?.session_id === provenance.session_id, 'Pre-merge evidence belongs to a different Orchestrator');
   assert(premergePayload.orchestrator_provenance?.process_binding?.supervisor_process_start_token === provenance.process_binding.supervisor_process_start_token, 'Pre-merge evidence belongs to a different Orchestrator supervisor process');
   const premergeReadAt = now();
 
-  const args = ['pr', 'merge', String(P0_R08_FINAL_RECOVERY_PR)];
+  const args = ['pr', 'merge', String(recoveryPr)];
   const subprocessStartedAt = now();
   const stdout = executeMerge(P0_R08_TERMINAL_RUNTIME_BINARY, args);
   const subprocessCompletedAt = now();
-  const expectedPrefix = `merged PR #${P0_R08_FINAL_RECOVERY_PR} using squash (head ${authority.worker.head_sha}, merge commit `;
+  const expectedPrefix = `merged PR #${recoveryPr} using squash (head ${authority.worker.head_sha}, merge commit `;
   assert(typeof stdout === 'string' && stdout.startsWith(expectedPrefix) && stdout.endsWith(')'), 'Pinned AO merge stdout did not bind the guarded exact HEAD');
   const mergeCommitSha = stdout.slice(expectedPrefix.length, -1);
   assert(/^[0-9a-f]{40}$/.test(mergeCommitSha), 'Pinned AO merge stdout has an invalid merge commit');
 
-  const pull = readPull();
+  const pull = readPull(recoveryPr);
   const main = readMain();
   const githubReadAt = now();
-  assert(pull?.number === P0_R08_FINAL_RECOVERY_PR && pull?.merged === true, 'GitHub readback did not confirm PR #74 merged');
+  assert(pull?.number === recoveryPr && pull?.merged === true, `GitHub readback did not confirm PR #${recoveryPr} merged`);
   assert(pull?.head?.sha === authority.worker.head_sha && pull?.merge_commit_sha === mergeCommitSha, 'GitHub merge readback drifted from the AO subprocess result');
   assert(pull?.merged_at != null && !Number.isNaN(Date.parse(pull.merged_at)), 'GitHub merge readback lacks merged_at');
   assert(main?.sha === mergeCommitSha && /^[0-9a-f]{40}$/.test(main?.commit?.tree?.sha ?? ''), 'Exact main readback drifted from the AO merge result');
@@ -115,7 +125,7 @@ export function executeAndPublishTerminalMergeEvidence({
     issue_number: 63,
     completed_at: githubReadAt,
     orchestrator_session_id: provenance.session_id,
-    recovery_attempt: 3,
+    recovery_attempt: auditRecovery ? 4 : 3,
     premerge_evidence: { comment_id: premergeCommentId, payload_sha256: premergePayloadSha256 },
     command: {
       runtime_binary_path: P0_R08_TERMINAL_RUNTIME_BINARY,
@@ -129,7 +139,7 @@ export function executeAndPublishTerminalMergeEvidence({
       exact_head_guarded: true,
       ao_merge_executed: true,
       github_readback_confirmed: true,
-      pr_number: P0_R08_FINAL_RECOVERY_PR,
+      pr_number: recoveryPr,
       method: 'squash',
       head_sha: authority.worker.head_sha,
       merge_commit_sha: mergeCommitSha,
