@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import fs from 'node:fs';
 
 import {
   P0_R08_RUNTIME_COMMIT,
@@ -91,6 +92,7 @@ function verifyReviews(declared, live, mergedAt = null) {
     assert(observed.request_comment_id === item.request_comment_id && observed.head_sha === item.head_sha && observed.completed_at === item.completed_at, `Audit recovery review ${item.attempt} drifted`);
     if (mergedAt != null) assert(Date.parse(item.completed_at) <= Date.parse(mergedAt), `Audit recovery review ${item.attempt} completed after merge`);
   }
+  return declared;
 }
 
 function verifyProcessBinding(value, { sessionId, launchId }, field) {
@@ -230,7 +232,8 @@ export function verifyAuditRecoveryReceipt(receipt, {
   assert(auditAttempts.length === 1 && auditAttempts[0].number === AUDIT_RECOVERY_PR, 'Issue #63 must have exactly one post-admission audit recovery PR and no PR #76');
   assert(pr.ci_conclusion === 'success', 'Audit recovery PR CI is not green');
   for (const checkName of REQUIRED_CI_CHECKS) assert(github.audit_check_runs.some((check) => check.name === checkName && check.conclusion === 'success'), `Audit recovery required CI is not green: ${checkName}`);
-  verifyReviews(pr.codex_reviews, github.audit_codex_reviews, preMerge ? null : livePr.merged_at);
+  const completedReviews = verifyReviews(pr.codex_reviews, github.audit_codex_reviews, preMerge ? null : livePr.merged_at);
+  assert(completedReviews.at(-1).head_sha === reviewedHead, 'Audit recovery declared reviewed_head does not match the last completed connector review');
   assert(Array.isArray(github.audit_codex_review_requests) && github.audit_codex_review_requests.length === pr.codex_reviews.length, 'Audit recovery has an extra, missing, or pending Owner review request');
   for (const review of pr.codex_reviews) {
     const request = github.audit_codex_review_requests.find((item) => item.comment_id === review.request_comment_id);
@@ -298,12 +301,38 @@ export function verifyAuditRecoveryReceipt(receipt, {
     processBinding, field: 'audit_recovery.premerge_verification.publication',
   });
   const merge = object(github.audit_merge_capture, 'audit recovery AO merge evidence');
-  assert(merge.comment_id === recovery.merge_execution.evidence_comment_id && merge.created_at === merge.updated_at, 'Audit recovery AO merge evidence is missing or edited');
-  assert(merge.payload?.recovery_attempt === 4 && merge.payload?.effect?.pr_number === 75, 'Audit recovery AO merge evidence is outside attempt 4/PR #75');
-  assert(merge.payload?.command?.args?.join(' ') === 'pr merge 75' && merge.payload?.command?.runtime_binary_sha256 === runtime.binary_sha256, 'Audit recovery merge did not use exact p0.2 AO command');
-  assert(merge.payload?.effect?.exact_head_guarded === true && merge.payload?.effect?.ao_merge_executed === true && merge.payload?.effect?.github_readback_confirmed === true, 'Audit recovery AO merge effect provenance is incomplete');
-  assert(merge.payload?.effect?.head_sha === finalHead && merge.payload?.effect?.merge_commit_sha === mergeSha && merge.payload?.effect?.main_tree_sha === mergeTree, 'Audit recovery AO merge effect drifted');
-  assert(JSON.stringify(merge.payload?.orchestrator_provenance) === JSON.stringify(provenance) && JSON.stringify(merge.payload?.execution_binding?.process_binding) === JSON.stringify(processBinding), 'Audit recovery AO merge supervisor provenance drifted');
+  assert(merge.comment_id === recovery.merge_execution.evidence_comment_id && merge.issue_number === 63 && merge.author === 'Samsen879' && merge.author_association === 'OWNER' && merge.created_at === merge.updated_at, 'Audit recovery AO merge evidence is missing, edited, or not Owner-authored');
+  const mergePayload = exactKeys(merge.payload, 'audit recovery AO merge payload', [
+    'schema_version', 'issue_number', 'completed_at', 'orchestrator_session_id',
+    'recovery_attempt', 'premerge_evidence', 'command', 'effect', 'execution_binding',
+    'orchestrator_provenance',
+  ]);
+  assert(mergePayload.schema_version === 'ao.workstation-terminal-merge-evidence.v2' && mergePayload.issue_number === 63 && mergePayload.orchestrator_session_id === delivery.orchestrator_session_id && mergePayload.recovery_attempt === 4, 'Audit recovery AO merge evidence is outside admitted attempt 4');
+  const mergeCompletedAt = timestamp(mergePayload.completed_at, 'audit recovery AO merge completed_at');
+  assert(Date.parse(mergeCompletedAt) >= Date.parse(livePr.merged_at) && Date.parse(mergeCompletedAt) <= Date.parse(merge.created_at), 'Audit recovery AO merge completion is outside its immutable publication window');
+  const mergePreflight = exactKeys(mergePayload.premerge_evidence, 'audit recovery AO merge premerge_evidence', ['comment_id', 'payload_sha256']);
+  assert(mergePreflight.comment_id === preflight.comment_id && mergePreflight.payload_sha256 === preflight.body_sha256, 'Audit recovery AO merge is not bound to the immutable preflight');
+  const mergeCommand = exactKeys(mergePayload.command, 'audit recovery AO merge command', ['runtime_binary_path', 'runtime_binary_sha256', 'args', 'exit_code', 'stdout']);
+  const expectedStdout = `merged PR #75 using squash (head ${finalHead}, merge commit ${mergeSha})`;
+  assert(mergeCommand.runtime_binary_path === P0_R08_TERMINAL_RUNTIME_BINARY && mergeCommand.runtime_binary_sha256 === runtime.binary_sha256 && JSON.stringify(mergeCommand.args) === JSON.stringify(['pr', 'merge', '75']) && mergeCommand.exit_code === 0 && mergeCommand.stdout === expectedStdout, 'Audit recovery merge did not execute the exact p0.2 AO command/result');
+  const mergeEffect = exactKeys(mergePayload.effect, 'audit recovery AO merge effect', [
+    'provider_mutation', 'exact_head_guarded', 'ao_merge_executed', 'github_readback_confirmed',
+    'pr_number', 'method', 'head_sha', 'merge_commit_sha', 'main_sha', 'main_tree_sha',
+  ]);
+  assert(mergeEffect.provider_mutation === 'github_squash_merge' && mergeEffect.exact_head_guarded === true && mergeEffect.ao_merge_executed === true && mergeEffect.github_readback_confirmed === true, 'Audit recovery AO merge effect provenance is incomplete');
+  assert(mergeEffect.pr_number === 75 && mergeEffect.method === 'squash' && mergeEffect.head_sha === finalHead && mergeEffect.merge_commit_sha === mergeSha && mergeEffect.main_sha === mergeSha && mergeEffect.main_tree_sha === mergeTree, 'Audit recovery AO merge effect drifted');
+  const binding = exactKeys(mergePayload.execution_binding, 'audit recovery AO merge execution_binding', [
+    'schema_version', 'helper', 'helper_source_sha256', 'guarded_head_sha',
+    'premerge_payload_sha256', 'subprocess_stdout_sha256', 'premerge_read_back_at',
+    'subprocess_started_at', 'subprocess_completed_at', 'github_read_back_at', 'process_binding',
+  ]);
+  const helperDigest = createHash('sha256').update(fs.readFileSync(new URL('./terminal-merge-publication.js', import.meta.url))).digest('hex');
+  assert(binding.schema_version === 'ao.workstation-terminal-merge-operation.v1' && binding.helper === 'publish:self-hosting-merge' && binding.helper_source_sha256 === helperDigest, 'Audit recovery AO merge helper identity/source digest drifted');
+  assert(binding.guarded_head_sha === finalHead && binding.premerge_payload_sha256 === preflight.body_sha256 && binding.subprocess_stdout_sha256 === createHash('sha256').update(expectedStdout).digest('hex'), 'Audit recovery AO merge head/preflight/stdout binding drifted');
+  const orderedTimes = ['premerge_read_back_at', 'subprocess_started_at', 'subprocess_completed_at', 'github_read_back_at'].map((field) => Date.parse(timestamp(binding[field], `audit recovery AO merge ${field}`)));
+  assert(orderedTimes.every((time, index) => index === 0 || orderedTimes[index - 1] <= time), 'Audit recovery AO merge operation timestamps are out of order');
+  assert(Date.parse(preflight.created_at) <= orderedTimes[0] && binding.github_read_back_at === mergeCompletedAt, 'Audit recovery AO merge preflight/readback timing is invalid');
+  assert(JSON.stringify(mergePayload.orchestrator_provenance) === JSON.stringify(provenance) && JSON.stringify(binding.process_binding) === JSON.stringify(processBinding), 'Audit recovery AO merge supervisor provenance drifted');
   verifyPublication(recovery.merge_execution.publication, merge, {
     commentId: merge.comment_id, orchestratorSessionId: delivery.orchestrator_session_id,
     processBinding, field: 'audit_recovery.merge_execution.publication',
@@ -322,8 +351,12 @@ export function verifyAuditRecoveryReceipt(receipt, {
   const done = object(github.audit_orchestrator_done_capture, 'audit recovery Orchestrator-done evidence');
   assert(done.comment_id === cleanup.orchestrator_done_evidence_comment_id && done.author === 'Samsen879' && done.author_association === 'OWNER' && done.created_at === done.updated_at && done.payload?.orchestrator_session_id === delivery.orchestrator_session_id, 'Audit recovery durable Orchestrator-done evidence drifted');
   assert(Date.parse(done.created_at) >= Date.parse(livePr.merged_at), 'Audit recovery Orchestrator-done evidence predates merge');
-  assert(done.payload?.schema_version === 'ao.orchestrator-done-evidence.v1' && done.payload?.issue_number === 63, 'Unsupported audit recovery Orchestrator-done evidence');
-  assert(done.payload?.command?.runtime_binary_path === P0_R08_TERMINAL_RUNTIME_BINARY && done.payload?.command?.exit_code === 0 && JSON.stringify(done.payload?.command?.args) === JSON.stringify(['orchestrator', 'done', '--session', delivery.orchestrator_session_id]), 'Audit recovery Orchestrator-done command provenance mismatch');
+  const donePayload = exactKeys(done.payload, 'audit recovery Orchestrator-done payload', ['schema_version', 'issue_number', 'completed_at', 'orchestrator_session_id', 'command']);
+  assert(donePayload.schema_version === 'ao.orchestrator-done-evidence.v1' && donePayload.issue_number === 63 && donePayload.orchestrator_session_id === delivery.orchestrator_session_id, 'Unsupported audit recovery Orchestrator-done evidence');
+  const doneCompletedAt = timestamp(donePayload.completed_at, 'audit recovery Orchestrator-done completed_at');
+  assert(Date.parse(doneCompletedAt) >= Date.parse(livePr.merged_at) && Date.parse(doneCompletedAt) <= Date.parse(done.created_at), 'Audit recovery Orchestrator-done completion is outside its immutable publication window');
+  const doneCommand = exactKeys(donePayload.command, 'audit recovery Orchestrator-done command', ['runtime_binary_path', 'args', 'exit_code', 'stdout']);
+  assert(doneCommand.runtime_binary_path === P0_R08_TERMINAL_RUNTIME_BINARY && doneCommand.exit_code === 0 && JSON.stringify(doneCommand.args) === JSON.stringify(['orchestrator', 'done', '--session', delivery.orchestrator_session_id]) && doneCommand.stdout === `Orchestrator ${delivery.orchestrator_session_id} marked done.`, 'Audit recovery Orchestrator-done command provenance mismatch');
   const cleanupEvidence = object(github.audit_cleanup_capture, 'audit recovery cleanup evidence');
   assert(cleanupEvidence.comment_id === cleanup.cleanup_evidence_comment_id && cleanupEvidence.created_at === cleanupEvidence.updated_at && cleanupEvidence.author === 'Samsen879' && cleanupEvidence.author_association === 'OWNER', 'Audit recovery cleanup evidence identity/edit state mismatch');
   assert(Date.parse(cleanupEvidence.created_at) >= Date.parse(done.created_at), 'Audit recovery cleanup evidence predates durable Orchestrator completion');

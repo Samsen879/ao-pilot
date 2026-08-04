@@ -12,7 +12,10 @@ import {
 } from './self-hosting-receipt.js';
 import { captureOrchestratorBoundWorktreeEvidence } from './orchestrator-worktree-publication.js';
 import { PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION } from './premerge-verification-evidence.js';
-import { AUDIT_PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION } from './premerge-verification-evidence.js';
+import {
+  AUDIT_PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION,
+  validateAuditPremergeVerificationEvidence,
+} from './premerge-verification-evidence.js';
 import { AUDIT_RECOVERY_PR } from './audit-recovery-receipt.js';
 
 export const TERMINAL_MERGE_OPERATION_SCHEMA_VERSION = 'ao.workstation-terminal-merge-operation.v1';
@@ -87,6 +90,7 @@ export function executeAndPublishTerminalMergeEvidence({
   assert([PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION, AUDIT_PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION].includes(premergePayload.schema_version) && premergePayload.status === 'premerge_verified', 'Unsupported pre-merge evidence');
   const auditRecovery = premergePayload.schema_version === AUDIT_PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION;
   const recoveryPr = auditRecovery ? AUDIT_RECOVERY_PR : P0_R08_FINAL_RECOVERY_PR;
+  if (auditRecovery) validateAuditPremergeVerificationEvidence(premergePayload, authority);
   assert(premergePayload.remediation_pr?.number === recoveryPr, 'Pre-merge evidence targets the wrong PR');
   assert(premergePayload.remediation_pr?.head_sha === authority.worker.head_sha && premergePayload.remediation_pr?.tree_sha === authority.worker.tree_sha, 'Pre-merge evidence does not guard the current exact Worker HEAD/tree');
   assert(premergePayload.orchestrator_provenance?.session_id === provenance.session_id, 'Pre-merge evidence belongs to a different Orchestrator');
