@@ -44,6 +44,7 @@ describe('child Completion Record v1alpha1 contracts', () => {
     expect(manifestSchema.properties.schema_version.const)
       .toBe(COMPLETION_INPUT_MANIFEST_SCHEMA_VERSION);
     expect(manifestSchema.additionalProperties).toBe(false);
+    expect(recordSchema.properties.prior_artifact.$ref).toBe('#/$defs/artifact');
   });
 
   it.each([
@@ -65,6 +66,7 @@ describe('child Completion Record v1alpha1 contracts', () => {
     expect(normalizeCompletionRecord(withDifferentParents).record_id)
       .toBe(normalizeCompletionRecord(withoutParents).record_id);
     expect(completionRecordId(record.child_task_id)).toBe(record.record_id);
+    expect(record.record_id).toBe('child-completion:issue-15');
   });
 
   it('canonicalizes manifest inputs and record keys to stable bytes', () => {
@@ -97,6 +99,32 @@ describe('child Completion Record v1alpha1 contracts', () => {
     const mixed = fixture('input-manifest.v1alpha1.json');
     mixed.schema_version = 'ao.child-completion-input-manifest.v1alpha0';
     expect(() => normalizeCompletionInputManifest(mixed)).toThrow(/unsupported input manifest schema/i);
+
+    const backslash = fixture('input-manifest.v1alpha1.json');
+    backslash.inputs[0].uri = 'evidence\\review.json';
+    expect(() => normalizeCompletionInputManifest(backslash)).toThrow(/backslashes/i);
+  });
+
+  it('uses locale-independent canonical ordering and explicit unknown review coverage', () => {
+    const manifest = fixture('input-manifest.v1alpha1.json');
+    manifest.inputs = [
+      { ...manifest.inputs[0], input_id: 'z-input' },
+      { ...manifest.inputs[1], input_id: 'ä-input' },
+    ];
+    expect(normalizeCompletionInputManifest(manifest).inputs.map((input) => input.input_id))
+      .toEqual(['z-input', 'ä-input']);
+
+    const record = fixture('positive/review-passed.json');
+    record.review_round_summary = {
+      review_round_count: 0,
+      blocking_round_count: 0,
+      correction_round_count: 0,
+      blocker_count: 0,
+      first_pass: 'not_established',
+      head_binding_coverage: 'not_established',
+    };
+    expect(normalizeCompletionRecord(record).review_round_summary)
+      .toEqual(record.review_round_summary);
   });
 
   it('fails closed when terminal evidence or artifact custody is missing', () => {
@@ -154,5 +182,13 @@ describe('child Completion Record v1alpha1 contracts', () => {
       artifactBytes: Buffer.from('different bytes\n'),
       replayOf: record,
     })).toThrow(/artifact byte length mismatch|artifact content_sha256 mismatch/i);
+
+    const differentOutcome = fixture('positive/integrated.json');
+    differentOutcome.prior_artifact = structuredClone(differentOutcome.artifact);
+    expect(() => verifyCompletionRecordReplay(differentOutcome, {
+      inputManifest: manifest,
+      artifactBytes,
+      replayOf: record,
+    })).toThrow(/replay-stable completion record semantics mismatch/i);
   });
 });

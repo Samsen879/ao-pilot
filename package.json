@@ -12,6 +12,8 @@
     "./engines": "./lib/engines.js",
     "./protocols": "./lib/protocols.js",
     "./providers": "./lib/providers.js",
+    "./schemas/ao.child-completion.v1alpha1.schema.json": "./schemas/ao.child-completion.v1alpha1.schema.json",
+    "./schemas/ao.child-completion-input-manifest.v1alpha1.schema.json": "./schemas/ao.child-completion-input-manifest.v1alpha1.schema.json",
     "./package.json": "./package.json"
   },
   "license": "MIT",

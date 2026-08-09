@@ -18,7 +18,10 @@
   ],
   "properties": {
     "schema_version": { "const": "ao.child-completion.v1alpha1" },
-    "record_id": { "$ref": "#/$defs/sha256Ref" },
+    "record_id": {
+      "type": "string",
+      "pattern": "^child-completion:\\S(?:.*\\S)?$"
+    },
     "child_task_id": { "$ref": "#/$defs/nonEmptyString" },
     "delivery_status": {
       "enum": ["review_passed", "integrated", "abandoned"]
@@ -35,17 +38,8 @@
       }
     },
     "generation_inputs_digest": { "$ref": "#/$defs/sha256" },
-    "artifact": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["uri", "media_type", "byte_length", "content_sha256"],
-      "properties": {
-        "uri": { "$ref": "#/$defs/repositoryUri" },
-        "media_type": { "enum": ["application/json", "text/markdown"] },
-        "byte_length": { "type": "integer", "minimum": 0 },
-        "content_sha256": { "$ref": "#/$defs/sha256" }
-      }
-    },
+    "artifact": { "$ref": "#/$defs/artifact" },
+    "prior_artifact": { "$ref": "#/$defs/artifact" },
     "unresolved_items": {
       "type": "array",
       "items": { "$ref": "#/$defs/unresolvedItem" }
@@ -100,8 +94,15 @@
         "blocking_round_count": { "type": "integer", "minimum": 0 },
         "correction_round_count": { "type": "integer", "minimum": 0 },
         "blocker_count": { "type": "integer", "minimum": 0 },
-        "first_pass": { "type": "boolean" },
-        "head_binding_coverage": { "enum": ["complete", "partial", "none"] }
+        "first_pass": {
+          "oneOf": [
+            { "type": "boolean" },
+            { "const": "not_established" }
+          ]
+        },
+        "head_binding_coverage": {
+          "enum": ["complete", "partial", "none", "not_established"]
+        }
       }
     }
   },
@@ -138,8 +139,18 @@
       "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)[^\\s]+$"
     },
     "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "sha256Ref": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "gitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "media_type", "byte_length", "content_sha256"],
+      "properties": {
+        "uri": { "$ref": "#/$defs/repositoryUri" },
+        "media_type": { "enum": ["application/json", "text/markdown"] },
+        "byte_length": { "type": "integer", "minimum": 0 },
+        "content_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
     "refList": {
       "type": "array",
       "minItems": 1,

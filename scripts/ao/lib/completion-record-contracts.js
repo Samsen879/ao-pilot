@@ -36,9 +36,9 @@ const COMPLETION_RECORD_OPTIONAL_KEYS = [
   'merge_observation_ref',
   'important_decisions',
   'review_round_summary',
+  'prior_artifact',
 ];
 const SHA256 = /^[0-9a-f]{64}$/;
-const SHA256_REF = /^sha256:[0-9a-f]{64}$/;
 const GIT_SHA = /^[0-9a-f]{40}$/;
 
 function assert(condition, message) {
@@ -72,7 +72,8 @@ function immutableRef(value, field) {
 }
 
 function repositoryUri(value, field) {
-  const normalized = immutableRef(value, field).replaceAll('\\', '/');
+  const normalized = immutableRef(value, field);
+  assert(!normalized.includes('\\'), `${field} cannot contain backslashes`);
   assert(!normalized.startsWith('/'), `${field} must be repository-relative`);
   const canonical = path.posix.normalize(normalized);
   assert(canonical !== '..' && !canonical.startsWith('../'), `${field} escapes the repository`);
@@ -107,13 +108,19 @@ function sortedUniqueStrings(values, field, normalizer = immutableRef, { allowEm
   assert(allowEmpty || values.length > 0, `${field} requires evidence`);
   const normalized = values.map((value, index) => normalizer(value, `${field}[${index}]`));
   assert(new Set(normalized).size === normalized.length, `${field} contains duplicate values`);
-  return normalized.sort((left, right) => left.localeCompare(right));
+  return normalized.sort(compareCanonicalStrings);
+}
+
+function compareCanonicalStrings(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
 }
 
 function canonicalValue(value) {
   if (Array.isArray(value)) return value.map(canonicalValue);
   if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.keys(value).sort((left, right) => left.localeCompare(right))
+    return Object.fromEntries(Object.keys(value).sort(compareCanonicalStrings)
       .map((key) => [key, canonicalValue(value[key])]));
   }
   assert(value !== undefined && (typeof value !== 'number' || Number.isFinite(value)),
@@ -131,10 +138,7 @@ export function completionSha256(bytes) {
 
 export function completionRecordId(childTaskId) {
   const normalized = requiredString(childTaskId, 'child_task_id');
-  return `sha256:${completionSha256(Buffer.from(
-    `${COMPLETION_RECORD_SCHEMA_VERSION}\0${normalized}`,
-    'utf8',
-  ))}`;
+  return `child-completion:${normalized}`;
 }
 
 export function normalizeCompletionInputManifest(manifest) {
@@ -156,10 +160,10 @@ export function normalizeCompletionInputManifest(manifest) {
       content_sha256: digest(input.content_sha256, `${field}.content_sha256`),
     };
   }).sort((left, right) => (
-    left.input_id.localeCompare(right.input_id)
-      || left.uri.localeCompare(right.uri)
-      || left.schema_version.localeCompare(right.schema_version)
-      || left.content_sha256.localeCompare(right.content_sha256)
+    compareCanonicalStrings(left.input_id, right.input_id)
+      || compareCanonicalStrings(left.uri, right.uri)
+      || compareCanonicalStrings(left.schema_version, right.schema_version)
+      || compareCanonicalStrings(left.content_sha256, right.content_sha256)
   ));
   const inputIds = inputs.map((input) => input.input_id);
   assert(new Set(inputIds).size === inputIds.length,
@@ -197,7 +201,7 @@ function normalizeUnresolvedItems(items) {
       summary: requiredString(item.summary, `${field}.summary`),
       evidence_refs: sortedUniqueStrings(item.evidence_refs, `${field}.evidence_refs`),
     };
-  }).sort((left, right) => left.id.localeCompare(right.id));
+  }).sort((left, right) => compareCanonicalStrings(left.id, right.id));
   assert(new Set(normalized.map((item) => item.id)).size === normalized.length,
     'completion_record.unresolved_items contains duplicate ids');
   return normalized;
@@ -214,7 +218,7 @@ function normalizeDecisions(decisions) {
       reason: requiredString(decision.reason, `${field}.reason`),
       evidence_ref: immutableRef(decision.evidence_ref, `${field}.evidence_ref`),
     };
-  }).sort((left, right) => left.id.localeCompare(right.id));
+  }).sort((left, right) => compareCanonicalStrings(left.id, right.id));
   assert(new Set(normalized.map((item) => item.id)).size === normalized.length,
     'completion_record.important_decisions contains duplicate ids');
   return normalized;
@@ -241,9 +245,9 @@ function normalizeReviewRoundSummary(summary) {
     first_pass: value.first_pass,
     head_binding_coverage: value.head_binding_coverage,
   };
-  assert(typeof normalized.first_pass === 'boolean',
-    'completion_record.review_round_summary.first_pass must be boolean');
-  assert(['complete', 'partial', 'none'].includes(normalized.head_binding_coverage),
+  assert(typeof normalized.first_pass === 'boolean' || normalized.first_pass === 'not_established',
+    'completion_record.review_round_summary.first_pass must be boolean or not_established');
+  assert(['complete', 'partial', 'none', 'not_established'].includes(normalized.head_binding_coverage),
     'Unsupported completion_record.review_round_summary.head_binding_coverage');
   assert(normalized.blocking_round_count <= normalized.review_round_count,
     'blocking_round_count cannot exceed review_round_count');
@@ -259,7 +263,6 @@ export function normalizeCompletionRecord(record) {
     `Unsupported Completion Record schema: ${String(value.schema_version)}`);
   const childTaskId = requiredString(value.child_task_id, 'completion_record.child_task_id');
   const recordId = requiredString(value.record_id, 'completion_record.record_id');
-  assert(SHA256_REF.test(recordId), 'completion_record.record_id must be a SHA-256 reference');
   assert(recordId === completionRecordId(childTaskId),
     'completion_record.record_id does not match child_task_id');
   assert(COMPLETION_DELIVERY_STATUSES.includes(value.delivery_status),
@@ -299,6 +302,21 @@ export function normalizeCompletionRecord(record) {
     },
     unresolved_items: normalizeUnresolvedItems(value.unresolved_items),
   };
+
+  if (value.prior_artifact != null) {
+    const priorArtifact = exactKeys(value.prior_artifact, 'completion_record.prior_artifact',
+      ['uri', 'media_type', 'byte_length', 'content_sha256']);
+    assert(['application/json', 'text/markdown'].includes(priorArtifact.media_type),
+      `Unsupported completion_record.prior_artifact.media_type: ${String(priorArtifact.media_type)}`);
+    normalized.prior_artifact = {
+      uri: repositoryUri(priorArtifact.uri, 'completion_record.prior_artifact.uri'),
+      media_type: priorArtifact.media_type,
+      byte_length: nonNegativeInteger(priorArtifact.byte_length,
+        'completion_record.prior_artifact.byte_length'),
+      content_sha256: digest(priorArtifact.content_sha256,
+        'completion_record.prior_artifact.content_sha256'),
+    };
+  }
 
   if (value.parent_task_refs != null) normalized.parent_task_refs = sortedUniqueStrings(
     value.parent_task_refs,
@@ -365,6 +383,13 @@ export function canonicalCompletionRecord(record) {
   return canonicalCompletionJson(normalizeCompletionRecord(record));
 }
 
+function replayStableRecord(record) {
+  const stable = { ...record };
+  delete stable.generated_at;
+  delete stable.parent_task_refs;
+  return stable;
+}
+
 export function verifyCompletionRecordReplay(record, {
   inputManifest,
   inputManifestBytes,
@@ -403,6 +428,9 @@ export function verifyCompletionRecordReplay(record, {
     assert(prior.artifact.content_sha256 === normalized.artifact.content_sha256
       && prior.artifact.byte_length === normalized.artifact.byte_length,
     'Replay output bytes are not identical');
+    assert(canonicalCompletionJson(replayStableRecord(prior))
+      === canonicalCompletionJson(replayStableRecord(normalized)),
+    'Replay-stable Completion Record semantics mismatch');
   }
   return {
     record: normalized,

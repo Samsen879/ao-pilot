@@ -1,6 +1,6 @@
 {
   "schema_version": "ao.child-completion.v1alpha1",
-  "record_id": "sha256:8c910cb0b7f7a60e9ef0f91f034abcf2bbd986ea30d067c739d60f6aee69aa96",
+  "record_id": "child-completion:issue-15",
   "child_task_id": "issue-15",
   "delivery_status": "abandoned",
   "generator_ref": "ao-pilot/completion-recorder@1.0.0#0123456789abcdef",
