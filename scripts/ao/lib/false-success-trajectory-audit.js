@@ -16,15 +16,14 @@ const POLICIES = Object.freeze({
   provider_dispatch_outcome: {
     allowed(observation) {
       return observation.provider_readback_complete === true
-        && ['delivered', 'failed'].includes(observation.provider_outcome);
+        && observation.provider_outcome === 'delivered';
     },
     falseCode: 'dispatch_is_not_provider_outcome',
     unknownCode: 'provider_dispatch_outcome_unknown',
   },
   ci_execution: {
     allowed(observation) {
-      return typeof observation.raw_check_state === 'string'
-        && observation.raw_check_state.startsWith('completed_');
+      return ['completed_success', 'completed_failure'].includes(observation.raw_check_state);
     },
     falseCode: 'ci_was_not_executed',
     unknownCode: 'ci_execution_unknown',
@@ -103,6 +102,13 @@ export function stableDigest(value) {
   return createHash('sha256').update(JSON.stringify(canonicalJson(value))).digest('hex');
 }
 
+function validateEvidenceValue(evidence, itemMap, label) {
+  const item = itemMap.get(nonEmptyString(evidence?.item_id, `${label}.item_id`));
+  assert(item, `Unknown evidence item for ${label}: ${evidence?.item_id}`);
+  assert(item.values.includes(evidence.value), `Unsupported evidence value for ${label}: ${evidence.value}`);
+  return item.id;
+}
+
 function validateObservationValue(fixture, itemMap) {
   const producer = fixture.producer;
   const item = itemMap.get(nonEmptyString(producer?.item_id, `${fixture.id}.producer.item_id`));
@@ -133,16 +139,47 @@ export function validateFalseSuccessFixturePack(pack, inventory) {
     validateObservationValue(fixture, itemMap);
     assert(Array.isArray(fixture.covers) && fixture.covers.length > 0, `Missing vocabulary coverage for ${id}`);
     assert(new Set(fixture.covers).size === fixture.covers.length, `Duplicate vocabulary coverage for ${id}`);
+    assert(Array.isArray(fixture.evidence) && fixture.evidence.length > 0, `Missing concrete vocabulary evidence for ${id}`);
+    const evidenceIds = fixture.evidence.map((evidence, evidenceIndex) => (
+      validateEvidenceValue(evidence, itemMap, `${id}.evidence[${evidenceIndex}]`)
+    ));
+    assert(new Set(evidenceIds).size === evidenceIds.length, `Duplicate vocabulary evidence for ${id}`);
     for (const itemId of fixture.covers) {
       assert(itemMap.has(itemId), `Unknown coverage item for ${id}: ${itemId}`);
+      assert(evidenceIds.includes(itemId), `Coverage item lacks concrete evidence for ${id}: ${itemId}`);
       covered.add(itemId);
     }
+    for (const itemId of evidenceIds) {
+      assert(fixture.covers.includes(itemId), `Concrete evidence is not declared as coverage for ${id}: ${itemId}`);
+    }
     assert(fixture.covers.includes(fixture.producer.item_id), `Producer is not covered by fixture ${id}`);
+    assert(fixture.evidence.some((evidence) => (
+      evidence.item_id === fixture.producer.item_id && evidence.value === fixture.producer.value
+    )), `Producer value lacks concrete evidence for ${id}`);
     assert(fixture.expected?.disposition === 'block', `Negative fixture ${id} must expect block`);
     nonEmptyString(fixture.expected.finding_code, `${id}.expected.finding_code`);
   }
   assert(types.has('false_success'), 'Fixture pack has no false-success fixture');
   assert(types.has('unknown_outcome'), 'Fixture pack has no unknown-outcome fixture');
+
+  const fixtureMap = new Map(pack.fixtures.map((fixture) => [fixture.id, fixture]));
+  for (const fixture of pack.fixtures.filter((entry) => entry.replay_of != null)) {
+    const replayTarget = fixtureMap.get(nonEmptyString(fixture.replay_of, `${fixture.id}.replay_of`));
+    assert(replayTarget && replayTarget.id !== fixture.id, `Unknown replay target for ${fixture.id}: ${fixture.replay_of}`);
+    const semanticProjection = (entry) => ({
+      type: entry.type,
+      policy: entry.policy,
+      claim: entry.claim,
+      producer: entry.producer,
+      observation: entry.observation,
+      evidence: entry.evidence,
+      expected: entry.expected,
+    });
+    assert(
+      stableDigest(semanticProjection(fixture)) === stableDigest(semanticProjection(replayTarget)),
+      `Replay semantics differ from ${fixture.replay_of}: ${fixture.id}`,
+    );
+  }
 
   const missing = inventory.items.map((item) => item.id).filter((id) => !covered.has(id));
   assert(missing.length === 0, `F01 vocabulary paths lack negative fixture coverage: ${missing.join(', ')}`);
@@ -165,6 +202,7 @@ export function evaluateFalseSuccessFixture(fixture) {
     claim: fixture.claim,
     producer_item_id: fixture.producer.item_id,
     producer_value: fixture.producer.value,
+    evidence_digest: stableDigest(fixture.evidence),
     disposition: 'block',
     durable: true,
   };
@@ -185,6 +223,19 @@ export function buildFalseSuccessAuditReport(pack, inventory) {
     assert(evaluation.disposition === fixture.expected.disposition, `Unexpected disposition for ${fixture.id}`);
     assert(evaluation.findings[0]?.code === fixture.expected.finding_code, `Unexpected finding code for ${fixture.id}`);
   }
+  const evaluationMap = new Map(evaluations.map((evaluation) => [evaluation.fixture_id, evaluation]));
+  for (const fixture of pack.fixtures.filter((entry) => entry.replay_of != null)) {
+    const replay = evaluationMap.get(fixture.id);
+    const source = evaluationMap.get(fixture.replay_of);
+    const resultProjection = (evaluation) => ({
+      disposition: evaluation.disposition,
+      findings: evaluation.findings.map(({ fixture_id: ignoredFixtureId, fingerprint: ignoredFingerprint, ...finding }) => finding),
+    });
+    assert(
+      stableDigest(resultProjection(replay)) === stableDigest(resultProjection(source)),
+      `Replay result differs from ${fixture.replay_of}: ${fixture.id}`,
+    );
+  }
 
   const findings = evaluations.flatMap((evaluation) => evaluation.findings)
     .sort((left, right) => left.fingerprint.localeCompare(right.fingerprint));
@@ -196,6 +247,10 @@ export function buildFalseSuccessAuditReport(pack, inventory) {
       field: item.field,
       fixture_ids: fixtures.map((fixture) => fixture.id).sort(),
       policies: [...new Set(fixtures.map((fixture) => fixture.policy))].sort(),
+      observed_values: fixtures.flatMap((fixture) => fixture.evidence
+        .filter((evidence) => evidence.item_id === item.id)
+        .map((evidence) => ({ fixture_id: fixture.id, value: evidence.value })))
+        .sort((left, right) => `${left.fixture_id}:${left.value}`.localeCompare(`${right.fixture_id}:${right.value}`)),
       finding_fingerprints: findings
         .filter((finding) => fixtures.some((fixture) => fixture.id === finding.fixture_id))
         .map((finding) => finding.fingerprint)

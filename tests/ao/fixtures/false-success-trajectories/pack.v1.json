@@ -12,6 +12,11 @@
       "claim": "pull_request_merged",
       "observation": { "provider_readback_complete": false, "provider_pr_state": "UNKNOWN" },
       "covers": ["review.record_status", "review.verdict", "review.posture"],
+      "evidence": [
+        { "item_id": "review.record_status", "value": "passed" },
+        { "item_id": "review.verdict", "value": "pass" },
+        { "item_id": "review.posture", "value": "review_passed" }
+      ],
       "expected": { "disposition": "block", "finding_code": "provider_merge_not_observed" }
     },
     {
@@ -23,6 +28,12 @@
       "claim": "pull_request_merged",
       "observation": { "provider_readback_complete": true, "provider_pr_state": "OPEN" },
       "covers": ["action.record_status", "execution.action_outcome", "execution.effect_status", "execution.effect_receipt_fields"],
+      "evidence": [
+        { "item_id": "action.record_status", "value": "executed" },
+        { "item_id": "execution.action_outcome", "value": "executed" },
+        { "item_id": "execution.effect_status", "value": "succeeded" },
+        { "item_id": "execution.effect_receipt_fields", "value": "status" }
+      ],
       "expected": { "disposition": "block", "finding_code": "provider_merge_not_observed" }
     },
     {
@@ -34,6 +45,11 @@
       "claim": "provider_effect_succeeded",
       "observation": { "provider_readback_complete": false, "provider_outcome": "dispatched" },
       "covers": ["execution.command_receipt_fields", "execution.transport_receipt_fields", "execution.or_effect_status"],
+      "evidence": [
+        { "item_id": "execution.command_receipt_fields", "value": "status" },
+        { "item_id": "execution.transport_receipt_fields", "value": "status" },
+        { "item_id": "execution.or_effect_status", "value": "attempted" }
+      ],
       "expected": { "disposition": "block", "finding_code": "dispatch_is_not_provider_outcome" }
     },
     {
@@ -45,6 +61,7 @@
       "claim": "ci_executed",
       "observation": { "raw_check_state": "queued" },
       "covers": ["ci.raw_check_state"],
+      "evidence": [{ "item_id": "ci.raw_check_state", "value": "queued" }],
       "expected": { "disposition": "block", "finding_code": "ci_was_not_executed" }
     },
     {
@@ -56,6 +73,7 @@
       "claim": "code_failed",
       "observation": { "raw_check_state": "completed_startup_failure" },
       "covers": ["ci.raw_check_state"],
+      "evidence": [{ "item_id": "ci.raw_check_state", "value": "completed_startup_failure" }],
       "expected": { "disposition": "block", "finding_code": "runner_outcome_is_not_code_failure" }
     },
     {
@@ -67,6 +85,10 @@
       "claim": "required_ci_passed",
       "observation": { "raw_check_state": "completed_neutral", "required_checks_complete": false, "exact_head": true },
       "covers": ["ci.normalized_status", "ci.raw_check_state"],
+      "evidence": [
+        { "item_id": "ci.normalized_status", "value": "passing" },
+        { "item_id": "ci.raw_check_state", "value": "completed_neutral" }
+      ],
       "expected": { "disposition": "block", "finding_code": "aggregate_ci_does_not_prove_required_success" }
     },
     {
@@ -78,6 +100,12 @@
       "claim": "exact_head_review_passed",
       "observation": { "review_state": "approved", "target_head": "head-b", "review_commit_oid": "head-a", "submitted_review_evidence": true },
       "covers": ["review.github_decision", "review.github_target_head", "review.github_review_fields", "review.github_review_state"],
+      "evidence": [
+        { "item_id": "review.github_decision", "value": "approved" },
+        { "item_id": "review.github_target_head", "value": "git_sha" },
+        { "item_id": "review.github_review_fields", "value": "commit_oid" },
+        { "item_id": "review.github_review_state", "value": "approved" }
+      ],
       "expected": { "disposition": "block", "finding_code": "review_does_not_bind_exact_head" }
     },
     {
@@ -89,6 +117,11 @@
       "claim": "pull_request_merged",
       "observation": { "provider_readback_complete": true, "provider_pr_state": "OPEN" },
       "covers": ["merge.provider_pr_state", "merge.mergeability", "merge.assist_confirmation"],
+      "evidence": [
+        { "item_id": "merge.provider_pr_state", "value": "OPEN" },
+        { "item_id": "merge.mergeability", "value": "mergeable" },
+        { "item_id": "merge.assist_confirmation", "value": "MERGED" }
+      ],
       "expected": { "disposition": "block", "finding_code": "provider_merge_not_observed" }
     },
     {
@@ -100,6 +133,17 @@
       "claim": "terminal_delivery_succeeded",
       "observation": { "judgment": "ready" },
       "covers": ["action.lifecycle_action_id", "action.lifecycle_action_class", "lifecycle.top_status", "lifecycle.routing_action", "lifecycle.release_disposition", "lifecycle.release_basis", "lifecycle.human_gate_mapping", "lifecycle.gate_state", "lifecycle.automation_disposition"],
+      "evidence": [
+        { "item_id": "action.lifecycle_action_id", "value": "auto_merge_ready_pr" },
+        { "item_id": "action.lifecycle_action_class", "value": "merge_pr" },
+        { "item_id": "lifecycle.top_status", "value": "observe" },
+        { "item_id": "lifecycle.routing_action", "value": "no_action" },
+        { "item_id": "lifecycle.release_disposition", "value": "notify_human_ready" },
+        { "item_id": "lifecycle.release_basis", "value": "ready_for_human_notification" },
+        { "item_id": "lifecycle.human_gate_mapping", "value": "missing_pr_assessment:refresh_required" },
+        { "item_id": "lifecycle.gate_state", "value": "open" },
+        { "item_id": "lifecycle.automation_disposition", "value": "continue" }
+      ],
       "expected": { "disposition": "block", "finding_code": "ao_judgment_is_not_external_outcome" }
     },
     {
@@ -111,6 +155,15 @@
       "claim": "terminal_delivery_succeeded",
       "observation": { "receipt_status": "passed" },
       "covers": ["execution.runtime_bootstrap_receipt", "execution.self_hosting_receipt", "execution.worktree_evidence", "execution.worktree_publication", "execution.premerge_evidence", "execution.terminal_merge_evidence", "execution.orchestrator_done_evidence"],
+      "evidence": [
+        { "item_id": "execution.runtime_bootstrap_receipt", "value": "ao.runtime-bootstrap-receipt.v1" },
+        { "item_id": "execution.self_hosting_receipt", "value": "ao.workstation-self-hosting-receipt.v8" },
+        { "item_id": "execution.worktree_evidence", "value": "ao.workstation-worktree-evidence.v7" },
+        { "item_id": "execution.worktree_publication", "value": "ao.workstation-orchestrator-worktree-provenance.v2" },
+        { "item_id": "execution.premerge_evidence", "value": "ao.workstation-premerge-verification-evidence.v3" },
+        { "item_id": "execution.terminal_merge_evidence", "value": "ao.workstation-terminal-merge-evidence.v2" },
+        { "item_id": "execution.orchestrator_done_evidence", "value": "ao.orchestrator-done-evidence.v1" }
+      ],
       "expected": { "disposition": "block", "finding_code": "specialized_receipt_is_not_terminal_delivery" }
     },
     {
@@ -122,6 +175,23 @@
       "claim": "terminal_delivery_succeeded",
       "observation": { "checkpoint_state": "valid" },
       "covers": ["checkpoint.checkpoint_id", "checkpoint.task_id", "checkpoint.recorded_at", "checkpoint.created_by", "checkpoint.reason", "checkpoint.metadata", "checkpoint.snapshot_schema_version", "checkpoint.snapshot_format", "checkpoint.task_ref_fields", "checkpoint.pr_binding_fields", "checkpoint.task_spec_ref_fields", "checkpoint.runtime_preflight_ref_fields", "checkpoint.execution_ref_fields", "checkpoint.inspection_state", "checkpoint.inspection_reason_codes"],
+      "evidence": [
+        { "item_id": "checkpoint.checkpoint_id", "value": "non_empty_string" },
+        { "item_id": "checkpoint.task_id", "value": "non_empty_string" },
+        { "item_id": "checkpoint.recorded_at", "value": "iso_timestamp" },
+        { "item_id": "checkpoint.created_by", "value": "string" },
+        { "item_id": "checkpoint.reason", "value": "string" },
+        { "item_id": "checkpoint.metadata", "value": "json_object" },
+        { "item_id": "checkpoint.snapshot_schema_version", "value": "ao.checkpoint.v1alpha1" },
+        { "item_id": "checkpoint.snapshot_format", "value": "ao_checkpoint" },
+        { "item_id": "checkpoint.task_ref_fields", "value": "task_id" },
+        { "item_id": "checkpoint.pr_binding_fields", "value": "status" },
+        { "item_id": "checkpoint.task_spec_ref_fields", "value": "state" },
+        { "item_id": "checkpoint.runtime_preflight_ref_fields", "value": "status" },
+        { "item_id": "checkpoint.execution_ref_fields", "value": "observed_at" },
+        { "item_id": "checkpoint.inspection_state", "value": "valid" },
+        { "item_id": "checkpoint.inspection_reason_codes", "value": "checkpoint_execution_ref_missing" }
+      ],
       "expected": { "disposition": "block", "finding_code": "checkpoint_validity_is_not_terminal_delivery" }
     },
     {
@@ -133,6 +203,11 @@
       "claim": "pull_request_merged",
       "observation": { "provider_readback_complete": false, "provider_pr_state": "UNKNOWN" },
       "covers": ["execution.action_outcome", "execution.effect_status", "merge.provider_pr_state"],
+      "evidence": [
+        { "item_id": "execution.action_outcome", "value": "missing" },
+        { "item_id": "execution.effect_status", "value": "succeeded" },
+        { "item_id": "merge.provider_pr_state", "value": "UNKNOWN" }
+      ],
       "expected": { "disposition": "block", "finding_code": "provider_merge_outcome_unknown" }
     },
     {
@@ -144,6 +219,10 @@
       "claim": "required_ci_passed",
       "observation": { "raw_check_state": "not_run", "required_checks_complete": false, "exact_head": true },
       "covers": ["ci.normalized_status", "ci.raw_check_state"],
+      "evidence": [
+        { "item_id": "ci.normalized_status", "value": "unknown" },
+        { "item_id": "ci.raw_check_state", "value": "not_run" }
+      ],
       "expected": { "disposition": "block", "finding_code": "required_ci_outcome_unknown" }
     },
     {
@@ -155,6 +234,12 @@
       "claim": "exact_head_review_passed",
       "observation": { "review_state": "unknown", "target_head": "", "review_commit_oid": "", "submitted_review_evidence": false },
       "covers": ["review.github_decision", "review.github_target_head", "review.github_review_fields", "review.github_review_state"],
+      "evidence": [
+        { "item_id": "review.github_decision", "value": "unknown" },
+        { "item_id": "review.github_target_head", "value": "missing" },
+        { "item_id": "review.github_review_fields", "value": "commit_oid" },
+        { "item_id": "review.github_review_state", "value": "unknown" }
+      ],
       "expected": { "disposition": "block", "finding_code": "exact_head_review_outcome_unknown" }
     },
     {
@@ -166,17 +251,28 @@
       "claim": "terminal_delivery_succeeded",
       "observation": { "evidence_complete": true, "independent_authority": false, "outcome_known": false },
       "covers": ["checkpoint.created_by", "checkpoint.reason", "checkpoint.metadata"],
+      "evidence": [
+        { "item_id": "checkpoint.created_by", "value": "string" },
+        { "item_id": "checkpoint.reason", "value": "string" },
+        { "item_id": "checkpoint.metadata", "value": "json_object" }
+      ],
       "expected": { "disposition": "block", "finding_code": "external_outcome_unknown" }
     },
     {
       "id": "replay-preserves-unknown-outcome",
       "type": "unknown_outcome",
       "description": "Replaying incomplete evidence must preserve the block and must not manufacture a fresh outcome.",
-      "producer": { "item_id": "merge.provider_pr_state", "value": "UNKNOWN" },
+      "producer": { "item_id": "execution.action_outcome", "value": "missing" },
       "policy": "provider_merge_outcome",
       "claim": "pull_request_merged",
-      "observation": { "provider_readback_complete": false, "provider_pr_state": "UNKNOWN", "replay_of": "missing-provider-merge-outcome" },
-      "covers": ["merge.provider_pr_state", "checkpoint.inspection_state"],
+      "replay_of": "missing-provider-merge-outcome",
+      "observation": { "provider_readback_complete": false, "provider_pr_state": "UNKNOWN" },
+      "covers": ["execution.action_outcome", "execution.effect_status", "merge.provider_pr_state"],
+      "evidence": [
+        { "item_id": "execution.action_outcome", "value": "missing" },
+        { "item_id": "execution.effect_status", "value": "succeeded" },
+        { "item_id": "merge.provider_pr_state", "value": "UNKNOWN" }
+      ],
       "expected": { "disposition": "block", "finding_code": "provider_merge_outcome_unknown" }
     }
   ]

@@ -39,6 +39,7 @@ describe('false-success trajectory audit', () => {
     expect(report.summary.covered_item_count).toBe(inventory.items.length);
     expect(report.coverage).toHaveLength(inventory.items.length);
     expect(report.coverage.every((row) => row.fixture_ids.length > 0)).toBe(true);
+    expect(report.coverage.every((row) => row.observed_values.length > 0)).toBe(true);
     expect(report.coverage.every((row) => row.finding_fingerprints.length > 0)).toBe(true);
     expect(report.blocking_findings.every((finding) => (
       finding.disposition === 'block'
@@ -111,10 +112,33 @@ describe('false-success trajectory audit', () => {
     expect(evaluateFalseSuccessFixture(codeFailure).disposition).toBe('allow');
   });
 
+  it('blocks provider failures and CI terminal states that do not prove execution', () => {
+    const failedDispatch = fixture('dispatch-is-not-provider-outcome');
+    failedDispatch.observation = { provider_readback_complete: true, provider_outcome: 'failed' };
+    expect(evaluateFalseSuccessFixture(failedDispatch)).toEqual(expect.objectContaining({
+      disposition: 'block',
+      findings: [expect.objectContaining({ code: 'dispatch_is_not_provider_outcome' })],
+    }));
+
+    const deliveredDispatch = fixture('dispatch-is-not-provider-outcome');
+    deliveredDispatch.observation = { provider_readback_complete: true, provider_outcome: 'delivered' };
+    expect(evaluateFalseSuccessFixture(deliveredDispatch).disposition).toBe('allow');
+
+    for (const rawCheckState of ['completed_skipped', 'completed_startup_failure']) {
+      const ci = fixture('queued-ci-is-not-execution');
+      ci.observation = { raw_check_state: rawCheckState };
+      expect(evaluateFalseSuccessFixture(ci)).toEqual(expect.objectContaining({
+        disposition: 'block',
+        findings: [expect.objectContaining({ code: 'ci_was_not_executed' })],
+      }));
+    }
+  });
+
   it('rejects coverage, producer and expected-outcome mutations', () => {
     const missingCoverage = structuredClone(pack);
     for (const entry of missingCoverage.fixtures) {
       entry.covers = entry.covers.filter((itemId) => itemId !== 'checkpoint.checkpoint_id');
+      entry.evidence = entry.evidence.filter((evidence) => evidence.item_id !== 'checkpoint.checkpoint_id');
     }
     expect(() => validateFalseSuccessFixturePack(missingCoverage, inventory))
       .toThrow('F01 vocabulary paths lack negative fixture coverage: checkpoint.checkpoint_id');
@@ -134,5 +158,39 @@ describe('false-success trajectory audit', () => {
     target.observation = { provider_readback_complete: true, provider_pr_state: 'MERGED' };
     expect(() => buildFalseSuccessAuditReport(silentlyAllowed, inventory))
       .toThrow('Unexpected disposition for executed-action-is-not-merge');
+  });
+
+  it('rejects declarative coverage without concrete evidence', () => {
+    const unexercised = structuredClone(pack);
+    const target = unexercised.fixtures.find((entry) => entry.id === 'valid-checkpoint-is-not-terminal-delivery');
+    target.evidence = target.evidence.filter((entry) => entry.item_id !== 'checkpoint.recorded_at');
+
+    expect(() => validateFalseSuccessFixturePack(unexercised, inventory))
+      .toThrow('Coverage item lacks concrete evidence for valid-checkpoint-is-not-terminal-delivery: checkpoint.recorded_at');
+  });
+
+  it('binds every concrete observed vocabulary value into the durable report', () => {
+    const mutated = structuredClone(pack);
+    const target = mutated.fixtures.find((entry) => entry.id === 'valid-checkpoint-is-not-terminal-delivery');
+    target.evidence.find((entry) => entry.item_id === 'checkpoint.created_by').value = 'missing';
+    const originalReport = buildFalseSuccessAuditReport(pack, inventory);
+    const mutatedReport = buildFalseSuccessAuditReport(mutated, inventory);
+
+    expect(mutatedReport.report_fingerprint).not.toBe(originalReport.report_fingerprint);
+    expect(mutatedReport.blocking_findings.find((entry) => entry.fixture_id === target.id).evidence_digest)
+      .not.toBe(originalReport.blocking_findings.find((entry) => entry.fixture_id === target.id).evidence_digest);
+  });
+
+  it('resolves replay targets and rejects missing or changed source semantics', () => {
+    const missingTarget = structuredClone(pack);
+    missingTarget.fixtures.find((entry) => entry.id === 'replay-preserves-unknown-outcome').replay_of = 'missing-fixture';
+    expect(() => validateFalseSuccessFixturePack(missingTarget, inventory))
+      .toThrow('Unknown replay target for replay-preserves-unknown-outcome: missing-fixture');
+
+    const changedReplay = structuredClone(pack);
+    changedReplay.fixtures.find((entry) => entry.id === 'replay-preserves-unknown-outcome')
+      .observation.provider_readback_complete = true;
+    expect(() => validateFalseSuccessFixturePack(changedReplay, inventory))
+      .toThrow('Replay semantics differ from missing-provider-merge-outcome: replay-preserves-unknown-outcome');
   });
 });

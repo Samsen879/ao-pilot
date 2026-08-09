@@ -25,8 +25,11 @@ The evaluator emits one durable blocking finding per negative fixture. A
 finding fingerprint is SHA-256 over canonical semantic fields and excludes
 wall-clock time, filesystem paths, and object insertion order. The committed
 [`false-success-trajectory-audit.v1.json`](false-success-trajectory-audit.v1.json)
-maps every F01 `item_id` and field to its fixture ids, policies, and durable
-finding fingerprints. Its `unresolved_producer_count` records the distinct
+maps every F01 `item_id` and field to its fixture ids, policies, concrete
+observed values, and durable finding fingerprints. Every fixture must provide
+an inventory-valid observed value for each credited row, and the canonical
+evidence digest is bound into its finding fingerprint. Its
+`unresolved_producer_count` records the distinct
 fixture producers that remain deliberately unresolved; none can be promoted
 to success by this audit.
 

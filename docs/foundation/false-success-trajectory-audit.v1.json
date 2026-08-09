@@ -11,7 +11,7 @@
     "covered_item_count": 50,
     "inventory_item_count": 50,
     "blocking_finding_count": 16,
-    "unresolved_producer_count": 14
+    "unresolved_producer_count": 13
   },
   "coverage": [
     {
@@ -24,8 +24,14 @@
       "policies": [
         "lifecycle_judgment_outcome"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "release-ready-judgment-is-not-outcome",
+          "value": "merge_pr"
+        }
+      ],
       "finding_fingerprints": [
-        "e687e5618f32a8656118f5ca38ff7191de0bd67d4db46fe895ba859a78b82056"
+        "776cdb0adebd2731f92280cb9c9b8818f8cb19ea970eb001820db8bbc982bf22"
       ]
     },
     {
@@ -38,8 +44,14 @@
       "policies": [
         "lifecycle_judgment_outcome"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "release-ready-judgment-is-not-outcome",
+          "value": "auto_merge_ready_pr"
+        }
+      ],
       "finding_fingerprints": [
-        "e687e5618f32a8656118f5ca38ff7191de0bd67d4db46fe895ba859a78b82056"
+        "776cdb0adebd2731f92280cb9c9b8818f8cb19ea970eb001820db8bbc982bf22"
       ]
     },
     {
@@ -52,8 +64,14 @@
       "policies": [
         "provider_merge_outcome"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "executed-action-is-not-merge",
+          "value": "executed"
+        }
+      ],
       "finding_fingerprints": [
-        "ea6a409836070e9819d279d1cb41fd117111dfd288c119b7156d842be92dccfd"
+        "503bf6e4fbb4ca6efaeaf5233c25608499dbb6365bf87dbd6cc9940538216e2c"
       ]
     },
     {
@@ -66,8 +84,14 @@
       "policies": [
         "checkpoint_terminality"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "valid-checkpoint-is-not-terminal-delivery",
+          "value": "non_empty_string"
+        }
+      ],
       "finding_fingerprints": [
-        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+        "2d99edb259dfaacc97a502f383b3ecdec9d064e92ff7b50ed9f0a30c71638206"
       ]
     },
     {
@@ -82,9 +106,19 @@
         "checkpoint_terminality",
         "independent_evidence"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "self-asserted-context-lacks-authority",
+          "value": "string"
+        },
+        {
+          "fixture_id": "valid-checkpoint-is-not-terminal-delivery",
+          "value": "string"
+        }
+      ],
       "finding_fingerprints": [
-        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f",
-        "eecf995e277db27bdfe21ee46e247c57bf65e31872e9933ca79920d0aa97ec64"
+        "2d99edb259dfaacc97a502f383b3ecdec9d064e92ff7b50ed9f0a30c71638206",
+        "31f2b5fb299ddbfa0d7b5e6e315f2a4b4bcbcfb5629c9e3066b246a357b7d404"
       ]
     },
     {
@@ -97,8 +131,14 @@
       "policies": [
         "checkpoint_terminality"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "valid-checkpoint-is-not-terminal-delivery",
+          "value": "observed_at"
+        }
+      ],
       "finding_fingerprints": [
-        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+        "2d99edb259dfaacc97a502f383b3ecdec9d064e92ff7b50ed9f0a30c71638206"
       ]
     },
     {
@@ -111,8 +151,14 @@
       "policies": [
         "checkpoint_terminality"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "valid-checkpoint-is-not-terminal-delivery",
+          "value": "checkpoint_execution_ref_missing"
+        }
+      ],
       "finding_fingerprints": [
-        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+        "2d99edb259dfaacc97a502f383b3ecdec9d064e92ff7b50ed9f0a30c71638206"
       ]
     },
     {
@@ -120,16 +166,19 @@
       "family": "checkpoint",
       "field": "checkpoint_inspection.state",
       "fixture_ids": [
-        "replay-preserves-unknown-outcome",
         "valid-checkpoint-is-not-terminal-delivery"
       ],
       "policies": [
-        "checkpoint_terminality",
-        "provider_merge_outcome"
+        "checkpoint_terminality"
+      ],
+      "observed_values": [
+        {
+          "fixture_id": "valid-checkpoint-is-not-terminal-delivery",
+          "value": "valid"
+        }
       ],
       "finding_fingerprints": [
-        "4f0de5f113a9230b7167136a805591153d05fc2e628d406b141eb093790e8249",
-        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+        "2d99edb259dfaacc97a502f383b3ecdec9d064e92ff7b50ed9f0a30c71638206"
       ]
     },
     {
@@ -144,9 +193,19 @@
         "checkpoint_terminality",
         "independent_evidence"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "self-asserted-context-lacks-authority",
+          "value": "json_object"
+        },
+        {
+          "fixture_id": "valid-checkpoint-is-not-terminal-delivery",
+          "value": "json_object"
+        }
+      ],
       "finding_fingerprints": [
-        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f",
-        "eecf995e277db27bdfe21ee46e247c57bf65e31872e9933ca79920d0aa97ec64"
+        "2d99edb259dfaacc97a502f383b3ecdec9d064e92ff7b50ed9f0a30c71638206",
+        "31f2b5fb299ddbfa0d7b5e6e315f2a4b4bcbcfb5629c9e3066b246a357b7d404"
       ]
     },
     {
@@ -159,8 +218,14 @@
       "policies": [
         "checkpoint_terminality"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "valid-checkpoint-is-not-terminal-delivery",
+          "value": "status"
+        }
+      ],
       "finding_fingerprints": [
-        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+        "2d99edb259dfaacc97a502f383b3ecdec9d064e92ff7b50ed9f0a30c71638206"
       ]
     },
     {
@@ -175,9 +240,19 @@
         "checkpoint_terminality",
         "independent_evidence"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "self-asserted-context-lacks-authority",
+          "value": "string"
+        },
+        {
+          "fixture_id": "valid-checkpoint-is-not-terminal-delivery",
+          "value": "string"
+        }
+      ],
       "finding_fingerprints": [
-        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f",
-        "eecf995e277db27bdfe21ee46e247c57bf65e31872e9933ca79920d0aa97ec64"
+        "2d99edb259dfaacc97a502f383b3ecdec9d064e92ff7b50ed9f0a30c71638206",
+        "31f2b5fb299ddbfa0d7b5e6e315f2a4b4bcbcfb5629c9e3066b246a357b7d404"
       ]
     },
     {
@@ -190,8 +265,14 @@
       "policies": [
         "checkpoint_terminality"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "valid-checkpoint-is-not-terminal-delivery",
+          "value": "iso_timestamp"
+        }
+      ],
       "finding_fingerprints": [
-        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+        "2d99edb259dfaacc97a502f383b3ecdec9d064e92ff7b50ed9f0a30c71638206"
       ]
     },
     {
@@ -204,8 +285,14 @@
       "policies": [
         "checkpoint_terminality"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "valid-checkpoint-is-not-terminal-delivery",
+          "value": "status"
+        }
+      ],
       "finding_fingerprints": [
-        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+        "2d99edb259dfaacc97a502f383b3ecdec9d064e92ff7b50ed9f0a30c71638206"
       ]
     },
     {
@@ -218,8 +305,14 @@
       "policies": [
         "checkpoint_terminality"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "valid-checkpoint-is-not-terminal-delivery",
+          "value": "ao_checkpoint"
+        }
+      ],
       "finding_fingerprints": [
-        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+        "2d99edb259dfaacc97a502f383b3ecdec9d064e92ff7b50ed9f0a30c71638206"
       ]
     },
     {
@@ -232,8 +325,14 @@
       "policies": [
         "checkpoint_terminality"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "valid-checkpoint-is-not-terminal-delivery",
+          "value": "ao.checkpoint.v1alpha1"
+        }
+      ],
       "finding_fingerprints": [
-        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+        "2d99edb259dfaacc97a502f383b3ecdec9d064e92ff7b50ed9f0a30c71638206"
       ]
     },
     {
@@ -246,8 +345,14 @@
       "policies": [
         "checkpoint_terminality"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "valid-checkpoint-is-not-terminal-delivery",
+          "value": "non_empty_string"
+        }
+      ],
       "finding_fingerprints": [
-        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+        "2d99edb259dfaacc97a502f383b3ecdec9d064e92ff7b50ed9f0a30c71638206"
       ]
     },
     {
@@ -260,8 +365,14 @@
       "policies": [
         "checkpoint_terminality"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "valid-checkpoint-is-not-terminal-delivery",
+          "value": "task_id"
+        }
+      ],
       "finding_fingerprints": [
-        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+        "2d99edb259dfaacc97a502f383b3ecdec9d064e92ff7b50ed9f0a30c71638206"
       ]
     },
     {
@@ -274,8 +385,14 @@
       "policies": [
         "checkpoint_terminality"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "valid-checkpoint-is-not-terminal-delivery",
+          "value": "state"
+        }
+      ],
       "finding_fingerprints": [
-        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+        "2d99edb259dfaacc97a502f383b3ecdec9d064e92ff7b50ed9f0a30c71638206"
       ]
     },
     {
@@ -289,9 +406,19 @@
       "policies": [
         "ci_success"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "aggregate-passing-misses-required-checks",
+          "value": "passing"
+        },
+        {
+          "fixture_id": "missing-required-ci-outcome",
+          "value": "unknown"
+        }
+      ],
       "finding_fingerprints": [
-        "214a93156b1277b105963e3f8f8a025458b599a6cb414b751be86a36c4c162c2",
-        "403b6c0d6998f9890d9364750e4a1c1c2d42879d10e4e9d336cd04796f26b53c"
+        "c9e1a22adc5c76945d5d2c592722d0fa14b0879bb9f6da16550e9f49fe54a422",
+        "d84406f41a9ea2ece1f7c07d17e6c4ee9b911fc46dd0d7ef15a350c8f204a153"
       ]
     },
     {
@@ -309,11 +436,29 @@
         "ci_execution",
         "ci_success"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "aggregate-passing-misses-required-checks",
+          "value": "completed_neutral"
+        },
+        {
+          "fixture_id": "missing-required-ci-outcome",
+          "value": "not_run"
+        },
+        {
+          "fixture_id": "queued-ci-is-not-execution",
+          "value": "queued"
+        },
+        {
+          "fixture_id": "runner-error-is-not-code-failure",
+          "value": "completed_startup_failure"
+        }
+      ],
       "finding_fingerprints": [
-        "214a93156b1277b105963e3f8f8a025458b599a6cb414b751be86a36c4c162c2",
-        "403b6c0d6998f9890d9364750e4a1c1c2d42879d10e4e9d336cd04796f26b53c",
-        "bf1efb3598ce17ea3e169e15b803fba4079e455148fd48e5b320c90388e2f735",
-        "f2a0d8c70e66d24956b851860c22b456479cdc70390b924a6ac4e9d59c87036c"
+        "14961b48f30d869a38eae04312b5dfcfb732789d23469b106c72c4ea3d26cedf",
+        "96cea3b2a7626f72f3593c8afb111325e83d930bb516ca7cf0a8b36f0b6cff14",
+        "c9e1a22adc5c76945d5d2c592722d0fa14b0879bb9f6da16550e9f49fe54a422",
+        "d84406f41a9ea2ece1f7c07d17e6c4ee9b911fc46dd0d7ef15a350c8f204a153"
       ]
     },
     {
@@ -322,14 +467,30 @@
       "field": "control_plane.actions[].payload.execution.outcome",
       "fixture_ids": [
         "executed-action-is-not-merge",
-        "missing-provider-merge-outcome"
+        "missing-provider-merge-outcome",
+        "replay-preserves-unknown-outcome"
       ],
       "policies": [
         "provider_merge_outcome"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "executed-action-is-not-merge",
+          "value": "executed"
+        },
+        {
+          "fixture_id": "missing-provider-merge-outcome",
+          "value": "missing"
+        },
+        {
+          "fixture_id": "replay-preserves-unknown-outcome",
+          "value": "missing"
+        }
+      ],
       "finding_fingerprints": [
-        "35ba375c67550f41f62912f3fdb7df82a3dd7320f6e19aa3aa62493a16fca550",
-        "ea6a409836070e9819d279d1cb41fd117111dfd288c119b7156d842be92dccfd"
+        "0220810c0b4993951b2c11947c791036bec9fd8177a03474380afd1b6e2fde66",
+        "503bf6e4fbb4ca6efaeaf5233c25608499dbb6365bf87dbd6cc9940538216e2c",
+        "faded7637597ecec2a7a99f13158fbc2dda2feaab9be3795a6397c811294afac"
       ]
     },
     {
@@ -342,8 +503,14 @@
       "policies": [
         "provider_dispatch_outcome"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "dispatch-is-not-provider-outcome",
+          "value": "status"
+        }
+      ],
       "finding_fingerprints": [
-        "8d714ee952daa9b2162e14cc7072f57dc24627f59cd6008ad689b0f00d084fe2"
+        "ccbb63bb49113ba1eccc4ea3646bbe10976532fcdfc830d9dbd8c9bf0ef4c852"
       ]
     },
     {
@@ -356,8 +523,14 @@
       "policies": [
         "provider_merge_outcome"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "executed-action-is-not-merge",
+          "value": "status"
+        }
+      ],
       "finding_fingerprints": [
-        "ea6a409836070e9819d279d1cb41fd117111dfd288c119b7156d842be92dccfd"
+        "503bf6e4fbb4ca6efaeaf5233c25608499dbb6365bf87dbd6cc9940538216e2c"
       ]
     },
     {
@@ -366,14 +539,30 @@
       "field": "control_plane.actions[].payload.execution.effect.status",
       "fixture_ids": [
         "executed-action-is-not-merge",
-        "missing-provider-merge-outcome"
+        "missing-provider-merge-outcome",
+        "replay-preserves-unknown-outcome"
       ],
       "policies": [
         "provider_merge_outcome"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "executed-action-is-not-merge",
+          "value": "succeeded"
+        },
+        {
+          "fixture_id": "missing-provider-merge-outcome",
+          "value": "succeeded"
+        },
+        {
+          "fixture_id": "replay-preserves-unknown-outcome",
+          "value": "succeeded"
+        }
+      ],
       "finding_fingerprints": [
-        "35ba375c67550f41f62912f3fdb7df82a3dd7320f6e19aa3aa62493a16fca550",
-        "ea6a409836070e9819d279d1cb41fd117111dfd288c119b7156d842be92dccfd"
+        "0220810c0b4993951b2c11947c791036bec9fd8177a03474380afd1b6e2fde66",
+        "503bf6e4fbb4ca6efaeaf5233c25608499dbb6365bf87dbd6cc9940538216e2c",
+        "faded7637597ecec2a7a99f13158fbc2dda2feaab9be3795a6397c811294afac"
       ]
     },
     {
@@ -386,8 +575,14 @@
       "policies": [
         "provider_dispatch_outcome"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "dispatch-is-not-provider-outcome",
+          "value": "attempted"
+        }
+      ],
       "finding_fingerprints": [
-        "8d714ee952daa9b2162e14cc7072f57dc24627f59cd6008ad689b0f00d084fe2"
+        "ccbb63bb49113ba1eccc4ea3646bbe10976532fcdfc830d9dbd8c9bf0ef4c852"
       ]
     },
     {
@@ -400,8 +595,14 @@
       "policies": [
         "receipt_terminality"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "specialized-receipt-is-not-terminal-delivery",
+          "value": "ao.orchestrator-done-evidence.v1"
+        }
+      ],
       "finding_fingerprints": [
-        "8ea159892ac4052bf54a6c3edd96a7ad2e14092a34f32ce759e7d5fd92d703b9"
+        "61bfc390045b5f2c6b52dc5a3d9e531f9aebfdb5d7f5baf7458a7ed34fbe312b"
       ]
     },
     {
@@ -414,8 +615,14 @@
       "policies": [
         "receipt_terminality"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "specialized-receipt-is-not-terminal-delivery",
+          "value": "ao.workstation-premerge-verification-evidence.v3"
+        }
+      ],
       "finding_fingerprints": [
-        "8ea159892ac4052bf54a6c3edd96a7ad2e14092a34f32ce759e7d5fd92d703b9"
+        "61bfc390045b5f2c6b52dc5a3d9e531f9aebfdb5d7f5baf7458a7ed34fbe312b"
       ]
     },
     {
@@ -428,8 +635,14 @@
       "policies": [
         "receipt_terminality"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "specialized-receipt-is-not-terminal-delivery",
+          "value": "ao.runtime-bootstrap-receipt.v1"
+        }
+      ],
       "finding_fingerprints": [
-        "8ea159892ac4052bf54a6c3edd96a7ad2e14092a34f32ce759e7d5fd92d703b9"
+        "61bfc390045b5f2c6b52dc5a3d9e531f9aebfdb5d7f5baf7458a7ed34fbe312b"
       ]
     },
     {
@@ -442,8 +655,14 @@
       "policies": [
         "receipt_terminality"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "specialized-receipt-is-not-terminal-delivery",
+          "value": "ao.workstation-self-hosting-receipt.v8"
+        }
+      ],
       "finding_fingerprints": [
-        "8ea159892ac4052bf54a6c3edd96a7ad2e14092a34f32ce759e7d5fd92d703b9"
+        "61bfc390045b5f2c6b52dc5a3d9e531f9aebfdb5d7f5baf7458a7ed34fbe312b"
       ]
     },
     {
@@ -456,8 +675,14 @@
       "policies": [
         "receipt_terminality"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "specialized-receipt-is-not-terminal-delivery",
+          "value": "ao.workstation-terminal-merge-evidence.v2"
+        }
+      ],
       "finding_fingerprints": [
-        "8ea159892ac4052bf54a6c3edd96a7ad2e14092a34f32ce759e7d5fd92d703b9"
+        "61bfc390045b5f2c6b52dc5a3d9e531f9aebfdb5d7f5baf7458a7ed34fbe312b"
       ]
     },
     {
@@ -470,8 +695,14 @@
       "policies": [
         "provider_dispatch_outcome"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "dispatch-is-not-provider-outcome",
+          "value": "status"
+        }
+      ],
       "finding_fingerprints": [
-        "8d714ee952daa9b2162e14cc7072f57dc24627f59cd6008ad689b0f00d084fe2"
+        "ccbb63bb49113ba1eccc4ea3646bbe10976532fcdfc830d9dbd8c9bf0ef4c852"
       ]
     },
     {
@@ -484,8 +715,14 @@
       "policies": [
         "receipt_terminality"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "specialized-receipt-is-not-terminal-delivery",
+          "value": "ao.workstation-worktree-evidence.v7"
+        }
+      ],
       "finding_fingerprints": [
-        "8ea159892ac4052bf54a6c3edd96a7ad2e14092a34f32ce759e7d5fd92d703b9"
+        "61bfc390045b5f2c6b52dc5a3d9e531f9aebfdb5d7f5baf7458a7ed34fbe312b"
       ]
     },
     {
@@ -498,8 +735,14 @@
       "policies": [
         "receipt_terminality"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "specialized-receipt-is-not-terminal-delivery",
+          "value": "ao.workstation-orchestrator-worktree-provenance.v2"
+        }
+      ],
       "finding_fingerprints": [
-        "8ea159892ac4052bf54a6c3edd96a7ad2e14092a34f32ce759e7d5fd92d703b9"
+        "61bfc390045b5f2c6b52dc5a3d9e531f9aebfdb5d7f5baf7458a7ed34fbe312b"
       ]
     },
     {
@@ -512,8 +755,14 @@
       "policies": [
         "lifecycle_judgment_outcome"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "release-ready-judgment-is-not-outcome",
+          "value": "continue"
+        }
+      ],
       "finding_fingerprints": [
-        "e687e5618f32a8656118f5ca38ff7191de0bd67d4db46fe895ba859a78b82056"
+        "776cdb0adebd2731f92280cb9c9b8818f8cb19ea970eb001820db8bbc982bf22"
       ]
     },
     {
@@ -526,8 +775,14 @@
       "policies": [
         "lifecycle_judgment_outcome"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "release-ready-judgment-is-not-outcome",
+          "value": "open"
+        }
+      ],
       "finding_fingerprints": [
-        "e687e5618f32a8656118f5ca38ff7191de0bd67d4db46fe895ba859a78b82056"
+        "776cdb0adebd2731f92280cb9c9b8818f8cb19ea970eb001820db8bbc982bf22"
       ]
     },
     {
@@ -540,8 +795,14 @@
       "policies": [
         "lifecycle_judgment_outcome"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "release-ready-judgment-is-not-outcome",
+          "value": "missing_pr_assessment:refresh_required"
+        }
+      ],
       "finding_fingerprints": [
-        "e687e5618f32a8656118f5ca38ff7191de0bd67d4db46fe895ba859a78b82056"
+        "776cdb0adebd2731f92280cb9c9b8818f8cb19ea970eb001820db8bbc982bf22"
       ]
     },
     {
@@ -554,8 +815,14 @@
       "policies": [
         "lifecycle_judgment_outcome"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "release-ready-judgment-is-not-outcome",
+          "value": "ready_for_human_notification"
+        }
+      ],
       "finding_fingerprints": [
-        "e687e5618f32a8656118f5ca38ff7191de0bd67d4db46fe895ba859a78b82056"
+        "776cdb0adebd2731f92280cb9c9b8818f8cb19ea970eb001820db8bbc982bf22"
       ]
     },
     {
@@ -568,8 +835,14 @@
       "policies": [
         "lifecycle_judgment_outcome"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "release-ready-judgment-is-not-outcome",
+          "value": "notify_human_ready"
+        }
+      ],
       "finding_fingerprints": [
-        "e687e5618f32a8656118f5ca38ff7191de0bd67d4db46fe895ba859a78b82056"
+        "776cdb0adebd2731f92280cb9c9b8818f8cb19ea970eb001820db8bbc982bf22"
       ]
     },
     {
@@ -582,8 +855,14 @@
       "policies": [
         "lifecycle_judgment_outcome"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "release-ready-judgment-is-not-outcome",
+          "value": "no_action"
+        }
+      ],
       "finding_fingerprints": [
-        "e687e5618f32a8656118f5ca38ff7191de0bd67d4db46fe895ba859a78b82056"
+        "776cdb0adebd2731f92280cb9c9b8818f8cb19ea970eb001820db8bbc982bf22"
       ]
     },
     {
@@ -596,8 +875,14 @@
       "policies": [
         "lifecycle_judgment_outcome"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "release-ready-judgment-is-not-outcome",
+          "value": "observe"
+        }
+      ],
       "finding_fingerprints": [
-        "e687e5618f32a8656118f5ca38ff7191de0bd67d4db46fe895ba859a78b82056"
+        "776cdb0adebd2731f92280cb9c9b8818f8cb19ea970eb001820db8bbc982bf22"
       ]
     },
     {
@@ -610,8 +895,14 @@
       "policies": [
         "provider_merge_outcome"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "mergeability-is-not-merged",
+          "value": "MERGED"
+        }
+      ],
       "finding_fingerprints": [
-        "9e0ac2024821f317dd5ed49b881ccb873f915ebeaeb7e8ca577362c9a641a53c"
+        "391cc8f7e78e809f77025cbd31348ecef4bb249f764db63292bb54b3023b60d3"
       ]
     },
     {
@@ -624,8 +915,14 @@
       "policies": [
         "provider_merge_outcome"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "mergeability-is-not-merged",
+          "value": "mergeable"
+        }
+      ],
       "finding_fingerprints": [
-        "9e0ac2024821f317dd5ed49b881ccb873f915ebeaeb7e8ca577362c9a641a53c"
+        "391cc8f7e78e809f77025cbd31348ecef4bb249f764db63292bb54b3023b60d3"
       ]
     },
     {
@@ -640,10 +937,24 @@
       "policies": [
         "provider_merge_outcome"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "mergeability-is-not-merged",
+          "value": "OPEN"
+        },
+        {
+          "fixture_id": "missing-provider-merge-outcome",
+          "value": "UNKNOWN"
+        },
+        {
+          "fixture_id": "replay-preserves-unknown-outcome",
+          "value": "UNKNOWN"
+        }
+      ],
       "finding_fingerprints": [
-        "35ba375c67550f41f62912f3fdb7df82a3dd7320f6e19aa3aa62493a16fca550",
-        "4f0de5f113a9230b7167136a805591153d05fc2e628d406b141eb093790e8249",
-        "9e0ac2024821f317dd5ed49b881ccb873f915ebeaeb7e8ca577362c9a641a53c"
+        "0220810c0b4993951b2c11947c791036bec9fd8177a03474380afd1b6e2fde66",
+        "391cc8f7e78e809f77025cbd31348ecef4bb249f764db63292bb54b3023b60d3",
+        "faded7637597ecec2a7a99f13158fbc2dda2feaab9be3795a6397c811294afac"
       ]
     },
     {
@@ -657,9 +968,19 @@
       "policies": [
         "exact_head_review"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "aggregate-approval-misses-exact-head-review",
+          "value": "approved"
+        },
+        {
+          "fixture_id": "missing-exact-head-review-outcome",
+          "value": "unknown"
+        }
+      ],
       "finding_fingerprints": [
-        "2ab9fd866203f351aa3d9a11b2bc1bec12dc9a0c0f8a668397931d281d331b7a",
-        "a6edfd832c96bd0921864964c656b8a1d3bd787cc21d5a33a53f00d31e4b2a65"
+        "257d00545660797f3e75e9d659cc58bac8de963441664214f584dcfa374ecdf4",
+        "ff7e30a23002be70dfcc939a8eee30a611cfc222ac518961068e1a0119c48043"
       ]
     },
     {
@@ -673,9 +994,19 @@
       "policies": [
         "exact_head_review"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "aggregate-approval-misses-exact-head-review",
+          "value": "commit_oid"
+        },
+        {
+          "fixture_id": "missing-exact-head-review-outcome",
+          "value": "commit_oid"
+        }
+      ],
       "finding_fingerprints": [
-        "2ab9fd866203f351aa3d9a11b2bc1bec12dc9a0c0f8a668397931d281d331b7a",
-        "a6edfd832c96bd0921864964c656b8a1d3bd787cc21d5a33a53f00d31e4b2a65"
+        "257d00545660797f3e75e9d659cc58bac8de963441664214f584dcfa374ecdf4",
+        "ff7e30a23002be70dfcc939a8eee30a611cfc222ac518961068e1a0119c48043"
       ]
     },
     {
@@ -689,9 +1020,19 @@
       "policies": [
         "exact_head_review"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "aggregate-approval-misses-exact-head-review",
+          "value": "approved"
+        },
+        {
+          "fixture_id": "missing-exact-head-review-outcome",
+          "value": "unknown"
+        }
+      ],
       "finding_fingerprints": [
-        "2ab9fd866203f351aa3d9a11b2bc1bec12dc9a0c0f8a668397931d281d331b7a",
-        "a6edfd832c96bd0921864964c656b8a1d3bd787cc21d5a33a53f00d31e4b2a65"
+        "257d00545660797f3e75e9d659cc58bac8de963441664214f584dcfa374ecdf4",
+        "ff7e30a23002be70dfcc939a8eee30a611cfc222ac518961068e1a0119c48043"
       ]
     },
     {
@@ -705,9 +1046,19 @@
       "policies": [
         "exact_head_review"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "aggregate-approval-misses-exact-head-review",
+          "value": "git_sha"
+        },
+        {
+          "fixture_id": "missing-exact-head-review-outcome",
+          "value": "missing"
+        }
+      ],
       "finding_fingerprints": [
-        "2ab9fd866203f351aa3d9a11b2bc1bec12dc9a0c0f8a668397931d281d331b7a",
-        "a6edfd832c96bd0921864964c656b8a1d3bd787cc21d5a33a53f00d31e4b2a65"
+        "257d00545660797f3e75e9d659cc58bac8de963441664214f584dcfa374ecdf4",
+        "ff7e30a23002be70dfcc939a8eee30a611cfc222ac518961068e1a0119c48043"
       ]
     },
     {
@@ -720,8 +1071,14 @@
       "policies": [
         "provider_merge_outcome"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "local-pass-is-not-merge",
+          "value": "review_passed"
+        }
+      ],
       "finding_fingerprints": [
-        "a9262738cc06f1122b4ea8741c52bc786a4d7cd048425380a366d672c0646543"
+        "80753898b7c69bdc5b7f5f916a453797a54ccda508daf67a6ad946e42da62be7"
       ]
     },
     {
@@ -734,8 +1091,14 @@
       "policies": [
         "provider_merge_outcome"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "local-pass-is-not-merge",
+          "value": "passed"
+        }
+      ],
       "finding_fingerprints": [
-        "a9262738cc06f1122b4ea8741c52bc786a4d7cd048425380a366d672c0646543"
+        "80753898b7c69bdc5b7f5f916a453797a54ccda508daf67a6ad946e42da62be7"
       ]
     },
     {
@@ -748,143 +1111,30 @@
       "policies": [
         "provider_merge_outcome"
       ],
+      "observed_values": [
+        {
+          "fixture_id": "local-pass-is-not-merge",
+          "value": "pass"
+        }
+      ],
       "finding_fingerprints": [
-        "a9262738cc06f1122b4ea8741c52bc786a4d7cd048425380a366d672c0646543"
+        "80753898b7c69bdc5b7f5f916a453797a54ccda508daf67a6ad946e42da62be7"
       ]
     }
   ],
   "blocking_findings": [
-    {
-      "code": "required_ci_outcome_unknown",
-      "fixture_id": "missing-required-ci-outcome",
-      "fixture_type": "unknown_outcome",
-      "policy": "ci_success",
-      "claim": "required_ci_passed",
-      "producer_item_id": "ci.normalized_status",
-      "producer_value": "unknown",
-      "disposition": "block",
-      "durable": true,
-      "fingerprint": "214a93156b1277b105963e3f8f8a025458b599a6cb414b751be86a36c4c162c2"
-    },
-    {
-      "code": "review_does_not_bind_exact_head",
-      "fixture_id": "aggregate-approval-misses-exact-head-review",
-      "fixture_type": "false_success",
-      "policy": "exact_head_review",
-      "claim": "exact_head_review_passed",
-      "producer_item_id": "review.github_decision",
-      "producer_value": "approved",
-      "disposition": "block",
-      "durable": true,
-      "fingerprint": "2ab9fd866203f351aa3d9a11b2bc1bec12dc9a0c0f8a668397931d281d331b7a"
-    },
-    {
-      "code": "provider_merge_outcome_unknown",
-      "fixture_id": "missing-provider-merge-outcome",
-      "fixture_type": "unknown_outcome",
-      "policy": "provider_merge_outcome",
-      "claim": "pull_request_merged",
-      "producer_item_id": "execution.action_outcome",
-      "producer_value": "missing",
-      "disposition": "block",
-      "durable": true,
-      "fingerprint": "35ba375c67550f41f62912f3fdb7df82a3dd7320f6e19aa3aa62493a16fca550"
-    },
-    {
-      "code": "aggregate_ci_does_not_prove_required_success",
-      "fixture_id": "aggregate-passing-misses-required-checks",
-      "fixture_type": "false_success",
-      "policy": "ci_success",
-      "claim": "required_ci_passed",
-      "producer_item_id": "ci.normalized_status",
-      "producer_value": "passing",
-      "disposition": "block",
-      "durable": true,
-      "fingerprint": "403b6c0d6998f9890d9364750e4a1c1c2d42879d10e4e9d336cd04796f26b53c"
-    },
     {
       "code": "provider_merge_outcome_unknown",
       "fixture_id": "replay-preserves-unknown-outcome",
       "fixture_type": "unknown_outcome",
       "policy": "provider_merge_outcome",
       "claim": "pull_request_merged",
-      "producer_item_id": "merge.provider_pr_state",
-      "producer_value": "UNKNOWN",
-      "disposition": "block",
-      "durable": true,
-      "fingerprint": "4f0de5f113a9230b7167136a805591153d05fc2e628d406b141eb093790e8249"
-    },
-    {
-      "code": "dispatch_is_not_provider_outcome",
-      "fixture_id": "dispatch-is-not-provider-outcome",
-      "fixture_type": "false_success",
-      "policy": "provider_dispatch_outcome",
-      "claim": "provider_effect_succeeded",
-      "producer_item_id": "execution.or_effect_status",
-      "producer_value": "attempted",
-      "disposition": "block",
-      "durable": true,
-      "fingerprint": "8d714ee952daa9b2162e14cc7072f57dc24627f59cd6008ad689b0f00d084fe2"
-    },
-    {
-      "code": "specialized_receipt_is_not_terminal_delivery",
-      "fixture_id": "specialized-receipt-is-not-terminal-delivery",
-      "fixture_type": "false_success",
-      "policy": "receipt_terminality",
-      "claim": "terminal_delivery_succeeded",
-      "producer_item_id": "execution.terminal_merge_evidence",
-      "producer_value": "ao.workstation-terminal-merge-evidence.v2",
-      "disposition": "block",
-      "durable": true,
-      "fingerprint": "8ea159892ac4052bf54a6c3edd96a7ad2e14092a34f32ce759e7d5fd92d703b9"
-    },
-    {
-      "code": "checkpoint_validity_is_not_terminal_delivery",
-      "fixture_id": "valid-checkpoint-is-not-terminal-delivery",
-      "fixture_type": "false_success",
-      "policy": "checkpoint_terminality",
-      "claim": "terminal_delivery_succeeded",
-      "producer_item_id": "checkpoint.inspection_state",
-      "producer_value": "valid",
-      "disposition": "block",
-      "durable": true,
-      "fingerprint": "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
-    },
-    {
-      "code": "provider_merge_not_observed",
-      "fixture_id": "mergeability-is-not-merged",
-      "fixture_type": "false_success",
-      "policy": "provider_merge_outcome",
-      "claim": "pull_request_merged",
-      "producer_item_id": "merge.mergeability",
-      "producer_value": "mergeable",
-      "disposition": "block",
-      "durable": true,
-      "fingerprint": "9e0ac2024821f317dd5ed49b881ccb873f915ebeaeb7e8ca577362c9a641a53c"
-    },
-    {
-      "code": "exact_head_review_outcome_unknown",
-      "fixture_id": "missing-exact-head-review-outcome",
-      "fixture_type": "unknown_outcome",
-      "policy": "exact_head_review",
-      "claim": "exact_head_review_passed",
-      "producer_item_id": "review.github_target_head",
+      "producer_item_id": "execution.action_outcome",
       "producer_value": "missing",
+      "evidence_digest": "a53c102a9f0341b6d7e7b0f33d86520daf23ea555ba163c32004a1c82332d0a9",
       "disposition": "block",
       "durable": true,
-      "fingerprint": "a6edfd832c96bd0921864964c656b8a1d3bd787cc21d5a33a53f00d31e4b2a65"
-    },
-    {
-      "code": "provider_merge_not_observed",
-      "fixture_id": "local-pass-is-not-merge",
-      "fixture_type": "false_success",
-      "policy": "provider_merge_outcome",
-      "claim": "pull_request_merged",
-      "producer_item_id": "review.verdict",
-      "producer_value": "pass",
-      "disposition": "block",
-      "durable": true,
-      "fingerprint": "a9262738cc06f1122b4ea8741c52bc786a4d7cd048425380a366d672c0646543"
+      "fingerprint": "0220810c0b4993951b2c11947c791036bec9fd8177a03474380afd1b6e2fde66"
     },
     {
       "code": "runner_outcome_is_not_code_failure",
@@ -894,33 +1144,36 @@
       "claim": "code_failed",
       "producer_item_id": "ci.raw_check_state",
       "producer_value": "completed_startup_failure",
+      "evidence_digest": "3eaedb419b52d93c2bcfda738cab1e7ead87345c8fd55d51a77f4cafaac17751",
       "disposition": "block",
       "durable": true,
-      "fingerprint": "bf1efb3598ce17ea3e169e15b803fba4079e455148fd48e5b320c90388e2f735"
+      "fingerprint": "14961b48f30d869a38eae04312b5dfcfb732789d23469b106c72c4ea3d26cedf"
     },
     {
-      "code": "ao_judgment_is_not_external_outcome",
-      "fixture_id": "release-ready-judgment-is-not-outcome",
+      "code": "exact_head_review_outcome_unknown",
+      "fixture_id": "missing-exact-head-review-outcome",
+      "fixture_type": "unknown_outcome",
+      "policy": "exact_head_review",
+      "claim": "exact_head_review_passed",
+      "producer_item_id": "review.github_target_head",
+      "producer_value": "missing",
+      "evidence_digest": "ddce2b72fca4864bc1c5e76b2ad792ced42f4898e6639b7dbd641e4baaec37f1",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "257d00545660797f3e75e9d659cc58bac8de963441664214f584dcfa374ecdf4"
+    },
+    {
+      "code": "checkpoint_validity_is_not_terminal_delivery",
+      "fixture_id": "valid-checkpoint-is-not-terminal-delivery",
       "fixture_type": "false_success",
-      "policy": "lifecycle_judgment_outcome",
+      "policy": "checkpoint_terminality",
       "claim": "terminal_delivery_succeeded",
-      "producer_item_id": "lifecycle.release_disposition",
-      "producer_value": "notify_human_ready",
+      "producer_item_id": "checkpoint.inspection_state",
+      "producer_value": "valid",
+      "evidence_digest": "cdfc7bd3d67188d167fe02a80554460f73755490cad81827cb00e81477c25e30",
       "disposition": "block",
       "durable": true,
-      "fingerprint": "e687e5618f32a8656118f5ca38ff7191de0bd67d4db46fe895ba859a78b82056"
-    },
-    {
-      "code": "provider_merge_not_observed",
-      "fixture_id": "executed-action-is-not-merge",
-      "fixture_type": "false_success",
-      "policy": "provider_merge_outcome",
-      "claim": "pull_request_merged",
-      "producer_item_id": "action.record_status",
-      "producer_value": "executed",
-      "disposition": "block",
-      "durable": true,
-      "fingerprint": "ea6a409836070e9819d279d1cb41fd117111dfd288c119b7156d842be92dccfd"
+      "fingerprint": "2d99edb259dfaacc97a502f383b3ecdec9d064e92ff7b50ed9f0a30c71638206"
     },
     {
       "code": "external_outcome_unknown",
@@ -930,9 +1183,75 @@
       "claim": "terminal_delivery_succeeded",
       "producer_item_id": "checkpoint.metadata",
       "producer_value": "json_object",
+      "evidence_digest": "2b2381886112c8aaea4621d6f1d5561c01fabd5320d576454dcdc987b38af6de",
       "disposition": "block",
       "durable": true,
-      "fingerprint": "eecf995e277db27bdfe21ee46e247c57bf65e31872e9933ca79920d0aa97ec64"
+      "fingerprint": "31f2b5fb299ddbfa0d7b5e6e315f2a4b4bcbcfb5629c9e3066b246a357b7d404"
+    },
+    {
+      "code": "provider_merge_not_observed",
+      "fixture_id": "mergeability-is-not-merged",
+      "fixture_type": "false_success",
+      "policy": "provider_merge_outcome",
+      "claim": "pull_request_merged",
+      "producer_item_id": "merge.mergeability",
+      "producer_value": "mergeable",
+      "evidence_digest": "3fea9dc1b4c221eaaaf95e2d23d624208db5849fec62db5383bfac0d713645ee",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "391cc8f7e78e809f77025cbd31348ecef4bb249f764db63292bb54b3023b60d3"
+    },
+    {
+      "code": "provider_merge_not_observed",
+      "fixture_id": "executed-action-is-not-merge",
+      "fixture_type": "false_success",
+      "policy": "provider_merge_outcome",
+      "claim": "pull_request_merged",
+      "producer_item_id": "action.record_status",
+      "producer_value": "executed",
+      "evidence_digest": "94c147c3a960516eb2827b39dff0dfca3a28b83f88d7b5b9a216877360e3f380",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "503bf6e4fbb4ca6efaeaf5233c25608499dbb6365bf87dbd6cc9940538216e2c"
+    },
+    {
+      "code": "specialized_receipt_is_not_terminal_delivery",
+      "fixture_id": "specialized-receipt-is-not-terminal-delivery",
+      "fixture_type": "false_success",
+      "policy": "receipt_terminality",
+      "claim": "terminal_delivery_succeeded",
+      "producer_item_id": "execution.terminal_merge_evidence",
+      "producer_value": "ao.workstation-terminal-merge-evidence.v2",
+      "evidence_digest": "f87ed9415485eca55f85937d2bb4e55c71f7b97639216b779256998345ca4b48",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "61bfc390045b5f2c6b52dc5a3d9e531f9aebfdb5d7f5baf7458a7ed34fbe312b"
+    },
+    {
+      "code": "ao_judgment_is_not_external_outcome",
+      "fixture_id": "release-ready-judgment-is-not-outcome",
+      "fixture_type": "false_success",
+      "policy": "lifecycle_judgment_outcome",
+      "claim": "terminal_delivery_succeeded",
+      "producer_item_id": "lifecycle.release_disposition",
+      "producer_value": "notify_human_ready",
+      "evidence_digest": "36a2f8b71f9ed9f2a9982d40289414769ff27c9fb44e5333d0822fff1ac5db01",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "776cdb0adebd2731f92280cb9c9b8818f8cb19ea970eb001820db8bbc982bf22"
+    },
+    {
+      "code": "provider_merge_not_observed",
+      "fixture_id": "local-pass-is-not-merge",
+      "fixture_type": "false_success",
+      "policy": "provider_merge_outcome",
+      "claim": "pull_request_merged",
+      "producer_item_id": "review.verdict",
+      "producer_value": "pass",
+      "evidence_digest": "80e5a03ed06979e45f9d0576adff68d995b08cfd7af11a7b6d136b71fea3de05",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "80753898b7c69bdc5b7f5f916a453797a54ccda508daf67a6ad946e42da62be7"
     },
     {
       "code": "ci_was_not_executed",
@@ -942,10 +1261,76 @@
       "claim": "ci_executed",
       "producer_item_id": "ci.raw_check_state",
       "producer_value": "queued",
+      "evidence_digest": "ba252f7c5149aeee3166b5dd0375d9621ccd91b233f1c62c2dcad804b234699e",
       "disposition": "block",
       "durable": true,
-      "fingerprint": "f2a0d8c70e66d24956b851860c22b456479cdc70390b924a6ac4e9d59c87036c"
+      "fingerprint": "96cea3b2a7626f72f3593c8afb111325e83d930bb516ca7cf0a8b36f0b6cff14"
+    },
+    {
+      "code": "required_ci_outcome_unknown",
+      "fixture_id": "missing-required-ci-outcome",
+      "fixture_type": "unknown_outcome",
+      "policy": "ci_success",
+      "claim": "required_ci_passed",
+      "producer_item_id": "ci.normalized_status",
+      "producer_value": "unknown",
+      "evidence_digest": "e2bc7239f77e9ad8a6a2b60aa819861a9a319fa679584c2fe4e39bb5f0ac9503",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "c9e1a22adc5c76945d5d2c592722d0fa14b0879bb9f6da16550e9f49fe54a422"
+    },
+    {
+      "code": "dispatch_is_not_provider_outcome",
+      "fixture_id": "dispatch-is-not-provider-outcome",
+      "fixture_type": "false_success",
+      "policy": "provider_dispatch_outcome",
+      "claim": "provider_effect_succeeded",
+      "producer_item_id": "execution.or_effect_status",
+      "producer_value": "attempted",
+      "evidence_digest": "a9c2d136d4a73e12a36e2d44cda932ed55a7593ad23a04be5e74d634d409bbcb",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "ccbb63bb49113ba1eccc4ea3646bbe10976532fcdfc830d9dbd8c9bf0ef4c852"
+    },
+    {
+      "code": "aggregate_ci_does_not_prove_required_success",
+      "fixture_id": "aggregate-passing-misses-required-checks",
+      "fixture_type": "false_success",
+      "policy": "ci_success",
+      "claim": "required_ci_passed",
+      "producer_item_id": "ci.normalized_status",
+      "producer_value": "passing",
+      "evidence_digest": "0dbb26a16ed11d92a283dcee996dc538e092d0603f0af7ece0e002e3b611cb41",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "d84406f41a9ea2ece1f7c07d17e6c4ee9b911fc46dd0d7ef15a350c8f204a153"
+    },
+    {
+      "code": "provider_merge_outcome_unknown",
+      "fixture_id": "missing-provider-merge-outcome",
+      "fixture_type": "unknown_outcome",
+      "policy": "provider_merge_outcome",
+      "claim": "pull_request_merged",
+      "producer_item_id": "execution.action_outcome",
+      "producer_value": "missing",
+      "evidence_digest": "a53c102a9f0341b6d7e7b0f33d86520daf23ea555ba163c32004a1c82332d0a9",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "faded7637597ecec2a7a99f13158fbc2dda2feaab9be3795a6397c811294afac"
+    },
+    {
+      "code": "review_does_not_bind_exact_head",
+      "fixture_id": "aggregate-approval-misses-exact-head-review",
+      "fixture_type": "false_success",
+      "policy": "exact_head_review",
+      "claim": "exact_head_review_passed",
+      "producer_item_id": "review.github_decision",
+      "producer_value": "approved",
+      "evidence_digest": "4ac077e65dbb95662815812a0206bb85e1972c8c13fc9b3b13102b4bce624d6f",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "ff7e30a23002be70dfcc939a8eee30a611cfc222ac518961068e1a0119c48043"
     }
   ],
-  "report_fingerprint": "347aaff4635c622c056458c3f7f2774adbe027e0d59d480bbef2ccdf866a0a6d"
+  "report_fingerprint": "cb951245830d11f86dce230afc89ede83d3511d46089477dd1d41a8899318d96"
 }
