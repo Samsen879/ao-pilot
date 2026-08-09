@@ -435,7 +435,7 @@ describe('lifecycle engine', () => {
     expect(report.routing_decision.action).toBe('hold_for_human');
   });
 
-  it('notifies the human when approved-and-green is truly ready', () => {
+  it('authorizes OR preflight without claiming an effect or human approval when approved-and-green is truly ready', () => {
     const report = buildLifecycleReport({
       scope: createLifecyclePrScope({
         projectId: 'my-project',
@@ -448,14 +448,52 @@ describe('lifecycle engine', () => {
 
     expect(report.top_status).toBe('continue');
     expect(report.release_decision).toMatchObject({
-      disposition: 'notify_human_ready',
+      disposition: 'release_ready',
       authoritative: true,
+      judgment_contract: 'ao.release-judgment.v1',
+      authority_scope: 'or_preflight_only',
+      claims: {
+        merge: false,
+        external_effect: false,
+        human_approval: false,
+      },
     });
     expect(report.actions).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        id: 'notify_human_ready',
-        action_class: 'notify_human',
+        id: 'release_ready',
+        action_class: 'release_judgment',
+        commands: [],
       }),
+    ]));
+  });
+
+  it('retains explicit legacy notification meaning and emits a deprecation finding', () => {
+    const report = buildLifecycleReport({
+      scope: createLifecyclePrScope({
+        projectId: 'my-project',
+        prNumber: 44,
+        trigger: 'approved_and_green',
+      }),
+      reconciliationReport: buildReconciliationReport(),
+      doctorReport: buildDoctorReport(),
+      releaseReadyAction: 'notify_human_ready',
+    });
+
+    expect(report.release_decision).toMatchObject({
+      disposition: 'notify_human_ready',
+      basis: ['ready_for_human_notification'],
+    });
+    expect(report.findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'legacy_notify_human_ready_deprecated',
+        severity: 'info',
+      }),
+    ]));
+    expect(report.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'notify_human_ready', action_class: 'notify_human' }),
+    ]));
+    expect(report.actions).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'release_ready' }),
     ]));
   });
 
@@ -486,6 +524,9 @@ describe('lifecycle engine', () => {
     ]));
     expect(report.actions).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'notify_human_ready' }),
+    ]));
+    expect(report.findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'legacy_auto_merge_ready_pr_deprecated' }),
     ]));
   });
 

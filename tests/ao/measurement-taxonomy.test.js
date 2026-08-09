@@ -37,6 +37,7 @@ describe('measurement taxonomy', () => {
     ]);
     expect(MEASUREMENT_ACTION_CLASSES).toEqual([
       'continue_worker',
+      'release_judgment',
       'notify_human',
       'merge_pr',
       'hold',
@@ -86,6 +87,10 @@ describe('measurement taxonomy', () => {
     expect(resolveMeasurementActionClass({
       actionKind: 'continue_worker',
     })).toBe('continue_worker');
+    expect(resolveMeasurementActionClass({
+      actionKind: 'release_ready',
+      actionClass: 'release_judgment',
+    })).toBe('release_judgment');
     expect(resolveMeasurementActionClass({
       actionKind: 'notify_human_ready',
       actionClass: 'notify_human',

@@ -1,9 +1,9 @@
 {
   "schema_version": "ao.false-success-trajectory-audit-report.v1",
   "fixture_pack_version": "2026-08-09.1",
-  "fixture_pack_digest": "6b4780c089d9ccfec009ac20b4daa618eb36494fd5b0f3e86865b2fc68027b98",
+  "fixture_pack_digest": "50cca6323da72b166a4728d2edcc9ceb37111cb81e91664c0d6cc90d35c6b8b1",
   "inventory_schema_version": "ao.trajectory-vocabulary.v1",
-  "inventory_version": "1.0.0",
+  "inventory_version": "1.1.0",
   "status": "blocked_as_expected",
   "summary": {
     "fixture_count": 18,
@@ -33,12 +33,12 @@
         },
         {
           "fixture_id": "release-ready-judgment-is-not-outcome",
-          "value": "notify_human"
+          "value": "release_judgment"
         }
       ],
       "finding_fingerprints": [
         "d30eef9bd25a78c1d28261a28549a1141ec6238d905747d40d25af23d23cc649",
-        "e5f6c8d504e87175296e3fe9991a57daafd5b921f73c9b95a13b2135ff3db58a"
+        "ea20d918b7bf47f6d5ce3ceff9b9800714314a891d1e1b20cb0b772ee75777d6"
       ]
     },
     {
@@ -59,12 +59,12 @@
         },
         {
           "fixture_id": "release-ready-judgment-is-not-outcome",
-          "value": "notify_human_ready"
+          "value": "release_ready"
         }
       ],
       "finding_fingerprints": [
         "d30eef9bd25a78c1d28261a28549a1141ec6238d905747d40d25af23d23cc649",
-        "e5f6c8d504e87175296e3fe9991a57daafd5b921f73c9b95a13b2135ff3db58a"
+        "ea20d918b7bf47f6d5ce3ceff9b9800714314a891d1e1b20cb0b772ee75777d6"
       ]
     },
     {
@@ -787,7 +787,7 @@
       ],
       "finding_fingerprints": [
         "d30eef9bd25a78c1d28261a28549a1141ec6238d905747d40d25af23d23cc649",
-        "e5f6c8d504e87175296e3fe9991a57daafd5b921f73c9b95a13b2135ff3db58a"
+        "ea20d918b7bf47f6d5ce3ceff9b9800714314a891d1e1b20cb0b772ee75777d6"
       ]
     },
     {
@@ -813,7 +813,7 @@
       ],
       "finding_fingerprints": [
         "d30eef9bd25a78c1d28261a28549a1141ec6238d905747d40d25af23d23cc649",
-        "e5f6c8d504e87175296e3fe9991a57daafd5b921f73c9b95a13b2135ff3db58a"
+        "ea20d918b7bf47f6d5ce3ceff9b9800714314a891d1e1b20cb0b772ee75777d6"
       ]
     },
     {
@@ -854,12 +854,12 @@
         },
         {
           "fixture_id": "release-ready-judgment-is-not-outcome",
-          "value": "ready_for_human_notification"
+          "value": "release_preflight_authorized"
         }
       ],
       "finding_fingerprints": [
         "d30eef9bd25a78c1d28261a28549a1141ec6238d905747d40d25af23d23cc649",
-        "e5f6c8d504e87175296e3fe9991a57daafd5b921f73c9b95a13b2135ff3db58a"
+        "ea20d918b7bf47f6d5ce3ceff9b9800714314a891d1e1b20cb0b772ee75777d6"
       ]
     },
     {
@@ -880,12 +880,12 @@
         },
         {
           "fixture_id": "release-ready-judgment-is-not-outcome",
-          "value": "notify_human_ready"
+          "value": "release_ready"
         }
       ],
       "finding_fingerprints": [
         "d30eef9bd25a78c1d28261a28549a1141ec6238d905747d40d25af23d23cc649",
-        "e5f6c8d504e87175296e3fe9991a57daafd5b921f73c9b95a13b2135ff3db58a"
+        "ea20d918b7bf47f6d5ce3ceff9b9800714314a891d1e1b20cb0b772ee75777d6"
       ]
     },
     {
@@ -905,7 +905,7 @@
         }
       ],
       "finding_fingerprints": [
-        "e5f6c8d504e87175296e3fe9991a57daafd5b921f73c9b95a13b2135ff3db58a"
+        "ea20d918b7bf47f6d5ce3ceff9b9800714314a891d1e1b20cb0b772ee75777d6"
       ]
     },
     {
@@ -931,7 +931,7 @@
       ],
       "finding_fingerprints": [
         "d30eef9bd25a78c1d28261a28549a1141ec6238d905747d40d25af23d23cc649",
-        "e5f6c8d504e87175296e3fe9991a57daafd5b921f73c9b95a13b2135ff3db58a"
+        "ea20d918b7bf47f6d5ce3ceff9b9800714314a891d1e1b20cb0b772ee75777d6"
       ]
     },
     {
@@ -1417,13 +1417,13 @@
       "policy": "lifecycle_judgment_outcome",
       "claim": "terminal_delivery_succeeded",
       "producer_item_id": "lifecycle.release_disposition",
-      "producer_value": "notify_human_ready",
-      "evidence_digest": "4320882ae715241f77fc71982b6c5b4e52f31d4e154d3025f247bdefa7b2d32e",
+      "producer_value": "release_ready",
+      "evidence_digest": "030f528b3d601d07349b7e98351239763bd3d146e8cc3a787531372e20b6f9f2",
       "observation_digest": "1c5c788be38715ada220595d67055860cec5e937cbf29a8fc6cf62a6aed98ca9",
       "disposition": "block",
       "durable": true,
-      "fingerprint": "e5f6c8d504e87175296e3fe9991a57daafd5b921f73c9b95a13b2135ff3db58a"
+      "fingerprint": "ea20d918b7bf47f6d5ce3ceff9b9800714314a891d1e1b20cb0b772ee75777d6"
     }
   ],
-  "report_fingerprint": "f819a0457169263efadf81a990e3fb2e17b44a76c826efc0674f42b2121df57f"
+  "report_fingerprint": "31d9158257fd2625d82dc2dbe13986e875c49ee5c53c2013b556ef4c24852b63"
 }

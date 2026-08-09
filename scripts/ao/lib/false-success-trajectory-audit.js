@@ -134,6 +134,11 @@ function validateCoherentTrajectory(fixture) {
   }
 
   const releaseDisposition = evidenceValue(fixture, 'lifecycle.release_disposition');
+  if (releaseDisposition === 'release_ready') {
+    assert(evidenceValue(fixture, 'action.lifecycle_action_id') === 'release_ready', `release_ready action id mismatch: ${fixture.id}`);
+    assert(evidenceValue(fixture, 'action.lifecycle_action_class') === 'release_judgment', `release_ready action class mismatch: ${fixture.id}`);
+    assert(evidenceValue(fixture, 'lifecycle.release_basis') === 'release_preflight_authorized', `release_ready basis mismatch: ${fixture.id}`);
+  }
   if (releaseDisposition === 'notify_human_ready') {
     assert(evidenceValue(fixture, 'action.lifecycle_action_id') === 'notify_human_ready', `notify_human_ready action id mismatch: ${fixture.id}`);
     assert(evidenceValue(fixture, 'action.lifecycle_action_class') === 'notify_human', `notify_human_ready action class mismatch: ${fixture.id}`);

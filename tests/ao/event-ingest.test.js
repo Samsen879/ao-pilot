@@ -311,7 +311,7 @@ describe('ao event ingest', () => {
     ]));
   });
 
-  it('keeps conservative delivery hints by default and supports explicit auto-merge opt-in', () => {
+  it('uses release_ready by default while retaining explicit legacy delivery hints', () => {
     const ingestReadyPr = (releaseReadyAction) => {
       const repository = createStateRepository({
         repoRoot: createTempRepo(),
@@ -363,6 +363,10 @@ describe('ao event ingest', () => {
     };
 
     expect(ingestReadyPr(null)).toMatchObject({
+      lifecycle_trigger: 'approved_and_green',
+      controller_action_hint: 'release_ready',
+    });
+    expect(ingestReadyPr('notify_human_ready')).toMatchObject({
       lifecycle_trigger: 'approved_and_green',
       controller_action_hint: 'notify_human_ready',
     });

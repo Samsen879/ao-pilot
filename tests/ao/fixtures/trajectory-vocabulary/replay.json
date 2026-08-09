@@ -2,6 +2,7 @@
   "schema_version": "ao.trajectory-vocabulary-fixture.v1",
   "scenario": "replay",
   "replay_of": "success",
+  "release_vocabulary_version": "ao.lifecycle.v1alpha1",
   "evidence_complete": true,
   "expectations": [
     { "item_id": "action.record_status", "value": "executed" },

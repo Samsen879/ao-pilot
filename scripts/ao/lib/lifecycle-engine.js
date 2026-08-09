@@ -9,12 +9,19 @@ import {
   createGateSnapshot,
   getGate,
 } from './gate-model.js';
+import {
+  LEGACY_RELEASE_DISPOSITIONS,
+  RELEASE_JUDGMENT_KIND,
+  createReleaseReadyDecision,
+  createReleaseVocabularyDeprecationFinding,
+} from './release-judgment.js';
 
 export const RELEASE_READY_ACTIONS = Object.freeze({
-  NOTIFY_HUMAN: 'notify_human_ready',
-  AUTO_MERGE: 'auto_merge_ready_pr',
+  RELEASE_READY: RELEASE_JUDGMENT_KIND,
+  NOTIFY_HUMAN: LEGACY_RELEASE_DISPOSITIONS.NOTIFY_HUMAN_READY,
+  AUTO_MERGE: LEGACY_RELEASE_DISPOSITIONS.AUTO_MERGE_READY_PR,
 });
-export const DEFAULT_RELEASE_READY_ACTION = RELEASE_READY_ACTIONS.NOTIFY_HUMAN;
+export const DEFAULT_RELEASE_READY_ACTION = RELEASE_READY_ACTIONS.RELEASE_READY;
 
 export function normalizeReleaseReadyAction(value = DEFAULT_RELEASE_READY_ACTION) {
   const normalized = String(value ?? DEFAULT_RELEASE_READY_ACTION).trim();
@@ -457,6 +464,9 @@ function buildReleaseDecision({
     && reconciliationReport?.top_status === 'healthy'
     && ['approved_and_green', 'manual'].includes(scope?.trigger)
   ) {
+    if (releaseReadyAction === RELEASE_READY_ACTIONS.RELEASE_READY) {
+      return createReleaseReadyDecision();
+    }
     if (releaseReadyAction === RELEASE_READY_ACTIONS.AUTO_MERGE) {
       return {
         disposition: RELEASE_READY_ACTIONS.AUTO_MERGE,
@@ -532,6 +542,7 @@ function buildLifecycleFindings({
   scope,
   routingDecision,
   releaseDecision,
+  configuredReleaseReadyAction = DEFAULT_RELEASE_READY_ACTION,
 }) {
   const findings = [];
 
@@ -700,7 +711,22 @@ function buildLifecycleFindings({
     }));
   }
 
-  if (releaseDecision.disposition === 'notify_human_ready') {
+  if (releaseDecision.disposition === RELEASE_JUDGMENT_KIND) {
+    findings.push(createLifecycleFinding({
+      code: 'release_ready_or_preflight_authorized',
+      severity: 'info',
+      origin: 'lifecycle',
+      source_area: 'release_judgment',
+      subject_type: 'release_control',
+      subject_id: scope?.pr_number ?? null,
+      summary: 'AO authorizes OR to begin a fresh release preflight.',
+      details: ['This judgment claims no merge, external effect, or human approval.'],
+      evidence_refs: [],
+      action_ids: [RELEASE_JUDGMENT_KIND],
+    }));
+  }
+
+  if (releaseDecision.disposition === LEGACY_RELEASE_DISPOSITIONS.NOTIFY_HUMAN_READY) {
     findings.push(createLifecycleFinding({
       code: 'release_ready_human_notification',
       severity: 'info',
@@ -745,6 +771,14 @@ function buildLifecycleFindings({
     }));
   }
 
+  const deprecationFinding = createReleaseVocabularyDeprecationFinding(
+    configuredReleaseReadyAction,
+    { subjectId: scope?.pr_number ?? null },
+  );
+  if (deprecationFinding) {
+    findings.push(createLifecycleFinding(deprecationFinding));
+  }
+
   return findings;
 }
 
@@ -776,6 +810,12 @@ function buildActionTemplates(scope) {
       summary: 'Continue through a successor worker.',
       commands: [reconcileCommand, doctorCommand],
       rationale: 'Ownership continuity no longer points to a live specific owner.',
+    },
+    release_ready: {
+      action_class: 'release_judgment',
+      summary: 'Authorize OR to begin release preflight.',
+      commands: [],
+      rationale: 'AO judged the evidence ready for a fresh OR preflight; no merge, external effect, or human approval is claimed.',
     },
     notify_human_ready: {
       action_class: 'notify_human',
@@ -913,6 +953,8 @@ export function applyReviewGateToLifecycleReport({
       scope: lifecycleReport.scope,
       routingDecision: normalizedRoutingDecision,
       releaseDecision: nextReleaseDecision,
+      configuredReleaseReadyAction: lifecycleReport.release_vocabulary?.configured_action
+        ?? DEFAULT_RELEASE_READY_ACTION,
     }),
   ];
   const nextActions = buildActions(nextFindings, lifecycleReport.scope);
@@ -966,6 +1008,7 @@ export function buildLifecycleReport({
       scope,
       routingDecision,
       releaseDecision,
+      configuredReleaseReadyAction: normalizedReleaseReadyAction,
     }),
   ];
   const actions = buildActions(findings, scope);
@@ -996,6 +1039,11 @@ export function buildLifecycleReport({
     },
     routing_decision: routingDecision,
     release_decision: releaseDecision,
+    release_vocabulary: {
+      schema_version: 'ao.release-vocabulary.v1',
+      configured_action: normalizedReleaseReadyAction,
+      current_judgment: RELEASE_JUDGMENT_KIND,
+    },
     findings,
     actions,
   };

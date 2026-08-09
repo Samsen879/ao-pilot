@@ -1,4 +1,5 @@
-export const LIFECYCLE_SCHEMA_VERSION = 'ao.lifecycle.v1alpha1';
+export const LEGACY_LIFECYCLE_SCHEMA_VERSION = 'ao.lifecycle.v1alpha1';
+export const LIFECYCLE_SCHEMA_VERSION = 'ao.lifecycle.v1alpha2';
 export const LIFECYCLE_REPORT_FORMAT = 'ao_lifecycle_report';
 
 export {

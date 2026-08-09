@@ -85,6 +85,16 @@ const ACTION_POLICIES = {
       buildTaskActivePrecondition(task),
     ],
   },
+  release_ready: {
+    riskClass: 'class_a',
+    phase4AssistExecutable: true,
+    nonExecutableReason: 'durable_release_judgment_only',
+    executableReason: 'durable_release_judgment_only',
+    buildPreconditions: ({ task, prNumber }) => [
+      buildTaskActivePrecondition(task),
+      buildPrScopePrecondition(prNumber),
+    ],
+  },
   notify_human_ready: {
     riskClass: 'class_a',
     phase4AssistExecutable: true,

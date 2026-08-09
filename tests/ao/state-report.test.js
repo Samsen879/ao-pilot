@@ -151,6 +151,13 @@ describe('ao state report', () => {
             model_reason: 'class_a_allowlist',
             execution_reason: 'class_a_assist_execution',
           },
+          {
+            action_id: 'action-legacy-ready',
+            action_kind: 'notify_human_ready',
+            status: 'executed',
+            model_reason: 'class_a_allowlist',
+            execution_reason: 'class_a_assist_execution',
+          },
         ],
       },
       audit: {
@@ -167,5 +174,6 @@ describe('ao state report', () => {
     expect(summary).toContain('debt: keep_evidence=2, archive_candidate=1, cleanup_candidate=3');
     expect(summary).toContain('debt_items: task_worktree:/repo/.worktrees/task-120--cleanup-ready=cleanup_candidate/remove_task_worktree, managed_task:issue-123=archive_candidate/archive_retired_task_history');
     expect(summary).toContain('assist_actions: action-continue=continue_worker/executed/model:class_a_allowlist/exec:class_a_assist_execution');
+    expect(summary).toContain('action-legacy-ready=release_ready(source:notify_human_ready;deprecated)/executed/model:class_a_allowlist/exec:class_a_assist_execution');
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import {
+  LEGACY_LIFECYCLE_SCHEMA_VERSION,
   LIFECYCLE_SCHEMA_VERSION,
   LIFECYCLE_REPORT_FORMAT,
   LIFECYCLE_TRIGGERS,
@@ -15,7 +16,8 @@ import {
 
 describe('lifecycle contracts', () => {
   it('freezes the schema identity, trigger vocabulary, and strict exit mapping', () => {
-    expect(LIFECYCLE_SCHEMA_VERSION).toBe('ao.lifecycle.v1alpha1');
+    expect(LEGACY_LIFECYCLE_SCHEMA_VERSION).toBe('ao.lifecycle.v1alpha1');
+    expect(LIFECYCLE_SCHEMA_VERSION).toBe('ao.lifecycle.v1alpha2');
     expect(LIFECYCLE_REPORT_FORMAT).toBe('ao_lifecycle_report');
     expect(LIFECYCLE_TRIGGERS).toEqual([
       'manual',

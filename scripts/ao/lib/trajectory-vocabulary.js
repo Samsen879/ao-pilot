@@ -300,12 +300,23 @@ export function validateTrajectoryFixture(fixture, inventory) {
     nonEmptyString(fixture.replay_of, 'fixture.replay_of');
   }
 
+  const canonicalExpectations = fixture.expectations.map((expectation) => {
+    if (
+      expectation.item_id === 'lifecycle.release_disposition'
+      && expectation.value === 'notify_human_ready'
+    ) {
+      return { ...expectation, value: 'release_ready' };
+    }
+    return expectation;
+  });
+
   return {
     scenario,
+    release_vocabulary_version: fixture.release_vocabulary_version ?? null,
     expectation_count: fixture.expectations.length,
     family_count: coveredFamilies.size,
     projection_digest: createHash('sha256')
-      .update(JSON.stringify(canonicalJson(fixture.expectations)))
+      .update(JSON.stringify(canonicalJson(canonicalExpectations)))
       .digest('hex'),
   };
 }

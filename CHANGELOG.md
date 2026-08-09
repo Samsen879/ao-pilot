@@ -4,6 +4,17 @@ All notable changes to `ao-pilot` are documented here.
 
 The project follows semantic versioning while its public interfaces stabilize.
 
+## Unreleased
+
+### Changed
+
+- lifecycle reports now emit the versioned `release_ready` AO judgment, which
+  authorizes OR release preflight only and explicitly disclaims merge, external
+  effect, and human approval;
+- legacy `notify_human_ready` and `auto_merge_ready_pr` records retain their
+  immutable historical meanings through observation/reporting adapters and
+  produce deprecation findings without rewriting stored state.
+
 ## [0.2.0] - 2026-08-01
 
 ### Added

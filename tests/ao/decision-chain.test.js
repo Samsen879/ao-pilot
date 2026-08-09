@@ -153,12 +153,20 @@ describe('decision chain report', () => {
         expect.objectContaining({
           stage: 'lifecycle',
           id: 'notify_human_ready',
+          action_class: 'notify_human',
         }),
       ],
       next_commands: [
         'git status --short',
         'gh pr view 44 --json mergeable,reviewDecision,isDraft,url',
       ],
+      release_decision: expect.objectContaining({
+        disposition: 'notify_human_ready',
+      }),
+      release_decision_observation: expect.objectContaining({
+        disposition: 'release_ready',
+        authority_scope: 'observation_only',
+      }),
     });
   });
 });

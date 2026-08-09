@@ -4,6 +4,7 @@ import {
   DECISION_CHAIN_SCHEMA_VERSION,
   createDecisionChainStage,
 } from './decision-chain-contracts.js';
+import { adaptLifecycleReportForObservation } from './release-judgment.js';
 
 function uniqueStrings(values) {
   return [...new Set((values ?? [])
@@ -137,14 +138,15 @@ export function buildDecisionChainReport({
   doctorReport = null,
   lifecycleReport = null,
 } = {}) {
+  const observedLifecycleReport = adaptLifecycleReportForObservation(lifecycleReport);
   const blockingReasons = collectBlockingReasons({
     reconciliationReport,
     doctorReport,
-    lifecycleReport,
+    lifecycleReport: observedLifecycleReport,
   });
   const nextActions = collectNextActions({
     doctorReport,
-    lifecycleReport,
+    lifecycleReport: observedLifecycleReport,
   });
 
   return {
@@ -165,10 +167,11 @@ export function buildDecisionChainReport({
       doctorReport,
       lifecycleReport,
     }),
-    top_status: lifecycleReport?.top_status ?? doctorReport?.top_status ?? reconciliationReport?.top_status ?? null,
+    top_status: observedLifecycleReport?.top_status ?? doctorReport?.top_status ?? reconciliationReport?.top_status ?? null,
     automation_disposition: reconciliationReport?.automation_disposition ?? null,
-    routing_decision: lifecycleReport?.routing_decision ?? null,
-    release_decision: lifecycleReport?.release_decision ?? null,
+    routing_decision: observedLifecycleReport?.routing_decision ?? null,
+    release_decision: observedLifecycleReport?.release_decision ?? null,
+    release_decision_observation: observedLifecycleReport?.release_decision_observation ?? null,
     key_findings: blockingReasons,
     blocking_reasons: blockingReasons,
     next_actions: nextActions,

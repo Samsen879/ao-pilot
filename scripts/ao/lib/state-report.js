@@ -101,9 +101,12 @@ function formatDebtItems(report) {
 function formatRecentAssistActions(report) {
   const actions = report.actions?.recent ?? [];
   if (!actions.length) return 'none';
-  return actions.map((action) => (
-    `${action.action_id}=${action.action_kind}/${action.status}/model:${action.model_reason ?? 'unknown'}/exec:${action.execution_reason ?? 'none'}`
-  )).join(', ');
+  return actions.map((action) => {
+    const actionKind = action.action_kind === 'notify_human_ready'
+      ? 'release_ready(source:notify_human_ready;deprecated)'
+      : action.action_kind;
+    return `${action.action_id}=${actionKind}/${action.status}/model:${action.model_reason ?? 'unknown'}/exec:${action.execution_reason ?? 'none'}`;
+  }).join(', ');
 }
 
 export function renderAoStateHumanSummary(report) {

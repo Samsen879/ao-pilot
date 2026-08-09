@@ -9,6 +9,7 @@ export const MEASUREMENT_TRIGGER_KINDS = [...LIFECYCLE_TRIGGERS];
 
 export const MEASUREMENT_ACTION_CLASSES = [
   'continue_worker',
+  'release_judgment',
   'notify_human',
   'merge_pr',
   'hold',
@@ -118,6 +119,9 @@ export function resolveMeasurementActionClass({
 
   if (normalizedActionKind === 'continue_worker' || normalizedActionClass === 'continue_worker') {
     return 'continue_worker';
+  }
+  if (normalizedActionKind === 'release_ready' || normalizedActionClass === 'release_judgment') {
+    return 'release_judgment';
   }
   if (
     normalizedActionKind === 'notify_human_ready'
