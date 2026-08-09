@@ -5,6 +5,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import {
   loadPhaseZeroEvidence,
+  readGitIdentity,
   replayPhaseZeroEvidence,
   validatePhaseZeroEvidence,
 } from '../../scripts/ao/lib/phase-zero-exit-evidence.js';
@@ -40,19 +41,19 @@ describe('Phase 0 integrated exit evidence', () => {
   it('rejects false-success, authority, schema, and scope regressions', () => {
     const falseSuccess = structuredClone(bundle);
     falseSuccess.trajectory.false_success.unresolved_promotion_path_count = 1;
-    expect(() => validatePhaseZeroEvidence(falseSuccess, { repositoryRoot })).toThrow('not accepted');
+    expect(() => validatePhaseZeroEvidence(falseSuccess, { repositoryRoot })).toThrow('unresolved promotion path');
 
     const shadowAuthority = structuredClone(bundle);
     shadowAuthority.lease.projection.persistent = true;
-    expect(() => validatePhaseZeroEvidence(shadowAuthority, { repositoryRoot })).toThrow('became authoritative');
+    expect(() => validatePhaseZeroEvidence(shadowAuthority, { repositoryRoot })).toThrow('projection contract drifted');
 
     const mergeClaim = structuredClone(bundle);
     mergeClaim.boundary.claims.ao_merges = true;
-    expect(() => validatePhaseZeroEvidence(mergeClaim, { repositoryRoot })).toThrow('claims drifted');
+    expect(() => validatePhaseZeroEvidence(mergeClaim, { repositoryRoot })).toThrow('authority contract drifted');
 
     const narrowedCoverage = structuredClone(bundle);
     narrowedCoverage.trajectory.completion_record.candidate_field_count = 39;
-    expect(() => validatePhaseZeroEvidence(narrowedCoverage, { repositoryRoot })).toThrow('coverage drifted');
+    expect(() => validatePhaseZeroEvidence(narrowedCoverage, { repositoryRoot })).toThrow('field count drifted');
   });
 
   it('keeps revoked history non-authoritative and does not claim contamination', () => {
@@ -61,6 +62,77 @@ describe('Phase 0 integrated exit evidence', () => {
     const contaminated = structuredClone(bundle);
     contaminated.risks.audit_history[0].repository_contamination = true;
     expect(() => validatePhaseZeroEvidence(contaminated, { repositoryRoot })).toThrow('misclassified');
+  });
+
+  it('freezes every delivery and complete admission identity', () => {
+    const fabricatedDelivery = structuredClone(bundle);
+    fabricatedDelivery.manifest.foundations[10].deliveries[0].pr = 999;
+    expect(() => validatePhaseZeroEvidence(fabricatedDelivery, { repositoryRoot }))
+      .toThrow('delivery identities drifted');
+
+    const unrelatedAdmission = structuredClone(bundle);
+    unrelatedAdmission.manifest.admission.lane_issue = 9;
+    expect(() => validatePhaseZeroEvidence(unrelatedAdmission, { repositoryRoot }))
+      .toThrow('admission identity drifted');
+  });
+
+  it('binds canonical artifact paths and validated objects', () => {
+    const redirected = structuredClone(bundle);
+    redirected.manifest.artifacts.trajectory_report.path = 'package.json';
+    expect(() => validatePhaseZeroEvidence(redirected, { repositoryRoot }))
+      .toThrow('canonical path');
+
+    const detached = structuredClone(bundle);
+    detached.trajectory.status = 'detached-copy';
+    expect(() => validatePhaseZeroEvidence(detached, { repositoryRoot }))
+      .toThrow();
+  });
+
+  it('recomputes trajectory and lease fingerprints from canonical sources', () => {
+    const trajectory = structuredClone(bundle);
+    trajectory.trajectory.source_contracts = [];
+    expect(() => validatePhaseZeroEvidence(trajectory, { repositoryRoot }))
+      .toThrow('source contracts drifted');
+
+    const lease = structuredClone(bundle);
+    lease.lease.replay.fixture_digest = '0'.repeat(64);
+    expect(() => validatePhaseZeroEvidence(lease, { repositoryRoot }))
+      .toThrow('canonical safety receipt');
+  });
+
+  it('freezes complete effect claims, failure policy, risks, and scope', () => {
+    const legacyExecutor = structuredClone(bundle);
+    legacyExecutor.boundary.claims.legacy_auto_merge_executor_removed = false;
+    expect(() => validatePhaseZeroEvidence(legacyExecutor, { repositoryRoot }))
+      .toThrow('authority contract drifted');
+
+    const replayExpansion = structuredClone(bundle);
+    replayExpansion.boundary.failure_policy.unknown_effect_replay = 'allowed';
+    expect(() => validatePhaseZeroEvidence(replayExpansion, { repositoryRoot }))
+      .toThrow('authority contract drifted');
+
+    const lostRisks = structuredClone(bundle);
+    lostRisks.risks.accepted_residual_risks = [{}];
+    expect(() => validatePhaseZeroEvidence(lostRisks, { repositoryRoot }))
+      .toThrow('residual-risk set drifted');
+
+    const admittedScope = structuredClone(bundle);
+    admittedScope.risks.scope_statement.excluded = [];
+    expect(() => validatePhaseZeroEvidence(admittedScope, { repositoryRoot }))
+      .toThrow('contradicts manifest');
+  });
+
+  it('pins class-specific scenario outcomes and reads the live candidate identity', () => {
+    const allFailure = structuredClone(bundle);
+    allFailure.fixtures.scenarios[0].mutation = 'artifact_digest_missing';
+    allFailure.fixtures.scenarios[0].expected = 'blocked';
+    expect(() => validatePhaseZeroEvidence(allFailure, { repositoryRoot }))
+      .toThrow('scenario semantics drifted');
+
+    expect(readGitIdentity(repositoryRoot)).toEqual({
+      head_sha: expect.stringMatching(/^[0-9a-f]{40}$/),
+      tree_sha: expect.stringMatching(/^[0-9a-f]{40}$/),
+    });
   });
 
   it('requires deterministic double replay', () => {

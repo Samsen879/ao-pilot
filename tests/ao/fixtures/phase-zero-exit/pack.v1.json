@@ -5,41 +5,25 @@
     {
       "id": "integrated-exact-evidence",
       "class": "success",
-      "input": {
-        "manifest_present": true,
-        "artifacts_verified": true,
-        "contracts_accepted": true
-      },
+      "mutation": "none",
       "expected": "accepted"
     },
     {
-      "id": "contract-failure-blocks-exit",
+      "id": "authority-contract-failure-blocks-exit",
       "class": "failure",
-      "input": {
-        "manifest_present": true,
-        "artifacts_verified": true,
-        "contracts_accepted": false
-      },
+      "mutation": "ao_merge_claim",
       "expected": "blocked"
     },
     {
-      "id": "missing-evidence-blocks-exit",
+      "id": "missing-artifact-evidence-blocks-exit",
       "class": "missing_evidence",
-      "input": {
-        "manifest_present": true,
-        "artifacts_verified": false,
-        "contracts_accepted": true
-      },
+      "mutation": "artifact_digest_missing",
       "expected": "blocked"
     },
     {
-      "id": "canonical-replay-is-stable",
+      "id": "canonical-evidence-replay-is-stable",
       "class": "replay",
-      "input": {
-        "manifest_present": true,
-        "artifacts_verified": true,
-        "contracts_accepted": true
-      },
+      "mutation": "none",
       "expected": "accepted"
     }
   ]

@@ -49,7 +49,16 @@ committed [`phase-zero-exit-replay-receipt.v1.json`](phase-zero-exit-replay-rece
 
 ```sh
 npm run verify:phase-zero-exit
+node scripts/verify-phase-zero-exit-evidence.js \
+  --expected-head <reviewed-head-sha> --expected-tree <reviewed-tree-sha>
 ```
+
+The first command binds its output to the live Git HEAD/tree. The second also
+fails unless that live identity equals the independently supplied reviewed
+candidate. A committed manifest cannot contain its own commit hash without a
+self-reference cycle, so immutable head authority comes from the exact-head
+CI/review/provider handoff; the repository freezes the semantic receipt and
+explicitly claims no merge.
 
 Any missing evidence, digest drift, chain contradiction, false-success
 promotion, persistent lease shadow, AO merge claim, narrowed Completion Record

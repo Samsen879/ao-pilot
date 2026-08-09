@@ -6,6 +6,11 @@
     "base_sha": "b2bd4a68ad84758eb5c7c7bb19932d897f6605a8",
     "base_tree": "ea50c914949c44a8832c538eae412e0caba01121"
   },
+  "handoff_binding": {
+    "strategy": "runtime_git_identity_plus_provider_exact_head",
+    "repository_self_commit_field": "prohibited_as_self_referential",
+    "merge_claim": false
+  },
   "admission": {
     "lane_issue": 8,
     "foundation_issue": 23,
@@ -262,9 +267,9 @@
   },
   "artifacts": {
     "trajectory_report": { "path": "docs/foundation/trajectory-truthfulness-report.v1.json", "sha256": "b1293a6c2c870b469f9b183ec117ea75c5045970383815364906621563412620" },
-    "lease_report": { "path": "docs/foundation/controller-lease-single-authority-report.v1.json", "sha256": "d0fbc3a265489180d33510ec7a0d0b5493fc042ec95865109c2d13e55617ce50" },
+    "lease_report": { "path": "docs/foundation/controller-lease-single-authority-report.v1.json", "sha256": "da69007f58947336a2c3b05d4311248bf49ecf5cc6c7e9e70e17e1102a7bc82b" },
     "boundary_freeze": { "path": "docs/foundation/judgment-or-effect-contract-freeze.v1.json", "sha256": "42047afe1c82bd6ae6f48c4ba1a83b0eb1555ad34c041db18970c7a1fa58ce2a" },
     "risk_register": { "path": "docs/foundation/phase-zero-remaining-risk-register.v1.json", "sha256": "cc8da0924568456241b05271ca715d6a05bf9e5b27d1f4ab32794ed509cb8796" },
-    "fixture_pack": { "path": "tests/ao/fixtures/phase-zero-exit/pack.v1.json", "sha256": "4ec3ac83f49f9b52dbf497e01aba108083b737b83e7e550cb9d0904f27377a0c" }
+    "fixture_pack": { "path": "tests/ao/fixtures/phase-zero-exit/pack.v1.json", "sha256": "28a4b29a9b8c9a4d30077c2fd5f821aa2ed4b3d98a5acc8b5e55599b3c46df7c" }
   }
 }
