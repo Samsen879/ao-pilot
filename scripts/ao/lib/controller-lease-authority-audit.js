@@ -11,6 +11,7 @@ const FROZEN_AUTHORITY_DESIGN = Object.freeze({
   malformed_authority_policy: 'fail_closed',
   mixed_version_policy: 'validate and migrate the canonical file; never select the state.json shadow by freshness',
 });
+const FROZEN_CALLER_METADATA_DIGEST = 'd5ef3c6d7eba2ca5c2454405567c7818e83ef2491861ecede0867523b1f0f88a';
 
 function stableJson(value) {
   if (Array.isArray(value)) return value.map(stableJson);
@@ -100,6 +101,13 @@ export function validateControllerLeaseInventory(inventory, repositoryRoot) {
 
   const ids = inventory.callers.map((caller) => caller.id);
   if (new Set(ids).size !== ids.length) throw new Error('Controller lease caller ids must be unique');
+  const callerMetadataDigest = stableDigest({
+    governed_base: inventory.governed_base,
+    callers: inventory.callers,
+  });
+  if (callerMetadataDigest !== FROZEN_CALLER_METADATA_DIGEST) {
+    throw new Error('The frozen controller lease caller or governed-base metadata has drifted');
+  }
   if (!inventory.callers.some((caller) => caller.roles.includes('fallback'))) {
     throw new Error('Controller lease inventory must account for the current fallback path');
   }
@@ -130,6 +138,7 @@ export function validateControllerLeaseInventory(inventory, repositoryRoot) {
 
   return {
     caller_count: inventory.callers.length,
+    caller_metadata_digest: callerMetadataDigest,
     source_match_count: scan.match_count,
     source_digest: scan.digest,
   };

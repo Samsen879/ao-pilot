@@ -108,10 +108,27 @@ describe('controller lease authority design audit', () => {
   it('pins an exhaustive deterministic source scan and every semantic caller anchor', () => {
     expect(validateControllerLeaseInventory(inventory, repositoryRoot)).toEqual({
       caller_count: 14,
-      source_match_count: 37,
-      source_digest: 'dc9d9abe31976887791bb321486cc9141f017ed78fef08401d400ff3e694ff66',
+      caller_metadata_digest: 'd5ef3c6d7eba2ca5c2454405567c7818e83ef2491861ecede0867523b1f0f88a',
+      source_match_count: 41,
+      source_digest: '067adb1d30ac64966d9f9e7099696d6650efd2dc4ce60838a4142c1b121ce386',
     });
-    expect(scanControllerLeaseSources(inventory, repositoryRoot).matches).toHaveLength(37);
+    expect(scanControllerLeaseSources(inventory, repositoryRoot).matches).toHaveLength(41);
+  });
+
+  it('rejects a newly added uninventoried generic state shadow writer', () => {
+    const mutatedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-controller-lease-source-mutation-'));
+    tempDirs.push(mutatedRoot);
+    const copiedLib = path.join(mutatedRoot, 'scripts/ao/lib');
+    fs.mkdirSync(path.dirname(copiedLib), { recursive: true });
+    fs.cpSync(path.join(repositoryRoot, 'scripts/ao/lib'), copiedLib, { recursive: true });
+    fs.appendFileSync(
+      path.join(copiedLib, 'state-repository.js'),
+      '\nfunction uninventoriedShadowWriter() { persistState({ state: {} }); }\n',
+      'utf8',
+    );
+
+    expect(() => validateControllerLeaseInventory(inventory, mutatedRoot))
+      .toThrow('source match count drifted');
   });
 
   it('fails the audit when authority, source evidence, or caller evidence drifts', () => {
@@ -133,7 +150,17 @@ describe('controller lease authority design audit', () => {
     const missingAnchor = structuredClone(inventory);
     missingAnchor.callers[0].anchors = ['not present in the governed source'];
     expect(() => validateControllerLeaseInventory(missingAnchor, repositoryRoot))
-      .toThrow('anchor must occur exactly once');
+      .toThrow('caller or governed-base metadata has drifted');
+
+    const callerMetadataDrift = structuredClone(inventory);
+    callerMetadataDrift.callers[0].symbol = 'misclassifiedSymbol';
+    expect(() => validateControllerLeaseInventory(callerMetadataDrift, repositoryRoot))
+      .toThrow('caller or governed-base metadata has drifted');
+
+    const governedBaseDrift = structuredClone(inventory);
+    governedBaseDrift.governed_base.tree = '0'.repeat(40);
+    expect(() => validateControllerLeaseInventory(governedBaseDrift, repositoryRoot))
+      .toThrow('caller or governed-base metadata has drifted');
   });
 
   it('covers success, failure, missing, malformed, mixed-version, and replay fixtures', () => {

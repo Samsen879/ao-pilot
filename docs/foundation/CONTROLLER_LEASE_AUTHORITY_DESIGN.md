@@ -35,7 +35,10 @@ path, state property, atomic API, and upsert API selectors. It also requires a
 unique source anchor for every semantic caller below. Any added, removed, or
 changed or relocated source occurrence fails the deterministic digest gate;
 each digest tuple includes its line position. The complete authority-design
-object is pinned as well, so no individual policy can weaken silently.
+object and the complete governed-base/caller metadata are pinned as well, so
+no individual policy, role, symbol, anchor, or admitted base can weaken
+silently. The scan also matches every `persistState` definition and call,
+closing the generic shadow-writer path.
 
 | Boundary | Reads | Writes | Fallback/projection consequence |
 | --- | --- | --- | --- |

@@ -125,9 +125,10 @@
       { "id": "isolated-path", "pattern": "\\bcontrollerLeasesPath\\b" },
       { "id": "atomic-api", "pattern": "\\bmutateControllerLeasesAtomically\\b" },
       { "id": "upsert-api", "pattern": "\\bupsertControllerLease\\b" },
+      { "id": "persist-state-api", "pattern": "\\bpersistState\\b" },
       { "id": "file-name", "pattern": "controller-leases\\.json" }
     ],
-    "expected_match_count": 37,
-    "expected_digest": "dc9d9abe31976887791bb321486cc9141f017ed78fef08401d400ff3e694ff66"
+    "expected_match_count": 41,
+    "expected_digest": "067adb1d30ac64966d9f9e7099696d6650efd2dc4ce60838a4142c1b121ce386"
   }
 }
