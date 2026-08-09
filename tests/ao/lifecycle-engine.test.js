@@ -124,6 +124,39 @@ describe('lifecycle engine', () => {
     expect(report.release_decision.disposition).toBe('await_ci');
   });
 
+  it('does not report a configured legacy option as an observed disposition while CI is blocked', () => {
+    const report = buildLifecycleReport({
+      scope: createLifecyclePrScope({
+        projectId: 'my-project',
+        prNumber: 44,
+        trigger: 'ci_failed',
+      }),
+      reconciliationReport: buildReconciliationReport({
+        top_status: 'blocked',
+        pr_assessments: [{
+          pr_number: 44,
+          branch_name: 'feat/issue-44',
+          ownership: {
+            status: 'clear',
+            owner_session: 'worker-44',
+            candidate_sessions: ['worker-44'],
+          },
+          release_readiness: {
+            status: 'blocked',
+            basis: ['ci_blocked'],
+          },
+        }],
+      }),
+      doctorReport: buildDoctorReport(),
+      releaseReadyAction: 'notify_human_ready',
+    });
+
+    expect(report.release_decision.disposition).toBe('await_ci');
+    expect(report.release_vocabulary.configured_action).toBe('notify_human_ready');
+    expect(report.findings.map((finding) => finding.code))
+      .not.toContain('legacy_notify_human_ready_deprecated');
+  });
+
   it('prefers typed CI blocker data over narrative basis strings', () => {
     const report = buildLifecycleReport({
       scope: createLifecyclePrScope({

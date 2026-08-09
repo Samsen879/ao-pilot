@@ -115,4 +115,27 @@ describe('lifecycle report', () => {
     expect(summary).toContain('legacy_notify_human_ready_deprecated');
     expect(summary).toContain('suggested_actions: gh pr view 44');
   });
+
+  it('renders malformed current claim values without converting them into non-claims', () => {
+    const summary = renderLifecycleHumanSummary(buildReport({
+      schema_version: 'ao.lifecycle.v1alpha2',
+      top_status: 'continue',
+      findings: [],
+      actions: [],
+      release_decision: {
+        disposition: 'release_ready',
+        basis: ['release_preflight_authorized'],
+        authoritative: true,
+        judgment_contract: 'ao.release-judgment.v1',
+        authority_scope: 'or_preflight_only',
+        claims: {
+          merge: false,
+          external_effect: 'yes',
+        },
+      },
+    }));
+
+    expect(summary).toContain('claims_merge=false claims_external_effect=invalid("yes") claims_human_approval=missing');
+    expect(summary).toContain('[blocker] release_ready_contract_invalid');
+  });
 });

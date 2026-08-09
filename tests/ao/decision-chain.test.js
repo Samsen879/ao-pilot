@@ -127,7 +127,7 @@ describe('decision chain report', () => {
     });
 
     expect(report).toMatchObject({
-      schema_version: 'ao.decision-chain.v1alpha1',
+      schema_version: 'ao.decision-chain.v1alpha2',
       report_format: 'ao_decision_chain_report',
       contract_status: 'authoritative_pr_chain',
       top_status: 'continue',

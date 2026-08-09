@@ -37,6 +37,14 @@ function summarizeActions(actions) {
   return commands.join(' | ');
 }
 
+function formatClaimValue(claims, claim) {
+  if (claims == null || !Object.hasOwn(claims, claim)) return 'missing';
+  const value = claims[claim];
+  if (typeof value === 'boolean') return String(value);
+  const serialized = JSON.stringify(value);
+  return `invalid(${serialized === undefined ? String(value) : serialized})`;
+}
+
 export function renderLifecycleHumanSummary(report) {
   const observedReport = adaptLifecycleReportForObservation(report);
   const releaseDecision = observedReport.release_decision;
@@ -47,7 +55,7 @@ export function renderLifecycleHumanSummary(report) {
     `routing: ${observedReport.routing_decision.action} owner=${observedReport.routing_decision.owner_session ?? 'none'} authoritative=${String(observedReport.routing_decision.authoritative)}`,
     `release: ${releaseDecision.disposition} authoritative=${String(releaseDecision.authoritative)}${releaseObservation?.disposition !== releaseDecision.disposition ? ` observed_as=${releaseObservation.disposition}` : ''}`,
     ...(releaseObservation?.authority_scope == null ? [] : [
-      `release_authority: ${releaseObservation.authority_scope} claims_merge=${String(releaseObservation.claims?.merge === true)} claims_external_effect=${String(releaseObservation.claims?.external_effect === true)} claims_human_approval=${String(releaseObservation.claims?.human_approval === true)}`,
+      `release_authority: ${releaseObservation.authority_scope} claims_merge=${formatClaimValue(releaseObservation.claims, 'merge')} claims_external_effect=${formatClaimValue(releaseObservation.claims, 'external_effect')} claims_human_approval=${formatClaimValue(releaseObservation.claims, 'human_approval')}`,
     ]),
     `source_health: reconciliation=${observedReport.source_health.reconciliation}, doctor=${observedReport.source_health.doctor}`,
     `key_findings: ${summarizeFindings(observedReport.findings)}`,

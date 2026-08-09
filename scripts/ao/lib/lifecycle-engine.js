@@ -542,7 +542,6 @@ function buildLifecycleFindings({
   scope,
   routingDecision,
   releaseDecision,
-  configuredReleaseReadyAction = DEFAULT_RELEASE_READY_ACTION,
 }) {
   const findings = [];
 
@@ -772,7 +771,7 @@ function buildLifecycleFindings({
   }
 
   const deprecationFinding = createReleaseVocabularyDeprecationFinding(
-    configuredReleaseReadyAction,
+    releaseDecision.disposition,
     { subjectId: scope?.pr_number ?? null },
   );
   if (deprecationFinding) {
@@ -953,8 +952,6 @@ export function applyReviewGateToLifecycleReport({
       scope: lifecycleReport.scope,
       routingDecision: normalizedRoutingDecision,
       releaseDecision: nextReleaseDecision,
-      configuredReleaseReadyAction: lifecycleReport.release_vocabulary?.configured_action
-        ?? DEFAULT_RELEASE_READY_ACTION,
     }),
   ];
   const nextActions = buildActions(nextFindings, lifecycleReport.scope);
@@ -1008,7 +1005,6 @@ export function buildLifecycleReport({
       scope,
       routingDecision,
       releaseDecision,
-      configuredReleaseReadyAction: normalizedReleaseReadyAction,
     }),
   ];
   const actions = buildActions(findings, scope);

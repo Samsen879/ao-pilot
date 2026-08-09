@@ -16,7 +16,9 @@ provider observation remains the sole authority for an external merge outcome.
 Execution fails closed unless the persisted decision matches the v1 contract,
 scope, basis, authority, and all three non-claims. The new action class advances
 controller-run and execution-attempt measurement records from v1alpha1 to
-v1alpha2; legacy measurement records retain their original schema identifiers.
+v1alpha2. The aggregate metrics report and expanded decision-chain report also
+advance from v1alpha1 to v1alpha2. Legacy records retain their original schema
+identifiers.
 
 ## Compatibility and immutable legacy interpretation
 
@@ -32,7 +34,11 @@ Deprecation findings are informational so mixed-version replay and unattended
 delivery continue without turning vocabulary age into a control blocker.
 Malformed current judgments are not repaired by observation: their original
 values remain visible and a blocking `release_ready_contract_invalid` finding
-records the mismatch. Legacy projections are explicitly non-authoritative.
+records the mismatch. Human rendering prints missing and non-boolean claims as
+missing/invalid rather than converting them to false. Legacy projections are
+explicitly non-authoritative. Deprecation findings describe only a disposition
+actually present in a lifecycle report; a configured legacy option that was not
+selected remains configuration metadata, not an observed-deprecation finding.
 
 ## Decision and effect boundary
 
