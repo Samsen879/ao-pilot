@@ -224,7 +224,8 @@ export function normalizeAuthorizationGrant(grant) {
     && typeof reviewer.independent_from_issuer_and_subject === 'boolean',
   'grant.reviewer_freshness boolean bindings are required');
   assert(merge.permitted === true
-    ? merge.pr_number != null && merge.expected_head_sha != null && merge.expected_base_sha != null
+    ? merge.pr_number != null && merge.expected_head_sha != null
+      && merge.expected_base_sha != null && merge.method != null
     : merge.pr_number == null && merge.expected_head_sha == null && merge.expected_base_sha == null,
   'grant.merge_scope exact bindings must be present only when merge is permitted');
   assert(typeof rollback.destructive_authorized === 'boolean'
@@ -314,10 +315,14 @@ export function normalizeAuthorizationGrant(grant) {
 function normalizeReview(value, field) {
   if (value == null) return null;
   const review = exactKeys(value, field, [
-    'actor_ref', 'review_ref', 'reviewed_at', 'reviewed_head_sha', 'verdict',
+    'actor_ref', 'base_sha', 'pr_number', 'repository', 'review_ref', 'reviewed_at',
+    'reviewed_head_sha', 'verdict',
   ]);
   return {
     actor_ref: string(review.actor_ref, `${field}.actor_ref`),
+    base_sha: gitSha(review.base_sha, `${field}.base_sha`),
+    pr_number: positiveInteger(review.pr_number, `${field}.pr_number`),
+    repository: normalizeRepository(review.repository, `${field}.repository`),
     review_ref: string(review.review_ref, `${field}.review_ref`),
     reviewed_at: canonicalTimestamp(review.reviewed_at, `${field}.reviewed_at`),
     reviewed_head_sha: gitSha(review.reviewed_head_sha, `${field}.reviewed_head_sha`),
@@ -410,10 +415,23 @@ export function authorizationGrantFingerprint(grant) {
 }
 
 export function authorizationPolicyInput(grant, request) {
-  const normalizedGrant = normalizeAuthorizationGrant(grant);
-  const normalizedRequest = normalizeAuthorizationRequest(request);
+  let grantFingerprint;
+  let normalizedRequest;
+  try {
+    grantFingerprint = authorizationGrantFingerprint(grant);
+  } catch {
+    grantFingerprint = rawFingerprint(grant);
+  }
+  try {
+    normalizedRequest = normalizeAuthorizationRequest(request);
+  } catch {
+    normalizedRequest = {
+      raw_request_fingerprint: rawFingerprint(request),
+      validation_status: 'rejected',
+    };
+  }
   return {
-    grant_fingerprint: authorizationGrantFingerprint(normalizedGrant),
+    grant_fingerprint: grantFingerprint,
     request: normalizedRequest,
     schema_version: 'ao.or-authorization-policy-input.v1',
   };
@@ -444,12 +462,11 @@ function rawFingerprint(value) {
 function escalationRecord(grant, request, kind, reasonCode, now) {
   const createdAt = canonicalTimestamp(now, 'escalation.created_at');
   let grantFingerprint = rawFingerprint(grant);
-  let inputFingerprint = rawFingerprint({ grant, request });
+  const inputFingerprint = authorizationPolicyInputFingerprint(grant, request);
   try {
     grantFingerprint = authorizationGrantFingerprint(grant);
-    inputFingerprint = authorizationPolicyInputFingerprint(grant, request);
   } catch {
-    // Invalid authority still receives stable raw fingerprints without becoming authoritative.
+    // Invalid authority receives a stable raw fingerprint without becoming authoritative.
   }
   const core = {
     created_at: createdAt,
@@ -457,13 +474,15 @@ function escalationRecord(grant, request, kind, reasonCode, now) {
     policy_input_fingerprint: inputFingerprint,
     reason_code: reasonCode,
     reason_kind: kind,
+    authorized_repository: grant?.repository?.slug ?? null,
+    authorized_task_id: grant?.task?.task_id ?? null,
     recovery_ref: typeof grant?.rollback_recovery?.recovery_ref === 'string'
       ? grant.rollback_recovery.recovery_ref
       : null,
-    repository: grant?.repository?.slug ?? request?.repository?.slug ?? null,
+    requested_repository: request?.repository?.slug ?? null,
+    requested_task_id: request?.task?.task_id ?? null,
     schema_version: OR_AUTHORIZATION_ESCALATION_SCHEMA_VERSION,
     status: 'human_authority_required',
-    task_id: grant?.task?.task_id ?? request?.task?.task_id ?? null,
   };
   const escalationId = `or-auth-escalation:${authorizationSha256(Buffer.from(
     canonicalAuthorizationJson(core), 'utf8',
@@ -502,6 +521,7 @@ export function evaluateAuthorizationGrant(grant, request, {
       'security_or_credential_boundary_requested', now);
   }
   if (request?.rollback?.destructive === true
+    || grant?.rollback_recovery?.destructive_authorized === true
     || ['delete', 'destroy', 'force_push'].includes(request?.action)) {
     return escalation(grant, request, 'destructive_migration_or_rollback',
       'destructive_effect_requested', now);
@@ -536,6 +556,35 @@ export function evaluateAuthorizationGrant(grant, request, {
 
   if (Date.parse(now) < Date.parse(normalizedGrant.issued_at)) return deny('grant_not_yet_valid');
   if (Date.parse(now) >= Date.parse(normalizedGrant.expires_at)) return deny('grant_expired');
+
+  const revocation = normalizedRequest.revocation_evidence;
+  if (revocation.registry_ref !== normalizedGrant.revocation.registry_ref
+    || revocation.grant_fingerprint !== grantFingerprint) {
+    return deny('revocation_registry_mismatch');
+  }
+  if (revocation.status === 'revoked') return deny('grant_revoked');
+  const revocationAge = (Date.parse(now) - Date.parse(revocation.checked_at)) / 1000;
+  if (revocationAge < 0
+    || Date.parse(revocation.checked_at) < Date.parse(normalizedGrant.issued_at)
+    || revocationAge > normalizedGrant.revocation.max_check_age_seconds) {
+    return deny('revocation_evidence_stale');
+  }
+
+  const requestedActionKey = `${normalizedRequest.effect}:${normalizedRequest.action}`;
+  const replay = normalizedRequest.replay_evidence;
+  if (replay.ledger_ref !== normalizedGrant.replay_protection.ledger_ref
+    || replay.grant_fingerprint !== grantFingerprint
+    || replay.action_key !== requestedActionKey
+    || replay.request_id !== normalizedRequest.request_id) {
+    return deny('replay_evidence_binding_mismatch');
+  }
+  if (replay.status !== 'unused') return deny('grant_replay_detected');
+  const replayAge = (Date.parse(now) - Date.parse(replay.checked_at)) / 1000;
+  if (replayAge < 0) return deny('replay_evidence_from_future');
+  if (Date.parse(replay.checked_at) < Date.parse(normalizedGrant.issued_at)
+    || replayAge > normalizedGrant.revocation.max_check_age_seconds) {
+    return deny('replay_evidence_stale');
+  }
 
   for (const field of ['repository', 'task', 'subject']) {
     if (!same(normalizedGrant[field], normalizedRequest[field])) {
@@ -587,7 +636,10 @@ export function evaluateAuthorizationGrant(grant, request, {
     const review = normalizedRequest.review;
     if (review == null) return deny('fresh_independent_review_missing');
     if (review.verdict !== normalizedGrant.reviewer_freshness.required_verdict
-      || review.reviewed_head_sha !== expected.expected_head_sha) {
+      || review.reviewed_head_sha !== expected.expected_head_sha
+      || review.base_sha !== expected.expected_base_sha
+      || review.pr_number !== expected.pr_number
+      || !same(review.repository, normalizedGrant.repository)) {
       return deny('review_does_not_cover_exact_head');
     }
     if (!normalizedGrant.reviewer_freshness.allowed_reviewer_actor_refs
@@ -616,34 +668,6 @@ export function evaluateAuthorizationGrant(grant, request, {
       'rollback_recovery_binding_mismatch', now);
   }
 
-  const revocation = normalizedRequest.revocation_evidence;
-  if (revocation.registry_ref !== normalizedGrant.revocation.registry_ref
-    || revocation.grant_fingerprint !== grantFingerprint) {
-    return deny('revocation_registry_mismatch');
-  }
-  if (revocation.status === 'revoked') return deny('grant_revoked');
-  const revocationAge = (Date.parse(now) - Date.parse(revocation.checked_at)) / 1000;
-  if (revocationAge < 0
-    || Date.parse(revocation.checked_at) < Date.parse(normalizedGrant.issued_at)
-    || revocationAge > normalizedGrant.revocation.max_check_age_seconds) {
-    return deny('revocation_evidence_stale');
-  }
-
-  const replay = normalizedRequest.replay_evidence;
-  if (replay.ledger_ref !== normalizedGrant.replay_protection.ledger_ref
-    || replay.grant_fingerprint !== grantFingerprint
-    || replay.action_key !== actionKey
-    || replay.request_id !== normalizedRequest.request_id) {
-    return deny('replay_evidence_binding_mismatch');
-  }
-  if (replay.status !== 'unused') return deny('grant_replay_detected');
-  const replayAge = (Date.parse(now) - Date.parse(replay.checked_at)) / 1000;
-  if (replayAge < 0) return deny('replay_evidence_from_future');
-  if (Date.parse(replay.checked_at) < Date.parse(normalizedGrant.issued_at)
-    || replayAge > normalizedGrant.revocation.max_check_age_seconds) {
-    return deny('replay_evidence_stale');
-  }
-
   return {
     decision: 'authorize',
     grant_fingerprint: grantFingerprint,
@@ -654,15 +678,19 @@ export function evaluateAuthorizationGrant(grant, request, {
 
 export function normalizeAuthorizationEscalation(record) {
   const value = exactKeys(record, 'escalation', [
-    'created_at', 'escalation_id', 'grant_fingerprint', 'policy_input_fingerprint',
-    'reason_code', 'reason_kind', 'recovery_ref', 'repository', 'schema_version',
-    'status', 'task_id',
+    'authorized_repository', 'authorized_task_id', 'created_at', 'escalation_id',
+    'grant_fingerprint', 'policy_input_fingerprint', 'reason_code', 'reason_kind',
+    'recovery_ref', 'requested_repository', 'requested_task_id', 'schema_version', 'status',
   ]);
   assert(value.schema_version === OR_AUTHORIZATION_ESCALATION_SCHEMA_VERSION,
     `Unsupported OR authorization escalation schema: ${String(value.schema_version)}`);
   assert(OR_AUTHORIZATION_ESCALATION_KINDS.includes(value.reason_kind),
     `Unsupported escalation reason_kind: ${String(value.reason_kind)}`);
   const normalized = {
+    authorized_repository: nullable(value.authorized_repository,
+      'escalation.authorized_repository', repositorySlug),
+    authorized_task_id: nullable(value.authorized_task_id,
+      'escalation.authorized_task_id', string),
     created_at: canonicalTimestamp(value.created_at, 'escalation.created_at'),
     escalation_id: string(value.escalation_id, 'escalation.escalation_id'),
     grant_fingerprint: sha256(value.grant_fingerprint, 'escalation.grant_fingerprint'),
@@ -671,10 +699,12 @@ export function normalizeAuthorizationEscalation(record) {
     reason_code: string(value.reason_code, 'escalation.reason_code'),
     reason_kind: value.reason_kind,
     recovery_ref: nullable(value.recovery_ref, 'escalation.recovery_ref', string),
-    repository: nullable(value.repository, 'escalation.repository', repositorySlug),
+    requested_repository: nullable(value.requested_repository,
+      'escalation.requested_repository', repositorySlug),
+    requested_task_id: nullable(value.requested_task_id,
+      'escalation.requested_task_id', string),
     schema_version: OR_AUTHORIZATION_ESCALATION_SCHEMA_VERSION,
     status: oneOf(value.status, 'escalation.status', ['human_authority_required']),
-    task_id: nullable(value.task_id, 'escalation.task_id', string),
   };
   const { escalation_id: ignored, ...core } = normalized;
   const expected = `or-auth-escalation:${authorizationSha256(Buffer.from(

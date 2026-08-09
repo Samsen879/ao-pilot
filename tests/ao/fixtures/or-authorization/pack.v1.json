@@ -161,6 +161,12 @@
       },
       "review": {
         "actor_ref": "github:app:chatgpt-codex-connector",
+        "base_sha": "549d3058b4fca785e901e9664f4239e26da59a76",
+        "pr_number": 83,
+        "repository": {
+          "repository_id": 1211368494,
+          "slug": "Samsen879/ao-pilot"
+        },
         "review_ref": "github:pull-review:1001",
         "reviewed_at": "2026-08-09T12:20:00.000Z",
         "reviewed_head_sha": "1111111111111111111111111111111111111111",

@@ -7,8 +7,9 @@
   "additionalProperties": false,
   "required": [
     "schema_version", "escalation_id", "created_at", "status", "reason_kind",
-    "reason_code", "grant_fingerprint", "policy_input_fingerprint", "repository",
-    "task_id", "recovery_ref"
+    "reason_code", "grant_fingerprint", "policy_input_fingerprint",
+    "authorized_repository", "authorized_task_id", "requested_repository",
+    "requested_task_id", "recovery_ref"
   ],
   "properties": {
     "schema_version": { "const": "ao.or-authorization-escalation.v1" },
@@ -26,12 +27,16 @@
     "reason_code": { "$ref": "#/$defs/exactString" },
     "grant_fingerprint": { "$ref": "#/$defs/sha256" },
     "policy_input_fingerprint": { "$ref": "#/$defs/sha256" },
-    "repository": { "oneOf": [{ "type": "string", "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9._-]+$" }, { "type": "null" }] },
-    "task_id": { "oneOf": [{ "$ref": "#/$defs/exactString" }, { "type": "null" }] },
+    "authorized_repository": { "$ref": "#/$defs/nullableRepository" },
+    "authorized_task_id": { "$ref": "#/$defs/nullableExactString" },
+    "requested_repository": { "$ref": "#/$defs/nullableRepository" },
+    "requested_task_id": { "$ref": "#/$defs/nullableExactString" },
     "recovery_ref": { "oneOf": [{ "$ref": "#/$defs/exactString" }, { "type": "null" }] }
   },
   "$defs": {
-    "exactString": { "type": "string", "pattern": "^\\S(?:.*\\S)?$", "not": { "pattern": "[?*]" } },
+    "exactString": { "type": "string", "pattern": "^\\S+$", "not": { "pattern": "[?*]" } },
+    "nullableExactString": { "oneOf": [{ "$ref": "#/$defs/exactString" }, { "type": "null" }] },
+    "nullableRepository": { "oneOf": [{ "type": "string", "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9._-]+$" }, { "type": "null" }] },
     "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
   }
 }

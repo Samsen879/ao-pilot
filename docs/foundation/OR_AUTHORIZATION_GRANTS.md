@@ -44,6 +44,11 @@ bytes. Object insertion order and allow-list order therefore cannot change a
 policy identity, while any semantic repository, task, effect, branch, PR,
 review, revocation, rollback, or replay change does.
 
+If an input is rejected before request normalization, the same exported policy
+input function emits a closed rejected-input projection containing the canonical
+raw request fingerprint. Escalation records therefore remain reproducible with
+the public fingerprint API without treating rejected fields as authority.
+
 Before returning `authorize`, `evaluateAuthorizationGrant` requires:
 
 1. a currently valid grant and exact repository/task/subject/audience scope;
@@ -76,8 +81,8 @@ Only these four admitted exception classes return `escalate`:
 | `security_or_credential_boundary` | A request or grant attempts to carry credential/security authority |
 | `destructive_migration_or_rollback` | Destructive rollback, delete, destroy, or force-push authority is requested |
 
-Every escalation includes canonical grant and policy-input fingerprints, exact
-repository/task context when available, the recovery reference, timestamp, and
+Every escalation includes canonical grant and policy-input fingerprints, both
+the authorized and requested repository/task context when available, the recovery reference, timestamp, and
 a content-derived identifier under
 `ao.or-authorization-escalation.v1`. The corresponding closed Schema is
 [`schemas/ao.or-authorization-escalation.v1.schema.json`](../../schemas/ao.or-authorization-escalation.v1.schema.json).
