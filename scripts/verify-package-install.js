@@ -81,6 +81,7 @@ try {
       "  ['contracts.createPrScope', contracts.createPrScope],",
       "  ['contracts.loadRuntimeLock', contracts.loadRuntimeLock],",
       "  ['contracts.loadBootstrapToolchainLock', contracts.loadBootstrapToolchainLock],",
+      "  ['contracts.normalizeCompletionRecord', contracts.normalizeCompletionRecord],",
       "  ['repository.createStateRepository', repository.createStateRepository],",
       "  ['engines.reconcileObservations', engines.reconcileObservations],",
       "  ['engines.executeAssistActions', engines.executeAssistActions],",

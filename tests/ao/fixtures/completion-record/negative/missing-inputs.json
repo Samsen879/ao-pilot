@@ -1,0 +1,5 @@
+{
+  "schema_version": "ao.child-completion-input-manifest.v1alpha1",
+  "child_task_id": "issue-15",
+  "inputs": []
+}
