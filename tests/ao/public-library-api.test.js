@@ -80,6 +80,10 @@ describe('ao-pilot public library API', () => {
     expect(contracts.createRuntimeProvenance).toEqual(expect.any(Function));
     expect(contracts.normalizeAuthorizationGrant).toEqual(expect.any(Function));
     expect(contracts.evaluateAuthorizationGrant).toEqual(expect.any(Function));
+    expect(contracts.INTERVENTION_JUDGMENT_SCHEMA_VERSION).toBe('ao.intervention-judgment.v1');
+    expect(contracts.createRetryRequiredDecision).toEqual(expect.any(Function));
+    expect(contracts.interventionJudgmentContracts.INTERVENTION_JUDGMENTS)
+      .toMatchObject({ RETRY_REQUIRED: 'retry_required' });
     expect(repository.createStateRepository).toEqual(expect.any(Function));
     expect(repository.bootstrapControlPlaneState).toEqual(expect.any(Function));
     expect(engines.reconcileObservations).toEqual(expect.any(Function));

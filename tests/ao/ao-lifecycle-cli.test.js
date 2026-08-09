@@ -227,6 +227,17 @@ describe('ao lifecycle cli', () => {
     expect(sourceFailureResult.exitCode).toBe(34);
   });
 
+  it('preserves the non-strict source-failure exit for retry_required', async () => {
+    mockBuildLifecycleReport.mockReturnValue(buildReport({ top_status: 'retry_required' }));
+
+    const result = await runCli(['--json'], {
+      writeStdout: () => {},
+      writeStderr: () => {},
+    });
+
+    expect(result.exitCode).toBe(3);
+  });
+
   it('rejects invalid PR values, invalid triggers, and mixed scope flags before probes run', async () => {
     const stderr = [];
 

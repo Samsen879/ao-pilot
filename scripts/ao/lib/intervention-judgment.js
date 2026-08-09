@@ -17,7 +17,9 @@ const LEGACY_RETRY_BASES = new Set(['source_failure']);
 const LEGACY_REFRESH_BASES = new Set(['missing_pr_assessment']);
 const LEGACY_ESCALATION_BASES = new Set([
   'doctor_ambiguous',
+  'fallback_ambiguous',
   'ownership_ambiguous',
+  'release_status_ambiguous',
   'release_readiness_ambiguous',
   'review_escalated',
   'trigger_requires_pr_scope',
@@ -40,11 +42,15 @@ function buildAffectedScope(scope) {
   };
 }
 
-export function createRetryRequiredDecision({ scope, basis = ['source_failure'] } = {}) {
+export function createRetryRequiredDecision({
+  scope,
+  basis = ['source_failure'],
+  authoritative = true,
+} = {}) {
   return {
     disposition: INTERVENTION_JUDGMENTS.RETRY_REQUIRED,
     basis: normalizeBasis(basis),
-    authoritative: true,
+    authoritative: authoritative === true,
     judgment_contract: INTERVENTION_JUDGMENT_SCHEMA_VERSION,
     affected_scope: buildAffectedScope(scope),
     recovery: {
@@ -58,11 +64,15 @@ export function createRetryRequiredDecision({ scope, basis = ['source_failure'] 
   };
 }
 
-export function createRefreshRequiredDecision({ scope, basis = ['missing_pr_assessment'] } = {}) {
+export function createRefreshRequiredDecision({
+  scope,
+  basis = ['missing_pr_assessment'],
+  authoritative = true,
+} = {}) {
   return {
     disposition: INTERVENTION_JUDGMENTS.REFRESH_REQUIRED,
     basis: normalizeBasis(basis),
-    authoritative: true,
+    authoritative: authoritative === true,
     judgment_contract: INTERVENTION_JUDGMENT_SCHEMA_VERSION,
     affected_scope: buildAffectedScope(scope),
     refresh: {

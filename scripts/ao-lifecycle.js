@@ -103,7 +103,7 @@ function exitCodeForReport(report, strict) {
     return LIFECYCLE_STRICT_EXIT_CODES[report.top_status] ?? LIFECYCLE_STRICT_EXIT_CODES.invalid_usage;
   }
 
-  if (report.top_status === 'source_failure') return 3;
+  if (['source_failure', 'retry_required'].includes(report.top_status)) return 3;
   return 0;
 }
 

@@ -90,6 +90,27 @@ describe('lifecycle engine', () => {
     ]));
   });
 
+  it.each([
+    ['failed', 'retry_required'],
+    ['degraded', 'refresh_required'],
+  ])('keeps project-scoped %s recovery advisory', (sourceState, disposition) => {
+    const report = buildLifecycleReport({
+      scope: createLifecycleProjectScope({ projectId: 'my-project', trigger: 'manual' }),
+      reconciliationReport: buildReconciliationReport({
+        scope: { mode: 'project', selected_pr_numbers: [] },
+        source_health: { ao: 'ok', github: sourceState },
+        pr_assessments: [],
+      }),
+      doctorReport: buildDoctorReport(),
+    });
+
+    expect(report.release_decision).toMatchObject({
+      disposition,
+      authoritative: false,
+      affected_scope: { mode: 'project', project_id: 'my-project', pr_number: null },
+    });
+  });
+
   it('routes clear ownership to the current worker for worker-follow-up triggers', () => {
     const report = buildLifecycleReport({
       scope: createLifecyclePrScope({
@@ -767,6 +788,12 @@ describe('lifecycle engine', () => {
           worktree: 'failed',
         },
       }),
+      reviewRequired: true,
+      reviewInspection: {
+        posture: 'review_pending',
+        target_head_sha: 'abc123',
+      },
+      currentHeadSha: 'abc123',
     });
 
     expect(report.source_health).toEqual({
@@ -785,5 +812,55 @@ describe('lifecycle engine', () => {
       },
     });
     expect(report.actions.map((action) => action.id)).not.toContain('notify_human_blocked');
+  });
+
+  it('preserves stale-observation refresh while independent review is pending', () => {
+    const report = buildLifecycleReport({
+      scope: createLifecyclePrScope({ projectId: 'my-project', prNumber: 44 }),
+      reconciliationReport: buildReconciliationReport({
+        source_health: { ao: 'ok', github: 'degraded' },
+      }),
+      doctorReport: buildDoctorReport(),
+      reviewRequired: true,
+      reviewInspection: { posture: 'review_pending', target_head_sha: 'abc123' },
+      currentHeadSha: 'abc123',
+    });
+
+    expect(report.top_status).toBe('refresh_required');
+    expect(report.release_decision.disposition).toBe('refresh_required');
+    expect(report.actions.map((action) => action.id)).toContain('refresh_required');
+    expect(report.actions.map((action) => action.id)).not.toContain('hold_review');
+  });
+
+  it.each([
+    ['blocked', 'hold', 'no_release_action', 'hold_local_control'],
+    ['ambiguous', 'escalation_required', 'escalation_required', 'escalation_required'],
+  ])('preserves doctor %s when the PR assessment is missing', (
+    doctorStatus,
+    topStatus,
+    disposition,
+    actionId,
+  ) => {
+    const severity = doctorStatus === 'blocked' ? 'blocker' : 'ambiguous';
+    const report = buildLifecycleReport({
+      scope: createLifecyclePrScope({ projectId: 'my-project', prNumber: 44 }),
+      reconciliationReport: buildReconciliationReport({ pr_assessments: [] }),
+      doctorReport: buildDoctorReport({
+        top_status: doctorStatus,
+        findings: [{
+          code: doctorStatus === 'blocked' ? 'detached_head' : 'current_branch_mismatch',
+          severity,
+          origin: 'doctor',
+          source_area: 'git',
+          subject_type: 'branch',
+          summary: 'Doctor condition.',
+        }],
+      }),
+    });
+
+    expect(report.top_status).toBe(topStatus);
+    expect(report.release_decision.disposition).toBe(disposition);
+    expect(report.actions.map((action) => action.id)).toContain(actionId);
+    expect(report.actions.map((action) => action.id)).not.toContain('refresh_required');
   });
 });

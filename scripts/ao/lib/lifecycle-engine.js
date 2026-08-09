@@ -89,6 +89,9 @@ function resolveReviewGateReleaseDecision({
     authoritative: false,
   };
   const normalizedReleaseDecision = normalizeLifecycleReleaseDecision(releaseDecision);
+  if (Object.values(INTERVENTION_JUDGMENTS).includes(normalizedReleaseDecision.disposition)) {
+    return originalReleaseDecision;
+  }
   if (!reviewRequired && reviewInspection == null) {
     return originalReleaseDecision;
   }
@@ -346,21 +349,11 @@ function buildRoutingDecision({
     };
   }
 
-  if (!assessment) {
-    return {
-      action: 'refresh_affected_scope',
-      owner_session: null,
-      target_pr_number: scope?.pr_number ?? null,
-      reason_codes: ['missing_pr_assessment'],
-      authoritative: false,
-    };
-  }
-
   if (doctorControlStatus === 'blocked') {
     return {
       action: 'hold_for_human',
-      owner_session: assessment.ownership?.owner_session ?? null,
-      target_pr_number: assessment.pr_number ?? scope?.pr_number ?? null,
+      owner_session: assessment?.ownership?.owner_session ?? null,
+      target_pr_number: assessment?.pr_number ?? scope?.pr_number ?? null,
       reason_codes: ['doctor_blocks_control'],
       authoritative: false,
     };
@@ -369,9 +362,19 @@ function buildRoutingDecision({
   if (doctorControlStatus === 'ambiguous') {
     return {
       action: 'pause_affected_scope',
-      owner_session: assessment.ownership?.owner_session ?? null,
-      target_pr_number: assessment.pr_number ?? scope?.pr_number ?? null,
+      owner_session: assessment?.ownership?.owner_session ?? null,
+      target_pr_number: assessment?.pr_number ?? scope?.pr_number ?? null,
       reason_codes: ['doctor_ambiguous'],
+      authoritative: false,
+    };
+  }
+
+  if (!assessment) {
+    return {
+      action: 'refresh_affected_scope',
+      owner_session: null,
+      target_pr_number: scope?.pr_number ?? null,
+      reason_codes: ['missing_pr_assessment'],
       authoritative: false,
     };
   }
@@ -423,12 +426,21 @@ function buildReleaseDecision({
   currentHeadSha = null,
   releaseReadyAction = DEFAULT_RELEASE_READY_ACTION,
 }) {
+  const projectAdvisory = scope?.mode === 'project';
   if (Object.values(sourceHealth).some((state) => state === 'failed')) {
-    return createRetryRequiredDecision({ scope, basis: ['source_failure'] });
+    return createRetryRequiredDecision({
+      scope,
+      basis: ['source_failure'],
+      authoritative: !projectAdvisory,
+    });
   }
 
   if (Object.values(sourceHealth).some((state) => state === 'degraded')) {
-    return createRefreshRequiredDecision({ scope, basis: ['stale_observation'] });
+    return createRefreshRequiredDecision({
+      scope,
+      basis: ['stale_observation'],
+      authoritative: !projectAdvisory,
+    });
   }
 
   if (scope?.mode === 'project') {
@@ -445,10 +457,6 @@ function buildReleaseDecision({
     };
   }
 
-  if (!assessment) {
-    return createRefreshRequiredDecision({ scope, basis: ['missing_pr_assessment'] });
-  }
-
   if (doctorControlStatus === 'blocked') {
     return {
       disposition: 'no_release_action',
@@ -459,6 +467,10 @@ function buildReleaseDecision({
 
   if (doctorControlStatus === 'ambiguous') {
     return createEscalationRequiredDecision({ scope, basis: ['doctor_ambiguous'] });
+  }
+
+  if (!assessment) {
+    return createRefreshRequiredDecision({ scope, basis: ['missing_pr_assessment'] });
   }
 
   if (['ambiguous', 'unknown'].includes(assessment.ownership?.status)) {

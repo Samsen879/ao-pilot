@@ -1,4 +1,5 @@
 import {
+  LEGACY_LIFECYCLE_SCHEMA_VERSION,
   LEGACY_RELEASE_JUDGMENT_LIFECYCLE_SCHEMA_VERSION,
   LIFECYCLE_SCHEMA_VERSION,
 } from './lifecycle-contracts.js';
@@ -213,9 +214,12 @@ export function adaptLifecycleReportForObservation(report) {
   });
   adapted.release_decision = observation.decision;
   adapted.release_decision_observation = observation.canonical_projection ?? observation.decision;
-  const legacyInterventionProjection = report.schema_version === LIFECYCLE_SCHEMA_VERSION
-    ? null
-    : mapLegacyInterventionDecision(observation.decision, { scope: report.scope });
+  const legacyInterventionProjection = [
+    LEGACY_LIFECYCLE_SCHEMA_VERSION,
+    LEGACY_RELEASE_JUDGMENT_LIFECYCLE_SCHEMA_VERSION,
+  ].includes(report.schema_version)
+    ? mapLegacyInterventionDecision(observation.decision, { scope: report.scope })
+    : null;
   if (legacyInterventionProjection != null) {
     adapted.release_decision_observation = legacyInterventionProjection;
   }

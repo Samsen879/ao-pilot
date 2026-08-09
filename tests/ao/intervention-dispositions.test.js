@@ -100,4 +100,15 @@ describe('intervention disposition fixture pack', () => {
       source_interpretation: { disposition: 'human_gate', immutable: true },
     });
   });
+
+  it.each(['fallback_ambiguous', 'release_status_ambiguous'])(
+    'maps produced legacy release ambiguity basis %s',
+    (basis) => {
+      expect(mapLegacyInterventionDecision({
+        disposition: 'human_gate', basis: [basis], authoritative: false,
+      }, {
+        scope: createLifecyclePrScope({ projectId: 'my-project', prNumber: 44 }),
+      })).toMatchObject({ disposition: 'escalation_required', basis: [basis] });
+    },
+  );
 });
