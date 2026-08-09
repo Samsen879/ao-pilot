@@ -11,7 +11,7 @@ const FROZEN_AUTHORITY_DESIGN = Object.freeze({
   malformed_authority_policy: 'fail_closed',
   mixed_version_policy: 'validate and migrate the canonical file; never select the state.json shadow by freshness',
 });
-const FROZEN_CALLER_METADATA_DIGEST = '9c0460b79cc9c8097eebbbe630a9c2ea3aaf14af8224cd7a09ed2dfea2ffb0eb';
+const FROZEN_CALLER_METADATA_DIGEST = '9a33c814e330606fb9022b399c5feed85b4d37b4886aa24f7c125e5bce141859';
 
 function stableJson(value) {
   if (Array.isArray(value)) return value.map(stableJson);

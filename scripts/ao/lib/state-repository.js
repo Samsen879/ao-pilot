@@ -11,6 +11,10 @@ import {
   createRepoKnowledgeRecord,
   createRuntimePreflightRecord,
 } from './state-contracts.js';
+import {
+  createControllerLeaseAuthority,
+  readControllerLeaseAuthorityFile,
+} from './controller-lease-authority.js';
 import { materializeRepoKnowledge } from './repo-knowledge.js';
 import { runRuntimeBootstrapPreflight } from './runtime-preflight.js';
 import {
@@ -103,17 +107,7 @@ export function createStateRepository({
   const controllerLeaseLockPath = `${paths.controllerLeasesPath}.lock`;
 
   function readControllerLeaseRecords() {
-    if (!fs.existsSync(paths.controllerLeasesPath)) {
-      throw new Error('Missing canonical controller lease authority: controller-leases.json');
-    }
-    const records = readJsonFile(paths.controllerLeasesPath);
-    if (!Array.isArray(records)) {
-      throw new Error('Malformed canonical controller lease authority: expected a JSON array');
-    }
-    return sortRepositoryCollectionByKey(
-      records.map((record) => createControllerLease(record)),
-      'lease_id',
-    );
+    return readControllerLeaseAuthorityFile(paths.controllerLeasesPath).records;
   }
 
   function readSnapshot() {
@@ -121,6 +115,20 @@ export function createStateRepository({
     const state = readControlPlaneState({ statePath: paths.statePath });
 
     if (!schema && !state) {
+      if (fs.existsSync(paths.controllerLeasesPath)) {
+        const isolatedControllerLeases = readControllerLeaseRecords();
+        return {
+          bootstrapped: false,
+          schema: buildVirtualSchema(projectId),
+          state: sortRepositoryStateCollections(buildVirtualState(projectId), {
+            controllerLeases: isolatedControllerLeases,
+          }),
+          paths,
+        };
+      }
+      if (fs.existsSync(paths.stateRoot)) {
+        throw new Error('Incomplete control-plane state evidence: orphaned state root has no schema.json or state.json');
+      }
       return {
         bootstrapped: false,
         schema: buildVirtualSchema(projectId),
@@ -131,6 +139,11 @@ export function createStateRepository({
 
     if (!schema || !state) {
       throw new Error('Incomplete control-plane state evidence: schema.json and state.json are both required');
+    }
+
+    if (Number(schema.current_version ?? 0) < CONTROL_PLANE_LATEST_VERSION) {
+      bootstrapControlPlaneState({ repoRoot, projectId, now: clock });
+      return readSnapshot();
     }
 
     const isolatedControllerLeases = readControllerLeaseRecords();
@@ -193,7 +206,10 @@ export function createStateRepository({
       (controllerLeases ?? []).map((record) => createControllerLease(record)),
       'lease_id',
     );
-    writeJsonFileAtomic(paths.controllerLeasesPath, nextControllerLeases);
+    writeJsonFileAtomic(
+      paths.controllerLeasesPath,
+      createControllerLeaseAuthority(nextControllerLeases),
+    );
     appendControlPlaneAuditEntry({
       auditPath: paths.auditPath,
       entry: createControlPlaneAuditEntry({

@@ -19,6 +19,7 @@ import {
   createTaskSpecRecord,
 } from '../../scripts/ao/lib/state-contracts.js';
 import { createStateRepository } from '../../scripts/ao/lib/state-repository.js';
+import { createControllerLeaseAuthority } from '../../scripts/ao/lib/controller-lease-authority.js';
 import {
   buildCurrentProcessMetadata,
   withFileLock,
@@ -66,6 +67,16 @@ function createDeferred() {
   };
 }
 
+function bootstrapRepository(repository) {
+  repository.upsertControllerMode(createControllerModeRecord({
+    controller_id: 'default',
+    mode: 'off',
+    updated_at: '2026-03-29T05:59:00.000Z',
+    updated_by: 'state-repository-test',
+    reason: 'Bootstrap durable state before exercising lock recovery.',
+  }));
+}
+
 afterEach(() => {
   while (tempDirs.length) {
     fs.rmSync(tempDirs.pop(), { recursive: true, force: true });
@@ -101,6 +112,63 @@ describe('ao state repository', () => {
     });
     expect(repository.listAuditEntries()).toEqual([]);
     expect(fs.existsSync(path.join(repoRoot, '.ao-control-plane'))).toBe(false);
+  });
+
+  it('projects surviving canonical authority when core state is absent and rejects malformed orphan bytes', () => {
+    const repoRoot = createTempRepo();
+    const authorityPath = path.join(
+      repoRoot,
+      '.ao-control-plane',
+      PROJECT_ID,
+      'controller-leases.json',
+    );
+    const orphanLease = createControllerLease({
+      lease_id: 'controller-default-orphan',
+      controller_id: 'default',
+      holder_id: 'orphan-holder',
+      holder_type: 'session',
+      status: 'active',
+      acquired_at: '2026-03-29T06:00:00.000Z',
+      expires_at: '2026-03-29T06:05:00.000Z',
+    });
+    writeJsonFileAtomic(authorityPath, createControllerLeaseAuthority([orphanLease]));
+    const repository = createStateRepository({ repoRoot, projectId: PROJECT_ID });
+
+    expect(repository.getSnapshot()).toMatchObject({
+      bootstrapped: false,
+      state: { controller_leases: [expect.objectContaining({ lease_id: orphanLease.lease_id })] },
+    });
+    writeJsonFileAtomic(authorityPath, { authority_version: 999, records: [] });
+    expect(() => repository.getSnapshot()).toThrow('Unsupported canonical controller lease authority version');
+  });
+
+  it('runs v11 migration for direct legacy readers before requiring canonical authority', () => {
+    const repoRoot = createTempRepo();
+    const repository = createStateRepository({ repoRoot, projectId: PROJECT_ID });
+    bootstrapRepository(repository);
+    const paths = repository.getSnapshot().paths;
+    const schema = JSON.parse(fs.readFileSync(paths.schemaPath, 'utf8'));
+    schema.current_version = 10;
+    schema.latest_version = 10;
+    schema.applied_migrations = schema.applied_migrations.filter((entry) => entry.version <= 10);
+    writeJsonFileAtomic(paths.schemaPath, schema);
+    const state = JSON.parse(fs.readFileSync(paths.statePath, 'utf8'));
+    state.controller_leases = [];
+    writeJsonFileAtomic(paths.statePath, state);
+    fs.unlinkSync(paths.controllerLeasesPath);
+    fs.unlinkSync(paths.controllerLeaseMigrationReceiptPath);
+    const auditEntries = fs.readFileSync(paths.auditPath, 'utf8').trim().split('\n')
+      .map((line) => JSON.parse(line))
+      .filter((entry) => entry.entity_id !== 'v11');
+    fs.writeFileSync(paths.auditPath, `${auditEntries.map((entry) => JSON.stringify(entry)).join('\n')}\n`, 'utf8');
+
+    const snapshot = repository.getSnapshot();
+    expect(snapshot.schema.current_version).toBe(11);
+    expect(snapshot.state.controller_leases).toEqual([]);
+    expect(JSON.parse(fs.readFileSync(paths.statePath, 'utf8'))).not.toHaveProperty('controller_leases');
+    expect(JSON.parse(fs.readFileSync(paths.controllerLeasesPath, 'utf8'))).toEqual(
+      createControllerLeaseAuthority([]),
+    );
   });
 
   it('writes and reads durable control-plane records for every foundation collection', () => {
@@ -615,6 +683,7 @@ describe('ao state repository', () => {
       repoRoot,
       projectId: PROJECT_ID,
     });
+    bootstrapRepository(repository);
     const snapshot = repository.getSnapshot();
     const lockPath = `${snapshot.paths.controllerLeasesPath}.lock`;
     fs.mkdirSync(path.dirname(lockPath), { recursive: true });
@@ -694,6 +763,7 @@ describe('ao state repository', () => {
       repoRoot,
       projectId: PROJECT_ID,
     });
+    bootstrapRepository(repository);
     const snapshot = repository.getSnapshot();
     const lockPath = `${snapshot.paths.controllerLeasesPath}.lock`;
     fs.mkdirSync(path.dirname(lockPath), { recursive: true });
@@ -742,6 +812,7 @@ describe('ao state repository', () => {
       repoRoot,
       projectId: PROJECT_ID,
     });
+    bootstrapRepository(repository);
     const snapshot = repository.getSnapshot();
     const lockPath = `${snapshot.paths.controllerLeasesPath}.lock`;
     fs.mkdirSync(path.dirname(lockPath), { recursive: true });

@@ -6,9 +6,14 @@ import { afterEach, describe, expect, it } from '@jest/globals';
 
 import { createControllerLease } from '../../scripts/ao/lib/state-contracts.js';
 import {
+  createControllerLeaseAuthority,
+  digestControllerLeaseAuthorityEvidence,
+} from '../../scripts/ao/lib/controller-lease-authority.js';
+import {
   bootstrapControlPlaneState,
   resolveControlPlanePaths,
 } from '../../scripts/ao/lib/state-migrations.js';
+import { withFileLock } from '../../scripts/ao/lib/state-storage.js';
 
 const PROJECT_ID = 'my-project';
 const FIXED_NOW = '2026-03-29T04:45:00.000Z';
@@ -270,8 +275,21 @@ describe('ao state migrations', () => {
         }),
       }),
     ]);
-    expect(readJson(paths.controllerLeasesPath)).toEqual([]);
+    expect(readJson(paths.controllerLeasesPath)).toEqual(createControllerLeaseAuthority([]));
     expect(readJson(paths.statePath)).not.toHaveProperty('controller_leases');
+    expect(readJson(paths.controllerLeaseMigrationReceiptPath)).toMatchObject({
+      schema_version: 'ao.controller-lease-migration-receipt.v1',
+      source_schema_version: 0,
+      destination_schema_version: 11,
+      source_evidence_digest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+      destination_authority_digest: digestControllerLeaseAuthorityEvidence(
+        createControllerLeaseAuthority([]),
+      ),
+    });
+    expect(readJson(paths.bootstrapProvenancePath)).toMatchObject({
+      status: 'complete',
+      source: 'fresh_state_root',
+    });
   });
 
   it('is idempotent when the repo-local control-plane schema already exists', () => {
@@ -323,7 +341,7 @@ describe('ao state migrations', () => {
     expect(first).toMatchObject({ bootstrapped: true, migrated: true });
     expect(second).toMatchObject({ bootstrapped: true, migrated: false });
     expect(readJson(paths.statePath)).not.toHaveProperty('controller_leases');
-    expect(readJson(paths.controllerLeasesPath)).toEqual([controllerLease()]);
+    expect(readJson(paths.controllerLeasesPath)).toEqual(createControllerLeaseAuthority([controllerLease()]));
     expect(readJson(paths.schemaPath).applied_migrations.at(-1)).toMatchObject({
       version: 11,
       key: '0011_controller_lease_authority_v1',
@@ -357,10 +375,10 @@ describe('ao state migrations', () => {
       now: '2026-03-29T05:00:00.000Z',
     });
 
-    expect(readJson(paths.controllerLeasesPath)).toEqual(canonical);
+    expect(readJson(paths.controllerLeasesPath)).toEqual(createControllerLeaseAuthority(canonical));
     expect(readJson(paths.statePath)).not.toHaveProperty('controller_leases');
     expect(readAuditEntries(paths.auditPath).at(-1).details).toMatchObject({
-      authority_source: 'existing_canonical_authority',
+      authority_source: 'legacy_canonical_array_migration',
       controller_lease_count: 1,
       state_shadow_removed: true,
     });
@@ -393,10 +411,85 @@ describe('ao state migrations', () => {
       repoRoot,
       projectId: PROJECT_ID,
       now: '2026-03-29T05:00:00.000Z',
-    })).toThrow('Malformed canonical controller lease authority');
+    })).toThrow('Unsupported canonical controller lease authority version');
     expect(fs.readFileSync(paths.controllerLeasesPath)).toEqual(beforeAuthority);
     expect(readJson(paths.statePath)).toHaveProperty('controller_leases');
     expect(readJson(paths.schemaPath).current_version).toBe(10);
+  });
+
+  it('serializes v10 migration with the controller lease mutation lock', async () => {
+    const { repoRoot, paths } = materializeVersion10();
+    const lockPath = `${paths.controllerLeasesPath}.lock`;
+
+    await withFileLock(lockPath, async () => {
+      expect(() => bootstrapControlPlaneState({
+        repoRoot,
+        projectId: PROJECT_ID,
+        now: '2026-03-29T05:00:00.000Z',
+        controllerLeaseLockTimeoutMs: 20,
+        controllerLeaseLockRetryMs: 2,
+      })).toThrow('Timed out acquiring file lock controller-leases.json.lock');
+      expect(readJson(paths.schemaPath).current_version).toBe(10);
+      expect(fs.existsSync(paths.controllerLeasesPath)).toBe(false);
+    });
+
+    expect(bootstrapControlPlaneState({
+      repoRoot,
+      projectId: PROJECT_ID,
+      now: '2026-03-29T05:00:00.000Z',
+    })).toMatchObject({ migrated: true });
+  });
+
+  it('repairs a missing v11 audit receipt idempotently from its durable migration receipt', () => {
+    const repoRoot = createTempRepo();
+    bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW });
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    const withoutV11 = readAuditEntries(paths.auditPath).filter((entry) => entry.entity_id !== 'v11');
+    fs.writeFileSync(paths.auditPath, `${withoutV11.map((entry) => JSON.stringify(entry)).join('\n')}\n`, 'utf8');
+
+    bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: '2026-03-29T06:00:00.000Z' });
+    bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: '2026-03-29T07:00:00.000Z' });
+
+    const receipts = readAuditEntries(paths.auditPath).filter((entry) => entry.entity_id === 'v11');
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0].details.destination_authority_digest).toBe(
+      readJson(paths.controllerLeaseMigrationReceiptPath).destination_authority_digest,
+    );
+  });
+
+  it('fails closed on unsupported authority envelopes and tampered receipt digests', () => {
+    const repoRoot = createTempRepo();
+    bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW });
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    const unsupported = readJson(paths.controllerLeasesPath);
+    unsupported.schema_version = 'ao.controller-lease-authority.v2';
+    fs.writeFileSync(paths.controllerLeasesPath, `${JSON.stringify(unsupported, null, 2)}\n`, 'utf8');
+    expect(() => bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
+      .toThrow('Unsupported canonical controller lease authority version');
+
+    fs.writeFileSync(
+      paths.controllerLeasesPath,
+      `${JSON.stringify(createControllerLeaseAuthority([]), null, 2)}\n`,
+      'utf8',
+    );
+    const receipt = readJson(paths.controllerLeaseMigrationReceiptPath);
+    receipt.destination_authority_digest = `sha256:${'0'.repeat(64)}`;
+    fs.writeFileSync(paths.controllerLeaseMigrationReceiptPath, `${JSON.stringify(receipt, null, 2)}\n`, 'utf8');
+    expect(() => bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
+      .toThrow('Controller lease migration audit receipt digest mismatch');
+  });
+
+  it('requires positive fresh-root provenance and rejects partially restored roots', () => {
+    const repoRoot = createTempRepo();
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    fs.mkdirSync(paths.stateRoot, { recursive: true });
+    fs.writeFileSync(paths.auditPath, '{"surviving":"artifact"}\n', 'utf8');
+
+    expect(() => bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
+      .toThrow('existing or orphaned state root cannot initialize empty authority');
+    expect(fs.existsSync(paths.schemaPath)).toBe(false);
+    expect(fs.existsSync(paths.statePath)).toBe(false);
+    expect(fs.existsSync(paths.controllerLeasesPath)).toBe(false);
   });
 
   it('upgrades a stale schema version and backfills invalid task specs for enrolled tasks', () => {

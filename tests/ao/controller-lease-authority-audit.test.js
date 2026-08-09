@@ -14,6 +14,7 @@ import {
   createControllerLease,
   createControllerModeRecord,
 } from '../../scripts/ao/lib/state-contracts.js';
+import { createControllerLeaseAuthority } from '../../scripts/ao/lib/controller-lease-authority.js';
 import {
   bootstrapControlPlaneState,
   resolveControlPlanePaths,
@@ -81,12 +82,26 @@ function materializeFixture(entry) {
       (migration) => migration.version <= entry.schema_current_version,
     );
     writeJsonFileAtomic(paths.schemaPath, schema);
+    const auditEntries = fs.readFileSync(paths.auditPath, 'utf8').trim().split('\n')
+      .map((line) => JSON.parse(line))
+      .filter((auditEntry) => Number(auditEntry?.details?.migration_version) <= entry.schema_current_version);
+    fs.writeFileSync(paths.auditPath, `${auditEntries.map((auditEntry) => JSON.stringify(auditEntry)).join('\n')}\n`, 'utf8');
+    if (fs.existsSync(paths.controllerLeaseMigrationReceiptPath)) {
+      fs.unlinkSync(paths.controllerLeaseMigrationReceiptPath);
+    }
   }
 
   if (entry.dedicated.kind === 'records') {
-    writeJsonFileAtomic(paths.controllerLeasesPath, entry.dedicated.leases.map(lease));
+    const records = entry.dedicated.leases.map(lease);
+    writeJsonFileAtomic(
+      paths.controllerLeasesPath,
+      entry.schema_current_version == null ? createControllerLeaseAuthority(records) : records,
+    );
   } else if (entry.dedicated.kind === 'invalid-record') {
-    writeJsonFileAtomic(paths.controllerLeasesPath, [{}]);
+    writeJsonFileAtomic(paths.controllerLeasesPath, {
+      ...createControllerLeaseAuthority([]),
+      records: [{}],
+    });
   } else if (entry.dedicated.kind === 'json-object') {
     writeJsonFileAtomic(paths.controllerLeasesPath, { records: [lease('canonical-active')] });
   } else if (entry.dedicated.kind === 'invalid-json') {
@@ -109,12 +124,12 @@ afterEach(() => {
 describe('controller lease authority design audit', () => {
   it('pins an exhaustive deterministic source scan and every semantic caller anchor', () => {
     expect(validateControllerLeaseInventory(inventory, repositoryRoot)).toEqual({
-      caller_count: 14,
-      caller_metadata_digest: '9c0460b79cc9c8097eebbbe630a9c2ea3aaf14af8224cd7a09ed2dfea2ffb0eb',
-      source_match_count: 54,
-      source_digest: 'cd2e9a01baa60be82d94a2771d81d14a39329fae2635123b2e2439bff2f625e5',
+      caller_count: 15,
+      caller_metadata_digest: '9a33c814e330606fb9022b399c5feed85b4d37b4886aa24f7c125e5bce141859',
+      source_match_count: 56,
+      source_digest: 'cda2e4c338c03583c87fcf62f177b16402cfe2a6c11da08c833a9c712dcf8789',
     });
-    expect(scanControllerLeaseSources(inventory, repositoryRoot).matches).toHaveLength(54);
+    expect(scanControllerLeaseSources(inventory, repositoryRoot).matches).toHaveLength(56);
   });
 
   it('rejects a newly added uninventoried generic state shadow writer', () => {

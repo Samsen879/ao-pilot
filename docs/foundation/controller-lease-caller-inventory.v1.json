@@ -1,6 +1,6 @@
 {
   "schema_version": "ao.controller-lease-caller-inventory.v1",
-  "inventory_version": "2026-08-09.2",
+  "inventory_version": "2026-08-09.3",
   "governed_base": {
     "commit": "17f1527b87f8666ccd331ff316296ca1bb05ba89",
     "tree": "b9137f59109c3171b6bf1090b1717135d061f26e",
@@ -35,8 +35,15 @@
       "id": "migration.explicit-authority-transition",
       "path": "scripts/ao/lib/state-migrations.js",
       "symbol": "prepareControllerLeaseAuthorityMigration/bootstrapControlPlaneState",
-      "roles": ["migration-reader", "migration-writer", "shadow-stripper"],
-      "anchors": ["function prepareControllerLeaseAuthorityMigration({", "delete nextState.controller_leases;", "writeJsonFileAtomic(paths.controllerLeasesPath, controllerLeaseAuthorityMigration.records)"]
+      "roles": ["migration-reader", "migration-writer", "shadow-stripper", "lock"],
+      "anchors": ["function prepareControllerLeaseAuthorityMigration({", "delete nextState.controller_leases;", "withFileLockSync(controllerLeaseLockPath", "writeJsonFileAtomic(paths.controllerLeasesPath, controllerLeaseAuthorityMigration.envelope)"]
+    },
+    {
+      "id": "authority.versioned-envelope",
+      "path": "scripts/ao/lib/controller-lease-authority.js",
+      "symbol": "createControllerLeaseAuthority/parseControllerLeaseAuthority",
+      "roles": ["reader", "writer", "format", "fail-closed"],
+      "anchors": ["export const CONTROLLER_LEASE_AUTHORITY_SCHEMA_VERSION", "export function createControllerLeaseAuthority", "export function parseControllerLeaseAuthority"]
     },
     {
       "id": "repository.collection-boundary",
@@ -50,14 +57,14 @@
       "path": "scripts/ao/lib/state-repository.js",
       "symbol": "readControllerLeaseRecords/readSnapshot",
       "roles": ["reader", "projection", "fail-closed"],
-      "anchors": ["throw new Error('Missing canonical controller lease authority: controller-leases.json')", "const records = readJsonFile(paths.controllerLeasesPath)", "controllerLeases: isolatedControllerLeases"]
+      "anchors": ["return readControllerLeaseAuthorityFile(paths.controllerLeasesPath).records", "const nextState = sortRepositoryStateCollections(cloneJsonValue(state), {"]
     },
     {
       "id": "repository.canonical-write",
       "path": "scripts/ao/lib/state-repository.js",
       "symbol": "persistControllerLeases",
       "roles": ["writer"],
-      "anchors": ["writeJsonFileAtomic(paths.controllerLeasesPath, nextControllerLeases)"]
+      "anchors": ["createControllerLeaseAuthority(nextControllerLeases)"]
     },
     {
       "id": "repository.ordinary-state-shadow-stripper",
@@ -128,7 +135,7 @@
       { "id": "persist-state-api", "pattern": "\\bpersistState\\b" },
       { "id": "file-name", "pattern": "controller-leases\\.json" }
     ],
-    "expected_match_count": 54,
-    "expected_digest": "cd2e9a01baa60be82d94a2771d81d14a39329fae2635123b2e2439bff2f625e5"
+    "expected_match_count": 56,
+    "expected_digest": "cda2e4c338c03583c87fcf62f177b16402cfe2a6c11da08c833a9c712dcf8789"
   }
 }
