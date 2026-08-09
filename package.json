@@ -89,9 +89,10 @@
     "verify:trajectory-vocabulary": "node scripts/verify-trajectory-vocabulary.js",
     "verify:completion-record-coverage": "node scripts/verify-completion-record-field-coverage.js",
     "verify:controller-lease-audit": "node scripts/verify-controller-lease-authority-audit.js",
+    "verify:controller-lease-safety": "node scripts/verify-controller-lease-safety.js",
     "audit:false-success": "node scripts/audit-false-success-trajectories.js",
     "verify:false-success": "node scripts/audit-false-success-trajectories.js --check",
-    "release:check": "npm test && npm run ao:test:acceptance && npm run ao:smoke && npm run verify:package && npm run verify:runtime-lock && npm run verify:runtime-bootstrap && npm run verify:runtime-lifecycle && npm run verify:fresh-clone && npm run verify:trajectory-vocabulary && npm run verify:false-success && npm run verify:completion-record-coverage && npm audit"
+    "release:check": "npm test && npm run ao:test:acceptance && npm run ao:smoke && npm run verify:package && npm run verify:runtime-lock && npm run verify:runtime-bootstrap && npm run verify:runtime-lifecycle && npm run verify:fresh-clone && npm run verify:trajectory-vocabulary && npm run verify:false-success && npm run verify:completion-record-coverage && npm run verify:controller-lease-safety && npm audit"
   },
   "jest": {
     "testEnvironment": "node",
