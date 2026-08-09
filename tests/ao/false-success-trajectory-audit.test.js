@@ -34,7 +34,7 @@ describe('false-success trajectory audit', () => {
     const validation = validateFalseSuccessFixturePack(pack, inventory);
     const report = buildFalseSuccessAuditReport(pack, inventory);
 
-    expect(validation).toEqual({ fixture_count: 16, covered_item_count: 50 });
+    expect(validation).toEqual({ fixture_count: 18, covered_item_count: 50 });
     expect(report.summary.inventory_item_count).toBe(inventory.items.length);
     expect(report.summary.covered_item_count).toBe(inventory.items.length);
     expect(report.coverage).toHaveLength(inventory.items.length);
@@ -100,12 +100,19 @@ describe('false-success trajectory audit', () => {
 
     const review = fixture('aggregate-approval-misses-exact-head-review');
     review.observation = {
-      review_state: 'approved',
+      review_state: 'COMMENTED',
+      review_actor: 'chatgpt-codex-connector[bot]',
+      protocol_verdict: 'PASS',
+      protocol_independent_role: true,
       target_head: 'same-head',
       review_commit_oid: 'same-head',
       submitted_review_evidence: true,
     };
     expect(evaluateFalseSuccessFixture(review).disposition).toBe('allow');
+
+    review.observation.review_actor = 'generic-reviewer';
+    review.observation.review_state = 'APPROVED';
+    expect(evaluateFalseSuccessFixture(review).disposition).toBe('block');
 
     const codeFailure = fixture('runner-error-is-not-code-failure');
     codeFailure.observation = { raw_check_state: 'completed_failure' };
@@ -179,6 +186,37 @@ describe('false-success trajectory audit', () => {
     expect(mutatedReport.report_fingerprint).not.toBe(originalReport.report_fingerprint);
     expect(mutatedReport.blocking_findings.find((entry) => entry.fixture_id === target.id).evidence_digest)
       .not.toBe(originalReport.blocking_findings.find((entry) => entry.fixture_id === target.id).evidence_digest);
+  });
+
+  it('binds complete fixture observations into findings and the report fingerprint', () => {
+    const mutated = structuredClone(pack);
+    const target = mutated.fixtures.find((entry) => entry.id === 'local-pass-is-not-merge');
+    target.observation = { provider_readback_complete: true, provider_pr_state: 'OPEN' };
+    const originalReport = buildFalseSuccessAuditReport(pack, inventory);
+    const mutatedReport = buildFalseSuccessAuditReport(mutated, inventory);
+
+    expect(mutatedReport.fixture_pack_digest).not.toBe(originalReport.fixture_pack_digest);
+    expect(mutatedReport.report_fingerprint).not.toBe(originalReport.report_fingerprint);
+    expect(mutatedReport.blocking_findings.find((entry) => entry.fixture_id === target.id).observation_digest)
+      .not.toBe(originalReport.blocking_findings.find((entry) => entry.fixture_id === target.id).observation_digest);
+  });
+
+  it('rejects mutually incompatible lifecycle and checkpoint evidence', () => {
+    const invalidCheckpoint = structuredClone(pack);
+    const checkpoint = invalidCheckpoint.fixtures.find((entry) => entry.id === 'valid-checkpoint-is-not-terminal-delivery');
+    checkpoint.covers.push('checkpoint.inspection_reason_codes');
+    checkpoint.evidence.push({
+      item_id: 'checkpoint.inspection_reason_codes',
+      value: 'checkpoint_execution_ref_missing',
+    });
+    expect(() => validateFalseSuccessFixturePack(invalidCheckpoint, inventory))
+      .toThrow('Valid checkpoint cannot contain an invalidity reason');
+
+    const invalidLifecycle = structuredClone(pack);
+    invalidLifecycle.fixtures.find((entry) => entry.id === 'release-ready-judgment-is-not-outcome')
+      .evidence.find((entry) => entry.item_id === 'action.lifecycle_action_class').value = 'merge_pr';
+    expect(() => validateFalseSuccessFixturePack(invalidLifecycle, inventory))
+      .toThrow('notify_human_ready action class mismatch');
   });
 
   it('resolves replay targets and rejects missing or changed source semantics', () => {

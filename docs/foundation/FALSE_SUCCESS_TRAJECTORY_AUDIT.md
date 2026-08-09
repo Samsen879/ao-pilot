@@ -17,7 +17,9 @@ It reproduces false-success and unknown-outcome claims across every one of the
 - queued/not-run CI is not execution, aggregate passing is not exact-head
   required-check success, and runner/startup failure is not code failure;
 - aggregate approval or a review on another commit is not a submitted
-  exact-head review;
+  exact-head review; success requires the connector identity, a submitted
+  `COMMENTED`/`APPROVED` review, protocol `PASS`, independent-role evidence,
+  and exact commit binding;
 - specialized operational receipts prove only their declared scope; and
 - missing or unknown external evidence remains blocking during replay.
 
@@ -32,6 +34,14 @@ evidence digest is bound into its finding fingerprint. Its
 `unresolved_producer_count` records the distinct
 fixture producers that remain deliberately unresolved; none can be promoted
 to success by this audit.
+
+Cross-field checks reject impossible checkpoint and lifecycle combinations:
+valid checkpoints cannot carry invalidity reasons, reason codes require an
+invalid/stale state, and ready-notification and human-gate actions must match
+their release disposition, basis, class, top status, and automation posture.
+The full canonical fixture-pack digest and each observation digest are also
+bound into the committed report, so an input-only semantic change cannot reuse
+an old report fingerprint.
 
 ## Deterministic runner
 

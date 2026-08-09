@@ -46,7 +46,10 @@ const POLICIES = Object.freeze({
   },
   exact_head_review: {
     allowed(observation) {
-      return observation.review_state === 'approved'
+      return ['COMMENTED', 'APPROVED'].includes(observation.review_state)
+        && observation.review_actor === 'chatgpt-codex-connector[bot]'
+        && observation.protocol_verdict === 'PASS'
+        && observation.protocol_independent_role === true
         && typeof observation.target_head === 'string'
         && observation.target_head !== ''
         && observation.review_commit_oid === observation.target_head
@@ -116,6 +119,35 @@ function validateObservationValue(fixture, itemMap) {
   assert(item.values.includes(producer.value), `Unsupported producer value for ${fixture.id}: ${producer.value}`);
 }
 
+function evidenceValue(fixture, itemId) {
+  return fixture.evidence.find((evidence) => evidence.item_id === itemId)?.value;
+}
+
+function validateCoherentTrajectory(fixture) {
+  const checkpointState = evidenceValue(fixture, 'checkpoint.inspection_state');
+  const checkpointReason = evidenceValue(fixture, 'checkpoint.inspection_reason_codes');
+  if (checkpointState === 'valid') {
+    assert(checkpointReason == null, `Valid checkpoint cannot contain an invalidity reason: ${fixture.id}`);
+  }
+  if (checkpointReason != null) {
+    assert(['invalid', 'stale'].includes(checkpointState), `Checkpoint reason requires invalid or stale state: ${fixture.id}`);
+  }
+
+  const releaseDisposition = evidenceValue(fixture, 'lifecycle.release_disposition');
+  if (releaseDisposition === 'notify_human_ready') {
+    assert(evidenceValue(fixture, 'action.lifecycle_action_id') === 'notify_human_ready', `notify_human_ready action id mismatch: ${fixture.id}`);
+    assert(evidenceValue(fixture, 'action.lifecycle_action_class') === 'notify_human', `notify_human_ready action class mismatch: ${fixture.id}`);
+    assert(evidenceValue(fixture, 'lifecycle.release_basis') === 'ready_for_human_notification', `notify_human_ready basis mismatch: ${fixture.id}`);
+  }
+  if (evidenceValue(fixture, 'lifecycle.human_gate_mapping') != null) {
+    assert(releaseDisposition === 'human_gate', `Human-gate mapping requires human_gate release disposition: ${fixture.id}`);
+    assert(evidenceValue(fixture, 'action.lifecycle_action_id') === 'human_gate', `Human-gate action id mismatch: ${fixture.id}`);
+    assert(evidenceValue(fixture, 'action.lifecycle_action_class') === 'human_gate', `Human-gate action class mismatch: ${fixture.id}`);
+    assert(evidenceValue(fixture, 'lifecycle.top_status') === 'human_gate', `Human-gate top status mismatch: ${fixture.id}`);
+    assert(evidenceValue(fixture, 'lifecycle.automation_disposition') === 'human_gate', `Human-gate automation disposition mismatch: ${fixture.id}`);
+  }
+}
+
 export function validateFalseSuccessFixturePack(pack, inventory) {
   assert(pack?.schema_version === FALSE_SUCCESS_FIXTURE_PACK_SCHEMA_VERSION, 'Unsupported false-success fixture pack schema');
   assert(pack.inventory_schema_version === inventory.schema_version, 'Fixture pack inventory schema mismatch');
@@ -152,6 +184,7 @@ export function validateFalseSuccessFixturePack(pack, inventory) {
     for (const itemId of evidenceIds) {
       assert(fixture.covers.includes(itemId), `Concrete evidence is not declared as coverage for ${id}: ${itemId}`);
     }
+    validateCoherentTrajectory(fixture);
     assert(fixture.covers.includes(fixture.producer.item_id), `Producer is not covered by fixture ${id}`);
     assert(fixture.evidence.some((evidence) => (
       evidence.item_id === fixture.producer.item_id && evidence.value === fixture.producer.value
@@ -203,6 +236,7 @@ export function evaluateFalseSuccessFixture(fixture) {
     producer_item_id: fixture.producer.item_id,
     producer_value: fixture.producer.value,
     evidence_digest: stableDigest(fixture.evidence),
+    observation_digest: stableDigest(fixture.observation),
     disposition: 'block',
     durable: true,
   };
@@ -261,6 +295,7 @@ export function buildFalseSuccessAuditReport(pack, inventory) {
   const reportCore = {
     schema_version: FALSE_SUCCESS_AUDIT_REPORT_SCHEMA_VERSION,
     fixture_pack_version: pack.fixture_pack_version,
+    fixture_pack_digest: stableDigest(pack),
     inventory_schema_version: inventory.schema_version,
     inventory_version: inventory.inventory_version,
     status: findings.length === pack.fixtures.length ? 'blocked_as_expected' : 'invalid',

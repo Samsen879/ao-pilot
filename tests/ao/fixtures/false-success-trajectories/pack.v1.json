@@ -98,7 +98,7 @@
       "producer": { "item_id": "review.github_decision", "value": "approved" },
       "policy": "exact_head_review",
       "claim": "exact_head_review_passed",
-      "observation": { "review_state": "approved", "target_head": "head-b", "review_commit_oid": "head-a", "submitted_review_evidence": true },
+      "observation": { "review_state": "APPROVED", "review_actor": "generic-reviewer", "protocol_verdict": null, "protocol_independent_role": false, "target_head": "head-b", "review_commit_oid": "head-a", "submitted_review_evidence": true },
       "covers": ["review.github_decision", "review.github_target_head", "review.github_review_fields", "review.github_review_state"],
       "evidence": [
         { "item_id": "review.github_decision", "value": "approved" },
@@ -132,17 +132,37 @@
       "policy": "lifecycle_judgment_outcome",
       "claim": "terminal_delivery_succeeded",
       "observation": { "judgment": "ready" },
-      "covers": ["action.lifecycle_action_id", "action.lifecycle_action_class", "lifecycle.top_status", "lifecycle.routing_action", "lifecycle.release_disposition", "lifecycle.release_basis", "lifecycle.human_gate_mapping", "lifecycle.gate_state", "lifecycle.automation_disposition"],
+      "covers": ["action.lifecycle_action_id", "action.lifecycle_action_class", "lifecycle.top_status", "lifecycle.routing_action", "lifecycle.release_disposition", "lifecycle.release_basis", "lifecycle.gate_state", "lifecycle.automation_disposition"],
       "evidence": [
-        { "item_id": "action.lifecycle_action_id", "value": "auto_merge_ready_pr" },
-        { "item_id": "action.lifecycle_action_class", "value": "merge_pr" },
+        { "item_id": "action.lifecycle_action_id", "value": "notify_human_ready" },
+        { "item_id": "action.lifecycle_action_class", "value": "notify_human" },
         { "item_id": "lifecycle.top_status", "value": "observe" },
         { "item_id": "lifecycle.routing_action", "value": "no_action" },
         { "item_id": "lifecycle.release_disposition", "value": "notify_human_ready" },
         { "item_id": "lifecycle.release_basis", "value": "ready_for_human_notification" },
-        { "item_id": "lifecycle.human_gate_mapping", "value": "missing_pr_assessment:refresh_required" },
         { "item_id": "lifecycle.gate_state", "value": "open" },
         { "item_id": "lifecycle.automation_disposition", "value": "continue" }
+      ],
+      "expected": { "disposition": "block", "finding_code": "ao_judgment_is_not_external_outcome" }
+    },
+    {
+      "id": "human-gate-mapping-is-not-outcome",
+      "type": "false_success",
+      "description": "A coherent human-gate judgment and disposition mapping remains an AO judgment, not an external outcome.",
+      "producer": { "item_id": "lifecycle.human_gate_mapping", "value": "doctor_ambiguous:escalation_required" },
+      "policy": "lifecycle_judgment_outcome",
+      "claim": "terminal_delivery_succeeded",
+      "observation": { "judgment": "human_gate", "basis": "doctor_ambiguous" },
+      "covers": ["action.lifecycle_action_id", "action.lifecycle_action_class", "lifecycle.top_status", "lifecycle.release_disposition", "lifecycle.release_basis", "lifecycle.human_gate_mapping", "lifecycle.gate_state", "lifecycle.automation_disposition"],
+      "evidence": [
+        { "item_id": "action.lifecycle_action_id", "value": "human_gate" },
+        { "item_id": "action.lifecycle_action_class", "value": "human_gate" },
+        { "item_id": "lifecycle.top_status", "value": "human_gate" },
+        { "item_id": "lifecycle.release_disposition", "value": "human_gate" },
+        { "item_id": "lifecycle.release_basis", "value": "doctor_ambiguous" },
+        { "item_id": "lifecycle.human_gate_mapping", "value": "doctor_ambiguous:escalation_required" },
+        { "item_id": "lifecycle.gate_state", "value": "ambiguous" },
+        { "item_id": "lifecycle.automation_disposition", "value": "human_gate" }
       ],
       "expected": { "disposition": "block", "finding_code": "ao_judgment_is_not_external_outcome" }
     },
@@ -174,7 +194,7 @@
       "policy": "checkpoint_terminality",
       "claim": "terminal_delivery_succeeded",
       "observation": { "checkpoint_state": "valid" },
-      "covers": ["checkpoint.checkpoint_id", "checkpoint.task_id", "checkpoint.recorded_at", "checkpoint.created_by", "checkpoint.reason", "checkpoint.metadata", "checkpoint.snapshot_schema_version", "checkpoint.snapshot_format", "checkpoint.task_ref_fields", "checkpoint.pr_binding_fields", "checkpoint.task_spec_ref_fields", "checkpoint.runtime_preflight_ref_fields", "checkpoint.execution_ref_fields", "checkpoint.inspection_state", "checkpoint.inspection_reason_codes"],
+      "covers": ["checkpoint.checkpoint_id", "checkpoint.task_id", "checkpoint.recorded_at", "checkpoint.created_by", "checkpoint.reason", "checkpoint.metadata", "checkpoint.snapshot_schema_version", "checkpoint.snapshot_format", "checkpoint.task_ref_fields", "checkpoint.pr_binding_fields", "checkpoint.task_spec_ref_fields", "checkpoint.runtime_preflight_ref_fields", "checkpoint.execution_ref_fields", "checkpoint.inspection_state"],
       "evidence": [
         { "item_id": "checkpoint.checkpoint_id", "value": "non_empty_string" },
         { "item_id": "checkpoint.task_id", "value": "non_empty_string" },
@@ -189,7 +209,21 @@
         { "item_id": "checkpoint.task_spec_ref_fields", "value": "state" },
         { "item_id": "checkpoint.runtime_preflight_ref_fields", "value": "status" },
         { "item_id": "checkpoint.execution_ref_fields", "value": "observed_at" },
-        { "item_id": "checkpoint.inspection_state", "value": "valid" },
+        { "item_id": "checkpoint.inspection_state", "value": "valid" }
+      ],
+      "expected": { "disposition": "block", "finding_code": "checkpoint_validity_is_not_terminal_delivery" }
+    },
+    {
+      "id": "invalid-checkpoint-reason-is-not-terminal-delivery",
+      "type": "false_success",
+      "description": "An invalid checkpoint with a concrete reason code cannot establish terminal delivery.",
+      "producer": { "item_id": "checkpoint.inspection_reason_codes", "value": "checkpoint_execution_ref_missing" },
+      "policy": "checkpoint_terminality",
+      "claim": "terminal_delivery_succeeded",
+      "observation": { "checkpoint_state": "invalid", "reason_code": "checkpoint_execution_ref_missing" },
+      "covers": ["checkpoint.inspection_state", "checkpoint.inspection_reason_codes"],
+      "evidence": [
+        { "item_id": "checkpoint.inspection_state", "value": "invalid" },
         { "item_id": "checkpoint.inspection_reason_codes", "value": "checkpoint_execution_ref_missing" }
       ],
       "expected": { "disposition": "block", "finding_code": "checkpoint_validity_is_not_terminal_delivery" }
@@ -232,7 +266,7 @@
       "producer": { "item_id": "review.github_target_head", "value": "missing" },
       "policy": "exact_head_review",
       "claim": "exact_head_review_passed",
-      "observation": { "review_state": "unknown", "target_head": "", "review_commit_oid": "", "submitted_review_evidence": false },
+      "observation": { "review_state": "UNKNOWN", "review_actor": null, "protocol_verdict": null, "protocol_independent_role": false, "target_head": "", "review_commit_oid": "", "submitted_review_evidence": false },
       "covers": ["review.github_decision", "review.github_target_head", "review.github_review_fields", "review.github_review_state"],
       "evidence": [
         { "item_id": "review.github_decision", "value": "unknown" },
