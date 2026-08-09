@@ -13,6 +13,10 @@ external effect, and human approval.
 The associated lifecycle action has class `release_judgment` and no commands.
 Persisting or executing that durable action records AO control state only. A
 provider observation remains the sole authority for an external merge outcome.
+Execution fails closed unless the persisted decision matches the v1 contract,
+scope, basis, authority, and all three non-claims. The new action class advances
+controller-run and execution-attempt measurement records from v1alpha1 to
+v1alpha2; legacy measurement records retain their original schema identifiers.
 
 ## Compatibility and immutable legacy interpretation
 
@@ -26,6 +30,9 @@ Adapters clone their inputs. They do not rewrite lifecycle reports, delivery
 events, action records, audit history, or persisted control-plane state.
 Deprecation findings are informational so mixed-version replay and unattended
 delivery continue without turning vocabulary age into a control blocker.
+Malformed current judgments are not repaired by observation: their original
+values remain visible and a blocking `release_ready_contract_invalid` finding
+records the mismatch. Legacy projections are explicitly non-authoritative.
 
 ## Decision and effect boundary
 

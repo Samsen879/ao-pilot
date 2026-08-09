@@ -64,6 +64,23 @@ describe('trajectory vocabulary inventory', () => {
     ], inventory)).toHaveLength(4);
   });
 
+  it('applies the legacy release alias only to the declared v1alpha1 vocabulary', () => {
+    const missingVersion = loadFixture('replay');
+    delete missingVersion.release_vocabulary_version;
+    expect(() => validateTrajectoryFixture(missingVersion, inventory))
+      .toThrow('notify_human_ready projection requires ao.lifecycle.v1alpha1');
+
+    const currentVersion = loadFixture('replay');
+    currentVersion.release_vocabulary_version = 'ao.release-judgment.v1';
+    expect(() => validateTrajectoryFixture(currentVersion, inventory))
+      .toThrow('notify_human_ready projection requires ao.lifecycle.v1alpha1');
+
+    const unknownVersion = loadFixture('replay');
+    unknownVersion.release_vocabulary_version = 'ao.lifecycle.v1alpha0';
+    expect(() => validateTrajectoryFixture(unknownVersion, inventory))
+      .toThrow('Unsupported release vocabulary version: ao.lifecycle.v1alpha0');
+  });
+
   it('fails closed when semantic ownership or role-aware source evidence is missing', () => {
     const missingOwner = structuredClone(inventory);
     missingOwner.items[0].semantic_owner = '';

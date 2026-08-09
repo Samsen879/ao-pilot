@@ -471,6 +471,9 @@ describe('ao action executor', () => {
       commands: [],
       releaseDecision: {
         disposition: 'release_ready',
+        basis: ['release_preflight_authorized'],
+        authoritative: true,
+        judgment_contract: 'ao.release-judgment.v1',
         authority_scope: 'or_preflight_only',
         claims: {
           merge: false,
@@ -507,6 +510,70 @@ describe('ao action executor', () => {
             kind: 'durable_state',
             intent: { action_kind: 'release_ready' },
             receipt: { durable_action_status: 'executed' },
+          },
+        },
+      },
+    });
+  });
+
+  it.each([
+    ['missing decision', null, 'release_decision_missing'],
+    ['effect-claiming decision', {
+      disposition: 'release_ready',
+      basis: ['release_preflight_authorized'],
+      authoritative: true,
+      judgment_contract: 'ao.release-judgment.v1',
+      authority_scope: 'or_preflight_only',
+      claims: {
+        merge: true,
+        external_effect: false,
+        human_approval: false,
+      },
+    }, 'release_claim_merge_invalid'],
+  ])('fails closed before executing a release_ready action with a %s', async (
+    _label,
+    releaseDecision,
+    expectedReasonCode,
+  ) => {
+    const repository = createStateRepository({
+      repoRoot: createTempRepo(),
+      projectId: PROJECT_ID,
+      auditIdGenerator: createIdGenerator('audit'),
+    });
+    seedActiveTask(repository);
+    seedAllowedAction(repository, {
+      actionId: 'action-release-ready-invalid',
+      actionKind: 'release_ready',
+      actionClass: 'release_judgment',
+      summary: 'Authorize OR to begin release preflight.',
+      commands: [],
+      releaseDecision,
+    });
+    const commandRunner = jest.fn();
+
+    const result = await executeAssistActions({
+      repository,
+      controllerId: 'default',
+      task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: ['action-release-ready-invalid'],
+      now: '2026-03-29T07:12:00.000Z',
+      commandRunner,
+    });
+
+    expect(result).toEqual({
+      executedActionIds: [],
+      blockedActionIds: ['action-release-ready-invalid'],
+    });
+    expect(commandRunner).not.toHaveBeenCalled();
+    expect(repository.getSnapshot().state.actions[0]).toMatchObject({
+      status: 'blocked',
+      payload: {
+        execution: {
+          outcome: 'blocked',
+          reason: 'release_judgment_contract_invalid',
+          details: {
+            ok: false,
+            reason_codes: expect.arrayContaining([expectedReasonCode]),
           },
         },
       },

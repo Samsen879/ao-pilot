@@ -158,6 +158,13 @@ describe('ao state report', () => {
             model_reason: 'class_a_allowlist',
             execution_reason: 'class_a_assist_execution',
           },
+          {
+            action_id: 'action-legacy-auto-merge',
+            action_kind: 'auto_merge_ready_pr',
+            status: 'blocked',
+            model_reason: 'explicit_irreversible_remote_authorization_gate',
+            execution_reason: 'authorization_missing',
+          },
         ],
       },
       audit: {
@@ -175,5 +182,6 @@ describe('ao state report', () => {
     expect(summary).toContain('debt_items: task_worktree:/repo/.worktrees/task-120--cleanup-ready=cleanup_candidate/remove_task_worktree, managed_task:issue-123=archive_candidate/archive_retired_task_history');
     expect(summary).toContain('assist_actions: action-continue=continue_worker/executed/model:class_a_allowlist/exec:class_a_assist_execution');
     expect(summary).toContain('action-legacy-ready=release_ready(source:notify_human_ready;deprecated)/executed/model:class_a_allowlist/exec:class_a_assist_execution');
+    expect(summary).toContain('action-legacy-auto-merge=auto_merge_ready_pr(legacy_effect_request;deprecated)/blocked/model:explicit_irreversible_remote_authorization_gate/exec:authorization_missing');
   });
 });

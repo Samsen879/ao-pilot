@@ -124,7 +124,7 @@ describe('canonical AO state contracts characterization', () => {
     });
 
     expect(controllerMetric).toMatchObject({
-      schema_version: 'ao.controller-run-measurement.v1alpha1',
+      schema_version: 'ao.controller-run-measurement.v1alpha2',
       format: 'ao_controller_run_measurement',
       action_class_counts: {
         continue_worker: 3,

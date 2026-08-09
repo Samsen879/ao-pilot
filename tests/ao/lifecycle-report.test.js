@@ -69,6 +69,7 @@ describe('lifecycle report', () => {
 
   it('renders the current release judgment boundary without suggesting an effect', () => {
     const summary = renderLifecycleHumanSummary(buildReport({
+      schema_version: 'ao.lifecycle.v1alpha2',
       top_status: 'continue',
       findings: [],
       actions: [],
@@ -76,6 +77,13 @@ describe('lifecycle report', () => {
         disposition: 'release_ready',
         basis: ['release_preflight_authorized'],
         authoritative: true,
+        judgment_contract: 'ao.release-judgment.v1',
+        authority_scope: 'or_preflight_only',
+        claims: {
+          merge: false,
+          external_effect: false,
+          human_approval: false,
+        },
       },
     }));
 

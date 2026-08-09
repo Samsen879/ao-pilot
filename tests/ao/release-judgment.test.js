@@ -50,10 +50,12 @@ describe('release judgment migration', () => {
       disposition: 'release_ready',
       basis: ['release_preflight_authorized'],
       authority_scope: 'observation_only',
+      authoritative: false,
       source_interpretation: {
         schema_version: 'ao.lifecycle.v1alpha1',
         disposition: 'notify_human_ready',
         basis: ['ready_for_human_notification'],
+        authoritative: true,
         immutable: true,
         deprecated_vocabulary: true,
       },
@@ -61,6 +63,39 @@ describe('release judgment migration', () => {
     expect(observed.actions).toEqual(legacyReport.actions);
     expect(observed.findings).toEqual([
       expect.objectContaining({ code: 'legacy_notify_human_ready_deprecated' }),
+    ]);
+  });
+
+  it('preserves malformed current claims and emits a blocking observation finding', () => {
+    const report = {
+      schema_version: 'ao.lifecycle.v1alpha2',
+      release_decision: {
+        disposition: 'release_ready',
+        basis: ['release_preflight_authorized'],
+        authoritative: true,
+        judgment_contract: 'ao.release-judgment.v1',
+        authority_scope: 'or_preflight_only',
+        claims: {
+          merge: true,
+          external_effect: false,
+          human_approval: false,
+        },
+      },
+      findings: [],
+      actions: [],
+    };
+
+    const observed = adaptLifecycleReportForObservation(report);
+
+    expect(observed.release_decision).toEqual(report.release_decision);
+    expect(observed.release_decision_observation).toEqual(report.release_decision);
+    expect(observed.release_decision.claims.merge).toBe(true);
+    expect(observed.findings).toEqual([
+      expect.objectContaining({
+        code: 'release_ready_contract_invalid',
+        severity: 'blocker',
+        details: ['release_claim_merge_invalid'],
+      }),
     ]);
   });
 

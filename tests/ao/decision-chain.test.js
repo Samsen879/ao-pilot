@@ -167,6 +167,50 @@ describe('decision chain report', () => {
         disposition: 'release_ready',
         authority_scope: 'observation_only',
       }),
+      deprecation_findings: [
+        expect.objectContaining({
+          code: 'legacy_notify_human_ready_deprecated',
+          severity: 'info',
+        }),
+      ],
     });
+  });
+
+  it('surfaces malformed current release judgments without repairing their claims', () => {
+    const scope = createDecisionChainScope({
+      projectId: 'my-project',
+      prNumber: 44,
+      trigger: 'approved_and_green',
+    });
+    const report = buildDecisionChainReport({
+      scope,
+      lifecycleReport: {
+        schema_version: 'ao.lifecycle.v1alpha2',
+        top_status: 'continue',
+        findings: [],
+        actions: [],
+        release_decision: {
+          disposition: 'release_ready',
+          basis: ['release_preflight_authorized'],
+          authoritative: true,
+          judgment_contract: 'ao.release-judgment.v1',
+          authority_scope: 'or_preflight_only',
+          claims: {
+            merge: true,
+            external_effect: false,
+            human_approval: false,
+          },
+        },
+      },
+    });
+
+    expect(report.release_decision.claims.merge).toBe(true);
+    expect(report.release_decision_observation.claims.merge).toBe(true);
+    expect(report.blocking_reasons).toEqual([
+      expect.objectContaining({
+        code: 'release_ready_contract_invalid',
+        severity: 'blocker',
+      }),
+    ]);
   });
 });

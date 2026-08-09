@@ -1,8 +1,10 @@
 import { LIFECYCLE_TRIGGERS, normalizeLifecycleTrigger } from './lifecycle-contracts.js';
 
-export const CONTROLLER_RUN_MEASUREMENT_SCHEMA_VERSION = 'ao.controller-run-measurement.v1alpha1';
+export const LEGACY_CONTROLLER_RUN_MEASUREMENT_SCHEMA_VERSION = 'ao.controller-run-measurement.v1alpha1';
+export const CONTROLLER_RUN_MEASUREMENT_SCHEMA_VERSION = 'ao.controller-run-measurement.v1alpha2';
 export const CONTROLLER_RUN_MEASUREMENT_FORMAT = 'ao_controller_run_measurement';
-export const EXECUTION_ATTEMPT_MEASUREMENT_SCHEMA_VERSION = 'ao.execution-attempt-measurement.v1alpha1';
+export const LEGACY_EXECUTION_ATTEMPT_MEASUREMENT_SCHEMA_VERSION = 'ao.execution-attempt-measurement.v1alpha1';
+export const EXECUTION_ATTEMPT_MEASUREMENT_SCHEMA_VERSION = 'ao.execution-attempt-measurement.v1alpha2';
 export const EXECUTION_ATTEMPT_MEASUREMENT_FORMAT = 'ao_execution_attempt_measurement';
 
 export const MEASUREMENT_TRIGGER_KINDS = [...LIFECYCLE_TRIGGERS];
@@ -50,6 +52,7 @@ export const MEASUREMENT_FAILURE_CLASSES = [
   'worker_exit',
   'successor_handoff',
   'external_effect',
+  'contract_invalid',
   'unknown',
 ];
 
@@ -179,6 +182,7 @@ export function resolveExecutionAttemptFailureClass({
     return 'preflight_block';
   }
   if (normalizedReason === 'explicit_human_gate_required') return 'human_gate';
+  if (normalizedReason === 'release_judgment_contract_invalid') return 'contract_invalid';
   if (normalizedReason === 'worker_exited' || normalizedReason === 'worker_stale') return 'worker_exit';
   if (normalizedReason.includes('handoff')) return 'successor_handoff';
   if (

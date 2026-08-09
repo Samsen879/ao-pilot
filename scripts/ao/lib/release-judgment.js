@@ -1,3 +1,5 @@
+import { LIFECYCLE_SCHEMA_VERSION } from './lifecycle-contracts.js';
+
 export const RELEASE_JUDGMENT_SCHEMA_VERSION = 'ao.release-judgment.v1';
 export const RELEASE_JUDGMENT_KIND = 'release_ready';
 export const RELEASE_READY_AUTHORITY_SCOPE = 'or_preflight_only';
@@ -26,6 +28,43 @@ function uniqueStrings(values) {
     .filter((value) => value != null)
     .map((value) => String(value))
     .filter((value) => value !== ''))];
+}
+
+export function validateReleaseReadyDecision(releaseDecision) {
+  const reasonCodes = [];
+  if (releaseDecision == null || typeof releaseDecision !== 'object' || Array.isArray(releaseDecision)) {
+    reasonCodes.push('release_decision_missing');
+  } else {
+    if (releaseDecision.disposition !== RELEASE_JUDGMENT_KIND) {
+      reasonCodes.push('release_disposition_invalid');
+    }
+    if (releaseDecision.judgment_contract !== RELEASE_JUDGMENT_SCHEMA_VERSION) {
+      reasonCodes.push('release_judgment_contract_invalid');
+    }
+    if (releaseDecision.authority_scope !== RELEASE_READY_AUTHORITY_SCOPE) {
+      reasonCodes.push('release_authority_scope_invalid');
+    }
+    if (releaseDecision.authoritative !== true) {
+      reasonCodes.push('release_authority_invalid');
+    }
+    if (
+      !Array.isArray(releaseDecision.basis)
+      || releaseDecision.basis.length !== 1
+      || releaseDecision.basis[0] !== RELEASE_READY_BASIS
+    ) {
+      reasonCodes.push('release_basis_invalid');
+    }
+    for (const claim of Object.keys(RELEASE_READY_NON_CLAIMS)) {
+      if (releaseDecision.claims?.[claim] !== false) {
+        reasonCodes.push(`release_claim_${claim}_invalid`);
+      }
+    }
+  }
+
+  return {
+    ok: reasonCodes.length === 0,
+    reason_codes: reasonCodes,
+  };
 }
 
 export function createReleaseReadyDecision() {
@@ -75,6 +114,21 @@ export function createReleaseVocabularyDeprecationFinding(disposition, {
   return null;
 }
 
+function createInvalidReleaseJudgmentFinding(validation) {
+  return {
+    code: 'release_ready_contract_invalid',
+    severity: 'blocker',
+    origin: 'lifecycle_observation',
+    source_area: 'release_judgment',
+    subject_type: 'release_disposition',
+    subject_id: null,
+    summary: 'Observed release_ready data does not satisfy its declared contract.',
+    details: validation.reason_codes,
+    evidence_refs: [],
+    action_ids: [],
+  };
+}
+
 export function observeReleaseDecision({
   schemaVersion = null,
   releaseDecision = null,
@@ -92,19 +146,28 @@ export function observeReleaseDecision({
   const deprecationFinding = createReleaseVocabularyDeprecationFinding(sourceDisposition);
 
   if (sourceDisposition !== LEGACY_RELEASE_DISPOSITIONS.NOTIFY_HUMAN_READY) {
-    const decision = sourceDisposition === RELEASE_JUDGMENT_KIND
-      ? {
-          ...sourceDecision,
-          basis: uniqueStrings(sourceDecision.basis ?? []),
-          judgment_contract: RELEASE_JUDGMENT_SCHEMA_VERSION,
-          authority_scope: RELEASE_READY_AUTHORITY_SCOPE,
-          claims: { ...RELEASE_READY_NON_CLAIMS },
-        }
-      : sourceDecision;
+    let validation = sourceDisposition === RELEASE_JUDGMENT_KIND
+      ? validateReleaseReadyDecision(sourceDecision)
+      : null;
+    if (
+      validation != null
+      && schemaVersion !== LIFECYCLE_SCHEMA_VERSION
+    ) {
+      validation = {
+        ok: false,
+        reason_codes: [
+          ...validation.reason_codes,
+          'release_lifecycle_schema_unsupported',
+        ],
+      };
+    }
+    const invalidFinding = validation != null && !validation.ok
+      ? createInvalidReleaseJudgmentFinding(validation)
+      : null;
     return {
-      decision,
-      canonical_projection: decision,
-      deprecation_findings: deprecationFinding == null ? [] : [deprecationFinding],
+      decision: sourceDecision,
+      canonical_projection: sourceDecision,
+      deprecation_findings: [deprecationFinding, invalidFinding].filter(Boolean),
     };
   }
 
@@ -118,11 +181,13 @@ export function observeReleaseDecision({
       ))),
       judgment_contract: RELEASE_JUDGMENT_SCHEMA_VERSION,
       authority_scope: 'observation_only',
+      authoritative: false,
       claims: { ...RELEASE_READY_NON_CLAIMS },
       source_interpretation: {
         schema_version: schemaVersion,
         disposition: sourceDisposition,
         basis: cloneJsonValue(sourceDecision.basis ?? []),
+        authoritative: sourceDecision.authoritative === true,
         immutable: true,
         deprecated_vocabulary: true,
       },

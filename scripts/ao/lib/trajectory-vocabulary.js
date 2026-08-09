@@ -300,9 +300,39 @@ export function validateTrajectoryFixture(fixture, inventory) {
     nonEmptyString(fixture.replay_of, 'fixture.replay_of');
   }
 
+  const releaseVocabularyVersion = fixture.release_vocabulary_version == null
+    ? null
+    : nonEmptyString(fixture.release_vocabulary_version, 'fixture.release_vocabulary_version');
+  const supportedReleaseVocabularyVersions = [
+    'ao.lifecycle.v1alpha1',
+    'ao.release-judgment.v1',
+  ];
+  if (releaseVocabularyVersion != null) {
+    assert(
+      supportedReleaseVocabularyVersions.includes(releaseVocabularyVersion),
+      `Unsupported release vocabulary version: ${releaseVocabularyVersion}`,
+    );
+  }
+  const releaseExpectation = fixture.expectations.find((expectation) => (
+    expectation.item_id === 'lifecycle.release_disposition'
+  ));
+  if (releaseExpectation?.value === 'notify_human_ready') {
+    assert(
+      releaseVocabularyVersion === 'ao.lifecycle.v1alpha1',
+      'notify_human_ready projection requires ao.lifecycle.v1alpha1',
+    );
+  }
+  if (releaseExpectation?.value === 'release_ready') {
+    assert(
+      releaseVocabularyVersion === 'ao.release-judgment.v1',
+      'release_ready projection requires ao.release-judgment.v1',
+    );
+  }
+
   const canonicalExpectations = fixture.expectations.map((expectation) => {
     if (
-      expectation.item_id === 'lifecycle.release_disposition'
+      releaseVocabularyVersion === 'ao.lifecycle.v1alpha1'
+      && expectation.item_id === 'lifecycle.release_disposition'
       && expectation.value === 'notify_human_ready'
     ) {
       return { ...expectation, value: 'release_ready' };
@@ -312,7 +342,7 @@ export function validateTrajectoryFixture(fixture, inventory) {
 
   return {
     scenario,
-    release_vocabulary_version: fixture.release_vocabulary_version ?? null,
+    release_vocabulary_version: releaseVocabularyVersion,
     expectation_count: fixture.expectations.length,
     family_count: coveredFamilies.size,
     projection_digest: createHash('sha256')
