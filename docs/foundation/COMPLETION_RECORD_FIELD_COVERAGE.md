@@ -9,7 +9,7 @@ not define a production schema, generate a Completion Record, or add state.
 The machine-readable ledger is
 [`completion-record-field-coverage.v1.json`](completion-record-field-coverage.v1.json).
 It audits 40 candidates: 13 required, 23 conditional, and 4 unsupported. The
-committed oracles establish 25 candidates and leave 11 explicitly
+committed oracles establish 26 candidates and leave 10 explicitly
 `not_established`. Each required or conditional candidate has one deterministic
 source contract; each established candidate additionally maps to an exact JSON
 pointer or Markdown marker in a digest-bound committed source.
@@ -40,11 +40,11 @@ must produce identical field-by-field output.
 ## Explicit gaps and omissions
 
 The fixture does not authenticate child/record identity, issue identity,
-parent relations, TaskSpec/policy/grant/judgment/escalation references, or a
-first-class merge-observation reference. Required identity gaps fail closed;
-conditional gaps remain `not_established`. P0-A merge SHAs do not manufacture a
-merge-observation id, and review or branch context does not manufacture task or
-issue identity.
+parent relations, or TaskSpec/policy/grant/judgment/escalation references.
+Required identity gaps fail closed; conditional gaps remain `not_established`.
+P0-A merge observations retain the selected PR metadata request joined to its
+digest-bound endpoint page, and review or branch context does not manufacture
+task or issue identity.
 
 `deviations[]`, `lesson_candidates[]`, `model_generated_narrative`, and
 `narrative_summary` are unsupported and omitted. The consolidation Markdown is

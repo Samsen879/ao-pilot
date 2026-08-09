@@ -36,6 +36,12 @@ function fileDigest(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
+function assertContainedPath(root, candidate, label) {
+  const relative = path.relative(root, candidate);
+  assert(relative !== '' && relative !== '..'
+    && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative), `Unbounded ${label}`);
+}
+
 function resolveJsonPointer(document, pointer, label) {
   assert(pointer === '' || pointer.startsWith('/'), `Invalid JSON pointer for ${label}: ${pointer}`);
   const tokens = pointer === ''
@@ -66,11 +72,16 @@ function validateSource(source, index, repositoryRoot) {
   const label = `sources[${index}]`;
   const id = nonEmptyString(source?.id, `${label}.id`);
   const relativePath = nonEmptyString(source?.path, `${label}.path`);
-  assert(!path.isAbsolute(relativePath) && !relativePath.split('/').includes('..'), `Unbounded ${label}.path`);
+  const portablePath = relativePath.replaceAll('\\', '/');
+  assert(relativePath === portablePath && !path.posix.isAbsolute(portablePath)
+    && !portablePath.split('/').includes('..'), `Unbounded ${label}.path`);
   assert(['json', 'markdown'].includes(source.format), `Invalid ${label}.format`);
   assert(/^[0-9a-f]{64}$/.test(source.sha256), `Invalid ${label}.sha256`);
-  const absolutePath = path.join(repositoryRoot, relativePath);
+  const resolvedRoot = path.resolve(repositoryRoot);
+  const absolutePath = path.resolve(resolvedRoot, ...portablePath.split('/'));
+  assertContainedPath(resolvedRoot, absolutePath, `${label}.path`);
   assert(fs.existsSync(absolutePath), `Missing oracle source: ${relativePath}`);
+  assertContainedPath(fs.realpathSync(resolvedRoot), fs.realpathSync(absolutePath), `${label}.path`);
   const bytes = fs.readFileSync(absolutePath);
   const actualDigest = fileDigest(bytes);
   assert(actualDigest === source.sha256, `Oracle digest mismatch for ${relativePath}: expected ${source.sha256}, got ${actualDigest}`);
@@ -193,6 +204,60 @@ export function validateCompletionRecordFieldCoverage(ledger, {
     'delivery_status must map exact-head review verdict evidence');
   assert(deliverySelectors.has('harvest_review_baseline:/per_pr_rounds/*/merge_commit_sha'),
     'delivery_status must map provider merge evidence');
+
+  const decisions = rows.find((row) => row.field === 'important_decisions[]');
+  assert(decisions?.mappings.some((mapping) => (
+    mapping.source_id === 'consolidation_manifest' && mapping.selector === '/canonical_decisions/*'
+  )), 'important_decisions[] must map complete structured decision objects');
+  for (const [index, decision] of resolveJsonPointer(
+    sourceMap.get('consolidation_manifest').document,
+    '/canonical_decisions/*',
+    'important_decisions[]',
+  ).entries()) {
+    for (const field of ['id', 'choice', 'reason']) {
+      nonEmptyString(decision?.[field], `canonical_decisions[${index}].${field}`);
+    }
+  }
+
+  const mergeObservation = rows.find((row) => row.field === 'merge_observation_ref');
+  const mergeObservationSelectors = new Set(mergeObservation?.mappings.map((mapping) => mapping.selector));
+  assert(mergeObservationSelectors.has('/pull_requests/*/metadata_request_id')
+    && mergeObservationSelectors.has('/endpoint_pages/*'),
+  'merge_observation_ref must map PR metadata request and immutable endpoint page');
+  const snapshot = sourceMap.get('harvest_snapshot_manifest').document;
+  const pageByRequestId = new Map(snapshot.endpoint_pages.map((page) => [page.request_id, page]));
+  for (const pullRequest of snapshot.pull_requests) {
+    const page = pageByRequestId.get(pullRequest.metadata_request_id);
+    assert(page != null, `Missing metadata page for PR #${pullRequest.pr_number}`);
+    assert(page.endpoint === `/repos/Samsen879/ciecopilot-home/pulls/${pullRequest.pr_number}`,
+      `Metadata endpoint mismatch for PR #${pullRequest.pr_number}`);
+    assert(/^[0-9a-f]{64}$/.test(page.body_sha256) && typeof page.raw_path === 'string',
+      `Incomplete metadata page custody for PR #${pullRequest.pr_number}`);
+  }
+
+  const headBinding = rows.find((row) => row.field === 'review_round_summary.head_binding_coverage');
+  assert(headBinding?.mappings.some((mapping) => (
+    mapping.source_id === 'harvest_review_baseline'
+    && mapping.selector === '/per_pr_rounds/*/rounds/*/head_binding'
+  )), 'head_binding_coverage must map selected-PR round evidence');
+  assert(!headBinding?.mappings.some((mapping) => mapping.selector === '/head_binding_coverage'),
+    'head_binding_coverage cannot use the harvest-wide aggregate');
+
+  const manifestUri = rows.find((row) => row.field === 'generation_inputs.manifest_uri');
+  assert(manifestUri?.source_contract.transformation ===
+    'resolve source-relative path against the source artifact directory; normalize to repository-relative URI',
+  'generation_inputs.manifest_uri must normalize its source-relative reference');
+  const blockInventorySource = sourceMap.get('harvest_block_inventory');
+  const snapshotSource = sourceMap.get('harvest_snapshot_manifest');
+  const manifestReference = blockInventorySource.document.source_snapshot_manifest_ref;
+  const normalizedManifestPath = path.posix.normalize(path.posix.join(
+    path.posix.dirname(blockInventorySource.path),
+    manifestReference.path,
+  ));
+  assert(normalizedManifestPath === snapshotSource.path,
+    'generation_inputs.manifest_uri does not resolve to the committed snapshot manifest');
+  assert(manifestReference.sha256 === snapshotSource.sha256,
+    'generation_inputs.manifest_sha256 does not match the committed snapshot manifest');
 
   return { sources, rows };
 }

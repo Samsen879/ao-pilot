@@ -34,8 +34,8 @@ describe('Completion Record field coverage ledger', () => {
       required_count: 13,
       conditional_count: 23,
       unsupported_count: 4,
-      established_count: 25,
-      not_established_count: 11,
+      established_count: 26,
+      not_established_count: 10,
       omission_count: 4,
     });
     expect(validation.rows).toHaveLength(40);
@@ -59,6 +59,11 @@ describe('Completion Record field coverage ledger', () => {
     fs.appendFileSync(path.join(copiedRoot, source.path), '\n');
     expect(() => validateCompletionRecordFieldCoverage(ledger, { repositoryRoot: copiedRoot }))
       .toThrow('Oracle digest mismatch');
+
+    const windowsEscape = structuredClone(ledger);
+    windowsEscape.sources[0].path = '..\\outside-oracle.json';
+    expect(() => validateCompletionRecordFieldCoverage(windowsEscape, { repositoryRoot }))
+      .toThrow('Unbounded sources[0].path');
   });
 
   it('fails when declarative coverage lacks field evidence', () => {
@@ -79,11 +84,30 @@ describe('Completion Record field coverage ledger', () => {
         .filter((mapping) => mapping.selector !== '/per_pr_rounds/*/merge_commit_sha');
     expect(() => validateCompletionRecordFieldCoverage(falseIntegrated, { repositoryRoot }))
       .toThrow('delivery_status must map provider merge evidence');
+
+    const incompleteDecision = structuredClone(ledger);
+    incompleteDecision.candidates.find((entry) => entry.field === 'important_decisions[]')
+      .mappings[0].selector = '/canonical_decisions/*/id';
+    expect(() => validateCompletionRecordFieldCoverage(incompleteDecision, { repositoryRoot }))
+      .toThrow('important_decisions[] must map complete structured decision objects');
+
+    const aggregateHeadBinding = structuredClone(ledger);
+    aggregateHeadBinding.candidates.find((entry) => (
+      entry.field === 'review_round_summary.head_binding_coverage'
+    )).mappings[0].selector = '/head_binding_coverage';
+    expect(() => validateCompletionRecordFieldCoverage(aggregateHeadBinding, { repositoryRoot }))
+      .toThrow('head_binding_coverage must map selected-PR round evidence');
+
+    const unnormalizedManifest = structuredClone(ledger);
+    unnormalizedManifest.candidates.find((entry) => entry.field === 'generation_inputs.manifest_uri')
+      .source_contract.transformation = 'direct repository-relative URI';
+    expect(() => validateCompletionRecordFieldCoverage(unnormalizedManifest, { repositoryRoot }))
+      .toThrow('generation_inputs.manifest_uri must normalize its source-relative reference');
   });
 
   it('reports missing evidence and unsupported narrative without inference', () => {
     const report = buildCompletionRecordFieldCoverageReport(ledger, { repositoryRoot });
-    expect(report.coverage_gaps).toHaveLength(11);
+    expect(report.coverage_gaps).toHaveLength(10);
     expect(report.coverage_gaps.every((gap) => (
       gap.code.length > 0
       && gap.reason.length > 0
@@ -96,6 +120,8 @@ describe('Completion Record field coverage ledger', () => {
       'narrative_summary',
     ]);
     expect(report.fields.find((row) => row.field === 'review_round_summary.head_binding_coverage'))
+      .toEqual(expect.objectContaining({ classification: 'conditional', oracle_coverage: 'established' }));
+    expect(report.fields.find((row) => row.field === 'merge_observation_ref'))
       .toEqual(expect.objectContaining({ classification: 'conditional', oracle_coverage: 'established' }));
     expect(report.inference_policy).toMatch(/^No .* is inferred\.$/);
   });

@@ -244,8 +244,8 @@
       "classification": "required",
       "oracle_coverage": "established",
       "when_missing": "fail_closed",
-      "source_contract": {"authority": "recorder_run_manifest", "selector": "input manifest URI", "transformation": "direct repository-relative URI"},
-      "mappings": [{"source_id": "harvest_block_inventory", "kind": "json_pointer", "selector": "/source_snapshot_manifest_ref/path", "extraction": "direct immutable input-manifest reference"}],
+      "source_contract": {"authority": "recorder_run_manifest", "selector": "input manifest URI", "transformation": "resolve source-relative path against the source artifact directory; normalize to repository-relative URI"},
+      "mappings": [{"source_id": "harvest_block_inventory", "kind": "json_pointer", "selector": "/source_snapshot_manifest_ref/path", "extraction": "source-relative immutable input-manifest reference resolved against the block inventory directory"}],
       "rationale": "Replay requires an addressable normalized input manifest."
     },
     {
@@ -291,7 +291,7 @@
       "when_missing": "explicit_not_established",
       "source_contract": {"authority": "authenticated_structured_input", "selector": "canonical_decisions", "transformation": "mechanical field-preserving transcription with evidence reference"},
       "mappings": [
-        {"source_id": "consolidation_manifest", "kind": "json_pointer", "selector": "/canonical_decisions/*/id", "extraction": "structured decision identities"},
+        {"source_id": "consolidation_manifest", "kind": "json_pointer", "selector": "/canonical_decisions/*", "extraction": "complete structured decision objects preserving id, choice, and reason"},
         {"source_id": "consolidation_final_report", "kind": "markdown_marker", "selector": "## 5. Canonical Decisions", "extraction": "human-oracle comparison section only"}
       ],
       "rationale": "Structured decisions may be copied mechanically; free narrative may not be generated."
@@ -317,12 +317,14 @@
     {
       "field": "merge_observation_ref",
       "classification": "conditional",
-      "oracle_coverage": "not_established",
+      "oracle_coverage": "established",
       "when_missing": "explicit_not_established",
-      "source_contract": {"authority": "provider_post_merge_observation", "selector": "observation_ref", "transformation": "direct provider evidence reference"},
-      "mappings": [],
-      "coverage_gap": {"code": "merge_observation_reference_absent", "reason": "P0-A preserves merge SHAs and timestamps but no first-class provider observation reference."},
-      "rationale": "A merge SHA does not manufacture a missing observation-record identity."
+      "source_contract": {"authority": "committed_provider_snapshot", "selector": "selected PR metadata_request_id joined to endpoint_pages.request_id", "transformation": "preserve request_id, endpoint, fetched_at, body_sha256, and content-addressed raw_path"},
+      "mappings": [
+        {"source_id": "harvest_snapshot_manifest", "kind": "json_pointer", "selector": "/pull_requests/*/metadata_request_id", "extraction": "selected PR provider-metadata request reference"},
+        {"source_id": "harvest_snapshot_manifest", "kind": "json_pointer", "selector": "/endpoint_pages/*", "extraction": "immutable endpoint page joined by request_id"}
+      ],
+      "rationale": "The provider snapshot preserves the exact metadata request and content-addressed response that establish merge facts."
     },
     {
       "field": "merge_sha",
@@ -454,12 +456,9 @@
       "classification": "conditional",
       "oracle_coverage": "established",
       "when_missing": "explicit_not_established",
-      "source_contract": {"authority": "committed_review_snapshot_and_baseline", "selector": "head_binding_coverage", "transformation": "direct numerator/denominator; preserve not_established records"},
-      "mappings": [
-        {"source_id": "harvest_review_baseline", "kind": "json_pointer", "selector": "/head_binding_coverage", "extraction": "aggregate exact-head coverage"},
-        {"source_id": "harvest_result_report", "kind": "markdown_marker", "selector": "Together, 33 protocol-marker records lack exact GitHub HEAD binding", "extraction": "explicit human-oracle limitation"}
-      ],
-      "rationale": "Coverage gaps remain visible and are never repaired with timing or login inference."
+      "source_contract": {"authority": "committed_review_round_baseline", "selector": "selected per_pr_rounds.rounds[].head_binding", "transformation": "derive exact-bound round count over selected PR round count; not_established when the selected PR has no review rounds"},
+      "mappings": [{"source_id": "harvest_review_baseline", "kind": "json_pointer", "selector": "/per_pr_rounds/*/rounds/*/head_binding", "extraction": "per-round binding evidence scoped by selected PR"}],
+      "rationale": "Per-child coverage is derived only from that PR's rounds; corpus-wide coverage is never copied into a child record."
     },
     {
       "field": "review_round_summary.review_round_count",
