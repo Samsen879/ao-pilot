@@ -126,7 +126,10 @@
   "source_scan": {
     "roots": ["scripts/ao/lib"],
     "extensions": [".js"],
-    "exclude_paths": ["scripts/ao/lib/controller-lease-authority-audit.js"],
+    "exclude_paths": [
+      "scripts/ao/lib/controller-lease-authority-audit.js",
+      "scripts/ao/lib/phase-zero-exit-evidence.js"
+    ],
     "selectors": [
       { "id": "state-property", "pattern": "\\bcontroller_leases\\b" },
       { "id": "isolated-path", "pattern": "\\bcontrollerLeasesPath\\b" },

@@ -1,0 +1,20 @@
+{
+  "schema_version": "ao.phase-zero-exit-replay-receipt.v1",
+  "status": "passed",
+  "manifest_digest": "d95cc26b8ceaf5d591a1dde73ee531d499df0d020bacbe33138d4950503e73ea",
+  "evidence_bundle_digest": "5823267d793bcc05f3a66d769ca03996a8d866bfbfe453ead7b390b0affa096f",
+  "scenario_count": 4,
+  "replay_count": 2,
+  "stable_run_digest": "9cecb899631e531348b37f4fe497718322bd0ff4bbe65799d6b972048b135607",
+  "run_digests": [
+    "9cecb899631e531348b37f4fe497718322bd0ff4bbe65799d6b972048b135607",
+    "9cecb899631e531348b37f4fe497718322bd0ff4bbe65799d6b972048b135607"
+  ],
+  "behavior_coverage": [
+    "success",
+    "failure",
+    "missing_evidence",
+    "replay"
+  ],
+  "receipt_digest": "2273f43eba62ac76653fdcf0d68b4b189c80273d9c2eec0baca936289ddd3648"
+}

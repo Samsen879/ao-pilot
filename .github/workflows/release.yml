@@ -19,6 +19,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Bind exact release candidate
+        run: |
+          echo "AO_PHASE_ZERO_EXPECTED_HEAD=$GITHUB_SHA" >> "$GITHUB_ENV"
+          echo "AO_PHASE_ZERO_EXPECTED_TREE=$(git rev-parse HEAD^{tree})" >> "$GITHUB_ENV"
       - run: npm run release:check
       - run: npm pack
       - uses: actions/upload-artifact@v4

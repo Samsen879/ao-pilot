@@ -1,0 +1,36 @@
+{
+  "schema_version": "ao.trajectory-truthfulness-report.v1",
+  "status": "accepted",
+  "source_contracts": [
+    "ao.trajectory-vocabulary.v1@1.3.0",
+    "ao.false-success-trajectory-audit-report.v1",
+    "ao.child-completion.v1alpha1",
+    "ao.completion-record-field-coverage.v1"
+  ],
+  "vocabulary_digest": "abb5b4df0daf6788a8c5f3cc5e3cb22acfd6b37d5346959d6d09accddfd5a934",
+  "false_success": {
+    "blocking_fixture_count": 18,
+    "unresolved_producer_count": 15,
+    "unresolved_promotion_path_count": 0,
+    "report_fingerprint": "b76c2254e6b1b61d44b4510f84b0bbfbd85cb408021b2de19669d5a94bf976e3",
+    "interpretation": "Negative producers remain blocking evidence; none can be promoted to provider success."
+  },
+  "completion_record": {
+    "schema_version": "ao.child-completion.v1alpha1",
+    "schema_path": "schemas/ao.child-completion.v1alpha1.schema.json",
+    "input_manifest_schema_path": "schemas/ao.child-completion-input-manifest.v1alpha1.schema.json",
+    "candidate_field_count": 40,
+    "required_count": 13,
+    "conditional_count": 23,
+    "unsupported_count": 4,
+    "coverage_fingerprint": "dc4c748ccead1fb9ac8af7dab0c75dda60c6fee1d06fc2f8d2fc5d12a3c36b95",
+    "missing_required_policy": "fail_closed",
+    "unsupported_narrative_policy": "omit_without_inference"
+  },
+  "behavior_coverage": [
+    "success",
+    "failure",
+    "missing_evidence",
+    "replay"
+  ]
+}
