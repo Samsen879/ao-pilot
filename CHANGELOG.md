@@ -19,6 +19,8 @@ The project follows semantic versioning while its public interfaces stabilize.
 - deterministic cross-repository consolidation parity replay and fingerprinted
   approved-difference registry;
 - generic guarded auto-merge and blocked-notification provider mechanisms;
+- durable, versioned OR authorization grants with exact effect scope, canonical
+  policy fingerprints, replay/revocation checks, and exception-only escalation;
 - Node 20 and 22 continuous integration and release artifact checks.
 
 ### Changed

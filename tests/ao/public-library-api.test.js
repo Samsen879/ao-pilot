@@ -50,6 +50,10 @@ describe('ao-pilot public library API', () => {
         './schemas/ao.child-completion.v1alpha1.schema.json',
       './schemas/ao.child-completion-input-manifest.v1alpha1.schema.json':
         './schemas/ao.child-completion-input-manifest.v1alpha1.schema.json',
+      './schemas/ao.or-authorization-grant.v1.schema.json':
+        './schemas/ao.or-authorization-grant.v1.schema.json',
+      './schemas/ao.or-authorization-escalation.v1.schema.json':
+        './schemas/ao.or-authorization-escalation.v1.schema.json',
       './package.json': './package.json',
     });
   });
@@ -74,6 +78,8 @@ describe('ao-pilot public library API', () => {
     );
     expect(contracts.RUNTIME_LOCK_SCHEMA_VERSION).toBe('ao.runtime-lock.v1');
     expect(contracts.createRuntimeProvenance).toEqual(expect.any(Function));
+    expect(contracts.normalizeAuthorizationGrant).toEqual(expect.any(Function));
+    expect(contracts.evaluateAuthorizationGrant).toEqual(expect.any(Function));
     expect(repository.createStateRepository).toEqual(expect.any(Function));
     expect(repository.bootstrapControlPlaneState).toEqual(expect.any(Function));
     expect(engines.reconcileObservations).toEqual(expect.any(Function));
