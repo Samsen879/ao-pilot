@@ -35,6 +35,21 @@ function canonicalJson(value) {
   return value;
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function symbolSection(source, symbol) {
+  const escapedSymbol = escapeRegExp(symbol);
+  const declaration = new RegExp(`(?:export\\s+)?(?:async\\s+)?function\\s+${escapedSymbol}\\s*\\(`);
+  const match = declaration.exec(source);
+  if (!match) return null;
+
+  const remainder = source.slice(match.index + match[0].length);
+  const nextDeclaration = /\n(?:export\s+)?(?:async\s+)?function\s+[A-Za-z_$][\w$]*\s*\(/.exec(remainder);
+  return nextDeclaration == null ? remainder : remainder.slice(0, nextDeclaration.index);
+}
+
 export function trajectoryVocabularyDigest(inventory) {
   return createHash('sha256')
     .update(JSON.stringify(canonicalJson(inventory)))
@@ -52,16 +67,36 @@ function validateReference(reference, label, repositoryRoot, {
   assert(resolvedReference != null && typeof resolvedReference === 'object' && !Array.isArray(resolvedReference), `Invalid ${label}`);
   const relativePath = nonEmptyString(resolvedReference.path, `${label}.path`);
   const symbol = nonEmptyString(resolvedReference.symbol, `${label}.symbol`);
+  const kind = resolvedReference.kind ?? (relativePath.endsWith('.md') ? 'documentation' : 'function');
+  assert(['constant', 'documentation', 'function', 'literal'].includes(kind), `Invalid ${label}.kind`);
   assert(!path.isAbsolute(relativePath) && !relativePath.split('/').includes('..'), `Unbounded ${label}.path`);
 
   if (verifySource) {
     const absolutePath = path.join(repositoryRoot, relativePath);
     assert(fs.existsSync(absolutePath), `Missing ${label} file: ${relativePath}`);
     const source = fs.readFileSync(absolutePath, 'utf8');
-    assert(source.includes(symbol), `Missing ${label} symbol ${symbol} in ${relativePath}`);
+    let section = source;
+    if (kind === 'function') {
+      section = symbolSection(source, symbol);
+      assert(section != null, `Missing ${label} function ${symbol} in ${relativePath}`);
+    } else if (kind === 'constant') {
+      const declaration = new RegExp(`(?:export\\s+)?const\\s+${escapeRegExp(symbol)}\\b`);
+      assert(declaration.test(source), `Missing ${label} constant ${symbol} in ${relativePath}`);
+    } else {
+      assert(source.includes(symbol), `Missing ${label} ${kind} ${symbol} in ${relativePath}`);
+    }
+
+    const relationshipEvidence = resolvedReference.evidence ?? [];
+    const isRelationship = label.includes('.producers[') || label.includes('.consumers[');
+    assert(!isRelationship || relationshipEvidence.length > 0, `Missing relationship evidence for ${label}`);
+    assert(Array.isArray(relationshipEvidence), `Invalid ${label}.evidence`);
+    for (const evidence of relationshipEvidence) {
+      const normalizedEvidence = nonEmptyString(evidence, `${label}.evidence`);
+      assert(section.includes(normalizedEvidence), `Missing ${label} relationship evidence ${normalizedEvidence} in ${symbol}`);
+    }
   }
 
-  return { path: relativePath, symbol };
+  return { path: relativePath, symbol, kind };
 }
 
 export function validateTrajectoryVocabulary(inventory, {
@@ -133,8 +168,8 @@ export function validateTrajectoryVocabulary(inventory, {
     assert(itemIds.has(id), `Unknown required separation item: ${id}`);
     return inventory.items.find((item) => item.id === id);
   });
-  assert(new Set(separationItems.map((item) => item.semantic_owner)).size === 3, 'AO judgment, OR effect, and provider outcome must have distinct semantic owners');
-  assert(new Set(separationItems.map((item) => item.evidence_authority)).size === 3, 'AO judgment, OR effect, and provider outcome must have distinct evidence authorities');
+  assert(new Set(separationItems.map((item, index) => nonEmptyString(item.semantic_owner, `required separation ${index} semantic_owner`))).size === 3, 'AO judgment, OR effect, and provider outcome must have distinct semantic owners');
+  assert(new Set(separationItems.map((item, index) => nonEmptyString(item.evidence_authority, `required separation ${index} evidence_authority`))).size === 3, 'AO judgment, OR effect, and provider outcome must have distinct evidence authorities');
 
   const ambiguityIds = new Set();
   for (const [index, ambiguity] of inventory.ambiguities.entries()) {
@@ -192,6 +227,29 @@ export function validateTrajectoryFixture(fixture, inventory) {
       .update(JSON.stringify(canonicalJson(fixture.expectations)))
       .digest('hex'),
   };
+}
+
+export function validateTrajectoryFixtureSet(fixtures, inventory) {
+  assert(Array.isArray(fixtures), 'Fixture set must be an array');
+  const reports = fixtures.map((fixture) => validateTrajectoryFixture(fixture, inventory));
+  const byScenario = new Map(fixtures.map((fixture, index) => [fixture.scenario, {
+    fixture,
+    report: reports[index],
+  }]));
+  const requiredScenarios = ['failure', 'missing_evidence', 'replay', 'success'];
+  assert(
+    JSON.stringify([...byScenario.keys()].sort()) === JSON.stringify(requiredScenarios),
+    `Fixture scenarios must be exactly: ${requiredScenarios.join(', ')}`,
+  );
+
+  const replay = byScenario.get('replay');
+  const replayTarget = byScenario.get(replay.fixture.replay_of);
+  assert(replayTarget != null && replay.fixture.replay_of !== 'replay', `Unknown replay target: ${replay.fixture.replay_of}`);
+  assert(
+    replay.report.projection_digest === replayTarget.report.projection_digest,
+    `Replay projection differs from ${replay.fixture.replay_of}`,
+  );
+  return reports;
 }
 
 export function loadTrajectoryVocabulary(inventoryPath) {

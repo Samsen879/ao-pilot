@@ -6,6 +6,7 @@ import {
   loadTrajectoryVocabulary,
   trajectoryVocabularyDigest,
   validateTrajectoryFixture,
+  validateTrajectoryFixtureSet,
   validateTrajectoryVocabulary,
 } from '../../scripts/ao/lib/trajectory-vocabulary.js';
 
@@ -55,9 +56,15 @@ describe('trajectory vocabulary inventory', () => {
 
     expect(secondInventoryDigest).toBe(firstInventoryDigest);
     expect(replay.projection_digest).toBe(success.projection_digest);
+    expect(validateTrajectoryFixtureSet([
+      loadFixture('failure'),
+      loadFixture('missing-evidence'),
+      loadFixture('replay'),
+      loadFixture('success'),
+    ], inventory)).toHaveLength(4);
   });
 
-  it('fails closed when semantic ownership or source evidence is missing', () => {
+  it('fails closed when semantic ownership or role-aware source evidence is missing', () => {
     const missingOwner = structuredClone(inventory);
     missingOwner.items[0].semantic_owner = '';
     expect(() => validateTrajectoryVocabulary(missingOwner, { repositoryRoot }))
@@ -66,6 +73,55 @@ describe('trajectory vocabulary inventory', () => {
     const missingSymbol = structuredClone(inventory);
     missingSymbol.references.action_templates.symbol = 'symbol_that_does_not_exist';
     expect(() => validateTrajectoryVocabulary(missingSymbol, { repositoryRoot }))
-      .toThrow('Missing items[0].source symbol');
+      .toThrow('Missing items[0].source function');
+
+    const missingRelationship = structuredClone(inventory);
+    missingRelationship.references.action_summary.evidence = ['field_that_is_not_consumed'];
+    expect(() => validateTrajectoryVocabulary(missingRelationship, { repositoryRoot }))
+      .toThrow('Missing items[2].consumers[0] relationship evidence');
+  });
+
+  it('normalizes owner and authority identity before enforcing separation', () => {
+    const whitespaceAlias = structuredClone(inventory);
+    const aoJudgment = whitespaceAlias.items.find((item) => item.id === 'lifecycle.release_disposition');
+    const providerOutcome = whitespaceAlias.items.find((item) => item.id === 'merge.provider_pr_state');
+    providerOutcome.semantic_owner = `${aoJudgment.semantic_owner} `;
+
+    expect(() => validateTrajectoryVocabulary(whitespaceAlias, { repositoryRoot, verifySource: false }))
+      .toThrow('must have distinct semantic owners');
+  });
+
+  it('rejects replay targets that are missing or semantically different', () => {
+    const fixtures = [
+      loadFixture('failure'),
+      loadFixture('missing-evidence'),
+      loadFixture('replay'),
+      loadFixture('success'),
+    ];
+    fixtures[2].replay_of = 'not_a_scenario';
+    expect(() => validateTrajectoryFixtureSet(fixtures, inventory))
+      .toThrow('Unknown replay target');
+
+    fixtures[2].replay_of = 'success';
+    fixtures[2].expectations[0].value = 'blocked';
+    expect(() => validateTrajectoryFixtureSet(fixtures, inventory))
+      .toThrow('Replay projection differs from success');
+  });
+
+  it('retains per-review evidence, distinct CI outcomes, and human-gate basis mappings', () => {
+    const item = (id) => inventory.items.find((entry) => entry.id === id);
+
+    expect(item('review.github_review_fields').values).toEqual([
+      'author_login', 'commit_oid', 'review_id', 'state', 'submitted_at',
+    ]);
+    expect(item('review.github_review_state').values).toContain('commented');
+    expect(item('ci.raw_check_state').values).toEqual(expect.arrayContaining([
+      'completed_failure', 'completed_startup_failure', 'completed_cancelled', 'not_run', 'queued',
+    ]));
+    expect(item('lifecycle.human_gate_mapping').values).toEqual(expect.arrayContaining([
+      'doctor_ambiguous:escalation_required',
+      'missing_pr_assessment:refresh_required',
+      'source_failure:retry_required',
+    ]));
   });
 });

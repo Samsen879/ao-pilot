@@ -52,17 +52,19 @@ npm run verify:trajectory-vocabulary
 ```
 
 The gate rejects missing families, duplicate ids/values, missing owners or
-authorities, absent source/caller symbols, unknown ambiguity references, and
-any attempt to give AO judgment, OR effect, and provider outcome the same
-owner or authority. It also validates the four required fixtures:
+authorities, absent definitions, missing producer/consumer field or call
+evidence inside the named function, unknown ambiguity references, and any
+attempt to give AO judgment, OR effect, and provider outcome the same
+normalized owner or authority. It also validates the four required fixtures:
 
 - `tests/ao/fixtures/trajectory-vocabulary/success.json`
 - `tests/ao/fixtures/trajectory-vocabulary/failure.json`
 - `tests/ao/fixtures/trajectory-vocabulary/missing-evidence.json`
 - `tests/ao/fixtures/trajectory-vocabulary/replay.json`
 
-Replay validation hashes canonicalized semantics, so key ordering or a fresh
-read cannot change the inventory/projection digest.
+Replay validation resolves `replay_of` and compares canonicalized semantic
+projections in the advertised CLI gate, so a missing target, changed semantics,
+key ordering, or a fresh read cannot silently change the replay result.
 
 ## Current implementation versus real OR production practice
 
@@ -72,8 +74,8 @@ read cannot change the inventory/projection digest.
 | Action state | `actions[].status=executed` and `payload.execution.outcome=executed` describe the assist executor's durable handling. | OR owns authorized Git/GitHub effects outside the AO state-writer queue. | Preserve AO action state and OR effect receipt as separate facts. |
 | Effect evidence | The legacy assist executor can attempt notifications and guarded auto-merge, recording adapter receipts and immediate PR readback. | The upgrade program has OR execute bounded effects from exact-scope authorization. | Treat legacy effect fields as implementation history; normalize OR execution separately. |
 | Provider result | GitHub observations normalize PR state, reviewDecision, checks, and mergeability. | Live GitHub/provider readback is the external outcome authority. | Only provider `MERGED` (with required identity/evidence in later schema work) can establish merge outcome. |
-| Review | AO has a local review protocol with `pass`, `changes_required`, and `escalate_human`; GitHub aggregate reviewDecision is separately observed. | Program gates use submitted GitHub Codex connector reviews, exact-head binding, finding dispositions, and a two-review cap. | Do not infer connector review from local `passed` or aggregate `approved`. |
-| CI | The collector compresses check rollups to passing/failing/pending/unknown. | Required CI is evaluated from named provider checks on the exact HEAD. | Retain raw named checks and policy binding; aggregate `passing` alone is insufficient. |
+| Review | AO has a local review protocol; GitHub aggregate reviewDecision and every submitted review's id/state/actor/time/commit are separately observed. | Program gates use submitted GitHub Codex connector reviews, exact-head binding, finding dispositions, and a two-review cap. | Do not infer connector review from local `passed` or aggregate `approved`; retain per-review evidence. |
+| CI | The collector compresses check rollups to passing/failing/pending/unknown while the inventory preserves distinct raw failure, error, startup, timeout, cancellation, queued/waiting, skipped/neutral, and not-run classes. | Required CI is evaluated from named provider checks on the exact HEAD. | Retain raw named checks and policy binding; aggregate status alone is insufficient for release or failure attribution. |
 | Checkpoint | A checkpoint freezes task/spec/runtime/controller/action references and validates them against live repository state. | OR closeout additionally requires provider outcome, exact-main replay, resource cleanup, and admission receipts. | `checkpoint.valid` means replay-safe local continuity only, never terminal delivery. |
 | P0 receipts | Specialized bootstrap/worktree/premerge/merge/done/self-hosting schemas provide strong immutable evidence. | They were produced for the P0 operational lane and are not the ordinary task trajectory schema. | Carry by artifact reference/digest; do not flatten their internal `status` fields into one task success flag. |
 
@@ -88,9 +90,10 @@ highest-risk terms are:
 2. `review passed` can mean AO local review, GitHub aggregate approval, or an
    exact-head GitHub Codex connector review. Only the cited evidence authority
    can decide which meaning applies.
-3. CI `passing` currently includes neutral/skipped conclusions and does not
-   encode required-check membership. Preserve raw checks and required-check
-   policy.
+3. CI `passing` currently includes neutral/skipped conclusions; `failing`
+   collapses code failure, runner/startup error, timeout, and cancellation; and
+   required-check/not-run membership is absent. Preserve the distinct raw
+   named checks and required-check policy.
 4. `mergeable` and `auto_merge_ready_pr` are eligibility judgments;
    `effect_attempted` is execution evidence; only provider `MERGED` is the
    outcome.
@@ -99,7 +102,10 @@ highest-risk terms are:
    retain source health/raw evidence and fail closed.
 6. `checkpoint.valid` proves only that its captured local references still
    match. It does not prove review, CI, merge, replay, or cleanup completion.
-7. `created_by`, `reason`, and checkpoint `metadata` are assertions without an
+7. `human_gate` requires its `basis`: source failure maps to retry, missing
+   assessment to refresh, and authority ambiguity to escalation. The shared
+   disposition alone cannot select the later Episode disposition.
+8. `created_by`, `reason`, and checkpoint `metadata` are assertions without an
    independent authority. They may be useful context but cannot satisfy a gate.
 
 ## Audit conclusions

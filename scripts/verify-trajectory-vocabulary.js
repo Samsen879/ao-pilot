@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   loadTrajectoryVocabulary,
-  validateTrajectoryFixture,
+  validateTrajectoryFixtureSet,
   validateTrajectoryVocabulary,
 } from './ao/lib/trajectory-vocabulary.js';
 
@@ -16,18 +16,11 @@ const fixtureDirectory = path.join(repositoryRoot, 'tests/ao/fixtures/trajectory
 try {
   const inventory = loadTrajectoryVocabulary(inventoryPath);
   const inventoryReport = validateTrajectoryVocabulary(inventory, { repositoryRoot });
-  const fixtureReports = fs.readdirSync(fixtureDirectory)
+  const fixtures = fs.readdirSync(fixtureDirectory)
     .filter((entry) => entry.endsWith('.json'))
     .sort()
-    .map((entry) => validateTrajectoryFixture(
-      JSON.parse(fs.readFileSync(path.join(fixtureDirectory, entry), 'utf8')),
-      inventory,
-    ));
-  const scenarios = fixtureReports.map((report) => report.scenario).sort();
-  const requiredScenarios = ['failure', 'missing_evidence', 'replay', 'success'];
-  if (JSON.stringify(scenarios) !== JSON.stringify(requiredScenarios)) {
-    throw new Error(`Fixture scenarios must be exactly: ${requiredScenarios.join(', ')}`);
-  }
+    .map((entry) => JSON.parse(fs.readFileSync(path.join(fixtureDirectory, entry), 'utf8')));
+  const fixtureReports = validateTrajectoryFixtureSet(fixtures, inventory);
 
   process.stdout.write(`${JSON.stringify({
     status: 'passed',
