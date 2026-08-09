@@ -1,0 +1,133 @@
+{
+  "schema_version": "ao.controller-lease-safety-fixtures.v1",
+  "fixture_version": "2026-08-09.2",
+  "required_replays": 2,
+  "cases": [
+    {
+      "id": "canonical-wins-over-stale-shadow",
+      "class": "stale-shadow",
+      "setup": { "canonical": "latest", "shadow": "stale" },
+      "operation": "cold-read",
+      "expected": { "disposition": "accepted", "lease_ids": ["latest-lease"] }
+    },
+    {
+      "id": "missing-authority-does-not-revive-shadow",
+      "class": "file-loss",
+      "setup": { "canonical": "missing", "shadow": "stale" },
+      "operation": "cold-read",
+      "expected": { "disposition": "rejected", "error_code": "canonical_authority_missing" }
+    },
+    {
+      "id": "invalid-json-does-not-revive-shadow",
+      "class": "invalid-json",
+      "setup": { "canonical": "invalid-json", "shadow": "stale" },
+      "operation": "cold-read",
+      "expected": { "disposition": "rejected", "error_code": "canonical_authority_invalid_json" }
+    },
+    {
+      "id": "partial-state-loss-keeps-canonical-readable",
+      "class": "partial-recovery",
+      "setup": { "canonical": "latest", "shadow": "absent", "schema": "missing", "state": "missing" },
+      "operation": "cold-read",
+      "expected": { "disposition": "accepted", "bootstrapped": false, "lease_ids": ["latest-lease"] }
+    },
+    {
+      "id": "partial-schema-loss-fails-closed",
+      "class": "partial-recovery",
+      "setup": { "canonical": "latest", "shadow": "absent", "schema": "missing" },
+      "operation": "cold-read",
+      "expected": { "disposition": "rejected", "error_code": "control_plane_evidence_incomplete" }
+    },
+    {
+      "id": "restart-regenerates-projection-from-canonical",
+      "class": "restart",
+      "setup": { "canonical": "latest", "shadow": "stale" },
+      "operation": "restart-cold-read",
+      "expected": { "disposition": "accepted", "lease_ids": ["latest-lease"], "persistent_bytes_unchanged": true }
+    },
+    {
+      "id": "persistent-supporting-artifact-mutation-is-detected",
+      "class": "restart",
+      "setup": { "canonical": "latest", "shadow": "absent" },
+      "operation": "persistent-artifact-mutation",
+      "expected": { "disposition": "accepted", "artifact_path": "audit-log.jsonl", "mutation_detected": true }
+    },
+    {
+      "id": "legacy-v10-array-migrates-once",
+      "class": "mixed-version",
+      "setup": { "canonical": "legacy-array", "shadow": "stale", "schema_version": 10 },
+      "operation": "cold-read",
+      "expected": { "disposition": "accepted", "schema_version": 11, "lease_ids": ["expired-legacy-lease"], "migration_receipt": true, "migration_replay_stable": true }
+    },
+    {
+      "id": "v11-unversioned-array-is-rejected",
+      "class": "mixed-version",
+      "setup": { "canonical": "legacy-array", "shadow": "stale" },
+      "operation": "cold-read",
+      "expected": { "disposition": "rejected", "error_code": "canonical_authority_unversioned" }
+    },
+    {
+      "id": "concurrent-heartbeats-preserve-latest-accepted",
+      "class": "concurrent-heartbeat",
+      "setup": { "canonical": "heartbeat-initial", "shadow": "absent" },
+      "operation": "concurrent-heartbeat",
+      "expected": { "disposition": "accepted", "heartbeat_at": "2026-08-09T10:03:00.000Z", "lease_ids": ["heartbeat-lease"] }
+    },
+    {
+      "id": "recovery-missing-operator-intent-is-rejected",
+      "class": "missing-evidence",
+      "setup": { "recovery_evidence": "missing-intent" },
+      "operation": "verify-recovery-evidence",
+      "expected": { "disposition": "rejected", "error_code": "recovery_operator_intent_missing" }
+    },
+    {
+      "id": "explicit-recovery-records-resulting-authority",
+      "class": "recovery-success",
+      "setup": { "recovery_evidence": "valid" },
+      "operation": "verify-recovery-evidence",
+      "expected": { "disposition": "accepted", "operator_intent": "restore_verified_canonical_backup", "lease_ids": ["recovered-expired-lease"] }
+    },
+    {
+      "id": "recovery-result-digest-mismatch-is-rejected",
+      "class": "recovery-failure",
+      "setup": { "recovery_evidence": "result-digest-mismatch" },
+      "operation": "verify-recovery-evidence",
+      "expected": { "disposition": "rejected", "error_code": "recovery_result_digest_mismatch" }
+    },
+    {
+      "id": "recovery-non-text-operator-is-rejected",
+      "class": "missing-evidence",
+      "setup": { "recovery_evidence": "non-text-operator" },
+      "operation": "verify-recovery-evidence",
+      "expected": { "disposition": "rejected", "error_code": "recovery_operator_identity_invalid" }
+    },
+    {
+      "id": "recovery-target-replay-is-rejected",
+      "class": "recovery-failure",
+      "setup": { "recovery_evidence": "target-mismatch" },
+      "operation": "verify-recovery-evidence",
+      "expected": { "disposition": "rejected", "error_code": "recovery_target_mismatch" }
+    },
+    {
+      "id": "recovery-missing-quiescence-is-rejected",
+      "class": "missing-evidence",
+      "setup": { "recovery_evidence": "missing-quiescence" },
+      "operation": "verify-recovery-evidence",
+      "expected": { "disposition": "rejected", "error_code": "recovery_quiescence_evidence_invalid" }
+    },
+    {
+      "id": "recovery-forged-quiescence-is-rejected",
+      "class": "recovery-failure",
+      "setup": { "recovery_evidence": "forged-quiescence" },
+      "operation": "verify-recovery-evidence",
+      "expected": { "disposition": "rejected", "error_code": "recovery_quiescence_evidence_invalid" }
+    },
+    {
+      "id": "recovery-invalid-timestamp-order-is-rejected",
+      "class": "recovery-failure",
+      "setup": { "recovery_evidence": "invalid-order" },
+      "operation": "verify-recovery-evidence",
+      "expected": { "disposition": "rejected", "error_code": "recovery_timestamp_order_invalid" }
+    }
+  ]
+}
