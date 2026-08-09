@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.ao-pilot.dev/ao.or-authorization-grant.v1.schema.json",
+  "title": "AO Orchestrator authorization grant v1",
+  "description": "A closed, durable authority envelope. Descriptive metadata and prompt text are deliberately outside the contract and cannot grant effects.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "grant_id", "issued_at", "expires_at", "issuer", "subject",
+    "repository", "task", "allowed_actions", "branch_scope", "pull_request_scope",
+    "merge_scope", "reviewer_freshness", "rollback_recovery", "revocation",
+    "replay_protection"
+  ],
+  "properties": {
+    "schema_version": { "const": "ao.or-authorization-grant.v1" },
+    "grant_id": { "$ref": "#/$defs/exactString" },
+    "issued_at": { "$ref": "#/$defs/timestamp" },
+    "expires_at": { "$ref": "#/$defs/timestamp" },
+    "issuer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor_ref", "authority_ref"],
+      "properties": {
+        "actor_ref": { "$ref": "#/$defs/exactString" },
+        "authority_ref": { "$ref": "#/$defs/exactString" }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["orchestrator_ref", "session_id"],
+      "properties": {
+        "orchestrator_ref": { "$ref": "#/$defs/exactString" },
+        "session_id": { "$ref": "#/$defs/exactString" }
+      }
+    },
+    "repository": { "$ref": "#/$defs/repository" },
+    "task": { "$ref": "#/$defs/task" },
+    "allowed_actions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/gitPush" },
+          { "$ref": "#/$defs/prOpen" },
+          { "$ref": "#/$defs/prUpdate" },
+          { "$ref": "#/$defs/prRequestReview" },
+          { "$ref": "#/$defs/prMerge" },
+          { "$ref": "#/$defs/taskCloseout" }
+        ]
+      }
+    },
+    "branch_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["base_ref", "base_sha", "head_ref"],
+      "properties": {
+        "base_ref": { "$ref": "#/$defs/branchRef" },
+        "base_sha": { "$ref": "#/$defs/gitSha" },
+        "head_ref": { "$ref": "#/$defs/branchRef" }
+      }
+    },
+    "pull_request_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["head_ref", "numbers"],
+      "properties": {
+        "head_ref": { "$ref": "#/$defs/branchRef" },
+        "numbers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "merge_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["permitted", "pr_number", "expected_head_sha", "expected_base_sha", "method"],
+      "properties": {
+        "permitted": { "type": "boolean" },
+        "pr_number": { "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }] },
+        "expected_head_sha": { "oneOf": [{ "$ref": "#/$defs/gitSha" }, { "type": "null" }] },
+        "expected_base_sha": { "oneOf": [{ "$ref": "#/$defs/gitSha" }, { "type": "null" }] },
+        "method": { "oneOf": [{ "enum": ["merge", "squash", "rebase"] }, { "type": "null" }] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "permitted": { "const": true } } },
+          "then": {
+            "properties": {
+              "pr_number": { "type": "integer", "minimum": 1 },
+              "expected_head_sha": { "$ref": "#/$defs/gitSha" },
+              "expected_base_sha": { "$ref": "#/$defs/gitSha" },
+              "method": { "enum": ["merge", "squash", "rebase"] }
+            }
+          },
+          "else": {
+            "properties": {
+              "pr_number": { "type": "null" },
+              "expected_head_sha": { "type": "null" },
+              "expected_base_sha": { "type": "null" },
+              "method": { "type": "null" }
+            }
+          }
+        }
+      ]
+    },
+    "reviewer_freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required_for_merge", "exact_head_required", "independent_from_issuer_and_subject",
+        "max_age_seconds", "required_verdict", "allowed_reviewer_actor_refs"
+      ],
+      "properties": {
+        "required_for_merge": { "type": "boolean" },
+        "exact_head_required": { "type": "boolean" },
+        "independent_from_issuer_and_subject": { "type": "boolean" },
+        "max_age_seconds": { "type": "integer", "minimum": 1 },
+        "required_verdict": { "const": "approved" },
+        "allowed_reviewer_actor_refs": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/exactString" }
+        }
+      }
+    },
+    "rollback_recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy", "recovery_ref", "destructive_authorized"],
+      "properties": {
+        "strategy": { "const": "revert_or_forward_fix" },
+        "recovery_ref": { "$ref": "#/$defs/exactString" },
+        "destructive_authorized": { "const": false }
+      }
+    },
+    "revocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registry_ref", "status_at_issue", "max_check_age_seconds"],
+      "properties": {
+        "registry_ref": { "$ref": "#/$defs/exactString" },
+        "status_at_issue": { "const": "active" },
+        "max_check_age_seconds": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "replay_protection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["audience", "ledger_ref", "mode", "nonce"],
+      "properties": {
+        "audience": { "$ref": "#/$defs/exactString" },
+        "ledger_ref": { "$ref": "#/$defs/exactString" },
+        "mode": { "const": "single_use_per_action" },
+        "nonce": { "$ref": "#/$defs/exactString" }
+      }
+    }
+  },
+  "$defs": {
+    "exactString": { "type": "string", "pattern": "^\\S(?:.*\\S)?$", "not": { "pattern": "[?*]" } },
+    "timestamp": { "type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$" },
+    "gitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "branchRef": { "type": "string", "pattern": "^refs/heads/[A-Za-z0-9](?:[A-Za-z0-9._/-]*[A-Za-z0-9])?$", "not": { "pattern": "(?:\\.\\.|//|[?*])" } },
+    "repository": {
+      "type": "object", "additionalProperties": false,
+      "required": ["repository_id", "slug"],
+      "properties": {
+        "repository_id": { "type": "integer", "minimum": 1 },
+        "slug": { "type": "string", "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9._-]+$" }
+      }
+    },
+    "task": {
+      "type": "object", "additionalProperties": false,
+      "required": ["admission_ref", "issue_number", "task_id"],
+      "properties": {
+        "admission_ref": { "$ref": "#/$defs/exactString" },
+        "issue_number": { "type": "integer", "minimum": 1 },
+        "task_id": { "$ref": "#/$defs/exactString" }
+      }
+    },
+    "gitPush": { "type": "object", "additionalProperties": false, "required": ["effect", "action"], "properties": { "effect": { "const": "git_ref" }, "action": { "const": "push" } } },
+    "prOpen": { "type": "object", "additionalProperties": false, "required": ["effect", "action"], "properties": { "effect": { "const": "pull_request" }, "action": { "const": "open" } } },
+    "prUpdate": { "type": "object", "additionalProperties": false, "required": ["effect", "action"], "properties": { "effect": { "const": "pull_request" }, "action": { "const": "update" } } },
+    "prRequestReview": { "type": "object", "additionalProperties": false, "required": ["effect", "action"], "properties": { "effect": { "const": "pull_request" }, "action": { "const": "request_review" } } },
+    "prMerge": { "type": "object", "additionalProperties": false, "required": ["effect", "action"], "properties": { "effect": { "const": "pull_request" }, "action": { "const": "merge" } } },
+    "taskCloseout": { "type": "object", "additionalProperties": false, "required": ["effect", "action"], "properties": { "effect": { "const": "task" }, "action": { "const": "closeout" } } }
+  }
+}

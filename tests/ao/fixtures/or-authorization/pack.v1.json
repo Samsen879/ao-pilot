@@ -1,0 +1,201 @@
+{
+  "schema_version": "ao.or-authorization-fixture-pack.v1",
+  "grant": {
+    "schema_version": "ao.or-authorization-grant.v1",
+    "grant_id": "or-grant:foundation-19:1",
+    "issued_at": "2026-08-09T12:00:00.000Z",
+    "expires_at": "2026-08-10T12:00:00.000Z",
+    "issuer": {
+      "actor_ref": "github:user:Samsen879",
+      "authority_ref": "github:issue-comment:5231447055"
+    },
+    "subject": {
+      "orchestrator_ref": "ao:orchestrator:ao-pilot-upgrade-3",
+      "session_id": "ao-pilot-upgrade-3"
+    },
+    "repository": {
+      "repository_id": 1211368494,
+      "slug": "Samsen879/ao-pilot"
+    },
+    "task": {
+      "admission_ref": "github:issue-comment:5231447055",
+      "issue_number": 19,
+      "task_id": "foundation-19"
+    },
+    "allowed_actions": [
+      { "effect": "git_ref", "action": "push" },
+      { "effect": "pull_request", "action": "open" },
+      { "effect": "pull_request", "action": "update" },
+      { "effect": "pull_request", "action": "request_review" },
+      { "effect": "pull_request", "action": "merge" },
+      { "effect": "task", "action": "closeout" }
+    ],
+    "branch_scope": {
+      "base_ref": "refs/heads/main",
+      "base_sha": "549d3058b4fca785e901e9664f4239e26da59a76",
+      "head_ref": "refs/heads/ao/ao-pilot-upgrade-18/root"
+    },
+    "pull_request_scope": {
+      "head_ref": "refs/heads/ao/ao-pilot-upgrade-18/root",
+      "numbers": [83]
+    },
+    "merge_scope": {
+      "permitted": true,
+      "pr_number": 83,
+      "expected_head_sha": "1111111111111111111111111111111111111111",
+      "expected_base_sha": "549d3058b4fca785e901e9664f4239e26da59a76",
+      "method": "squash"
+    },
+    "reviewer_freshness": {
+      "required_for_merge": true,
+      "exact_head_required": true,
+      "independent_from_issuer_and_subject": true,
+      "max_age_seconds": 86400,
+      "required_verdict": "approved",
+      "allowed_reviewer_actor_refs": ["github:app:chatgpt-codex-connector"]
+    },
+    "rollback_recovery": {
+      "strategy": "revert_or_forward_fix",
+      "recovery_ref": "github:issue:19#recovery",
+      "destructive_authorized": false
+    },
+    "revocation": {
+      "registry_ref": "github:issue:19#authorization-revocations",
+      "status_at_issue": "active",
+      "max_check_age_seconds": 900
+    },
+    "replay_protection": {
+      "audience": "ao-pilot:foundation-19",
+      "ledger_ref": "github:issue:19#authorization-use-ledger",
+      "mode": "single_use_per_action",
+      "nonce": "foundation-19-grant-1"
+    }
+  },
+  "requests": {
+    "routine_review": {
+      "request_id": "request-review-1",
+      "audience": "ao-pilot:foundation-19",
+      "subject": {
+        "orchestrator_ref": "ao:orchestrator:ao-pilot-upgrade-3",
+        "session_id": "ao-pilot-upgrade-3"
+      },
+      "repository": {
+        "repository_id": 1211368494,
+        "slug": "Samsen879/ao-pilot"
+      },
+      "task": {
+        "admission_ref": "github:issue-comment:5231447055",
+        "issue_number": 19,
+        "task_id": "foundation-19"
+      },
+      "effect": "pull_request",
+      "action": "request_review",
+      "branch": {
+        "base_ref": "refs/heads/main",
+        "base_sha": "549d3058b4fca785e901e9664f4239e26da59a76",
+        "head_ref": "refs/heads/ao/ao-pilot-upgrade-18/root",
+        "head_sha": "1111111111111111111111111111111111111111"
+      },
+      "pull_request": {
+        "head_ref": "refs/heads/ao/ao-pilot-upgrade-18/root",
+        "number": 83
+      },
+      "merge": {
+        "expected_base_sha": null,
+        "expected_head_sha": null,
+        "method": null
+      },
+      "review": null,
+      "rollback": {
+        "destructive": false,
+        "strategy": "revert_or_forward_fix"
+      },
+      "revocation_evidence": {
+        "registry_ref": "github:issue:19#authorization-revocations",
+        "grant_fingerprint": "REPLACED_BY_TEST",
+        "status": "active",
+        "checked_at": "2026-08-09T12:29:00.000Z",
+        "event_ref": null
+      },
+      "replay_evidence": {
+        "ledger_ref": "github:issue:19#authorization-use-ledger",
+        "status": "unused",
+        "checked_at": "2026-08-09T12:29:00.000Z",
+        "grant_fingerprint": "REPLACED_BY_TEST",
+        "action_key": "pull_request:request_review",
+        "request_id": "request-review-1"
+      }
+    },
+    "exact_head_merge": {
+      "request_id": "request-merge-1",
+      "audience": "ao-pilot:foundation-19",
+      "subject": {
+        "orchestrator_ref": "ao:orchestrator:ao-pilot-upgrade-3",
+        "session_id": "ao-pilot-upgrade-3"
+      },
+      "repository": {
+        "repository_id": 1211368494,
+        "slug": "Samsen879/ao-pilot"
+      },
+      "task": {
+        "admission_ref": "github:issue-comment:5231447055",
+        "issue_number": 19,
+        "task_id": "foundation-19"
+      },
+      "effect": "pull_request",
+      "action": "merge",
+      "branch": {
+        "base_ref": "refs/heads/main",
+        "base_sha": "549d3058b4fca785e901e9664f4239e26da59a76",
+        "head_ref": "refs/heads/ao/ao-pilot-upgrade-18/root",
+        "head_sha": "1111111111111111111111111111111111111111"
+      },
+      "pull_request": {
+        "head_ref": "refs/heads/ao/ao-pilot-upgrade-18/root",
+        "number": 83
+      },
+      "merge": {
+        "expected_base_sha": "549d3058b4fca785e901e9664f4239e26da59a76",
+        "expected_head_sha": "1111111111111111111111111111111111111111",
+        "method": "squash"
+      },
+      "review": {
+        "actor_ref": "github:app:chatgpt-codex-connector",
+        "review_ref": "github:pull-review:1001",
+        "reviewed_at": "2026-08-09T12:20:00.000Z",
+        "reviewed_head_sha": "1111111111111111111111111111111111111111",
+        "verdict": "approved"
+      },
+      "rollback": {
+        "destructive": false,
+        "strategy": "revert_or_forward_fix"
+      },
+      "revocation_evidence": {
+        "registry_ref": "github:issue:19#authorization-revocations",
+        "grant_fingerprint": "REPLACED_BY_TEST",
+        "status": "active",
+        "checked_at": "2026-08-09T12:29:00.000Z",
+        "event_ref": null
+      },
+      "replay_evidence": {
+        "ledger_ref": "github:issue:19#authorization-use-ledger",
+        "status": "unused",
+        "checked_at": "2026-08-09T12:29:00.000Z",
+        "grant_fingerprint": "REPLACED_BY_TEST",
+        "action_key": "pull_request:merge",
+        "request_id": "request-merge-1"
+      }
+    }
+  },
+  "scenarios": [
+    { "id": "positive-routine-review", "request": "routine_review", "now": "2026-08-09T12:30:00.000Z", "decision": "authorize", "reason_code": "exact_scope_authorized" },
+    { "id": "positive-exact-head-merge", "request": "exact_head_merge", "now": "2026-08-09T12:30:00.000Z", "decision": "authorize", "reason_code": "exact_scope_authorized" },
+    { "id": "expired", "request": "exact_head_merge", "now": "2026-08-10T12:00:00.000Z", "decision": "deny", "reason_code": "grant_expired" },
+    { "id": "revoked", "request": "exact_head_merge", "request_set": { "revocation_evidence.status": "revoked", "revocation_evidence.event_ref": "github:issue-comment:revocation-1" }, "now": "2026-08-09T12:30:00.000Z", "decision": "deny", "reason_code": "grant_revoked" },
+    { "id": "missing-review", "request": "exact_head_merge", "request_set": { "review": null }, "now": "2026-08-09T12:30:00.000Z", "decision": "deny", "reason_code": "fresh_independent_review_missing" },
+    { "id": "mixed-version", "request": "exact_head_merge", "grant_set": { "schema_version": "ao.or-authorization-grant.v2" }, "now": "2026-08-09T12:30:00.000Z", "decision": "deny", "reason_code": "mixed_grant_version" },
+    { "id": "replay", "request": "exact_head_merge", "request_set": { "replay_evidence.status": "used" }, "now": "2026-08-09T12:30:00.000Z", "decision": "deny", "reason_code": "grant_replay_detected" },
+    { "id": "cross-project", "request": "exact_head_merge", "request_set": { "repository.slug": "Other/ao-pilot" }, "now": "2026-08-09T12:30:00.000Z", "decision": "escalate", "reason_code": "repository_binding_mismatch" },
+    { "id": "cross-task", "request": "exact_head_merge", "request_set": { "task.issue_number": 20, "task.task_id": "foundation-20" }, "now": "2026-08-09T12:30:00.000Z", "decision": "escalate", "reason_code": "task_binding_mismatch" }
+  ]
+}
