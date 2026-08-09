@@ -15,14 +15,14 @@
       "class": "file-loss",
       "setup": { "canonical": "missing", "shadow": "stale" },
       "operation": "cold-read",
-      "expected": { "disposition": "rejected", "error": "Missing canonical controller lease authority" }
+      "expected": { "disposition": "rejected", "error_code": "canonical_authority_missing" }
     },
     {
       "id": "invalid-json-does-not-revive-shadow",
       "class": "invalid-json",
       "setup": { "canonical": "invalid-json", "shadow": "stale" },
       "operation": "cold-read",
-      "expected": { "disposition": "rejected", "error_class": "SyntaxError" }
+      "expected": { "disposition": "rejected", "error_code": "canonical_authority_invalid_json" }
     },
     {
       "id": "partial-state-loss-keeps-canonical-readable",
@@ -36,7 +36,7 @@
       "class": "partial-recovery",
       "setup": { "canonical": "latest", "shadow": "absent", "schema": "missing" },
       "operation": "cold-read",
-      "expected": { "disposition": "rejected", "error": "Incomplete control-plane state evidence" }
+      "expected": { "disposition": "rejected", "error_code": "control_plane_evidence_incomplete" }
     },
     {
       "id": "restart-regenerates-projection-from-canonical",
@@ -57,7 +57,7 @@
       "class": "mixed-version",
       "setup": { "canonical": "legacy-array", "shadow": "stale" },
       "operation": "cold-read",
-      "expected": { "disposition": "rejected", "error": "expected a versioned JSON object" }
+      "expected": { "disposition": "rejected", "error_code": "canonical_authority_unversioned" }
     },
     {
       "id": "concurrent-heartbeats-preserve-latest-accepted",
@@ -71,7 +71,7 @@
       "class": "missing-evidence",
       "setup": { "recovery_evidence": "missing-intent" },
       "operation": "verify-recovery-evidence",
-      "expected": { "disposition": "rejected", "error": "explicit operator intent" }
+      "expected": { "disposition": "rejected", "error_code": "recovery_operator_intent_missing" }
     },
     {
       "id": "explicit-recovery-records-resulting-authority",
@@ -85,7 +85,7 @@
       "class": "recovery-failure",
       "setup": { "recovery_evidence": "result-digest-mismatch" },
       "operation": "verify-recovery-evidence",
-      "expected": { "disposition": "rejected", "error": "resulting authority digest mismatch" }
+      "expected": { "disposition": "rejected", "error_code": "recovery_result_digest_mismatch" }
     }
   ]
 }

@@ -9,7 +9,8 @@ recovery actor new authority and does not implement automatic repair.
 The fixture pack is
 [`pack.v1.json`](../../tests/ao/fixtures/controller-lease-safety/pack.v1.json).
 `npm run verify:controller-lease-safety` materializes every case in a temporary
-state root, removes all path and wall-clock variability from its observations,
+state root, normalizes runtime-specific parse diagnostics into audited error
+codes, removes all path and wall-clock variability from its observations,
 and executes the complete pack twice. The committed receipt is
 [`controller-lease-safety-verification.v1.json`](controller-lease-safety-verification.v1.json).
 

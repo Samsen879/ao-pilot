@@ -96,6 +96,17 @@ function recoveryEvidence(kind) {
   return evidence;
 }
 
+function classifySafetyError(error) {
+  const message = String(error?.message ?? '');
+  if (error instanceof SyntaxError) return 'canonical_authority_invalid_json';
+  if (message.includes('Missing canonical controller lease authority')) return 'canonical_authority_missing';
+  if (message.includes('Incomplete control-plane state evidence')) return 'control_plane_evidence_incomplete';
+  if (message.includes('expected a versioned JSON object')) return 'canonical_authority_unversioned';
+  if (message.includes('explicit operator intent')) return 'recovery_operator_intent_missing';
+  if (message.includes('resulting authority digest mismatch')) return 'recovery_result_digest_mismatch';
+  return 'unexpected_error';
+}
+
 export function verifyControllerLeaseRecoveryEvidence(evidence) {
   if (!evidence || evidence.schema_version !== CONTROLLER_LEASE_RECOVERY_EVIDENCE_SCHEMA_VERSION) {
     throw new Error('Unsupported controller lease recovery evidence');
@@ -253,7 +264,7 @@ async function executeCase(entry, tempRoots) {
     try {
       return { disposition: 'accepted', ...verifyControllerLeaseRecoveryEvidence(recoveryEvidence(entry.setup.recovery_evidence)) };
     } catch (error) {
-      return { disposition: 'rejected', error_class: error.constructor.name, error: error.message };
+      return { disposition: 'rejected', error_code: classifySafetyError(error) };
     }
   }
   const { paths, repoRoot } = materialize(entry, tempRoots);
@@ -265,7 +276,7 @@ async function executeCase(entry, tempRoots) {
       clock: FIXED_NOW,
     }));
   } catch (error) {
-    return { disposition: 'rejected', error_class: error.constructor.name, error: error.message };
+    return { disposition: 'rejected', error_code: classifySafetyError(error) };
   }
 }
 
@@ -273,10 +284,6 @@ function assertExpected(entry, result) {
   for (const [key, expected] of Object.entries(entry.expected)) {
     if (key === 'migration_receipt') {
       if (expected && !result.migration_receipt_digest) throw new Error(`${entry.id}: missing migration receipt`);
-    } else if (key === 'error') {
-      if (!result.error?.includes(expected)) {
-        throw new Error(`${entry.id}: expected error containing ${expected}; received ${JSON.stringify(result)}`);
-      }
     } else if (JSON.stringify(result[key]) !== JSON.stringify(expected)) {
       throw new Error(`${entry.id}: expected ${key}=${JSON.stringify(expected)}, received ${JSON.stringify(result)}`);
     }

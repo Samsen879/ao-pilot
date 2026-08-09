@@ -1,13 +1,13 @@
 {
   "schema_version": "ao.controller-lease-safety-replay-receipt.v1",
-  "fixture_pack_digest": "6c506bd54cf1261ddc2e57f4bd8b984e47cdc7142ec8017debb0b98b9cd49ca2",
+  "fixture_pack_digest": "5eb09074251feff523a43328975b8d45cd4ab9b4b896e76a4f1d2dcc2cee892c",
   "fixture_count": 12,
   "replay_count": 2,
   "case_execution_count": 24,
-  "stable_run_digest": "95128a166cb472fc88d89ea23eb7706aa9e78e0aa7379d73fb835a03ec958b3a",
+  "stable_run_digest": "97972c6e83006f1c7f16ec7a8806a4ada98a07c3c02018a912aff6f9a56adc1a",
   "run_digests": [
-    "95128a166cb472fc88d89ea23eb7706aa9e78e0aa7379d73fb835a03ec958b3a",
-    "95128a166cb472fc88d89ea23eb7706aa9e78e0aa7379d73fb835a03ec958b3a"
+    "97972c6e83006f1c7f16ec7a8806a4ada98a07c3c02018a912aff6f9a56adc1a",
+    "97972c6e83006f1c7f16ec7a8806a4ada98a07c3c02018a912aff6f9a56adc1a"
   ],
   "class_counts": {
     "concurrent-heartbeat": 1,
@@ -22,5 +22,5 @@
     "stale-shadow": 1
   },
   "status": "passed",
-  "receipt_digest": "b4c2fbe5764871d0a48bc4fff3e57ebc7eddc69817dff035a891b89680718e16"
+  "receipt_digest": "d41d7d6a471bb3bb399f7222a87e542ddfaa8ac2d5638f8aaeb45cd52f8b9cde"
 }
