@@ -1,7 +1,7 @@
 {
   "schema_version": "ao.trajectory-vocabulary.v1",
-  "inventory_version": "1.0.0",
-  "status": "audit_only_no_behavior_change",
+  "inventory_version": "1.1.0",
+  "status": "release_judgment_migration_with_legacy_observation",
   "baseline": {
     "issue_body_sha": "e51bef40ccd124939b2781b14af3297e856c6f17",
     "issue_body_tree": "67aa09d8b11a6532876353f500df7fb529e4d9b5",
@@ -86,14 +86,14 @@
   "items": [
     {
       "id": "action.lifecycle_action_id", "family": "action", "field": "lifecycle.actions[].id",
-      "values": ["auto_merge_ready_pr", "continue_worker", "handoff_worker", "hold_ci", "hold_local_control", "hold_mergeability", "hold_review", "human_gate", "notify_human_blocked", "notify_human_ready", "restore_worker"],
+      "values": ["auto_merge_ready_pr", "continue_worker", "handoff_worker", "hold_ci", "hold_local_control", "hold_mergeability", "hold_review", "human_gate", "notify_human_blocked", "notify_human_ready", "release_ready", "restore_worker"],
       "meaning": "A requested AO control operation; the identifier is an instruction, not proof that an effect occurred.",
       "semantic_owner": "AO lifecycle engine", "evidence_authority": "versioned lifecycle report", "episode_role": "judgment.action_requested",
       "source": "action_templates", "producers": ["action_builder"], "consumers": ["action_model"]
     },
     {
       "id": "action.lifecycle_action_class", "family": "action", "field": "lifecycle.actions[].action_class",
-      "values": ["continue_worker", "handoff_worker", "hold", "human_gate", "merge_pr", "notify_human", "restore_worker"],
+      "values": ["continue_worker", "handoff_worker", "hold", "human_gate", "merge_pr", "notify_human", "release_judgment", "restore_worker"],
       "meaning": "Coarse action category used for routing and measurement; multiple action ids may share it.",
       "semantic_owner": "AO lifecycle engine", "evidence_authority": "versioned lifecycle report", "episode_role": "judgment.action_class",
       "source": "action_templates", "producers": ["action_builder"], "consumers": ["action_model"]
@@ -212,14 +212,14 @@
     },
     {
       "id": "lifecycle.release_disposition", "family": "lifecycle_disposition", "field": "lifecycle.release_decision.disposition",
-      "values": ["auto_merge_ready_pr", "await_ci", "await_mergeability", "await_review", "human_gate", "no_release_action", "not_applicable", "notify_human_ready"],
-      "meaning": "AO release judgment only. Ready/notify/auto-merge wording does not prove an OR effect or provider merge.",
+      "values": ["auto_merge_ready_pr", "await_ci", "await_mergeability", "await_review", "human_gate", "no_release_action", "not_applicable", "notify_human_ready", "release_ready"],
+      "meaning": "release_ready is the current AO judgment authorizing OR preflight only. notify_human_ready and auto_merge_ready_pr retain immutable legacy meanings and are deprecated; no disposition proves an OR effect or provider merge.",
       "semantic_owner": "AO release judgment", "evidence_authority": "AO lifecycle decision", "episode_role": "judgment.release_disposition",
       "source": "lifecycle_engine", "producers": ["lifecycle_engine", "lifecycle_review_gate"], "consumers": ["decision_chain", "action_builder"]
     },
     {
       "id": "lifecycle.release_basis", "family": "lifecycle_disposition", "field": "lifecycle.release_decision.basis[]",
-      "values": ["all_release_signals_clear", "branch_mismatch_with_github", "bugbot_comments", "ci_blocked", "ci_pending", "ci_unknown", "doctor_ambiguous", "doctor_blocks_control", "draft_pr", "fallback_ambiguous", "merge_conflict_blocked", "mergeability_unknown", "missing_pr_assessment", "none", "orphan_open_pr", "ownership_ambiguous", "ownership_orphaned", "ownership_stale", "ownership_unknown", "pr_not_open", "project_scope_advisory_only", "ready_for_auto_merge", "ready_for_human_notification", "review_blocked", "review_changes_required", "review_escalated", "review_missing", "review_pending", "review_target_mismatch", "review_unknown", "source_failure"],
+      "values": ["all_release_signals_clear", "branch_mismatch_with_github", "bugbot_comments", "ci_blocked", "ci_pending", "ci_unknown", "doctor_ambiguous", "doctor_blocks_control", "draft_pr", "fallback_ambiguous", "merge_conflict_blocked", "mergeability_unknown", "missing_pr_assessment", "none", "orphan_open_pr", "ownership_ambiguous", "ownership_orphaned", "ownership_stale", "ownership_unknown", "pr_not_open", "project_scope_advisory_only", "ready_for_auto_merge", "ready_for_human_notification", "release_preflight_authorized", "review_blocked", "review_changes_required", "review_escalated", "review_missing", "review_pending", "review_target_mismatch", "review_unknown", "source_failure"],
       "meaning": "Reason vocabulary that disambiguates identical release dispositions; an empty basis is recorded as none rather than inferred.",
       "semantic_owner": "AO release judgment", "evidence_authority": "AO lifecycle decision basis", "episode_role": "judgment.release_basis",
       "source": "lifecycle_engine", "producers": ["lifecycle_engine", "lifecycle_review_gate"], "consumers": ["decision_chain", "action_builder"]

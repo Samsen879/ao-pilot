@@ -1,7 +1,8 @@
 # Trajectory and outcome vocabulary audit
 
-Status: audit-only inventory for issue #12. This report does not rename a
-symbol, change lifecycle behavior, or add Completion Record storage.
+Status: the issue #12 audit baseline is preserved and its v1 inventory now
+includes the issue #20 release-judgment migration. Completion Record storage
+is unchanged.
 
 ## Reconciled baseline
 
@@ -63,8 +64,11 @@ normalized owner or authority. It also validates the four required fixtures:
 - `tests/ao/fixtures/trajectory-vocabulary/replay.json`
 
 Replay validation resolves `replay_of` and compares canonicalized semantic
-projections in the advertised CLI gate, so a missing target, changed semantics,
-key ordering, or a fresh read cannot silently change the replay result.
+projections in the advertised CLI gate. The success fixture uses current
+`release_ready` vocabulary while the replay fixture retains the legacy
+`notify_human_ready` source value; the observation projection maps only that
+versioned alias. A missing target, changed semantics, key ordering, or a fresh
+read cannot silently change the replay result.
 
 ## Current implementation versus real OR production practice
 

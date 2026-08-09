@@ -87,7 +87,8 @@ const SCENARIOS = {
         expectStdoutContains: [
           'top_status: continue',
           'routing: continue_current_worker owner=worker-93 authoritative=true',
-          'release: notify_human_ready authoritative=true',
+          'release: release_ready authoritative=true',
+          'release_authority: or_preflight_only claims_merge=false claims_external_effect=false claims_human_approval=false',
         ],
       },
     ],

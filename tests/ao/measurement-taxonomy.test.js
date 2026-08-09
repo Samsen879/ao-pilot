@@ -5,6 +5,8 @@ import {
   CONTROLLER_RUN_MEASUREMENT_SCHEMA_VERSION,
   EXECUTION_ATTEMPT_MEASUREMENT_FORMAT,
   EXECUTION_ATTEMPT_MEASUREMENT_SCHEMA_VERSION,
+  LEGACY_CONTROLLER_RUN_MEASUREMENT_SCHEMA_VERSION,
+  LEGACY_EXECUTION_ATTEMPT_MEASUREMENT_SCHEMA_VERSION,
   MEASUREMENT_ACTION_CLASSES,
   MEASUREMENT_FAILURE_CLASSES,
   MEASUREMENT_INTERVENTION_KINDS,
@@ -20,9 +22,11 @@ import {
 
 describe('measurement taxonomy', () => {
   it('freezes the durable schema identities and stable vocabularies', () => {
-    expect(CONTROLLER_RUN_MEASUREMENT_SCHEMA_VERSION).toBe('ao.controller-run-measurement.v1alpha1');
+    expect(LEGACY_CONTROLLER_RUN_MEASUREMENT_SCHEMA_VERSION).toBe('ao.controller-run-measurement.v1alpha1');
+    expect(CONTROLLER_RUN_MEASUREMENT_SCHEMA_VERSION).toBe('ao.controller-run-measurement.v1alpha2');
     expect(CONTROLLER_RUN_MEASUREMENT_FORMAT).toBe('ao_controller_run_measurement');
-    expect(EXECUTION_ATTEMPT_MEASUREMENT_SCHEMA_VERSION).toBe('ao.execution-attempt-measurement.v1alpha1');
+    expect(LEGACY_EXECUTION_ATTEMPT_MEASUREMENT_SCHEMA_VERSION).toBe('ao.execution-attempt-measurement.v1alpha1');
+    expect(EXECUTION_ATTEMPT_MEASUREMENT_SCHEMA_VERSION).toBe('ao.execution-attempt-measurement.v1alpha2');
     expect(EXECUTION_ATTEMPT_MEASUREMENT_FORMAT).toBe('ao_execution_attempt_measurement');
     expect(MEASUREMENT_TRIGGER_KINDS).toEqual([
       'manual',
@@ -37,6 +41,7 @@ describe('measurement taxonomy', () => {
     ]);
     expect(MEASUREMENT_ACTION_CLASSES).toEqual([
       'continue_worker',
+      'release_judgment',
       'notify_human',
       'merge_pr',
       'hold',
@@ -74,6 +79,7 @@ describe('measurement taxonomy', () => {
       'worker_exit',
       'successor_handoff',
       'external_effect',
+      'contract_invalid',
       'unknown',
     ]);
   });
@@ -86,6 +92,10 @@ describe('measurement taxonomy', () => {
     expect(resolveMeasurementActionClass({
       actionKind: 'continue_worker',
     })).toBe('continue_worker');
+    expect(resolveMeasurementActionClass({
+      actionKind: 'release_ready',
+      actionClass: 'release_judgment',
+    })).toBe('release_judgment');
     expect(resolveMeasurementActionClass({
       actionKind: 'notify_human_ready',
       actionClass: 'notify_human',
@@ -142,6 +152,9 @@ describe('measurement taxonomy', () => {
     expect(resolveExecutionAttemptFailureClass({
       reason: 'policy_allow_required',
     })).toBe('policy_block');
+    expect(resolveExecutionAttemptFailureClass({
+      reason: 'release_judgment_contract_invalid',
+    })).toBe('contract_invalid');
     expect(resolveExecutionAttemptFailureClass({
       reason: 'worker_exited',
     })).toBe('worker_exit');

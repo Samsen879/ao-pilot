@@ -21,7 +21,8 @@ import {
 } from './measurement-taxonomy.js';
 
 export const DEFAULT_PROJECT_ID = 'my-project';
-export const AO_METRICS_REPORT_SCHEMA_VERSION = 'ao.metrics-report.v1alpha1';
+export const LEGACY_AO_METRICS_REPORT_SCHEMA_VERSION = 'ao.metrics-report.v1alpha1';
+export const AO_METRICS_REPORT_SCHEMA_VERSION = 'ao.metrics-report.v1alpha2';
 export const AO_METRICS_REPORT_FORMAT = 'ao_metrics_report';
 
 function resolveNow(now) {

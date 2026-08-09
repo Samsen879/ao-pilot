@@ -67,11 +67,42 @@ describe('lifecycle report', () => {
     expect(summary).toContain('suggested_actions: ao status -p my-project --json | gh pr checks 44');
   });
 
-  it('renders missing findings and actions as none', () => {
+  it('renders the current release judgment boundary without suggesting an effect', () => {
     const summary = renderLifecycleHumanSummary(buildReport({
+      schema_version: 'ao.lifecycle.v1alpha2',
       top_status: 'continue',
       findings: [],
       actions: [],
+      release_decision: {
+        disposition: 'release_ready',
+        basis: ['release_preflight_authorized'],
+        authoritative: true,
+        judgment_contract: 'ao.release-judgment.v1',
+        authority_scope: 'or_preflight_only',
+        claims: {
+          merge: false,
+          external_effect: false,
+          human_approval: false,
+        },
+      },
+    }));
+
+    expect(summary).toContain('release: release_ready authoritative=true');
+    expect(summary).toContain('release_authority: or_preflight_only claims_merge=false claims_external_effect=false claims_human_approval=false');
+    expect(summary).toContain('key_findings: none');
+    expect(summary).toContain('suggested_actions: none');
+  });
+
+  it('renders legacy notification records through the compatibility adapter with deprecation context', () => {
+    const summary = renderLifecycleHumanSummary(buildReport({
+      schema_version: 'ao.lifecycle.v1alpha1',
+      top_status: 'continue',
+      findings: [],
+      actions: [{
+        id: 'notify_human_ready',
+        action_class: 'notify_human',
+        commands: ['gh pr view 44'],
+      }],
       release_decision: {
         disposition: 'notify_human_ready',
         basis: ['ready_for_human_notification'],
@@ -79,7 +110,32 @@ describe('lifecycle report', () => {
       },
     }));
 
-    expect(summary).toContain('key_findings: none');
-    expect(summary).toContain('suggested_actions: none');
+    expect(summary).toContain('release: notify_human_ready authoritative=true observed_as=release_ready');
+    expect(summary).toContain('release_authority: observation_only claims_merge=false claims_external_effect=false claims_human_approval=false');
+    expect(summary).toContain('legacy_notify_human_ready_deprecated');
+    expect(summary).toContain('suggested_actions: gh pr view 44');
+  });
+
+  it('renders malformed current claim values without converting them into non-claims', () => {
+    const summary = renderLifecycleHumanSummary(buildReport({
+      schema_version: 'ao.lifecycle.v1alpha2',
+      top_status: 'continue',
+      findings: [],
+      actions: [],
+      release_decision: {
+        disposition: 'release_ready',
+        basis: ['release_preflight_authorized'],
+        authoritative: true,
+        judgment_contract: 'ao.release-judgment.v1',
+        authority_scope: 'or_preflight_only',
+        claims: {
+          merge: false,
+          external_effect: 'yes',
+        },
+      },
+    }));
+
+    expect(summary).toContain('claims_merge=false claims_external_effect=invalid("yes") claims_human_approval=missing');
+    expect(summary).toContain('[blocker] release_ready_contract_invalid');
   });
 });

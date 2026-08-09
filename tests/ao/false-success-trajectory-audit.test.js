@@ -216,7 +216,7 @@ describe('false-success trajectory audit', () => {
     invalidLifecycle.fixtures.find((entry) => entry.id === 'release-ready-judgment-is-not-outcome')
       .evidence.find((entry) => entry.item_id === 'action.lifecycle_action_class').value = 'merge_pr';
     expect(() => validateFalseSuccessFixturePack(invalidLifecycle, inventory))
-      .toThrow('notify_human_ready action class mismatch');
+      .toThrow('release_ready action class mismatch');
   });
 
   it('resolves replay targets and rejects missing or changed source semantics', () => {

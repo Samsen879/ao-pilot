@@ -127,7 +127,7 @@ describe('decision chain report', () => {
     });
 
     expect(report).toMatchObject({
-      schema_version: 'ao.decision-chain.v1alpha1',
+      schema_version: 'ao.decision-chain.v1alpha2',
       report_format: 'ao_decision_chain_report',
       contract_status: 'authoritative_pr_chain',
       top_status: 'continue',
@@ -153,12 +153,64 @@ describe('decision chain report', () => {
         expect.objectContaining({
           stage: 'lifecycle',
           id: 'notify_human_ready',
+          action_class: 'notify_human',
         }),
       ],
       next_commands: [
         'git status --short',
         'gh pr view 44 --json mergeable,reviewDecision,isDraft,url',
       ],
+      release_decision: expect.objectContaining({
+        disposition: 'notify_human_ready',
+      }),
+      release_decision_observation: expect.objectContaining({
+        disposition: 'release_ready',
+        authority_scope: 'observation_only',
+      }),
+      deprecation_findings: [
+        expect.objectContaining({
+          code: 'legacy_notify_human_ready_deprecated',
+          severity: 'info',
+        }),
+      ],
     });
+  });
+
+  it('surfaces malformed current release judgments without repairing their claims', () => {
+    const scope = createDecisionChainScope({
+      projectId: 'my-project',
+      prNumber: 44,
+      trigger: 'approved_and_green',
+    });
+    const report = buildDecisionChainReport({
+      scope,
+      lifecycleReport: {
+        schema_version: 'ao.lifecycle.v1alpha2',
+        top_status: 'continue',
+        findings: [],
+        actions: [],
+        release_decision: {
+          disposition: 'release_ready',
+          basis: ['release_preflight_authorized'],
+          authoritative: true,
+          judgment_contract: 'ao.release-judgment.v1',
+          authority_scope: 'or_preflight_only',
+          claims: {
+            merge: true,
+            external_effect: false,
+            human_approval: false,
+          },
+        },
+      },
+    });
+
+    expect(report.release_decision.claims.merge).toBe(true);
+    expect(report.release_decision_observation.claims.merge).toBe(true);
+    expect(report.blocking_reasons).toEqual([
+      expect.objectContaining({
+        code: 'release_ready_contract_invalid',
+        severity: 'blocker',
+      }),
+    ]);
   });
 });

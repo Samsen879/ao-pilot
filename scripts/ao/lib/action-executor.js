@@ -5,6 +5,7 @@ import {
 } from './blocked-notification-transport.js';
 import { createActionRecord } from './state-contracts.js';
 import { buildAssistExecutionAttemptMetric } from './run-metrics.js';
+import { validateReleaseReadyDecision } from './release-judgment.js';
 
 export const ASSIST_ACTION_MODEL_SCHEMA_VERSION = 'ao.control-plane.action-model.v1alpha1';
 export const ASSIST_ACTION_MODEL_FORMAT = 'ao_control_plane_action_model';
@@ -83,6 +84,16 @@ const ACTION_POLICIES = {
     nonExecutableReason: 'class_a_allowlist',
     buildPreconditions: ({ task }) => [
       buildTaskActivePrecondition(task),
+    ],
+  },
+  release_ready: {
+    riskClass: 'class_a',
+    phase4AssistExecutable: true,
+    nonExecutableReason: 'durable_release_judgment_only',
+    executableReason: 'durable_release_judgment_only',
+    buildPreconditions: ({ task, prNumber }) => [
+      buildTaskActivePrecondition(task),
+      buildPrScopePrecondition(prNumber),
     ],
   },
   notify_human_ready: {
@@ -1267,6 +1278,47 @@ export async function executeAssistActions({
       });
       blockedActionIds.push(record.action_id);
       continue;
+    }
+
+    if (record.action_kind === 'release_ready') {
+      const releaseDecisionValidation = validateReleaseReadyDecision(
+        record?.payload?.release_decision,
+      );
+      if (!releaseDecisionValidation.ok) {
+        const reason = 'release_judgment_contract_invalid';
+        const blockedRecord = buildBlockedActionRecord(record, model, timestamp, {
+          reason,
+          matchedOverrideIds: [],
+          structural: true,
+          details: releaseDecisionValidation,
+        });
+        repository.upsertAction(blockedRecord);
+        repository.appendAuditEntry({
+          entityKind: 'action',
+          entityId: record.action_id,
+          operation: 'execution_blocked',
+          actor: 'assist_controller',
+          summary: `Blocked invalid release judgment ${record.action_id}.`,
+          details: {
+            action_id: record.action_id,
+            action_kind: record.action_kind,
+            reason,
+            reason_codes: releaseDecisionValidation.reason_codes,
+          },
+          recordedAt: timestamp,
+        });
+        persistExecutionAttemptMetric(repository, {
+          controllerId,
+          task,
+          record,
+          model,
+          status: 'blocked',
+          reason,
+          timestamp,
+        });
+        blockedActionIds.push(record.action_id);
+        continue;
+      }
     }
 
     const blockingOverrides = resolveBlockingOverrides(repository, {

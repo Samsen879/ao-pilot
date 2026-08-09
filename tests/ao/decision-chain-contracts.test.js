@@ -4,6 +4,7 @@ import {
   DECISION_CHAIN_CONTRACT_STATUSES,
   DECISION_CHAIN_REPORT_FORMAT,
   DECISION_CHAIN_SCHEMA_VERSION,
+  LEGACY_DECISION_CHAIN_SCHEMA_VERSION,
   DECISION_CHAIN_STAGES,
   createDecisionChainScope,
   createDecisionChainStage,
@@ -11,7 +12,8 @@ import {
 
 describe('decision chain contracts', () => {
   it('freezes the schema identity, stages, authorities, and contract statuses', () => {
-    expect(DECISION_CHAIN_SCHEMA_VERSION).toBe('ao.decision-chain.v1alpha1');
+    expect(LEGACY_DECISION_CHAIN_SCHEMA_VERSION).toBe('ao.decision-chain.v1alpha1');
+    expect(DECISION_CHAIN_SCHEMA_VERSION).toBe('ao.decision-chain.v1alpha2');
     expect(DECISION_CHAIN_REPORT_FORMAT).toBe('ao_decision_chain_report');
     expect(DECISION_CHAIN_STAGES).toEqual(['reconcile', 'doctor', 'lifecycle']);
     expect(DECISION_CHAIN_AUTHORITIES).toEqual(['authoritative', 'diagnose_only', 'advisory']);

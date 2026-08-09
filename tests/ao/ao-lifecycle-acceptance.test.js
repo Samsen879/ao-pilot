@@ -353,7 +353,7 @@ describe('ao lifecycle acceptance', () => {
     });
   });
 
-  it('notifies the human only when approved-and-green is truly clear end to end', async () => {
+  it('authorizes only OR preflight when approved-and-green is truly clear end to end', async () => {
     useScenario('approved-and-green-pr');
     const stdout = [];
 
@@ -369,7 +369,8 @@ describe('ao lifecycle acceptance', () => {
         contract_status: 'authoritative_pr_chain',
         next_actions: expect.arrayContaining([
           expect.objectContaining({
-            id: 'notify_human_ready',
+            id: 'release_ready',
+            action_class: 'release_judgment',
             stage: 'lifecycle',
           }),
         ]),
@@ -381,8 +382,15 @@ describe('ao lifecycle acceptance', () => {
         authoritative: true,
       },
       release_decision: {
-        disposition: 'notify_human_ready',
+        disposition: 'release_ready',
         authoritative: true,
+        judgment_contract: 'ao.release-judgment.v1',
+        authority_scope: 'or_preflight_only',
+        claims: {
+          merge: false,
+          external_effect: false,
+          human_approval: false,
+        },
       },
     });
   });

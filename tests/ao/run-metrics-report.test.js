@@ -1,6 +1,10 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { buildAoMetricsReport } from '../../scripts/ao/lib/run-metrics.js';
+import {
+  AO_METRICS_REPORT_SCHEMA_VERSION,
+  LEGACY_AO_METRICS_REPORT_SCHEMA_VERSION,
+  buildAoMetricsReport,
+} from '../../scripts/ao/lib/run-metrics.js';
 
 const ZERO_INTERVENTIONS = {
   human_gate: 0,
@@ -65,6 +69,7 @@ describe('AO metrics report', () => {
     });
 
     expect(report).toMatchObject({
+      schema_version: 'ao.metrics-report.v1alpha2',
       project_id: 'portable-project',
       window: {
         since: '2026-07-01T10:30:00.000Z',
@@ -80,6 +85,11 @@ describe('AO metrics report', () => {
         failure_rate: 1,
       },
     });
+    expect(LEGACY_AO_METRICS_REPORT_SCHEMA_VERSION).toBe('ao.metrics-report.v1alpha1');
+    expect(AO_METRICS_REPORT_SCHEMA_VERSION).toBe('ao.metrics-report.v1alpha2');
+    expect(report.summary.action_class_counts).toEqual(expect.objectContaining({
+      release_judgment: 0,
+    }));
     expect(report.recent_traces.execution_attempts).toHaveLength(1);
   });
 

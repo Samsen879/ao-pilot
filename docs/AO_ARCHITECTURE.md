@@ -117,5 +117,7 @@ review before such an action can be proposed.
 
 Unknown or contradictory evidence fails closed. Observe and shadow modes do not
 execute workflow actions. Assist mode is limited by explicit policy decisions
-and an action allowlist. The default release-ready action is
-`notify_human_ready`, not automatic merge.
+and an action allowlist. The default release judgment is `release_ready`: it
+authorizes OR preflight only and is neither a merge request nor evidence of a
+merge, external effect, or human approval. Legacy notification and auto-merge
+records remain observable under their original meanings.
