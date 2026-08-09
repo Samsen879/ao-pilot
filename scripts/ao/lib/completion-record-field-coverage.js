@@ -185,6 +185,15 @@ export function validateCompletionRecordFieldCoverage(ledger, {
     assert(rows.some((row) => row.oracle_coverage === state), `Missing ${state} oracle coverage`);
   }
 
+  const deliveryStatus = rows.find((row) => row.field === 'delivery_status');
+  const deliverySelectors = new Set(deliveryStatus?.mappings.map((mapping) => (
+    `${mapping.source_id}:${mapping.selector}`
+  )));
+  assert(deliverySelectors.has('harvest_review_baseline:/per_pr_rounds/*/rounds/*/verdict'),
+    'delivery_status must map exact-head review verdict evidence');
+  assert(deliverySelectors.has('harvest_review_baseline:/per_pr_rounds/*/merge_commit_sha'),
+    'delivery_status must map provider merge evidence');
+
   return { sources, rows };
 }
 

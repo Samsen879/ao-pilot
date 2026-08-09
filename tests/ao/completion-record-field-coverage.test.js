@@ -72,6 +72,13 @@ describe('Completion Record field coverage ledger', () => {
     badSelector.candidates.find((entry) => entry.field === 'review_refs[]').mappings[0].selector = '/blockers/*/invented_ref';
     expect(() => validateCompletionRecordFieldCoverage(badSelector, { repositoryRoot }))
       .toThrow('Missing JSON pointer');
+
+    const falseIntegrated = structuredClone(ledger);
+    falseIntegrated.candidates.find((entry) => entry.field === 'delivery_status').mappings =
+      falseIntegrated.candidates.find((entry) => entry.field === 'delivery_status').mappings
+        .filter((mapping) => mapping.selector !== '/per_pr_rounds/*/merge_commit_sha');
+    expect(() => validateCompletionRecordFieldCoverage(falseIntegrated, { repositoryRoot }))
+      .toThrow('delivery_status must map provider merge evidence');
   });
 
   it('reports missing evidence and unsupported narrative without inference', () => {

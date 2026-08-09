@@ -185,7 +185,9 @@
       "source_contract": {"authority": "review_and_provider_evidence", "selector": "review verdict plus provider merge observation", "transformation": "map only to review_passed, integrated, or abandoned"},
       "mappings": [
         {"source_id": "consolidation_manifest", "kind": "json_pointer", "selector": "/verdict", "extraction": "fixture verdict with explicit limitations"},
-        {"source_id": "consolidation_final_report", "kind": "markdown_marker", "selector": "## 18. Completion Gate and Verdict", "extraction": "human-oracle verdict section"}
+        {"source_id": "consolidation_final_report", "kind": "markdown_marker", "selector": "## 18. Completion Gate and Verdict", "extraction": "human-oracle verdict section"},
+        {"source_id": "harvest_review_baseline", "kind": "json_pointer", "selector": "/per_pr_rounds/*/rounds/*/verdict", "extraction": "exact-head review verdict evidence"},
+        {"source_id": "harvest_review_baseline", "kind": "json_pointer", "selector": "/per_pr_rounds/*/merge_commit_sha", "extraction": "provider-derived integrated outcome evidence"}
       ],
       "rationale": "Status requires explicit evidence and never follows from local PASS alone."
     },
