@@ -1,0 +1,46 @@
+{
+  "schema_version": "ao.phase-zero-exit-fixture-pack.v1",
+  "required_replays": 2,
+  "scenarios": [
+    {
+      "id": "integrated-exact-evidence",
+      "class": "success",
+      "input": {
+        "manifest_present": true,
+        "artifacts_verified": true,
+        "contracts_accepted": true
+      },
+      "expected": "accepted"
+    },
+    {
+      "id": "contract-failure-blocks-exit",
+      "class": "failure",
+      "input": {
+        "manifest_present": true,
+        "artifacts_verified": true,
+        "contracts_accepted": false
+      },
+      "expected": "blocked"
+    },
+    {
+      "id": "missing-evidence-blocks-exit",
+      "class": "missing_evidence",
+      "input": {
+        "manifest_present": true,
+        "artifacts_verified": false,
+        "contracts_accepted": true
+      },
+      "expected": "blocked"
+    },
+    {
+      "id": "canonical-replay-is-stable",
+      "class": "replay",
+      "input": {
+        "manifest_present": true,
+        "artifacts_verified": true,
+        "contracts_accepted": true
+      },
+      "expected": "accepted"
+    }
+  ]
+}

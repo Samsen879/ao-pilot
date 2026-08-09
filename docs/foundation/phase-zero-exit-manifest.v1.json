@@ -1,0 +1,270 @@
+{
+  "schema_version": "ao.phase-zero-exit-manifest.v1",
+  "status": "accepted_for_no_merge_handoff",
+  "repository": {
+    "slug": "Samsen879/ao-pilot",
+    "base_sha": "b2bd4a68ad84758eb5c7c7bb19932d897f6605a8",
+    "base_tree": "ea50c914949c44a8832c538eae412e0caba01121"
+  },
+  "admission": {
+    "lane_issue": 8,
+    "foundation_issue": 23,
+    "corrected_lane_transition_ref": "https://github.com/Samsen879/ao-pilot/issues/8#issuecomment-5232956289",
+    "readmission_ref": "https://github.com/Samsen879/ao-pilot/issues/23#issuecomment-5232956646",
+    "revoked_admission_ref": "https://github.com/Samsen879/ao-pilot/issues/23#issuecomment-5232637735",
+    "revocation_ref": "https://github.com/Samsen879/ao-pilot/issues/23#issuecomment-5232683454"
+  },
+  "foundations": [
+    {
+      "id": "F01",
+      "issue": 12,
+      "title": "Inventory trajectory and outcome vocabulary",
+      "deliveries": [{
+        "pr": 76,
+        "base_sha": "d39a5bdac7be786c6c2d7ab7a6334c21e7432998",
+        "governed_head_sha": "c03d905030a64d5662c6f855d4e31ef6cec6afd6",
+        "merge_sha": "91d63d23b4211d5cb69206f0ab5d110144e3eb25",
+        "tree_sha": "948356239c07410ff5d4b58cb5a9671a79832554",
+        "ci": { "run_id": 31295922069, "head_sha": "91d63d23b4211d5cb69206f0ab5d110144e3eb25", "status": "success", "required_jobs": ["fresh-clone-runtime", "test (20)", "test (22)"] },
+        "reviews": [
+          { "round": 1, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/76#pullrequestreview-4890499203", "reviewed_head_sha": "d2b67ee43d8c3300a986231307015096e2faed5e", "result": "findings_repaired" },
+          { "round": 2, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/76#pullrequestreview-4890520722", "reviewed_head_sha": "cdc0412dae4e83fdf86a76939cc36d8040ef934e", "result": "findings_repaired" }
+        ],
+        "closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/12#issuecomment-5229891234",
+        "closeout_status": "accepted"
+      }],
+      "terminal_closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/12#issuecomment-5229891234"
+    },
+    {
+      "id": "F02",
+      "issue": 13,
+      "title": "Add false-success trajectory fixtures and audit gates",
+      "deliveries": [{
+        "pr": 77,
+        "base_sha": "91d63d23b4211d5cb69206f0ab5d110144e3eb25",
+        "governed_head_sha": "4691b23752ea45f69fc1d2e894be69a818401113",
+        "merge_sha": "ba184559613b32d7881e2ce286129c38b074faff",
+        "tree_sha": "1dc8a61ca616253b3ade798318066d42281394ec",
+        "ci": { "run_id": 31301187544, "head_sha": "ba184559613b32d7881e2ce286129c38b074faff", "status": "success", "required_jobs": ["fresh-clone-runtime", "test (20)", "test (22)"] },
+        "reviews": [
+          { "round": 1, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/77#pullrequestreview-4890738519", "reviewed_head_sha": "9a9c864092d69a7cfd4d0ff2cfdacb862b891a4f", "result": "findings_repaired" },
+          { "round": 2, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/77#pullrequestreview-4890763929", "reviewed_head_sha": "85f8f222f486f281cc8e6ef109eaa2c2dfb0faf1", "result": "findings_repaired" }
+        ],
+        "closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/13#issuecomment-5230392372",
+        "closeout_status": "accepted"
+      }],
+      "terminal_closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/13#issuecomment-5230392372"
+    },
+    {
+      "id": "F03",
+      "issue": 14,
+      "title": "Derive Completion Record field coverage ledger",
+      "deliveries": [{
+        "pr": 78,
+        "base_sha": "ba184559613b32d7881e2ce286129c38b074faff",
+        "governed_head_sha": "da84b34b7ed596c75d4603e2002401d66c87013b",
+        "merge_sha": "17bb721bc35eabfe5ed3e61584e20f8337383514",
+        "tree_sha": "eb33f5545e611b3feb2a1b95cf111f793d3515aa",
+        "ci": { "run_id": 31303091953, "head_sha": "17bb721bc35eabfe5ed3e61584e20f8337383514", "status": "success", "required_jobs": ["fresh-clone-runtime", "test (20)", "test (22)"] },
+        "reviews": [
+          { "round": 1, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/78#pullrequestreview-4890822497", "reviewed_head_sha": "041f049f6daa3b29765ac6829fabda51b8ace1ff", "result": "findings_repaired" },
+          { "round": 2, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/78#pullrequestreview-4890839304", "reviewed_head_sha": "195d931ad13ece234bddaa9eee38304f8dbd0bdb", "result": "findings_repaired" }
+        ],
+        "closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/14#issuecomment-5230564094",
+        "closeout_status": "accepted"
+      }],
+      "terminal_closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/14#issuecomment-5230564094"
+    },
+    {
+      "id": "F04",
+      "issue": 15,
+      "title": "Freeze Completion Record v1alpha1 schema and canonicalization",
+      "deliveries": [{
+        "pr": 79,
+        "base_sha": "17bb721bc35eabfe5ed3e61584e20f8337383514",
+        "governed_head_sha": "8e6ce5fbc73da12c613830526f238d797e95d385",
+        "merge_sha": "025bf55bfac0397da20a46671adcf1084aea802a",
+        "tree_sha": "adade1d2b31eef5aea0aad66aa4a9fbfde3fa2e6",
+        "ci": { "run_id": 31304853391, "head_sha": "025bf55bfac0397da20a46671adcf1084aea802a", "status": "success", "required_jobs": ["fresh-clone-runtime", "test (20)", "test (22)"] },
+        "reviews": [
+          { "round": 1, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/79#pullrequestreview-4890888084", "reviewed_head_sha": "b9dc8a1e138208d10d2349f0515493d9a758ac74", "result": "findings_repaired" },
+          { "round": 2, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/79#pullrequestreview-4890904611", "reviewed_head_sha": "9e259940dc857823119e5521329d154892f5f1dd", "result": "findings_repaired" }
+        ],
+        "closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/15#issuecomment-5230726854",
+        "closeout_status": "accepted"
+      }],
+      "terminal_closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/15#issuecomment-5230726854"
+    },
+    {
+      "id": "F05",
+      "issue": 16,
+      "title": "Inventory controller-lease readers and freeze compatibility design",
+      "deliveries": [{
+        "pr": 80,
+        "base_sha": "025bf55bfac0397da20a46671adcf1084aea802a",
+        "governed_head_sha": "55c04677da88c96b973e2b28b8a551f6709894eb",
+        "merge_sha": "17f1527b87f8666ccd331ff316296ca1bb05ba89",
+        "tree_sha": "b9137f59109c3171b6bf1090b1717135d061f26e",
+        "ci": { "run_id": 31306764762, "head_sha": "17f1527b87f8666ccd331ff316296ca1bb05ba89", "status": "success", "required_jobs": ["fresh-clone-runtime", "test (20)", "test (22)"] },
+        "reviews": [
+          { "round": 1, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/80#pullrequestreview-4891036060", "reviewed_head_sha": "344ed56cdee19d5ba4802e83ab2d06d198361ab6", "result": "findings_repaired" },
+          { "round": 2, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/80#pullrequestreview-4891052552", "reviewed_head_sha": "ed52ab960174bb35e2f7d8255fa63b7fee10e7ef", "result": "findings_repaired" }
+        ],
+        "closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/16#issuecomment-5230901484",
+        "closeout_status": "accepted"
+      }],
+      "terminal_closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/16#issuecomment-5230901484"
+    },
+    {
+      "id": "F06",
+      "issue": 17,
+      "title": "Enforce one canonical controller-lease authority",
+      "deliveries": [{
+        "pr": 81,
+        "base_sha": "17f1527b87f8666ccd331ff316296ca1bb05ba89",
+        "governed_head_sha": "a7ced12b9621dc6f8806e5cfdad2b428f61c14fc",
+        "merge_sha": "5cfa96a25fa495484b3a1ba70593fed046e80c1c",
+        "tree_sha": "f07545b755920e8bb7a6180a39bfb1137a91f43d",
+        "ci": { "run_id": 31309946139, "head_sha": "5cfa96a25fa495484b3a1ba70593fed046e80c1c", "status": "success", "required_jobs": ["fresh-clone-runtime", "test (20)", "test (22)"] },
+        "reviews": [
+          { "round": 1, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/81#pullrequestreview-4891106047", "reviewed_head_sha": "9f4f11dd0956c589f9f3427061eb6ee614f9593c", "result": "findings_repaired" },
+          { "round": 2, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/81#pullrequestreview-4891158789", "reviewed_head_sha": "782fb7ba8f0a4dd14b7d74f942ea42eab5721680", "result": "findings_repaired" }
+        ],
+        "closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/17#issuecomment-5231207086",
+        "closeout_status": "accepted"
+      }],
+      "terminal_closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/17#issuecomment-5231207086"
+    },
+    {
+      "id": "F07",
+      "issue": 18,
+      "title": "Add lease recovery, stale-shadow and concurrency regression pack",
+      "deliveries": [{
+        "pr": 82,
+        "base_sha": "5cfa96a25fa495484b3a1ba70593fed046e80c1c",
+        "governed_head_sha": "3dda52acf32fc486d97f5302656da17f54ce5c0a",
+        "merge_sha": "549d3058b4fca785e901e9664f4239e26da59a76",
+        "tree_sha": "28caf3ba0649935ceb8fe8cb0242c370204960c9",
+        "ci": { "run_id": 31312285312, "head_sha": "549d3058b4fca785e901e9664f4239e26da59a76", "status": "success", "required_jobs": ["fresh-clone-runtime", "test (20)", "test (22)"] },
+        "reviews": [
+          { "round": 1, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/82#pullrequestreview-4891270917", "reviewed_head_sha": "6b30f62e4b879049f0feccbd96bb114425b58e27", "result": "findings_repaired" },
+          { "round": 2, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/82#pullrequestreview-4891297249", "reviewed_head_sha": "5124f10e9fefb80291ee82bad6fb71fe8edda91f", "result": "findings_repaired" }
+        ],
+        "closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/18#issuecomment-5231441575",
+        "closeout_status": "accepted"
+      }],
+      "terminal_closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/18#issuecomment-5231441575"
+    },
+    {
+      "id": "F08",
+      "issue": 19,
+      "title": "Define durable OR authorization grants and effect scope",
+      "deliveries": [{
+        "pr": 83,
+        "base_sha": "549d3058b4fca785e901e9664f4239e26da59a76",
+        "governed_head_sha": "be16c8140929ae086b0454d81f6a7af8979258eb",
+        "merge_sha": "99489fdeee1191916a660a500ffc1acf764fe2c6",
+        "tree_sha": "aba3d35f93c92fb0a8e598aeea8e67af1f01ff2e",
+        "ci": { "run_id": 31314651906, "head_sha": "99489fdeee1191916a660a500ffc1acf764fe2c6", "status": "success", "required_jobs": ["fresh-clone-runtime", "test (20)", "test (22)"] },
+        "reviews": [
+          { "round": 1, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/83#pullrequestreview-4891390264", "reviewed_head_sha": "66857f46de022c6be6420286e8f222260a39932f", "result": "findings_repaired" },
+          { "round": 2, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/83#pullrequestreview-4891418074", "reviewed_head_sha": "358f52ba8cc682a6e9c55314f79c77c151e4d037", "result": "findings_repaired" }
+        ],
+        "closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/19#issuecomment-5231692699",
+        "closeout_status": "accepted"
+      }],
+      "terminal_closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/19#issuecomment-5231692699"
+    },
+    {
+      "id": "F09",
+      "issue": 20,
+      "title": "Migrate release-ready vocabulary to AO judgments",
+      "deliveries": [{
+        "pr": 84,
+        "base_sha": "99489fdeee1191916a660a500ffc1acf764fe2c6",
+        "governed_head_sha": "91d3b00a19ac323262c8a98368833546723f55b4",
+        "merge_sha": "5708cd7532d815c87a017015db2b576e65dcfd67",
+        "tree_sha": "8d1118e1092913503b50b89e37f560bbbaaa8406",
+        "ci": { "run_id": 31317454323, "head_sha": "5708cd7532d815c87a017015db2b576e65dcfd67", "status": "success", "required_jobs": ["fresh-clone-runtime", "test (20)", "test (22)"] },
+        "reviews": [
+          { "round": 1, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/84#pullrequestreview-4891500129", "reviewed_head_sha": "702fe96b7feefa106e323a1009f82309f868d1a4", "result": "findings_repaired" },
+          { "round": 2, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/84#pullrequestreview-4891540956", "reviewed_head_sha": "b63789ebc263b6c581a758c07781ed3acdb7e3a6", "result": "findings_repaired" }
+        ],
+        "closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/20#issuecomment-5231948318",
+        "closeout_status": "accepted"
+      }],
+      "terminal_closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/20#issuecomment-5231948318"
+    },
+    {
+      "id": "F10",
+      "issue": 21,
+      "title": "Split retry, refresh and authority escalation dispositions",
+      "deliveries": [{
+        "pr": 85,
+        "base_sha": "5708cd7532d815c87a017015db2b576e65dcfd67",
+        "governed_head_sha": "d3e6f8555cf30a25f93f066d646a3af45ec076d3",
+        "merge_sha": "bb4611731675d293b96e402a14002475f71d9a7e",
+        "tree_sha": "9b10f0c45ce71cd26111a01f7b65317610acc87c",
+        "ci": { "run_id": 31320455039, "head_sha": "bb4611731675d293b96e402a14002475f71d9a7e", "status": "success", "required_jobs": ["fresh-clone-runtime", "test (20)", "test (22)"] },
+        "reviews": [
+          { "round": 1, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/85#pullrequestreview-4891633249", "reviewed_head_sha": "8cc13e8b6fc3fc5edacab699343e501e7c99425f", "result": "findings_repaired" },
+          { "round": 2, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/85#pullrequestreview-4891665711", "reviewed_head_sha": "217890520f0223bab5bb8cdb099dc7a64d52b007", "result": "findings_repaired" }
+        ],
+        "closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/21#issuecomment-5232254336",
+        "closeout_status": "accepted"
+      }],
+      "terminal_closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/21#issuecomment-5232254336"
+    },
+    {
+      "id": "F11",
+      "issue": 22,
+      "title": "Make GitHub outcome authoritative and retire unused AO merge execution",
+      "deliveries": [
+        {
+          "pr": 86,
+          "base_sha": "bb4611731675d293b96e402a14002475f71d9a7e",
+          "governed_head_sha": "f3bd1964d24d3bd4f082ca373f68b8ec3ae9118c",
+          "merge_sha": "69ea9163ceec1a9026e5f750199f0f9e12168e71",
+          "tree_sha": "77a404c691b6922b0a8650aca252b5e132f53653",
+          "ci": { "run_id": 31323462647, "head_sha": "69ea9163ceec1a9026e5f750199f0f9e12168e71", "status": "success", "required_jobs": ["fresh-clone-runtime", "test (20)", "test (22)"] },
+          "reviews": [
+            { "round": 1, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/86#pullrequestreview-4891800059", "reviewed_head_sha": "eb615fa9c6628d36034a64bbca8a8cb77780c9f2", "result": "findings_repaired" },
+            { "round": 2, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/86#pullrequestreview-4891830360", "reviewed_head_sha": "bbcd355561dccf147522e53ea7b6ebc6863fa942", "result": "findings_repaired" }
+          ],
+          "closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/22#issuecomment-5232632993",
+          "closeout_status": "superseded"
+        },
+        {
+          "pr": 87,
+          "base_sha": "69ea9163ceec1a9026e5f750199f0f9e12168e71",
+          "governed_head_sha": "dd2987fa1b9e42e327fa123aab4d04af7a041d42",
+          "merge_sha": "b2bd4a68ad84758eb5c7c7bb19932d897f6605a8",
+          "tree_sha": "ea50c914949c44a8832c538eae412e0caba01121",
+          "ci": { "run_id": 31327508396, "head_sha": "b2bd4a68ad84758eb5c7c7bb19932d897f6605a8", "status": "success", "required_jobs": ["fresh-clone-runtime", "test (20)", "test (22)"] },
+          "reviews": [
+            { "round": 1, "kind": "submitted_review", "ref": "https://github.com/Samsen879/ao-pilot/pull/87#pullrequestreview-4891978013", "reviewed_head_sha": "bd733a6e81642e921597f88230b15ba0b3d6fda9", "result": "findings_repaired" },
+            { "round": 2, "kind": "connector_result_comment", "ref": "https://github.com/Samsen879/ao-pilot/pull/87#issuecomment-5232817250", "reviewed_head_sha": "dd2987fa1b9e42e327fa123aab4d04af7a041d42", "result": "pass" }
+          ],
+          "closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/22#issuecomment-5232936158",
+          "closeout_status": "accepted"
+        }
+      ],
+      "terminal_closeout_ref": "https://github.com/Samsen879/ao-pilot/issues/22#issuecomment-5232936158"
+    }
+  ],
+  "integrated_assertions": {
+    "false_success_paths": "no_unresolved_promotion_path",
+    "completion_record": "v1alpha1_schema_and_40_field_coverage_frozen",
+    "p0_c_authority": "accepted_single_canonical_lease_authority",
+    "judgment_effect_boundary": "ao.release-judgment.v1_to_or_effect_to_github_outcome",
+    "behavior_coverage": ["success", "failure", "missing_evidence", "replay"],
+    "excluded_scope": ["episode_record_storage", "multi_workstream_implementation", "knowledge_track_promotion"]
+  },
+  "artifacts": {
+    "trajectory_report": { "path": "docs/foundation/trajectory-truthfulness-report.v1.json", "sha256": "b1293a6c2c870b469f9b183ec117ea75c5045970383815364906621563412620" },
+    "lease_report": { "path": "docs/foundation/controller-lease-single-authority-report.v1.json", "sha256": "d0fbc3a265489180d33510ec7a0d0b5493fc042ec95865109c2d13e55617ce50" },
+    "boundary_freeze": { "path": "docs/foundation/judgment-or-effect-contract-freeze.v1.json", "sha256": "42047afe1c82bd6ae6f48c4ba1a83b0eb1555ad34c041db18970c7a1fa58ce2a" },
+    "risk_register": { "path": "docs/foundation/phase-zero-remaining-risk-register.v1.json", "sha256": "cc8da0924568456241b05271ca715d6a05bf9e5b27d1f4ab32794ed509cb8796" },
+    "fixture_pack": { "path": "tests/ao/fixtures/phase-zero-exit/pack.v1.json", "sha256": "4ec3ac83f49f9b52dbf497e01aba108083b737b83e7e550cb9d0904f27377a0c" }
+  }
+}

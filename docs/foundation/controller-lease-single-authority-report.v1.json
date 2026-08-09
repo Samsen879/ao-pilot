@@ -1,0 +1,30 @@
+{
+  "schema_version": "ao.controller-lease-single-authority-report.v1",
+  "status": "accepted",
+  "authority": {
+    "persistent_source": "controller-leases.json",
+    "schema_version": "ao.controller-lease-authority.v1",
+    "single_writer_lock": "controller-leases.lock",
+    "accepted_repair_pr": 81,
+    "accepted_safety_pr": 82
+  },
+  "projection": {
+    "path": "snapshot.state.controller_leases",
+    "persistent": false,
+    "source": "validated_canonical_authority_only"
+  },
+  "failure_policy": {
+    "missing_or_invalid_canonical": "fail_closed",
+    "shadow_fallback": "prohibited",
+    "automatic_destructive_recovery": "prohibited",
+    "explicit_recovery": "stop_the_world_with_separate_authority"
+  },
+  "replay": {
+    "fixture_count": 18,
+    "replay_count": 2,
+    "case_execution_count": 36,
+    "fixture_digest": "5f59f4cd9fc72f2e6e61d5707d7e4103f8f950fe2388b9b40ea61a0e36222d1",
+    "stable_run_digest": "03d19b53faf975db89443b9021e1117a94af016bba3b24d2bccbc14b4115c0c8",
+    "receipt_digest": "7e760476999200b6d641900778522c5e4a4b03f511503552422d4d90353dbe83"
+  }
+}

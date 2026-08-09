@@ -1,0 +1,60 @@
+{
+  "schema_version": "ao.phase-zero-remaining-risk-register.v1",
+  "status": "accepted_with_residual_risk",
+  "accepted_residual_risks": [
+    {
+      "id": "or-exact-live-discipline-is-operational",
+      "severity": "high",
+      "status": "accepted",
+      "risk": "OR merge execution remains outside AO and must re-read exact live base, head, review, threads, and checks before effect.",
+      "control": "ao.or-merge-preflight.v1 fails closed; durable handoff does not claim merge."
+    },
+    {
+      "id": "provider-observation-availability",
+      "severity": "medium",
+      "status": "accepted",
+      "risk": "GitHub evidence can be missing, stale, or unavailable even after an effect attempt.",
+      "control": "Outcome remains blocked/unknown and unknown effects are never automatically replayed."
+    },
+    {
+      "id": "controller-authority-manual-recovery",
+      "severity": "medium",
+      "status": "accepted",
+      "risk": "Loss of canonical lease authority requires stop-the-world operator recovery.",
+      "control": "No stale-shadow fallback or automatic destructive repair is permitted."
+    },
+    {
+      "id": "completion-record-alpha-stability",
+      "severity": "low",
+      "status": "accepted",
+      "risk": "Completion Record remains v1alpha1 and future evolution requires an explicit new version.",
+      "control": "Current schema, canonicalization, field coverage, omissions, and missing-evidence behavior are frozen."
+    }
+  ],
+  "audit_history": [
+    {
+      "id": "foundation-22-aborted-replay-scope-drift",
+      "status": "corrected",
+      "event_ref": "https://github.com/Samsen879/ao-pilot/issues/22#issuecomment-5232683263",
+      "risk": "The original #22 closeout omitted the required hostile-host production-loader replay and used an unsupported gh field.",
+      "correction": "PR #87 repaired the loader; corrected closeout 5232936158 replayed PRs #86 and #87 through the public loader.",
+      "repository_contamination": false
+    },
+    {
+      "id": "foundation-22-invalid-closeout-revocation-corrective-chain",
+      "status": "corrected",
+      "event_ref": "https://github.com/Samsen879/ao-pilot/issues/23#issuecomment-5232683454",
+      "risk": "Closeout 5232632993 and admission 5232637735 were invalidated; #22 was reopened and #23 stopped.",
+      "correction": "Corrective PR #87, closeout 5232936158, lane transition 5232956289, and re-admission 5232956646 form the accepted chain.",
+      "repository_contamination": false
+    }
+  ],
+  "scope_statement": {
+    "discarded_uncommitted_files": "aborted_worker_local_only_and_not_repository_evidence",
+    "excluded": [
+      "episode_record_storage",
+      "multi_workstream_implementation",
+      "knowledge_track_promotion"
+    ]
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "schema_version": "ao.judgment-or-effect-contract-freeze.v1",
+  "status": "accepted",
+  "version": "1.0.0",
+  "stages": [
+    {
+      "order": 1,
+      "owner": "AO",
+      "contract": "ao.release-judgment.v1",
+      "authority": "judgment_only",
+      "accepted_value": "release_ready"
+    },
+    {
+      "order": 2,
+      "owner": "OR",
+      "contract": "ao.or-merge-preflight.v1",
+      "authority": "preauthorized_exact_scope_effect",
+      "accepted_value": "merge_authorized"
+    },
+    {
+      "order": 3,
+      "owner": "GitHub",
+      "contract": "ao.github-merge-observation.v1",
+      "authority": "external_outcome",
+      "accepted_value": "MERGED"
+    }
+  ],
+  "claims": {
+    "ao_merges": false,
+    "or_effect_proves_outcome": false,
+    "github_merged_is_outcome_authority": true,
+    "legacy_auto_merge_executor_removed": true,
+    "routine_human_approval_required": false
+  },
+  "failure_policy": {
+    "missing_provider_observation": "blocked_unknown_outcome",
+    "head_or_base_drift": "blocked",
+    "missing_or_stale_review": "blocked",
+    "authority_scope_expansion": "escalation_required",
+    "provider_or_source_failure": "retry_required",
+    "missing_assessment": "refresh_required",
+    "unknown_effect_replay": "prohibited"
+  },
+  "corrective_live_replay_fingerprints": {
+    "pr_86": "4dca2355bf121349d03da2193f70dff595d48559fa525a0b7a0c0bc32e2c1757",
+    "pr_87": "683b8b4fd33741ec1e9d5bc5c0750d7dc34619f59c56de9e76cb39df9972d73d"
+  }
+}
