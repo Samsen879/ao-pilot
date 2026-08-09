@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.ao-pilot.dev/ao.child-completion.v1alpha1.schema.json",
+  "title": "AO child Completion Record v1alpha1",
+  "description": "A deterministic, child-scoped terminal Completion Record. The record identity is derived only from child_task_id; parent_task_refs are non-identity metadata.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_id",
+    "child_task_id",
+    "delivery_status",
+    "generator_ref",
+    "generation_inputs",
+    "generation_inputs_digest",
+    "artifact",
+    "unresolved_items"
+  ],
+  "properties": {
+    "schema_version": { "const": "ao.child-completion.v1alpha1" },
+    "record_id": {
+      "type": "string",
+      "pattern": "^child-completion:\\S(?:.*\\S)?$"
+    },
+    "child_task_id": { "$ref": "#/$defs/nonEmptyString" },
+    "delivery_status": {
+      "enum": ["review_passed", "integrated", "abandoned"]
+    },
+    "generator_ref": { "$ref": "#/$defs/immutableRef" },
+    "generation_inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "manifest_uri", "manifest_sha256"],
+      "properties": {
+        "schema_version": { "const": "ao.child-completion-input-manifest.v1alpha1" },
+        "manifest_uri": { "$ref": "#/$defs/repositoryUri" },
+        "manifest_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "generation_inputs_digest": { "$ref": "#/$defs/sha256" },
+    "artifact": { "$ref": "#/$defs/artifact" },
+    "prior_artifact": { "$ref": "#/$defs/artifact" },
+    "unresolved_items": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/unresolvedItem" }
+    },
+    "parent_task_refs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/nonEmptyString" },
+      "uniqueItems": true
+    },
+    "issue_number": { "type": "integer", "minimum": 1 },
+    "pr_number": { "type": "integer", "minimum": 1 },
+    "base_sha": { "$ref": "#/$defs/gitSha" },
+    "head_sha": { "$ref": "#/$defs/gitSha" },
+    "merge_sha": { "$ref": "#/$defs/gitSha" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "task_spec_ref": { "$ref": "#/$defs/immutableRef" },
+    "autonomy_policy_ref": { "$ref": "#/$defs/immutableRef" },
+    "or_authorization_grant_ref": { "$ref": "#/$defs/immutableRef" },
+    "release_judgment_ref": { "$ref": "#/$defs/immutableRef" },
+    "evidence_refs": { "$ref": "#/$defs/refList" },
+    "verification_refs": { "$ref": "#/$defs/refList" },
+    "review_refs": { "$ref": "#/$defs/refList" },
+    "escalation_refs": { "$ref": "#/$defs/refList" },
+    "merge_observation_ref": { "$ref": "#/$defs/immutableRef" },
+    "important_decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "choice", "reason", "evidence_ref"],
+        "properties": {
+          "id": { "$ref": "#/$defs/nonEmptyString" },
+          "choice": { "$ref": "#/$defs/nonEmptyString" },
+          "reason": { "$ref": "#/$defs/nonEmptyString" },
+          "evidence_ref": { "$ref": "#/$defs/immutableRef" }
+        }
+      }
+    },
+    "review_round_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "review_round_count",
+        "blocking_round_count",
+        "correction_round_count",
+        "blocker_count",
+        "first_pass",
+        "head_binding_coverage"
+      ],
+      "properties": {
+        "review_round_count": { "type": "integer", "minimum": 0 },
+        "blocking_round_count": { "type": "integer", "minimum": 0 },
+        "correction_round_count": { "type": "integer", "minimum": 0 },
+        "blocker_count": { "type": "integer", "minimum": 0 },
+        "first_pass": {
+          "oneOf": [
+            { "type": "boolean" },
+            { "const": "not_established" }
+          ]
+        },
+        "head_binding_coverage": {
+          "enum": ["complete", "partial", "none", "not_established"]
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "delivery_status": { "const": "review_passed" } } },
+      "then": {
+        "required": ["review_refs"],
+        "properties": { "review_refs": { "minItems": 1 }, "unresolved_items": { "maxItems": 0 } },
+        "not": { "anyOf": [{ "required": ["merge_sha"] }, { "required": ["merge_observation_ref"] }] }
+      }
+    },
+    {
+      "if": { "properties": { "delivery_status": { "const": "integrated" } } },
+      "then": {
+        "required": ["review_refs", "merge_sha", "merge_observation_ref"],
+        "properties": { "review_refs": { "minItems": 1 }, "unresolved_items": { "maxItems": 0 } }
+      }
+    },
+    {
+      "if": { "properties": { "delivery_status": { "const": "abandoned" } } },
+      "then": {
+        "properties": { "unresolved_items": { "minItems": 1 } },
+        "not": { "anyOf": [{ "required": ["merge_sha"] }, { "required": ["merge_observation_ref"] }] }
+      }
+    }
+  ],
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^\\S(?:.*\\S)?$"
+    },
+    "immutableRef": { "type": "string", "minLength": 1, "pattern": "^[^\\s]+$" },
+    "repositoryUri": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)[^\\s]+$"
+    },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "gitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "media_type", "byte_length", "content_sha256"],
+      "properties": {
+        "uri": { "$ref": "#/$defs/repositoryUri" },
+        "media_type": { "enum": ["application/json", "text/markdown"] },
+        "byte_length": { "type": "integer", "minimum": 0 },
+        "content_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "refList": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/immutableRef" }
+    },
+    "unresolvedItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "summary", "evidence_refs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "summary": { "$ref": "#/$defs/nonEmptyString" },
+        "evidence_refs": { "$ref": "#/$defs/refList" }
+      }
+    }
+  }
+}

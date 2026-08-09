@@ -1,0 +1,21 @@
+{
+  "schema_version": "ao.child-completion.v1alpha1",
+  "record_id": "child-completion:issue-15",
+  "child_task_id": "issue-15",
+  "delivery_status": "integrated",
+  "generator_ref": "ao-pilot/completion-recorder@1.0.0#0123456789abcdef",
+  "generation_inputs": {
+    "schema_version": "ao.child-completion-input-manifest.v1alpha1",
+    "manifest_uri": "tests/ao/fixtures/completion-record/input-manifest.v1alpha1.json",
+    "manifest_sha256": "b56bd9c9749a5c3f5f442197e429e5ec741106034b67b83bc72ae4f34073e1ef"
+  },
+  "generation_inputs_digest": "809b41da59ac6347ddb1644662a20cf7275f1fd2b2f10266d40fe817eae65911",
+  "artifact": {
+    "uri": "artifacts/completion/issue-15.md",
+    "media_type": "text/markdown",
+    "byte_length": 29,
+    "content_sha256": "a418a182ebd64ce6b18675d34c35b8e61684da4b99da668a245ea5c6be2b9cda"
+  },
+  "unresolved_items": [],
+  "review_refs": ["github:pull/79/reviews/1"]
+}

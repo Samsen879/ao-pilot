@@ -37,6 +37,7 @@ describe('ao-pilot public library API', () => {
     expect(packageJson.type).toBe('module');
     expect(packageJson.main).toBe('./lib/index.js');
     expect(packageJson.files).toContain('lib');
+    expect(packageJson.files).toContain('schemas');
     expect(packageJson.exports).toEqual({
       '.': './lib/index.js',
       './cli': './lib/cli.js',
@@ -45,6 +46,10 @@ describe('ao-pilot public library API', () => {
       './engines': './lib/engines.js',
       './protocols': './lib/protocols.js',
       './providers': './lib/providers.js',
+      './schemas/ao.child-completion.v1alpha1.schema.json':
+        './schemas/ao.child-completion.v1alpha1.schema.json',
+      './schemas/ao.child-completion-input-manifest.v1alpha1.schema.json':
+        './schemas/ao.child-completion-input-manifest.v1alpha1.schema.json',
       './package.json': './package.json',
     });
   });
