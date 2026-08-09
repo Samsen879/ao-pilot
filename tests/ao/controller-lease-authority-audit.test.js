@@ -1,0 +1,203 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { afterEach, describe, expect, it } from '@jest/globals';
+
+import {
+  loadControllerLeaseInventory,
+  scanControllerLeaseSources,
+  validateControllerLeaseInventory,
+} from '../../scripts/ao/lib/controller-lease-authority-audit.js';
+import {
+  createControllerLease,
+  createControllerModeRecord,
+} from '../../scripts/ao/lib/state-contracts.js';
+import {
+  bootstrapControlPlaneState,
+  resolveControlPlanePaths,
+} from '../../scripts/ao/lib/state-migrations.js';
+import { createStateRepository } from '../../scripts/ao/lib/state-repository.js';
+import { writeJsonFileAtomic } from '../../scripts/ao/lib/state-storage.js';
+
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const inventory = loadControllerLeaseInventory(path.join(
+  repositoryRoot,
+  'docs/foundation/controller-lease-caller-inventory.v1.json',
+));
+const fixturePack = JSON.parse(fs.readFileSync(path.join(
+  repositoryRoot,
+  'tests/ao/fixtures/controller-lease-authority/current-behavior.v1.json',
+), 'utf8'));
+const tempDirs = [];
+const PROJECT_ID = 'controller-lease-audit';
+const NOW = '2026-08-09T09:08:11.000Z';
+
+function lease(leaseId) {
+  const legacy = leaseId === 'legacy-shadow';
+  return createControllerLease({
+    lease_id: leaseId,
+    controller_id: 'default',
+    holder_id: `${leaseId}-holder`,
+    holder_type: 'session',
+    incarnation_id: legacy ? null : `${leaseId}-incarnation`,
+    status: 'active',
+    acquired_at: legacy ? '2026-01-01T00:00:00.000Z' : NOW,
+    heartbeat_at: legacy ? null : NOW,
+    expires_at: '2026-08-09T10:08:11.000Z',
+    lease_timeout_ms: legacy ? null : 3600000,
+    runtime_kind: legacy ? null : 'continuous',
+  });
+}
+
+function materializeFixture(entry) {
+  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-controller-lease-audit-'));
+  tempDirs.push(repoRoot);
+  bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: NOW });
+  const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+  const state = JSON.parse(fs.readFileSync(paths.statePath, 'utf8'));
+  state.controller_leases = entry.state_shadow == null ? [] : [lease(entry.state_shadow)];
+  writeJsonFileAtomic(paths.statePath, state);
+
+  if (entry.dedicated.kind === 'records') {
+    writeJsonFileAtomic(paths.controllerLeasesPath, entry.dedicated.leases.map(lease));
+  } else if (entry.dedicated.kind === 'invalid-record') {
+    writeJsonFileAtomic(paths.controllerLeasesPath, [{}]);
+  } else if (entry.dedicated.kind === 'json-object') {
+    writeJsonFileAtomic(paths.controllerLeasesPath, { records: [lease('canonical-active')] });
+  } else if (entry.dedicated.kind === 'invalid-json') {
+    fs.writeFileSync(paths.controllerLeasesPath, '{ invalid json\n', 'utf8');
+  }
+  if (entry.state_file === 'missing') fs.unlinkSync(paths.statePath);
+
+  return {
+    paths,
+    repository: createStateRepository({ repoRoot, projectId: PROJECT_ID }),
+  };
+}
+
+afterEach(() => {
+  while (tempDirs.length) fs.rmSync(tempDirs.pop(), { recursive: true, force: true });
+});
+
+describe('controller lease authority design audit', () => {
+  it('pins an exhaustive deterministic source scan and every semantic caller anchor', () => {
+    expect(validateControllerLeaseInventory(inventory, repositoryRoot)).toEqual({
+      caller_count: 14,
+      source_match_count: 37,
+      source_digest: 'ed19078a6b71b1f1b443737db2b99a8106bb56252e1568dca9f205a68e7fd84f',
+    });
+    expect(scanControllerLeaseSources(inventory, repositoryRoot).matches).toHaveLength(37);
+  });
+
+  it('fails the audit when authority, source evidence, or caller evidence drifts', () => {
+    const shadowAuthority = structuredClone(inventory);
+    shadowAuthority.authority_design.state_shadow_recovery_authority = true;
+    expect(() => validateControllerLeaseInventory(shadowAuthority, repositoryRoot))
+      .toThrow('prohibit state.json shadow recovery authority');
+
+    const sourceDrift = structuredClone(inventory);
+    sourceDrift.source_scan.expected_digest = '0'.repeat(64);
+    expect(() => validateControllerLeaseInventory(sourceDrift, repositoryRoot))
+      .toThrow('source inventory drifted');
+
+    const missingAnchor = structuredClone(inventory);
+    missingAnchor.callers[0].anchors = ['not present in the governed source'];
+    expect(() => validateControllerLeaseInventory(missingAnchor, repositoryRoot))
+      .toThrow('anchor must occur exactly once');
+  });
+
+  it('covers success, failure, missing, malformed, mixed-version, and replay fixtures', () => {
+    expect(new Set(fixturePack.cases.map((entry) => entry.class))).toEqual(new Set([
+      'success',
+      'failure',
+      'missing',
+      'malformed',
+      'mixed-version',
+      'replay',
+    ]));
+  });
+
+  it.each(fixturePack.cases.filter((entry) => entry.expected.outcome === 'snapshot'))(
+    'characterizes snapshot result for $id',
+    (entry) => {
+      const { repository } = materializeFixture(entry);
+      const snapshot = repository.getSnapshot();
+      expect(snapshot.state.controller_leases.map((record) => record.lease_id))
+        .toEqual(entry.expected.lease_ids);
+      if (entry.expected.bootstrapped != null) {
+        expect(snapshot.bootstrapped).toBe(entry.expected.bootstrapped);
+      }
+    },
+  );
+
+  it.each(fixturePack.cases.filter((entry) => entry.expected.outcome === 'throw'))(
+    'characterizes fail-closed parse/validation result for $id',
+    (entry) => {
+      const { repository } = materializeFixture(entry);
+      if (entry.expected.error_name === 'SyntaxError') {
+        expect(() => repository.getSnapshot()).toThrow(SyntaxError);
+      } else {
+        expect(() => repository.getSnapshot()).toThrow(entry.expected.message);
+      }
+    },
+  );
+
+  it('replays the projection without mutating either persistent file', () => {
+    const entry = fixturePack.cases.find((candidate) => candidate.class === 'replay');
+    const { paths, repository } = materializeFixture(entry);
+    const beforeState = fs.readFileSync(paths.statePath);
+    const beforeAuthority = fs.readFileSync(paths.controllerLeasesPath);
+
+    const first = repository.getSnapshot();
+    const second = repository.getSnapshot();
+
+    expect(second).toEqual(first);
+    expect(second.state.controller_leases.map((record) => record.lease_id)).toEqual(entry.expected.lease_ids);
+    expect(fs.readFileSync(paths.statePath)).toEqual(beforeState);
+    expect(fs.readFileSync(paths.controllerLeasesPath)).toEqual(beforeAuthority);
+  });
+
+  it('proves the state shadow is an unsafe current fallback, never admissible recovery evidence', () => {
+    const unsafeCases = fixturePack.cases.filter((entry) => entry.expected.safety === 'unsafe_fallback');
+    expect(unsafeCases.map((entry) => entry.class).sort()).toEqual(['malformed', 'missing']);
+    for (const entry of unsafeCases) {
+      const { repository } = materializeFixture(entry);
+      expect(repository.getSnapshot().state.controller_leases.map((record) => record.lease_id))
+        .toEqual(['shadow-active']);
+    }
+    expect(inventory.authority_design).toMatchObject({
+      canonical_persistent_authority: 'controller-leases.json',
+      projection_persistent: false,
+      state_shadow_recovery_authority: false,
+      malformed_authority_policy: 'fail_closed',
+    });
+  });
+
+  it('proves an ordinary state write creates a stale shadow that cannot establish recovery order', () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-controller-lease-shadow-'));
+    tempDirs.push(repoRoot);
+    const repository = createStateRepository({ repoRoot, projectId: PROJECT_ID });
+    repository.upsertControllerLease(lease('canonical-first'));
+    repository.upsertControllerMode(createControllerModeRecord({
+      controller_id: 'default',
+      mode: 'off',
+      updated_at: NOW,
+      updated_by: 'audit-fixture',
+      reason: 'Characterize ordinary state persistence.',
+    }));
+
+    const paths = repository.getSnapshot().paths;
+    expect(JSON.parse(fs.readFileSync(paths.statePath, 'utf8')).controller_leases.map((record) => record.lease_id))
+      .toEqual(['canonical-first']);
+
+    repository.upsertControllerLease(lease('canonical-later'));
+    expect(repository.getSnapshot().state.controller_leases.map((record) => record.lease_id))
+      .toEqual(['canonical-first', 'canonical-later']);
+
+    fs.unlinkSync(paths.controllerLeasesPath);
+    expect(repository.getSnapshot().state.controller_leases.map((record) => record.lease_id))
+      .toEqual(['canonical-first']);
+  });
+});

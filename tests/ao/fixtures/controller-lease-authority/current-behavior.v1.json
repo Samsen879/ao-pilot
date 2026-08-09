@@ -1,0 +1,63 @@
+{
+  "schema_version": "ao.controller-lease-current-behavior-fixtures.v1",
+  "fixture_version": "2026-08-09.1",
+  "cases": [
+    {
+      "id": "dedicated-success-overlays-shadow",
+      "class": "success",
+      "state_shadow": "shadow-active",
+      "dedicated": { "kind": "records", "leases": ["canonical-active"] },
+      "expected": { "outcome": "snapshot", "lease_ids": ["canonical-active"] }
+    },
+    {
+      "id": "invalid-dedicated-record-fails",
+      "class": "failure",
+      "state_shadow": "shadow-active",
+      "dedicated": { "kind": "invalid-record" },
+      "expected": { "outcome": "throw", "message": "Invalid lease_id" }
+    },
+    {
+      "id": "missing-dedicated-revives-shadow",
+      "class": "missing",
+      "state_shadow": "shadow-active",
+      "dedicated": { "kind": "missing" },
+      "expected": { "outcome": "snapshot", "lease_ids": ["shadow-active"], "safety": "unsafe_fallback" }
+    },
+    {
+      "id": "missing-state-hides-canonical-file",
+      "class": "missing",
+      "state_shadow": "shadow-active",
+      "state_file": "missing",
+      "dedicated": { "kind": "records", "leases": ["canonical-active"] },
+      "expected": { "outcome": "snapshot", "lease_ids": [], "bootstrapped": false, "safety": "canonical_evidence_ignored" }
+    },
+    {
+      "id": "non-array-dedicated-revives-shadow",
+      "class": "malformed",
+      "state_shadow": "shadow-active",
+      "dedicated": { "kind": "json-object" },
+      "expected": { "outcome": "snapshot", "lease_ids": ["shadow-active"], "safety": "unsafe_fallback" }
+    },
+    {
+      "id": "invalid-json-dedicated-fails",
+      "class": "malformed",
+      "state_shadow": "shadow-active",
+      "dedicated": { "kind": "invalid-json" },
+      "expected": { "outcome": "throw", "error_name": "SyntaxError" }
+    },
+    {
+      "id": "canonical-wins-mixed-version",
+      "class": "mixed-version",
+      "state_shadow": "legacy-shadow",
+      "dedicated": { "kind": "records", "leases": ["canonical-active"] },
+      "expected": { "outcome": "snapshot", "lease_ids": ["canonical-active"] }
+    },
+    {
+      "id": "snapshot-replay-is-byte-stable",
+      "class": "replay",
+      "state_shadow": "shadow-active",
+      "dedicated": { "kind": "records", "leases": ["canonical-active"] },
+      "expected": { "outcome": "replay", "lease_ids": ["canonical-active"] }
+    }
+  ]
+}
