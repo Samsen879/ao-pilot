@@ -67,6 +67,11 @@ function hasOnlyKeys(value, allowed) {
   return isObject(value) && Object.keys(value).every((key) => allowed.includes(key));
 }
 
+function hasExactKeys(value, expected) {
+  return isObject(value)
+    && JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expected].sort());
+}
+
 function preflightResult(inputFingerprint, binding, disposition, reasonCodes) {
   const result = {
     schema_version: OR_MERGE_PREFLIGHT_SCHEMA_VERSION,
@@ -111,6 +116,7 @@ function normalizeLiveObservation(observation) {
       merge_commit_sha: pullRequest.merge_commit_sha == null ? null : sha(pullRequest.merge_commit_sha),
     },
     review: {
+      actor_ref: string(review.actor_ref),
       verdict: string(review.verdict),
       independent: review.independent,
       reviewed_head_sha: sha(review.reviewed_head_sha),
@@ -133,7 +139,7 @@ function normalizeLiveObservation(observation) {
     || !hasOnlyKeys(pullRequest, [
       'base_ref', 'base_sha', 'head_ref', 'head_sha', 'merge_commit_sha', 'number', 'state',
     ]) || !hasOnlyKeys(review, [
-      'evidence_ref', 'independent', 'reviewed_head_sha', 'unresolved_thread_count', 'verdict',
+      'actor_ref', 'evidence_ref', 'independent', 'reviewed_head_sha', 'unresolved_thread_count', 'verdict',
     ]) || checks?.some((check) => !hasOnlyKeys(check, [
       'evidence_ref', 'head_sha', 'name', 'status',
     ]))) reasons.push('live_observation_unknown_field');
@@ -146,7 +152,7 @@ function normalizeLiveObservation(observation) {
     || !value.pull_request.base_sha || !value.pull_request.head_ref || !value.pull_request.head_sha) {
     reasons.push('live_observation_pull_request_invalid');
   }
-  if (!value.review.verdict || typeof value.review.independent !== 'boolean'
+  if (!value.review.actor_ref || !value.review.verdict || typeof value.review.independent !== 'boolean'
     || !value.review.reviewed_head_sha || value.review.unresolved_thread_count == null
     || !value.review.evidence_ref) reasons.push('live_observation_review_invalid');
   if (checks == null || checks.length === 0 || value.required_checks.some((check) => (
@@ -221,6 +227,8 @@ export function evaluateOrMergePreflight({
       || live.pull_request.head_sha !== expected.branch?.head_sha
       || live.pull_request.head_sha !== expected.merge?.expected_head_sha) reasons.push('exact_head_drift');
     if (live.review.verdict !== 'PASS' || live.review.independent !== true) reasons.push('independent_pass_missing');
+    if (live.review.actor_ref !== expected.review?.actor_ref) reasons.push('review_actor_binding_mismatch');
+    if (live.review.evidence_ref !== expected.review?.review_ref) reasons.push('review_evidence_binding_mismatch');
     if (live.review.reviewed_head_sha !== live.pull_request.head_sha) reasons.push('review_exact_head_mismatch');
     if (live.review.unresolved_thread_count !== 0) reasons.push('unresolved_review_threads');
     if (live.required_checks?.some((check) => check.status !== 'SUCCESS')) reasons.push('required_check_not_successful');
@@ -254,6 +262,8 @@ export function normalizeGitHubMergeObservation(observation) {
     pull_request: {
       number: positiveInteger(observation.pull_request?.number),
       state: string(observation.pull_request?.state),
+      base_ref: string(observation.pull_request?.base_ref),
+      base_sha: sha(observation.pull_request?.base_sha),
       head_sha: sha(observation.pull_request?.head_sha),
       merge_commit_sha: observation.pull_request?.merge_commit_sha == null
         ? null : sha(observation.pull_request.merge_commit_sha),
@@ -268,14 +278,16 @@ export function normalizeGitHubMergeObservation(observation) {
     'schema_version', 'source_error', 'source_ok',
   ]) || !hasOnlyKeys(observation.repository, ['repository_id', 'slug'])
     || !hasOnlyKeys(observation.pull_request, [
-      'head_sha', 'merge_commit_sha', 'merged_at', 'number', 'state', 'url',
+      'base_ref', 'base_sha', 'head_sha', 'merge_commit_sha', 'merged_at', 'number', 'state', 'url',
     ])) reasons.push('provider_observation_unknown_field');
   if (normalized.schema_version !== GITHUB_MERGE_OBSERVATION_SCHEMA_VERSION) reasons.push('provider_observation_version_invalid');
   if (normalized.provider !== 'github') reasons.push('provider_observation_not_github');
   if (normalized.source_ok !== true) reasons.push('provider_observation_unavailable');
   if (!normalized.observed_at) reasons.push('provider_observation_timestamp_invalid');
   if (!normalized.repository.repository_id || !normalized.repository.slug) reasons.push('provider_observation_repository_invalid');
-  if (!normalized.pull_request.number || !normalized.pull_request.state || !normalized.pull_request.head_sha
+  if (!normalized.pull_request.number || !normalized.pull_request.state
+    || !normalized.pull_request.base_ref || !normalized.pull_request.base_sha
+    || !normalized.pull_request.head_sha
     || !normalized.pull_request.url) reasons.push('provider_observation_pull_request_invalid');
   if (!normalized.evidence_refs || normalized.evidence_refs.length === 0) reasons.push('provider_observation_evidence_missing');
   if (normalized.pull_request.state === 'MERGED'
@@ -290,6 +302,8 @@ export function bindGitHubMergeOutcome({ preflight, dispatch, provider_observati
   const reasons = [...normalized.reason_codes];
   const observation = normalized.observation;
   const expected = preflight?.binding;
+  const preflightValidation = validateOrMergePreflightRecord(preflight);
+  reasons.push(...preflightValidation.reason_codes);
   const dispatchKeys = isObject(dispatch) ? Object.keys(dispatch) : [];
   if (dispatchKeys.some((key) => !['attempt_ref', 'evidence_refs', 'status'].includes(key))) {
     reasons.push('dispatch_contract_unknown_field');
@@ -305,7 +319,7 @@ export function bindGitHubMergeOutcome({ preflight, dispatch, provider_observati
     attempt_ref: dispatch.attempt_ref == null ? null : string(dispatch.attempt_ref),
     evidence_refs: dispatchEvidenceRefs ?? [],
   } : null;
-  if (preflight?.schema_version !== OR_MERGE_PREFLIGHT_SCHEMA_VERSION
+  if (!preflightValidation.ok
     || !['merge_authorized', 'already_merged'].includes(preflight?.disposition)) reasons.push('preflight_not_authorized');
   if (['succeeded', 'failed', 'unknown'].includes(normalizedDispatch?.status)) {
     if (!normalizedDispatch.attempt_ref) reasons.push('dispatch_attempt_ref_missing');
@@ -317,6 +331,8 @@ export function bindGitHubMergeOutcome({ preflight, dispatch, provider_observati
     if (observation.repository.repository_id !== expected.repository?.repository_id
       || observation.repository.slug !== expected.repository?.slug) reasons.push('provider_repository_binding_mismatch');
     if (observation.pull_request.number !== expected.pull_request?.number) reasons.push('provider_pull_request_binding_mismatch');
+    if (observation.pull_request.base_ref !== expected.pull_request?.base_ref
+      || observation.pull_request.base_sha !== expected.pull_request?.base_sha) reasons.push('provider_exact_base_drift');
     if (observation.pull_request.head_sha !== expected.pull_request?.head_sha) reasons.push('provider_exact_head_drift');
     if (observation.pull_request.state !== 'MERGED') reasons.push('provider_merge_not_confirmed');
     if (timestamp(expected.live_observed_at) == null
@@ -338,6 +354,8 @@ export function bindGitHubMergeOutcome({ preflight, dispatch, provider_observati
     merge_binding: confirmed ? {
       repository: observation.repository,
       pr_number: observation.pull_request.number,
+      base_ref: observation.pull_request.base_ref,
+      base_sha: observation.pull_request.base_sha,
       head_sha: observation.pull_request.head_sha,
       merge_commit_sha: observation.pull_request.merge_commit_sha,
       merged_at: observation.pull_request.merged_at,
@@ -350,4 +368,63 @@ export function bindGitHubMergeOutcome({ preflight, dispatch, provider_observati
     },
   };
   return { ...core, fingerprint: mergeProtocolFingerprint(core) };
+}
+
+export function validateOrMergePreflightRecord(preflight) {
+  const reasons = [];
+  const topKeys = [
+    'binding', 'claims', 'disposition', 'effect_authority', 'fingerprint',
+    'input_fingerprint', 'reason_codes', 'schema_version',
+  ];
+  const bindingKeys = [
+    'authorization_grant_fingerprint', 'live_observation_fingerprint', 'live_observed_at',
+    'pull_request', 'release_judgment_contract', 'repository', 'task',
+  ];
+  if (!hasExactKeys(preflight, topKeys)) reasons.push('preflight_contract_unknown_field');
+  if (preflight?.schema_version !== OR_MERGE_PREFLIGHT_SCHEMA_VERSION) reasons.push('preflight_contract_version_invalid');
+  if (!['blocked', 'merge_authorized', 'already_merged'].includes(preflight?.disposition)) reasons.push('preflight_disposition_invalid');
+  if (!Array.isArray(preflight?.reason_codes)
+    || preflight.reason_codes.some((reason) => string(reason) == null)
+    || JSON.stringify(preflight.reason_codes) !== JSON.stringify([...new Set(preflight.reason_codes)].sort())) {
+    reasons.push('preflight_reason_codes_invalid');
+  }
+  if (!/^[0-9a-f]{64}$/.test(preflight?.input_fingerprint ?? '')) reasons.push('preflight_input_fingerprint_invalid');
+  if (!hasExactKeys(preflight?.binding, bindingKeys)
+    || !/^[0-9a-f]{64}$/.test(preflight?.binding?.authorization_grant_fingerprint ?? '')
+    || !/^[0-9a-f]{64}$/.test(preflight?.binding?.live_observation_fingerprint ?? '')
+    || timestamp(preflight?.binding?.live_observed_at) == null) reasons.push('preflight_binding_invalid');
+  if (!hasExactKeys(preflight?.binding?.repository, ['repository_id', 'slug'])
+    || !positiveInteger(preflight?.binding?.repository?.repository_id)
+    || !string(preflight?.binding?.repository?.slug)
+    || !hasExactKeys(preflight?.binding?.task, ['admission_ref', 'issue_number', 'task_id'])
+    || !string(preflight?.binding?.task?.admission_ref)
+    || !positiveInteger(preflight?.binding?.task?.issue_number)
+    || !string(preflight?.binding?.task?.task_id)
+    || !hasExactKeys(preflight?.binding?.pull_request, [
+      'base_ref', 'base_sha', 'head_ref', 'head_sha', 'number',
+    ])
+    || !positiveInteger(preflight?.binding?.pull_request?.number)
+    || !string(preflight?.binding?.pull_request?.base_ref)
+    || !sha(preflight?.binding?.pull_request?.base_sha)
+    || !string(preflight?.binding?.pull_request?.head_ref)
+    || !sha(preflight?.binding?.pull_request?.head_sha)
+    || preflight?.binding?.release_judgment_contract !== 'ao.release-judgment.v1') {
+    reasons.push('preflight_scope_binding_invalid');
+  }
+  if (!hasExactKeys(preflight?.claims, [
+    'ao_executed_merge', 'merge_dispatched', 'provider_merge_confirmed',
+  ]) || preflight?.claims?.ao_executed_merge !== false
+    || preflight?.claims?.merge_dispatched !== false
+    || preflight?.claims?.provider_merge_confirmed !== false) reasons.push('preflight_claims_invalid');
+  const expectedAuthority = preflight?.disposition === 'merge_authorized' ? 'or_only' : 'none';
+  if (preflight?.effect_authority !== expectedAuthority) reasons.push('preflight_effect_authority_invalid');
+  if (preflight?.disposition !== 'blocked' && preflight?.reason_codes?.length !== 0) reasons.push('preflight_authorized_with_reasons');
+  const fingerprint = preflight?.fingerprint;
+  if (!/^[0-9a-f]{64}$/.test(fingerprint ?? '')) {
+    reasons.push('preflight_fingerprint_invalid');
+  } else {
+    const { fingerprint: ignored, ...core } = preflight;
+    if (mergeProtocolFingerprint(core) !== fingerprint) reasons.push('preflight_fingerprint_mismatch');
+  }
+  return { ok: reasons.length === 0, reason_codes: [...new Set(reasons)].sort() };
 }

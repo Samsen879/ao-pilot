@@ -767,6 +767,22 @@ describe('ao action executor', () => {
 
   it('blocks the retired auto_merge_ready_pr executor without invoking a runner', async () => {
     const repository = createAllowedMergeRepository();
+    const persisted = repository.getSnapshot().state.actions[0];
+    repository.upsertAction({
+      ...persisted,
+      payload: {
+        ...persisted.payload,
+        action_model: {
+          ...persisted.payload.action_model,
+          phase4_assist: { executable: true, reason: 'legacy_authorized' },
+          execution_contract: {
+            ...persisted.payload.action_model.execution_contract,
+            executable: true,
+            reason: 'legacy_authorized',
+          },
+        },
+      },
+    });
     const commandRunner = jest.fn();
 
     expect(await executeAssistActions({
@@ -788,6 +804,7 @@ describe('ao action executor', () => {
           outcome: 'blocked',
           reason: 'legacy_auto_merge_executor_removed_or_effect_only',
           effect: null,
+          details: null,
         },
       },
     });

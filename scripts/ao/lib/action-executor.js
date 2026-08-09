@@ -762,6 +762,37 @@ export async function executeAssistActions({
       continue;
     }
 
+    if (record.action_kind === 'auto_merge_ready_pr') {
+      const retiredModel = buildFallbackActionModel(record, controllerId, task);
+      const reason = 'legacy_auto_merge_executor_removed_or_effect_only';
+      repository.upsertAction(buildBlockedActionRecord(record, retiredModel, timestamp, {
+        reason,
+        matchedOverrideIds: [],
+        structural: true,
+      }));
+      repository.appendAuditEntry({
+        entityKind: 'action',
+        entityId: record.action_id,
+        operation: 'execution_blocked',
+        actor: 'assist_controller',
+        summary: `Blocked retired AO merge executor action ${record.action_id}.`,
+        details: {
+          action_id: record.action_id,
+          action_kind: record.action_kind,
+          reason,
+          persisted_model_executable: model?.execution_contract?.executable
+            ?? model?.phase4_assist?.executable
+            ?? null,
+        },
+        recordedAt: timestamp,
+      });
+      persistExecutionAttemptMetric(repository, {
+        controllerId, task, record, model: retiredModel, status: 'blocked', reason, timestamp,
+      });
+      blockedActionIds.push(record.action_id);
+      continue;
+    }
+
     if (!hasDurableAllowPolicy(record)) {
       const blockedRecord = buildBlockedActionRecord(record, model, timestamp, {
         reason: 'policy_allow_required',

@@ -211,18 +211,26 @@ describe('github observation source', () => {
   });
 
   it('loads an exact-live authoritative post-merge GitHub observation', async () => {
-    mockSpawnSync.mockReturnValueOnce({
+    mockSpawnSync
+      .mockReturnValueOnce({
+        status: 0,
+        stdout: JSON.stringify({ id: 123, full_name: 'Samsen879/ao-pilot' }),
+        stderr: '',
+      })
+      .mockReturnValueOnce({
       status: 0,
       stdout: JSON.stringify({
         number: 85,
         state: 'MERGED',
+        baseRefName: 'main',
+        baseRefOid: '0'.repeat(40),
         headRefOid: '1'.repeat(40),
         mergeCommit: { oid: '2'.repeat(40) },
         mergedAt: '2026-08-09T12:31:00Z',
         url: 'https://github.com/Samsen879/ao-pilot/pull/85',
       }),
       stderr: '',
-    });
+      });
     const observation = await loadGitHubMergeObservation({
       repository: { repository_id: 123, slug: 'Samsen879/ao-pilot' },
       prNumber: 85,
@@ -236,14 +244,37 @@ describe('github observation source', () => {
       pull_request: {
         number: 85,
         state: 'MERGED',
+        base_ref: 'main',
+        base_sha: '0'.repeat(40),
         head_sha: '1'.repeat(40),
         merge_commit_sha: '2'.repeat(40),
         merged_at: '2026-08-09T12:31:00.000Z',
       },
     });
     expect(mockSpawnSync.mock.calls[0][1]).toEqual([
-      'pr', 'view', '85', '--repo', 'Samsen879/ao-pilot', '--json',
-      'number,state,headRefOid,mergeCommit,mergedAt,url',
+      'api', 'repos/Samsen879/ao-pilot',
     ]);
+    expect(mockSpawnSync.mock.calls[1][1]).toEqual([
+      'pr', 'view', '85', '--repo', 'Samsen879/ao-pilot', '--json',
+      'number,state,baseRefName,baseRefOid,headRefOid,mergeCommit,mergedAt,url',
+    ]);
+  });
+
+  it('fails closed when the slug resolves to another immutable repository id', async () => {
+    mockSpawnSync.mockReturnValueOnce({
+      status: 0,
+      stdout: JSON.stringify({ id: 999, full_name: 'Samsen879/ao-pilot' }),
+      stderr: '',
+    });
+    const observation = await loadGitHubMergeObservation({
+      repository: { repository_id: 123, slug: 'Samsen879/ao-pilot' },
+      prNumber: 85,
+      now: '2026-08-09T12:32:00.000Z',
+    });
+    expect(observation).toMatchObject({
+      source_ok: false,
+      source_error: 'github_repository_identity_mismatch',
+    });
+    expect(mockSpawnSync).toHaveBeenCalledTimes(1);
   });
 });

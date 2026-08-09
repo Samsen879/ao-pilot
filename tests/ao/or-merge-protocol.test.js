@@ -55,6 +55,7 @@ function materialize() {
       merge_commit_sha: null,
     },
     review: {
+      actor_ref: authorizationRequest.review.actor_ref,
       verdict: 'PASS',
       independent: true,
       reviewed_head_sha: authorizationRequest.branch.head_sha,
@@ -95,6 +96,8 @@ function mergedObservation(authorized, mutation = null) {
     pull_request: {
       number: authorized.binding.pull_request.number,
       state: 'MERGED',
+      base_ref: authorized.binding.pull_request.base_ref,
+      base_sha: authorized.binding.pull_request.base_sha,
       head_sha: authorized.binding.pull_request.head_sha,
       merge_commit_sha: MERGE_SHA,
       merged_at: MERGED_AT,
@@ -194,6 +197,58 @@ describe('OR merge effect-boundary protocol', () => {
         'unresolved_review_threads',
       ]),
     });
+  });
+
+  it('binds the exact authorized reviewer and review evidence', () => {
+    const actorDrift = materialize();
+    actorDrift.liveObservation.review.actor_ref = 'github:user:other-reviewer';
+    expect(preflight(actorDrift).reason_codes).toContain('review_actor_binding_mismatch');
+
+    const evidenceDrift = materialize();
+    evidenceDrift.liveObservation.review.evidence_ref = 'github:review:replacement';
+    expect(preflight(evidenceDrift).reason_codes).toContain('review_evidence_binding_mismatch');
+  });
+
+  it('rejects a mutated or hand-built preflight before provider confirmation', () => {
+    const authorized = preflight();
+    const observation = mergedObservation(authorized);
+    const mutated = structuredClone(authorized);
+    mutated.binding.task.task_id = 'other-task';
+    expect(bindGitHubMergeOutcome({
+      preflight: mutated,
+      dispatch: { status: 'succeeded', attempt_ref: 'or:merge-attempt:85' },
+      provider_observation: observation,
+    })).toMatchObject({
+      disposition: 'blocked',
+      reason_codes: expect.arrayContaining(['preflight_fingerprint_mismatch', 'preflight_not_authorized']),
+    });
+
+    const fabricated = {
+      schema_version: OR_MERGE_PREFLIGHT_SCHEMA_VERSION,
+      disposition: 'merge_authorized',
+      binding: authorized.binding,
+      fingerprint: null,
+    };
+    expect(bindGitHubMergeOutcome({
+      preflight: fabricated,
+      dispatch: { status: 'succeeded', attempt_ref: 'or:merge-attempt:85' },
+      provider_observation: observation,
+    }).reason_codes).toEqual(expect.arrayContaining([
+      'preflight_contract_unknown_field',
+      'preflight_fingerprint_invalid',
+      'preflight_not_authorized',
+    ]));
+  });
+
+  it('binds the provider-observed base ref and SHA after merge', () => {
+    const authorized = preflight();
+    const observation = mergedObservation(authorized);
+    observation.pull_request.base_sha = '7'.repeat(40);
+    expect(bindGitHubMergeOutcome({
+      preflight: authorized,
+      dispatch: { status: 'succeeded', attempt_ref: 'or:merge-attempt:85' },
+      provider_observation: observation,
+    }).reason_codes).toContain('provider_exact_base_drift');
   });
 
   it('rejects stale, future, unknown-field, and preflight-predating evidence', () => {
