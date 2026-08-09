@@ -4,10 +4,10 @@
   "fixture_count": 12,
   "replay_count": 2,
   "case_execution_count": 24,
-  "stable_run_digest": "97972c6e83006f1c7f16ec7a8806a4ada98a07c3c02018a912aff6f9a56adc1a",
+  "stable_run_digest": "9b22d0cfa86c81c545b88b58ec5fdb4d7c58f134de54c1674063b0b8caed3fd3",
   "run_digests": [
-    "97972c6e83006f1c7f16ec7a8806a4ada98a07c3c02018a912aff6f9a56adc1a",
-    "97972c6e83006f1c7f16ec7a8806a4ada98a07c3c02018a912aff6f9a56adc1a"
+    "9b22d0cfa86c81c545b88b58ec5fdb4d7c58f134de54c1674063b0b8caed3fd3",
+    "9b22d0cfa86c81c545b88b58ec5fdb4d7c58f134de54c1674063b0b8caed3fd3"
   ],
   "class_counts": {
     "concurrent-heartbeat": 1,
@@ -22,5 +22,5 @@
     "stale-shadow": 1
   },
   "status": "passed",
-  "receipt_digest": "d41d7d6a471bb3bb399f7222a87e542ddfaa8ac2d5638f8aaeb45cd52f8b9cde"
+  "receipt_digest": "ace0e2e388bfa76a1d6de7ad69c477a4c62b5837b66a61adaab1979bc2e56c80"
 }

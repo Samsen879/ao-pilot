@@ -51,9 +51,11 @@ never writes runtime state.
    human gate.
 4. The authorized operator records
    `schema_version=ao.controller-lease-recovery-evidence.v1`, project and
-   incident ids, operator id/role, the exact intent
+   incident ids (also supplied independently to the verifier as the expected
+   recovery target), operator id/role, the exact intent
    `restore_verified_canonical_backup`, reason and approval time, backup digest,
-   observed zero-controller evidence, and the proposed resulting records.
+   observed zero-controller evidence with an observer-bound integrity digest,
+   canonical observation/approval timestamps, and the proposed resulting records.
    Every proposed lease must be non-active. Validate this evidence with
    `verifyControllerLeaseRecoveryEvidence` before any replacement.
 5. Only after separate operational authorization, replace the canonical file

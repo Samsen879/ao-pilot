@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from '@jest/globals';
 
+import { digestControllerLeaseAuthorityEvidence } from '../../scripts/ao/lib/controller-lease-authority.js';
 import {
   classifyControllerLeaseSafetyError,
   digestControllerLeaseSafetyEvidence,
@@ -74,7 +75,78 @@ describe('controller lease safety evaluation pack', () => {
     expect(recoveryCase.expected.operator_intent).toBe('restore_verified_canonical_backup');
     expect(() => verifyControllerLeaseRecoveryEvidence({
       schema_version: 'ao.controller-lease-recovery-evidence.v1',
-    })).toThrow('explicit operator intent');
+    }, { projectId: 'controller-lease-safety', incidentId: 'incident-18' }))
+      .toThrow('explicit operator intent');
+  });
+
+  it('rejects recovery evidence outside its target, without stop evidence, or with invalid ordering', () => {
+    const validCase = pack.cases.find((entry) => entry.class === 'recovery-success');
+    expect(validCase.expected.operator_intent).toBe('restore_verified_canonical_backup');
+
+    const base = {
+      schema_version: 'ao.controller-lease-recovery-evidence.v1',
+      project_id: 'project-a',
+      incident_id: 'incident-a',
+      operator: { id: 'operator-a', role: 'repository_owner' },
+      operator_intent: 'restore_verified_canonical_backup',
+      reason: 'Verified recovery.',
+      approved_at: '2026-08-09T11:00:00.000Z',
+      source_evidence: { kind: 'offline_verified_backup', active_controller_count: 0 },
+      resulting_authority: {
+        active_controller_count: 0,
+        observed_at: '2026-08-09T11:05:00.000Z',
+        records: [],
+      },
+    };
+    expect(() => verifyControllerLeaseRecoveryEvidence(base, {
+      projectId: 'project-b', incidentId: 'incident-a',
+    })).toThrow('expected project and incident');
+    expect(() => verifyControllerLeaseRecoveryEvidence(base, {
+      projectId: 'project-a', incidentId: 'incident-a',
+    })).toThrow('quiescence evidence');
+
+    const quiescenceBody = {
+      schema_version: 'ao.controller-lease-quiescence-evidence.v1',
+      observer_id: 'operator-a',
+      observed_at: '2026-08-09T11:01:00.000Z',
+      running_controller_ids: [],
+    };
+    const ordered = structuredClone(base);
+    ordered.source_evidence.quiescence_evidence = {
+      ...quiescenceBody,
+      integrity_digest: `sha256:${'0'.repeat(64)}`,
+    };
+    expect(() => verifyControllerLeaseRecoveryEvidence(ordered, {
+      projectId: 'project-a', incidentId: 'incident-a',
+    })).toThrow('quiescence evidence');
+
+    ordered.source_evidence.quiescence_evidence.integrity_digest =
+      digestControllerLeaseAuthorityEvidence(quiescenceBody);
+    expect(() => verifyControllerLeaseRecoveryEvidence(ordered, {
+      projectId: 'project-a', incidentId: 'incident-a',
+    })).toThrow('timestamps are invalid or out of order');
+
+    const missingObservation = structuredClone(ordered);
+    missingObservation.source_evidence.quiescence_evidence.observed_at = '2026-08-09T10:59:00.000Z';
+    const { integrity_digest: _oldDigest, ...missingObservationQuiescence } =
+      missingObservation.source_evidence.quiescence_evidence;
+    missingObservation.source_evidence.quiescence_evidence.integrity_digest =
+      digestControllerLeaseAuthorityEvidence(missingObservationQuiescence);
+    delete missingObservation.resulting_authority.observed_at;
+    expect(() => verifyControllerLeaseRecoveryEvidence(missingObservation, {
+      projectId: 'project-a', incidentId: 'incident-a',
+    })).toThrow('timestamps are invalid or out of order');
+
+    const runningController = structuredClone(missingObservation);
+    runningController.resulting_authority.observed_at = '2026-08-09T11:05:00.000Z';
+    runningController.source_evidence.quiescence_evidence.running_controller_ids = ['controller-default'];
+    const { integrity_digest: _emptyDigest, ...runningQuiescence } =
+      runningController.source_evidence.quiescence_evidence;
+    runningController.source_evidence.quiescence_evidence.integrity_digest =
+      digestControllerLeaseAuthorityEvidence(runningQuiescence);
+    expect(() => verifyControllerLeaseRecoveryEvidence(runningController, {
+      projectId: 'project-a', incidentId: 'incident-a',
+    })).toThrow('quiescence evidence');
   });
 
   it('keeps the fixture artifact newline terminated with a stable digest', () => {

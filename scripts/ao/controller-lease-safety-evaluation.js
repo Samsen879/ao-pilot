@@ -17,6 +17,7 @@ export const CONTROLLER_LEASE_SAFETY_RECEIPT_SCHEMA_VERSION = 'ao.controller-lea
 export const CONTROLLER_LEASE_RECOVERY_EVIDENCE_SCHEMA_VERSION = 'ao.controller-lease-recovery-evidence.v1';
 
 const PROJECT_ID = 'controller-lease-safety';
+const INCIDENT_ID = 'lease-authority-loss-2026-08-09';
 const FIXED_NOW = '2026-08-09T12:00:00.000Z';
 
 function stableJson(value) {
@@ -71,10 +72,16 @@ function lease(kind) {
 
 function recoveryEvidence(kind) {
   const authority = createControllerLeaseAuthority([lease('recovered')]);
+  const quiescenceEvidence = {
+    schema_version: 'ao.controller-lease-quiescence-evidence.v1',
+    observer_id: 'operator-18',
+    observed_at: '2026-08-09T10:55:00.000Z',
+    running_controller_ids: [],
+  };
   const evidence = {
     schema_version: CONTROLLER_LEASE_RECOVERY_EVIDENCE_SCHEMA_VERSION,
     project_id: PROJECT_ID,
-    incident_id: 'lease-authority-loss-2026-08-09',
+    incident_id: INCIDENT_ID,
     operator: { id: 'operator-18', role: 'repository_owner' },
     operator_intent: 'restore_verified_canonical_backup',
     reason: 'Canonical authority was lost; restore the separately verified backup while controllers remain stopped.',
@@ -83,6 +90,10 @@ function recoveryEvidence(kind) {
       kind: 'offline_verified_backup',
       digest: digestControllerLeaseAuthorityEvidence(authority),
       active_controller_count: 0,
+      quiescence_evidence: {
+        ...quiescenceEvidence,
+        integrity_digest: digestControllerLeaseAuthorityEvidence(quiescenceEvidence),
+      },
     },
     resulting_authority: {
       digest: digestControllerLeaseAuthorityEvidence(authority),
@@ -96,6 +107,12 @@ function recoveryEvidence(kind) {
   return evidence;
 }
 
+function isCanonicalTimestamp(value) {
+  if (typeof value !== 'string' || value.trim() !== value) return false;
+  const timestampMs = Date.parse(value);
+  return Number.isFinite(timestampMs) && new Date(timestampMs).toISOString() === value;
+}
+
 export function classifyControllerLeaseSafetyError(error) {
   const message = String(error?.message ?? '');
   if (error instanceof SyntaxError) return 'canonical_authority_invalid_json';
@@ -107,7 +124,7 @@ export function classifyControllerLeaseSafetyError(error) {
   return 'unexpected_error';
 }
 
-export function verifyControllerLeaseRecoveryEvidence(evidence) {
+export function verifyControllerLeaseRecoveryEvidence(evidence, { projectId, incidentId } = {}) {
   if (!evidence || evidence.schema_version !== CONTROLLER_LEASE_RECOVERY_EVIDENCE_SCHEMA_VERSION) {
     throw new Error('Unsupported controller lease recovery evidence');
   }
@@ -117,8 +134,31 @@ export function verifyControllerLeaseRecoveryEvidence(evidence) {
   if (evidence.operator_intent !== 'restore_verified_canonical_backup') {
     throw new Error('Unsupported controller lease recovery intent');
   }
-  if (!evidence.reason || !evidence.approved_at || evidence.source_evidence?.kind !== 'offline_verified_backup') {
+  if (!projectId || !incidentId || evidence.project_id !== projectId || evidence.incident_id !== incidentId) {
+    throw new Error('Controller lease recovery evidence does not match the expected project and incident');
+  }
+  if (!evidence.reason || evidence.source_evidence?.kind !== 'offline_verified_backup') {
     throw new Error('Controller lease recovery source evidence is incomplete');
+  }
+  const quiescence = evidence.source_evidence.quiescence_evidence;
+  const { integrity_digest: quiescenceDigest, ...quiescenceBody } = quiescence ?? {};
+  if (
+    quiescence?.schema_version !== 'ao.controller-lease-quiescence-evidence.v1'
+    || quiescence.observer_id !== evidence.operator.id
+    || !isCanonicalTimestamp(quiescence.observed_at)
+    || !Array.isArray(quiescence.running_controller_ids)
+    || quiescence.running_controller_ids.length !== 0
+    || quiescenceDigest !== digestControllerLeaseAuthorityEvidence(quiescenceBody)
+  ) {
+    throw new Error('Controller lease recovery requires valid integrity-bound controller quiescence evidence');
+  }
+  if (
+    !isCanonicalTimestamp(evidence.approved_at)
+    || !isCanonicalTimestamp(evidence.resulting_authority?.observed_at)
+    || Date.parse(quiescence.observed_at) > Date.parse(evidence.approved_at)
+    || Date.parse(evidence.approved_at) > Date.parse(evidence.resulting_authority.observed_at)
+  ) {
+    throw new Error('Controller lease recovery evidence timestamps are invalid or out of order');
   }
   if (evidence.source_evidence.active_controller_count !== 0 || evidence.resulting_authority?.active_controller_count !== 0) {
     throw new Error('Controller lease recovery requires quiesced controller evidence');
@@ -262,7 +302,13 @@ async function runConcurrentHeartbeat(paths, repoRoot) {
 async function executeCase(entry, tempRoots) {
   if (entry.operation === 'verify-recovery-evidence') {
     try {
-      return { disposition: 'accepted', ...verifyControllerLeaseRecoveryEvidence(recoveryEvidence(entry.setup.recovery_evidence)) };
+      return {
+        disposition: 'accepted',
+        ...verifyControllerLeaseRecoveryEvidence(recoveryEvidence(entry.setup.recovery_evidence), {
+          projectId: PROJECT_ID,
+          incidentId: INCIDENT_ID,
+        }),
+      };
     } catch (error) {
       return { disposition: 'rejected', error_code: classifyControllerLeaseSafetyError(error) };
     }
