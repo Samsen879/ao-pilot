@@ -338,9 +338,9 @@ describe('ao lifecycle acceptance', () => {
       writeStderr: () => {},
     });
 
-    expect(result.exitCode).toBe(33);
+    expect(result.exitCode).toBe(38);
     expect(JSON.parse(stdout.join(''))).toMatchObject({
-      top_status: 'human_gate',
+      top_status: 'escalation_required',
       routing_decision: {
         action: 'restore_existing_worker',
         owner_session: 'worker-95',
@@ -348,7 +348,7 @@ describe('ao lifecycle acceptance', () => {
         authoritative: true,
       },
       release_decision: {
-        disposition: 'human_gate',
+        disposition: 'escalation_required',
       },
     });
   });

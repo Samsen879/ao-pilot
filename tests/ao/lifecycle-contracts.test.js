@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import {
   LEGACY_LIFECYCLE_SCHEMA_VERSION,
+  LEGACY_RELEASE_JUDGMENT_LIFECYCLE_SCHEMA_VERSION,
   LIFECYCLE_SCHEMA_VERSION,
   LIFECYCLE_REPORT_FORMAT,
   LIFECYCLE_TRIGGERS,
@@ -17,7 +18,8 @@ import {
 describe('lifecycle contracts', () => {
   it('freezes the schema identity, trigger vocabulary, and strict exit mapping', () => {
     expect(LEGACY_LIFECYCLE_SCHEMA_VERSION).toBe('ao.lifecycle.v1alpha1');
-    expect(LIFECYCLE_SCHEMA_VERSION).toBe('ao.lifecycle.v1alpha2');
+    expect(LEGACY_RELEASE_JUDGMENT_LIFECYCLE_SCHEMA_VERSION).toBe('ao.lifecycle.v1alpha2');
+    expect(LIFECYCLE_SCHEMA_VERSION).toBe('ao.lifecycle.v1alpha3');
     expect(LIFECYCLE_REPORT_FORMAT).toBe('ao_lifecycle_report');
     expect(LIFECYCLE_TRIGGERS).toEqual([
       'manual',
@@ -37,6 +39,9 @@ describe('lifecycle contracts', () => {
       'handoff',
       'human_gate',
       'source_failure',
+      'retry_required',
+      'refresh_required',
+      'escalation_required',
     ]);
     expect(LIFECYCLE_STRICT_EXIT_CODES).toEqual({
       continue: 0,
@@ -46,6 +51,9 @@ describe('lifecycle contracts', () => {
       human_gate: 33,
       source_failure: 34,
       invalid_usage: 35,
+      retry_required: 36,
+      refresh_required: 37,
+      escalation_required: 38,
     });
     expect(LIFECYCLE_DELIVERY_TRIGGER_PRIORITY).toEqual([
       'changes_requested',

@@ -1,0 +1,46 @@
+{
+  "schema_version": "ao.intervention-disposition-fixtures.v1",
+  "scenarios": [
+    {
+      "id": "source-failure",
+      "input": { "source_failure": true },
+      "expected": { "top_status": "retry_required", "disposition": "retry_required", "action_id": "retry_required" }
+    },
+    {
+      "id": "missing-assessment",
+      "input": { "missing_assessment": true },
+      "expected": { "top_status": "refresh_required", "disposition": "refresh_required", "action_id": "refresh_required" }
+    },
+    {
+      "id": "doctor-ambiguity",
+      "input": { "doctor_ambiguity": true },
+      "expected": { "top_status": "escalation_required", "disposition": "escalation_required", "action_id": "escalation_required" }
+    },
+    {
+      "id": "release-ambiguity",
+      "input": { "release_ambiguity": true },
+      "expected": { "top_status": "escalation_required", "disposition": "escalation_required", "action_id": "escalation_required" }
+    },
+    {
+      "id": "success",
+      "input": {},
+      "expected": { "top_status": "continue", "disposition": "release_ready", "action_id": "release_ready" }
+    },
+    {
+      "id": "failure",
+      "input": { "ci_failure": true },
+      "expected": { "top_status": "hold", "disposition": "await_ci", "action_id": "hold_ci" }
+    },
+    {
+      "id": "missing-evidence",
+      "input": { "stale_observation": true },
+      "expected": { "top_status": "refresh_required", "disposition": "refresh_required", "action_id": "refresh_required" }
+    },
+    {
+      "id": "replay",
+      "replay_of": "success",
+      "input": {},
+      "expected": { "top_status": "continue", "disposition": "release_ready", "action_id": "release_ready" }
+    }
+  ]
+}

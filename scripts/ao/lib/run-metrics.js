@@ -22,7 +22,8 @@ import {
 
 export const DEFAULT_PROJECT_ID = 'my-project';
 export const LEGACY_AO_METRICS_REPORT_SCHEMA_VERSION = 'ao.metrics-report.v1alpha1';
-export const AO_METRICS_REPORT_SCHEMA_VERSION = 'ao.metrics-report.v1alpha2';
+export const RELEASE_JUDGMENT_AO_METRICS_REPORT_SCHEMA_VERSION = 'ao.metrics-report.v1alpha2';
+export const AO_METRICS_REPORT_SCHEMA_VERSION = 'ao.metrics-report.v1alpha3';
 export const AO_METRICS_REPORT_FORMAT = 'ao_metrics_report';
 
 function resolveNow(now) {
@@ -161,6 +162,9 @@ function buildInterventionCountsFromReason(reason, {
     counts.preflight_block += 1;
   }
   if (normalizedReason === 'explicit_human_gate_required') counts.human_gate += 1;
+  if (normalizedReason === 'bounded_retry_scheduler_required') counts.retry_required += 1;
+  if (normalizedReason === 'fresh_observation_required') counts.refresh_required += 1;
+  if (normalizedReason === 'explicit_authority_resolution_required') counts.escalation_required += 1;
   if (normalizedReason.includes('handoff') || actionKind === 'handoff_worker') counts.successor_handoff += 1;
   if (retryCause === 'explicit_resume') counts.explicit_resume += 1;
   if (retryCause === 'successor_handoff') counts.successor_handoff += 1;
@@ -197,12 +201,18 @@ function buildControllerInterventionCounts(actionRecords = []) {
       actionClass: record?.payload?.action_class ?? record?.payload?.action_model?.action_class ?? null,
     });
     if (actionClass === 'human_gate') counts.human_gate += 1;
+    if (actionClass === 'retry') counts.retry_required += 1;
+    if (actionClass === 'refresh') counts.refresh_required += 1;
+    if (actionClass === 'escalation') counts.escalation_required += 1;
     if (actionClass === 'handoff_worker') counts.successor_handoff += 1;
 
     const attemptCounts = buildInterventionCountsFromReason(
       record?.payload?.execution?.reason ?? null,
       { actionKind },
     );
+    if (actionClass === 'retry') attemptCounts.retry_required = 0;
+    if (actionClass === 'refresh') attemptCounts.refresh_required = 0;
+    if (actionClass === 'escalation') attemptCounts.escalation_required = 0;
     for (const key of MEASUREMENT_INTERVENTION_KINDS) {
       counts[key] += attemptCounts[key];
     }
@@ -251,8 +261,8 @@ export function buildAssistExecutionAttemptMetric({
   now = new Date().toISOString(),
 } = {}) {
   const timestamp = resolveNow(now);
-  const retryCause = 'none';
   const actionKind = actionRecord?.action_kind ?? null;
+  const retryCause = resolveExecutionAttemptRetryCause({ actionKind });
   const actionClass = resolveMeasurementActionClass({
     actionKind,
     actionClass: model?.action_class ?? actionRecord?.payload?.action_class ?? null,

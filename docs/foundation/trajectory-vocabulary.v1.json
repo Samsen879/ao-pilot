@@ -1,14 +1,14 @@
 {
   "schema_version": "ao.trajectory-vocabulary.v1",
-  "inventory_version": "1.1.0",
-  "status": "release_judgment_migration_with_legacy_observation",
+  "inventory_version": "1.2.0",
+  "status": "intervention_judgment_split_with_immutable_legacy_observation",
   "baseline": {
     "issue_body_sha": "e51bef40ccd124939b2781b14af3297e856c6f17",
     "issue_body_tree": "67aa09d8b11a6532876353f500df7fb529e4d9b5",
-    "admitted_sha": "d39a5bdac7be786c6c2d7ab7a6334c21e7432998",
-    "admitted_tree": "5e897f99f3891adc0e8b271693b86e3eb64c8166",
+    "admitted_sha": "5708cd7532d815c87a017015db2b576e65dcfd67",
+    "admitted_tree": "8d1118e1092913503b50b89e37f560bbbaaa8406",
     "relationship": "issue_body_sha_is_ancestor_of_admitted_sha",
-    "accepted_program_input": "P0 Runtime PRs #64-#75 and terminal receipt #63 comment 5173907118"
+    "accepted_program_input": "Foundation #21 explicit admission comment 5231962753"
   },
   "families": [
     { "id": "action", "meaning": "AO-proposed control action and its durable state." },
@@ -53,7 +53,7 @@
     "orchestrator_done_capture": { "path": "scripts/ao/lib/orchestrator-done-evidence.js", "symbol": "captureOrchestratorDoneEvidence", "evidence": ["schema_version:", "completed_at:"] },
     "or_practice": { "path": "docs/AO_MULTI_WORKSTREAM.md", "symbol": "OR external effect", "evidence": ["provider outcome observation"] },
     "or_practice_consumer": { "path": "docs/AO_MULTI_WORKSTREAM.md", "symbol": "AO later observes authoritative provider outcome", "evidence": ["AO later observes authoritative provider outcome"] },
-    "human_gate_mapping": { "path": "docs/AO_DOCUMENTATION_TRAJECTORY_KNOWLEDGE_SUBSTRATE.md", "symbol": "Legacy `human_gate` lifecycle disposition", "evidence": ["`escalation_required`", "`retry_required`", "`refresh_required`"] },
+    "human_gate_mapping": { "path": "docs/foundation/INTERVENTION_JUDGMENT_MIGRATION.md", "symbol": "Immutable legacy mapping", "evidence": ["`escalation_required`", "`retry_required`", "`refresh_required`"] },
     "lifecycle_constants": { "path": "scripts/ao/lib/lifecycle-contracts.js", "symbol": "LIFECYCLE_TOP_STATUSES", "kind": "constant" },
     "lifecycle_engine": { "path": "scripts/ao/lib/lifecycle-engine.js", "symbol": "buildLifecycleReport", "evidence": ["release_decision:", "routing_decision:"] },
     "lifecycle_review_gate": { "path": "scripts/ao/lib/lifecycle-engine.js", "symbol": "applyReviewGateToLifecycleReport", "evidence": ["release_decision:"] },
@@ -86,14 +86,14 @@
   "items": [
     {
       "id": "action.lifecycle_action_id", "family": "action", "field": "lifecycle.actions[].id",
-      "values": ["auto_merge_ready_pr", "continue_worker", "handoff_worker", "hold_ci", "hold_local_control", "hold_mergeability", "hold_review", "human_gate", "notify_human_blocked", "notify_human_ready", "release_ready", "restore_worker"],
+      "values": ["auto_merge_ready_pr", "continue_worker", "escalation_required", "handoff_worker", "hold_ci", "hold_local_control", "hold_mergeability", "hold_review", "human_gate", "notify_human_blocked", "notify_human_ready", "refresh_required", "release_ready", "restore_worker", "retry_required"],
       "meaning": "A requested AO control operation; the identifier is an instruction, not proof that an effect occurred.",
       "semantic_owner": "AO lifecycle engine", "evidence_authority": "versioned lifecycle report", "episode_role": "judgment.action_requested",
       "source": "action_templates", "producers": ["action_builder"], "consumers": ["action_model"]
     },
     {
       "id": "action.lifecycle_action_class", "family": "action", "field": "lifecycle.actions[].action_class",
-      "values": ["continue_worker", "handoff_worker", "hold", "human_gate", "merge_pr", "notify_human", "release_judgment", "restore_worker"],
+      "values": ["continue_worker", "escalation", "handoff_worker", "hold", "human_gate", "merge_pr", "notify_human", "refresh", "release_judgment", "restore_worker", "retry"],
       "meaning": "Coarse action category used for routing and measurement; multiple action ids may share it.",
       "semantic_owner": "AO lifecycle engine", "evidence_authority": "versioned lifecycle report", "episode_role": "judgment.action_class",
       "source": "action_templates", "producers": ["action_builder"], "consumers": ["action_model"]
@@ -198,28 +198,28 @@
     },
     {
       "id": "lifecycle.top_status", "family": "lifecycle_disposition", "field": "lifecycle.top_status",
-      "values": ["continue", "handoff", "hold", "human_gate", "observe", "source_failure"],
+      "values": ["continue", "escalation_required", "handoff", "hold", "human_gate", "observe", "refresh_required", "retry_required", "source_failure"],
       "meaning": "Aggregate AO control posture for the lifecycle report, not delivery success.",
       "semantic_owner": "AO lifecycle engine", "evidence_authority": "versioned lifecycle report", "episode_role": "judgment.lifecycle_posture",
       "source": "lifecycle_constants", "producers": ["lifecycle_engine"], "consumers": ["decision_chain"]
     },
     {
       "id": "lifecycle.routing_action", "family": "lifecycle_disposition", "field": "lifecycle.routing_decision.action",
-      "values": ["continue_current_worker", "handoff_to_successor", "hold_for_human", "no_action", "restore_existing_worker"],
+      "values": ["continue_current_worker", "handoff_to_successor", "hold_for_human", "no_action", "pause_affected_scope", "refresh_affected_scope", "restore_existing_worker", "retry_affected_scope"],
       "meaning": "AO worker-routing judgment; authoritative=false signals advisory or missing evidence.",
       "semantic_owner": "AO lifecycle engine", "evidence_authority": "lifecycle routing decision", "episode_role": "judgment.routing",
       "source": "lifecycle_engine", "producers": ["lifecycle_engine"], "consumers": ["decision_chain"]
     },
     {
       "id": "lifecycle.release_disposition", "family": "lifecycle_disposition", "field": "lifecycle.release_decision.disposition",
-      "values": ["auto_merge_ready_pr", "await_ci", "await_mergeability", "await_review", "human_gate", "no_release_action", "not_applicable", "notify_human_ready", "release_ready"],
-      "meaning": "release_ready is the current AO judgment authorizing OR preflight only. notify_human_ready and auto_merge_ready_pr retain immutable legacy meanings and are deprecated; no disposition proves an OR effect or provider merge.",
+      "values": ["auto_merge_ready_pr", "await_ci", "await_mergeability", "await_review", "escalation_required", "human_gate", "no_release_action", "not_applicable", "notify_human_ready", "refresh_required", "release_ready", "retry_required"],
+      "meaning": "retry_required and refresh_required recover evidence without a routine human gate; escalation_required is reserved for unresolved authority ambiguity. release_ready authorizes OR preflight only. Legacy values retain immutable meanings; no disposition proves an OR effect or provider merge.",
       "semantic_owner": "AO release judgment", "evidence_authority": "AO lifecycle decision", "episode_role": "judgment.release_disposition",
       "source": "lifecycle_engine", "producers": ["lifecycle_engine", "lifecycle_review_gate"], "consumers": ["decision_chain", "action_builder"]
     },
     {
       "id": "lifecycle.release_basis", "family": "lifecycle_disposition", "field": "lifecycle.release_decision.basis[]",
-      "values": ["all_release_signals_clear", "branch_mismatch_with_github", "bugbot_comments", "ci_blocked", "ci_pending", "ci_unknown", "doctor_ambiguous", "doctor_blocks_control", "draft_pr", "fallback_ambiguous", "merge_conflict_blocked", "mergeability_unknown", "missing_pr_assessment", "none", "orphan_open_pr", "ownership_ambiguous", "ownership_orphaned", "ownership_stale", "ownership_unknown", "pr_not_open", "project_scope_advisory_only", "ready_for_auto_merge", "ready_for_human_notification", "release_preflight_authorized", "review_blocked", "review_changes_required", "review_escalated", "review_missing", "review_pending", "review_target_mismatch", "review_unknown", "source_failure"],
+      "values": ["all_release_signals_clear", "branch_mismatch_with_github", "bugbot_comments", "ci_blocked", "ci_pending", "ci_unknown", "doctor_ambiguous", "doctor_blocks_control", "draft_pr", "fallback_ambiguous", "merge_conflict_blocked", "mergeability_unknown", "missing_pr_assessment", "none", "orphan_open_pr", "ownership_ambiguous", "ownership_orphaned", "ownership_stale", "ownership_unknown", "pr_not_open", "project_scope_advisory_only", "ready_for_auto_merge", "ready_for_human_notification", "release_preflight_authorized", "review_blocked", "review_changes_required", "review_escalated", "review_missing", "review_pending", "review_target_mismatch", "review_unknown", "source_failure", "stale_observation"],
       "meaning": "Reason vocabulary that disambiguates identical release dispositions; an empty basis is recorded as none rather than inferred.",
       "semantic_owner": "AO release judgment", "evidence_authority": "AO lifecycle decision basis", "episode_role": "judgment.release_basis",
       "source": "lifecycle_engine", "producers": ["lifecycle_engine", "lifecycle_review_gate"], "consumers": ["decision_chain", "action_builder"]
@@ -227,7 +227,7 @@
     {
       "id": "lifecycle.human_gate_mapping", "family": "lifecycle_disposition", "field": "episode_mapping.release_decision.human_gate",
       "values": ["doctor_ambiguous:escalation_required", "fallback_ambiguous:escalation_required", "missing_pr_assessment:refresh_required", "release_status_ambiguous:escalation_required", "review_escalated:escalation_required", "source_failure:retry_required"],
-      "meaning": "Required later Episode mapping: authority ambiguity escalates, missing assessment refreshes, and source failure retries; human_gate alone is insufficient.",
+      "meaning": "Implemented immutable legacy observation mapping: authority ambiguity escalates, missing assessment refreshes, and source failure retries; human_gate alone is insufficient.",
       "semantic_owner": "AO trajectory substrate contract", "evidence_authority": "versioned substrate design", "episode_role": "mapping.human_gate_basis",
       "source": "human_gate_mapping", "producers": ["human_gate_mapping"], "consumers": ["human_gate_mapping"]
     },

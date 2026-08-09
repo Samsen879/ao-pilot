@@ -1,7 +1,8 @@
 import { normalizeLifecycleTrigger } from './lifecycle-contracts.js';
 
 export const LEGACY_DECISION_CHAIN_SCHEMA_VERSION = 'ao.decision-chain.v1alpha1';
-export const DECISION_CHAIN_SCHEMA_VERSION = 'ao.decision-chain.v1alpha2';
+export const RELEASE_JUDGMENT_DECISION_CHAIN_SCHEMA_VERSION = 'ao.decision-chain.v1alpha2';
+export const DECISION_CHAIN_SCHEMA_VERSION = 'ao.decision-chain.v1alpha3';
 export const DECISION_CHAIN_REPORT_FORMAT = 'ao_decision_chain_report';
 export const DECISION_CHAIN_STAGES = ['reconcile', 'doctor', 'lifecycle'];
 export const DECISION_CHAIN_AUTHORITIES = ['authoritative', 'diagnose_only', 'advisory'];

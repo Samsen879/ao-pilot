@@ -13,7 +13,7 @@ import {
 describe('decision chain contracts', () => {
   it('freezes the schema identity, stages, authorities, and contract statuses', () => {
     expect(LEGACY_DECISION_CHAIN_SCHEMA_VERSION).toBe('ao.decision-chain.v1alpha1');
-    expect(DECISION_CHAIN_SCHEMA_VERSION).toBe('ao.decision-chain.v1alpha2');
+    expect(DECISION_CHAIN_SCHEMA_VERSION).toBe('ao.decision-chain.v1alpha3');
     expect(DECISION_CHAIN_REPORT_FORMAT).toBe('ao_decision_chain_report');
     expect(DECISION_CHAIN_STAGES).toEqual(['reconcile', 'doctor', 'lifecycle']);
     expect(DECISION_CHAIN_AUTHORITIES).toEqual(['authoritative', 'diagnose_only', 'advisory']);

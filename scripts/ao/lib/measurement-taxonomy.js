@@ -1,10 +1,12 @@
 import { LIFECYCLE_TRIGGERS, normalizeLifecycleTrigger } from './lifecycle-contracts.js';
 
 export const LEGACY_CONTROLLER_RUN_MEASUREMENT_SCHEMA_VERSION = 'ao.controller-run-measurement.v1alpha1';
-export const CONTROLLER_RUN_MEASUREMENT_SCHEMA_VERSION = 'ao.controller-run-measurement.v1alpha2';
+export const RELEASE_JUDGMENT_CONTROLLER_RUN_MEASUREMENT_SCHEMA_VERSION = 'ao.controller-run-measurement.v1alpha2';
+export const CONTROLLER_RUN_MEASUREMENT_SCHEMA_VERSION = 'ao.controller-run-measurement.v1alpha3';
 export const CONTROLLER_RUN_MEASUREMENT_FORMAT = 'ao_controller_run_measurement';
 export const LEGACY_EXECUTION_ATTEMPT_MEASUREMENT_SCHEMA_VERSION = 'ao.execution-attempt-measurement.v1alpha1';
-export const EXECUTION_ATTEMPT_MEASUREMENT_SCHEMA_VERSION = 'ao.execution-attempt-measurement.v1alpha2';
+export const RELEASE_JUDGMENT_EXECUTION_ATTEMPT_MEASUREMENT_SCHEMA_VERSION = 'ao.execution-attempt-measurement.v1alpha2';
+export const EXECUTION_ATTEMPT_MEASUREMENT_SCHEMA_VERSION = 'ao.execution-attempt-measurement.v1alpha3';
 export const EXECUTION_ATTEMPT_MEASUREMENT_FORMAT = 'ao_execution_attempt_measurement';
 
 export const MEASUREMENT_TRIGGER_KINDS = [...LIFECYCLE_TRIGGERS];
@@ -16,6 +18,9 @@ export const MEASUREMENT_ACTION_CLASSES = [
   'merge_pr',
   'hold',
   'human_gate',
+  'retry',
+  'refresh',
+  'escalation',
   'restore_worker',
   'handoff_worker',
   'unknown',
@@ -28,6 +33,9 @@ export const MEASUREMENT_INTERVENTION_KINDS = [
   'successor_handoff',
   'policy_block',
   'preflight_block',
+  'retry_required',
+  'refresh_required',
+  'escalation_required',
 ];
 
 export const MEASUREMENT_RETRY_CAUSES = [
@@ -37,6 +45,8 @@ export const MEASUREMENT_RETRY_CAUSES = [
   'policy_retry',
   'preflight_retry',
   'unknown',
+  'source_recovery',
+  'observation_refresh',
 ];
 
 export const MEASUREMENT_FAILURE_CLASSES = [
@@ -46,6 +56,8 @@ export const MEASUREMENT_FAILURE_CLASSES = [
   'merge_conflict',
   'source_failure',
   'human_gate',
+  'missing_evidence',
+  'authority_ambiguity',
   'override',
   'policy_block',
   'preflight_block',
@@ -145,6 +157,9 @@ export function resolveMeasurementActionClass({
   if (normalizedActionKind === 'human_gate' || normalizedActionClass === 'human_gate') {
     return 'human_gate';
   }
+  if (normalizedActionKind === 'retry_required' || normalizedActionClass === 'retry') return 'retry';
+  if (normalizedActionKind === 'refresh_required' || normalizedActionClass === 'refresh') return 'refresh';
+  if (normalizedActionKind === 'escalation_required' || normalizedActionClass === 'escalation') return 'escalation';
   if (normalizedActionKind === 'restore_worker' || normalizedActionClass === 'restore_worker') {
     return 'restore_worker';
   }
@@ -157,11 +172,15 @@ export function resolveMeasurementActionClass({
 export function resolveExecutionAttemptRetryCause({
   command = null,
   acceptedHandoff = false,
+  actionKind = null,
 } = {}) {
   const normalizedCommand = command == null ? '' : String(command).trim().toLowerCase();
+  const normalizedActionKind = actionKind == null ? '' : String(actionKind).trim().toLowerCase();
 
   if (acceptedHandoff) return 'successor_handoff';
   if (normalizedCommand === 'resume') return 'explicit_resume';
+  if (normalizedActionKind === 'retry_required') return 'source_recovery';
+  if (normalizedActionKind === 'refresh_required') return 'observation_refresh';
   return 'none';
 }
 
@@ -182,6 +201,8 @@ export function resolveExecutionAttemptFailureClass({
     return 'preflight_block';
   }
   if (normalizedReason === 'explicit_human_gate_required') return 'human_gate';
+  if (normalizedReason === 'fresh_observation_required') return 'missing_evidence';
+  if (normalizedReason === 'explicit_authority_resolution_required') return 'authority_ambiguity';
   if (normalizedReason === 'release_judgment_contract_invalid') return 'contract_invalid';
   if (normalizedReason === 'worker_exited' || normalizedReason === 'worker_stale') return 'worker_exit';
   if (normalizedReason.includes('handoff')) return 'successor_handoff';
@@ -192,6 +213,9 @@ export function resolveExecutionAttemptFailureClass({
     || normalizedReason === 'auto_merge_command_failed'
   ) return 'external_effect';
   if (normalizedLifecycleTopStatus === 'source_failure') return 'source_failure';
+  if (normalizedLifecycleTopStatus === 'retry_required') return 'source_failure';
+  if (normalizedLifecycleTopStatus === 'refresh_required') return 'missing_evidence';
+  if (normalizedLifecycleTopStatus === 'escalation_required') return 'authority_ambiguity';
   if (normalizedTriggerKind === 'ci_failed') return 'ci_failure';
   if (['changes_requested', 'bugbot_comments'].includes(normalizedTriggerKind)) return 'review_blocked';
   if (normalizedTriggerKind === 'merge_conflicts') return 'merge_conflict';
@@ -214,6 +238,15 @@ export function resolveControllerRunFailureClass({
   if ((interventionCounts?.override ?? 0) > 0) return 'override';
   if ((interventionCounts?.human_gate ?? 0) > 0 || normalizedLifecycleTopStatus === 'human_gate') {
     return 'human_gate';
+  }
+  if ((interventionCounts?.escalation_required ?? 0) > 0 || normalizedLifecycleTopStatus === 'escalation_required') {
+    return 'authority_ambiguity';
+  }
+  if ((interventionCounts?.refresh_required ?? 0) > 0 || normalizedLifecycleTopStatus === 'refresh_required') {
+    return 'missing_evidence';
+  }
+  if ((interventionCounts?.retry_required ?? 0) > 0 || normalizedLifecycleTopStatus === 'retry_required') {
+    return 'source_failure';
   }
   if ((interventionCounts?.successor_handoff ?? 0) > 0) return 'successor_handoff';
   if (normalizedLifecycleTopStatus === 'source_failure') return 'source_failure';

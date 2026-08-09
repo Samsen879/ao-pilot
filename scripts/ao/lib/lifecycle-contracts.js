@@ -1,5 +1,6 @@
 export const LEGACY_LIFECYCLE_SCHEMA_VERSION = 'ao.lifecycle.v1alpha1';
-export const LIFECYCLE_SCHEMA_VERSION = 'ao.lifecycle.v1alpha2';
+export const LEGACY_RELEASE_JUDGMENT_LIFECYCLE_SCHEMA_VERSION = 'ao.lifecycle.v1alpha2';
+export const LIFECYCLE_SCHEMA_VERSION = 'ao.lifecycle.v1alpha3';
 export const LIFECYCLE_REPORT_FORMAT = 'ao_lifecycle_report';
 
 export {
@@ -35,6 +36,9 @@ export const LIFECYCLE_TOP_STATUSES = [
   'handoff',
   'human_gate',
   'source_failure',
+  'retry_required',
+  'refresh_required',
+  'escalation_required',
 ];
 
 export const LIFECYCLE_STRICT_EXIT_CODES = {
@@ -45,6 +49,9 @@ export const LIFECYCLE_STRICT_EXIT_CODES = {
   human_gate: 33,
   source_failure: 34,
   invalid_usage: 35,
+  retry_required: 36,
+  refresh_required: 37,
+  escalation_required: 38,
 };
 
 function toStringArray(values) {

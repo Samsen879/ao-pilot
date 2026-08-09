@@ -294,7 +294,7 @@ describe('lifecycle engine', () => {
       owner_session: 'worker-44',
       authoritative: true,
     });
-    expect(report.top_status).toBe('human_gate');
+    expect(report.top_status).toBe('escalation_required');
   });
 
   it('routes orphaned ownership to successor handoff', () => {
@@ -327,7 +327,7 @@ describe('lifecycle engine', () => {
     expect(report.findings.map((finding) => finding.code)).toContain('successor_handoff_recommended');
   });
 
-  it('human-gates ambiguous ownership', () => {
+  it('escalates ambiguous ownership only for the affected scope', () => {
     const report = buildLifecycleReport({
       scope: createLifecyclePrScope({
         projectId: 'my-project',
@@ -352,8 +352,13 @@ describe('lifecycle engine', () => {
       doctorReport: buildDoctorReport(),
     });
 
-    expect(report.top_status).toBe('human_gate');
-    expect(report.routing_decision.action).toBe('hold_for_human');
+    expect(report.top_status).toBe('escalation_required');
+    expect(report.routing_decision.action).toBe('pause_affected_scope');
+    expect(report.release_decision).toMatchObject({
+      disposition: 'escalation_required',
+      affected_scope: { mode: 'pr', project_id: 'my-project', pr_number: 44 },
+      escalation: { pause_scope: 'affected_scope_only' },
+    });
     expect(report.findings.map((finding) => finding.code)).toContain('ownership_control_ambiguous');
   });
 
@@ -439,7 +444,7 @@ describe('lifecycle engine', () => {
     expect(report.findings.map((finding) => finding.code)).toContain('doctor_blocks_control');
   });
 
-  it('human-gates when doctor remains ambiguous in PR mode', () => {
+  it('requires authority escalation when doctor remains ambiguous in PR mode', () => {
     const report = buildLifecycleReport({
       scope: createLifecyclePrScope({
         projectId: 'my-project',
@@ -464,8 +469,8 @@ describe('lifecycle engine', () => {
       }),
     });
 
-    expect(report.top_status).toBe('human_gate');
-    expect(report.routing_decision.action).toBe('hold_for_human');
+    expect(report.top_status).toBe('escalation_required');
+    expect(report.routing_decision.action).toBe('pause_affected_scope');
   });
 
   it('authorizes OR preflight without claiming an effect or human approval when approved-and-green is truly ready', () => {
@@ -587,7 +592,7 @@ describe('lifecycle engine', () => {
     ]));
   });
 
-  it('emits a provider-neutral blocked-notification action for human gates', () => {
+  it('refreshes a missing PR assessment without creating a human gate', () => {
     const report = buildLifecycleReport({
       scope: createLifecyclePrScope({
         projectId: 'my-project',
@@ -600,14 +605,14 @@ describe('lifecycle engine', () => {
       doctorReport: buildDoctorReport(),
     });
 
-    expect(report.top_status).toBe('human_gate');
+    expect(report.top_status).toBe('refresh_required');
     expect(report.actions).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        id: 'notify_human_blocked',
-        action_class: 'notify_human',
-        commands: [],
+        id: 'refresh_required',
+        action_class: 'refresh',
       }),
     ]));
+    expect(report.actions.map((action) => action.id)).not.toContain('notify_human_blocked');
   });
 
   it('fails closed when independent review is required and no matching pass exists', () => {
@@ -685,7 +690,7 @@ describe('lifecycle engine', () => {
     ]));
   });
 
-  it('converts escalated review verdicts into a human gate', () => {
+  it('converts escalated review verdicts into authority escalation', () => {
     const report = buildLifecycleReport({
       scope: createLifecyclePrScope({
         projectId: 'my-project',
@@ -707,9 +712,9 @@ describe('lifecycle engine', () => {
       currentHeadSha: 'abc123',
     });
 
-    expect(report.top_status).toBe('human_gate');
+    expect(report.top_status).toBe('escalation_required');
     expect(report.release_decision).toMatchObject({
-      disposition: 'human_gate',
+      disposition: 'escalation_required',
       basis: ['review_escalated'],
       authoritative: false,
     });
@@ -739,7 +744,7 @@ describe('lifecycle engine', () => {
     ]));
   });
 
-  it('treats failed inputs as source failure', () => {
+  it('requires bounded retry for failed inputs without creating a human gate', () => {
     const report = buildLifecycleReport({
       scope: createLifecyclePrScope({
         projectId: 'my-project',
@@ -768,6 +773,17 @@ describe('lifecycle engine', () => {
       reconciliation: 'failed',
       doctor: 'failed',
     });
-    expect(report.top_status).toBe('source_failure');
+    expect(report.top_status).toBe('retry_required');
+    expect(report.routing_decision.action).toBe('retry_affected_scope');
+    expect(report.release_decision).toMatchObject({
+      disposition: 'retry_required',
+      recovery: {
+        strategy: 'exponential_backoff',
+        max_attempts: 3,
+        backoff_ms: [1000, 2000, 4000],
+        auditable: true,
+      },
+    });
+    expect(report.actions.map((action) => action.id)).not.toContain('notify_human_blocked');
   });
 });

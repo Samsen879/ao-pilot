@@ -1,4 +1,8 @@
-import { LIFECYCLE_SCHEMA_VERSION } from './lifecycle-contracts.js';
+import {
+  LEGACY_RELEASE_JUDGMENT_LIFECYCLE_SCHEMA_VERSION,
+  LIFECYCLE_SCHEMA_VERSION,
+} from './lifecycle-contracts.js';
+import { mapLegacyInterventionDecision } from './intervention-judgment.js';
 
 export const RELEASE_JUDGMENT_SCHEMA_VERSION = 'ao.release-judgment.v1';
 export const RELEASE_JUDGMENT_KIND = 'release_ready';
@@ -151,7 +155,10 @@ export function observeReleaseDecision({
       : null;
     if (
       validation != null
-      && schemaVersion !== LIFECYCLE_SCHEMA_VERSION
+      && ![
+        LIFECYCLE_SCHEMA_VERSION,
+        LEGACY_RELEASE_JUDGMENT_LIFECYCLE_SCHEMA_VERSION,
+      ].includes(schemaVersion)
     ) {
       validation = {
         ok: false,
@@ -206,6 +213,12 @@ export function adaptLifecycleReportForObservation(report) {
   });
   adapted.release_decision = observation.decision;
   adapted.release_decision_observation = observation.canonical_projection ?? observation.decision;
+  const legacyInterventionProjection = report.schema_version === LIFECYCLE_SCHEMA_VERSION
+    ? null
+    : mapLegacyInterventionDecision(observation.decision, { scope: report.scope });
+  if (legacyInterventionProjection != null) {
+    adapted.release_decision_observation = legacyInterventionProjection;
+  }
 
   const existingFindingCodes = new Set((adapted.findings ?? []).map((finding) => finding?.code));
   adapted.findings = [

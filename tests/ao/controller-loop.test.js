@@ -456,6 +456,128 @@ describe('ao controller loop', () => {
     );
   });
 
+  it('keeps an authority escalation scoped while another task continues', async () => {
+    const repository = createStateRepository({
+      repoRoot: createTempRepo(),
+      projectId: PROJECT_ID,
+    });
+    seedActiveTask(repository, 'shadow');
+    repository.upsertManagedTask(createManagedTask({
+      task_id: 'issue-93',
+      issue_number: 93,
+      title: 'Unaffected scope',
+      branch_name: 'feat/issue-93',
+      worktree_path: '/tmp/worker-93',
+      status: 'active',
+      created_at: '2026-03-29T06:40:00.000Z',
+      updated_at: '2026-03-29T06:40:00.000Z',
+    }));
+    repository.upsertPrBinding(createPrBinding({
+      binding_id: 'binding-issue-93-pr-93',
+      task_id: 'issue-93',
+      pr_number: 93,
+      branch_name: 'feat/issue-93',
+      base_branch: 'main',
+      status: 'bound',
+      created_at: '2026-03-29T06:40:00.000Z',
+      updated_at: '2026-03-29T06:40:00.000Z',
+    }));
+
+    const result = await runControllerLoop({
+      repoRoot: repository.getSnapshot().paths.repoRoot,
+      cwd: repository.getSnapshot().paths.repoRoot,
+      projectId: PROJECT_ID,
+      controllerId: 'default',
+      now: '2026-03-29T06:41:00.000Z',
+      deps: {
+        loadAoProjectObservation: async () => ({
+          observed_at: '2026-03-29T06:41:00.000Z',
+          workers: [92, 93].map((number) => ({
+            session_name: `worker-${number}`,
+            session_runtime_id: `worker-${number}`,
+            issue_number: number,
+            branch_name: `feat/issue-${number}`,
+            pr_number: number,
+            lifecycle_state: 'idle',
+            last_seen_at: '2026-03-29T06:40:45.000Z',
+            freshness: { status: 'fresh' },
+          })),
+        }),
+        loadGitHubObservationSet: async () => ({
+          observed_at: '2026-03-29T06:41:00.000Z',
+          prs: [92, 93].map((number) => ({
+            pr_number: number,
+            state: 'OPEN',
+            head_branch: `feat/issue-${number}`,
+            head_sha: `head-${number}`,
+            review_status: 'pending',
+            ci_status: 'pending',
+            mergeability: 'mergeable',
+            is_draft: false,
+          })),
+        }),
+        resolveLifecycleReport: async ({ task, prNumber }) => task.task_id === 'issue-92'
+          ? {
+              top_status: 'escalation_required',
+              scope: { mode: 'pr', project_id: PROJECT_ID, pr_number: prNumber, trigger: 'manual' },
+              source_health: { reconciliation: 'ok', doctor: 'ok' },
+              routing_decision: { action: 'pause_affected_scope', owner_session: null, reason_codes: ['ownership_ambiguous'], authoritative: false },
+              release_decision: {
+                disposition: 'escalation_required', basis: ['ownership_ambiguous'], authoritative: false,
+                affected_scope: { mode: 'pr', project_id: PROJECT_ID, pr_number: 92 },
+              },
+              findings: [],
+              actions: [{
+                id: 'escalation_required', action_class: 'escalation',
+                summary: 'Pause affected scope.', commands: [], rationale: 'Authority is ambiguous.',
+              }],
+            }
+          : {
+              top_status: 'continue',
+              scope: { mode: 'pr', project_id: PROJECT_ID, pr_number: prNumber, trigger: 'manual' },
+              source_health: { reconciliation: 'ok', doctor: 'ok' },
+              routing_decision: { action: 'continue_current_worker', owner_session: 'worker-93', reason_codes: ['ownership_clear'], authoritative: true },
+              release_decision: { disposition: 'no_release_action', basis: [], authoritative: true },
+              findings: [],
+              actions: [{
+                id: 'continue_worker', action_class: 'continue_worker',
+                summary: 'Continue unaffected worker.', commands: [], rationale: 'Ownership is clear.',
+              }],
+            },
+      },
+    });
+
+    expect(result.processed_task_count).toBe(2);
+    expect(result.task_results).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        task_id: 'issue-92',
+        lifecycle_top_status: 'escalation_required',
+        proposed_action_count: 1,
+      }),
+      expect.objectContaining({
+        task_id: 'issue-93',
+        lifecycle_top_status: 'continue',
+        proposed_action_count: 1,
+      }),
+    ]));
+    expect(repository.getSnapshot().state.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ task_id: 'issue-92', action_kind: 'escalation_required' }),
+      expect.objectContaining({ task_id: 'issue-93', action_kind: 'continue_worker' }),
+    ]));
+    expect(repository.getSnapshot().state.controller_run_metrics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        task_id: 'issue-92',
+        failure_class: 'authority_ambiguity',
+        intervention_counts: expect.objectContaining({ escalation_required: 1, human_gate: 0 }),
+      }),
+      expect.objectContaining({
+        task_id: 'issue-93',
+        failure_class: 'none',
+        intervention_counts: expect.objectContaining({ escalation_required: 0, human_gate: 0 }),
+      }),
+    ]));
+  });
+
   it('passes the control-plane snapshot into doctor resolution for lifecycle handoff analysis', async () => {
     const repository = createStateRepository({
       repoRoot: createTempRepo(),
