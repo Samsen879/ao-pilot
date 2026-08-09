@@ -1,0 +1,14 @@
+{
+  "schema_version": "ao.trajectory-vocabulary-fixture.v1",
+  "scenario": "failure",
+  "evidence_complete": true,
+  "expectations": [
+    { "item_id": "action.record_status", "value": "blocked" },
+    { "item_id": "execution.effect_status", "value": "failed" },
+    { "item_id": "lifecycle.release_disposition", "value": "await_ci" },
+    { "item_id": "review.verdict", "value": "changes_required" },
+    { "item_id": "ci.normalized_status", "value": "failing" },
+    { "item_id": "merge.provider_pr_state", "value": "OPEN" },
+    { "item_id": "checkpoint.inspection_state", "value": "stale" }
+  ]
+}

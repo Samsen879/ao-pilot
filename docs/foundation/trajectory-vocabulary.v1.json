@@ -1,0 +1,422 @@
+{
+  "schema_version": "ao.trajectory-vocabulary.v1",
+  "inventory_version": "1.0.0",
+  "status": "audit_only_no_behavior_change",
+  "baseline": {
+    "issue_body_sha": "e51bef40ccd124939b2781b14af3297e856c6f17",
+    "issue_body_tree": "67aa09d8b11a6532876353f500df7fb529e4d9b5",
+    "admitted_sha": "d39a5bdac7be786c6c2d7ab7a6334c21e7432998",
+    "admitted_tree": "5e897f99f3891adc0e8b271693b86e3eb64c8166",
+    "relationship": "issue_body_sha_is_ancestor_of_admitted_sha",
+    "accepted_program_input": "P0 Runtime PRs #64-#75 and terminal receipt #63 comment 5173907118"
+  },
+  "families": [
+    { "id": "action", "meaning": "AO-proposed control action and its durable state." },
+    { "id": "execution_receipt", "meaning": "Attempt/effect evidence; never provider outcome authority." },
+    { "id": "lifecycle_disposition", "meaning": "AO judgment about routing, release, or control posture." },
+    { "id": "review_verdict", "meaning": "Local review protocol or provider review evidence." },
+    { "id": "ci_state", "meaning": "Normalized provider check observation." },
+    { "id": "merge_observation", "meaning": "Provider-observed PR state and mergeability." },
+    { "id": "checkpoint", "meaning": "Replay-safe captured task, verification, and execution references." }
+  ],
+  "references": {
+    "action_constants": { "path": "scripts/ao/lib/state-contracts.js", "symbol": "ACTION_STATUSES", "kind": "constant" },
+    "action_record": { "path": "scripts/ao/lib/state-contracts.js", "symbol": "createActionRecord", "evidence": ["status: normalizeEnum"] },
+    "action_templates": { "path": "scripts/ao/lib/lifecycle-engine.js", "symbol": "buildActionTemplates", "evidence": ["auto_merge_ready_pr"] },
+    "action_builder": { "path": "scripts/ao/lib/lifecycle-engine.js", "symbol": "buildActions", "evidence": ["createLifecycleAction"] },
+    "action_model": { "path": "scripts/ao/lib/action-executor.js", "symbol": "buildAssistActionModel", "evidence": ["action_kind:", "action_class:"] },
+    "action_summary": { "path": "scripts/ao/lib/action-executor.js", "symbol": "summarizeAssistActionRecord", "evidence": ["execution_outcome:", "effect_status:"] },
+    "execution_records": { "path": "scripts/ao/lib/action-executor.js", "symbol": "buildEffectReceipt", "evidence": ["attempt_id:", "delivery_semantics:"] },
+    "execution_run": { "path": "scripts/ao/lib/action-executor.js", "symbol": "executeAssistActions", "evidence": ["repository.upsertAction", "executionDetails"] },
+    "auto_merge_execution": { "path": "scripts/ao/lib/action-executor.js", "symbol": "prepareAutoMergeExecution", "evidence": ["confirmed_state", "confirmed_head_sha"] },
+    "auto_merge_persistence": { "path": "scripts/ao/lib/action-executor.js", "symbol": "executeAssistActions", "evidence": ["autoMergeReceipt", "autoMergeResult.details"] },
+    "command_receipt": { "path": "scripts/ao/lib/action-executor.js", "symbol": "sanitizeCommandReceipt", "evidence": ["command:", "status:"] },
+    "transport_receipt": { "path": "scripts/ao/lib/action-executor.js", "symbol": "sanitizeTransportReceipt", "evidence": ["delivery_semantics:", "idempotency_key:"] },
+    "blocked_transport": { "path": "scripts/ao/lib/blocked-notification-transport.js", "symbol": "createBlockedNotificationWebhookTransport", "evidence": ["status: 'failed'", "status: 'succeeded'"] },
+    "runtime_bootstrap_receipt": { "path": "scripts/ao/lib/runtime-bootstrap.js", "symbol": "ao.runtime-bootstrap-receipt.v1", "kind": "literal" },
+    "runtime_bootstrap_producer": { "path": "scripts/ao/lib/runtime-bootstrap.js", "symbol": "bootstrapManagedRuntime", "evidence": ["RUNTIME_BOOTSTRAP_RECEIPT_FILENAME"] },
+    "runtime_bootstrap_verifier": { "path": "scripts/ao/lib/runtime-bootstrap.js", "symbol": "verifyRuntimeBootstrapReceipt", "evidence": ["receipt.schema_version"] },
+    "self_hosting_receipt": { "path": "scripts/ao/lib/self-hosting-receipt.js", "symbol": "SELF_HOSTING_RECEIPT_SCHEMA_VERSION", "kind": "constant" },
+    "self_hosting_verifier": { "path": "scripts/ao/lib/self-hosting-receipt.js", "symbol": "verifySelfHostingReceipt", "evidence": ["value.schema_version"] },
+    "audit_recovery_receipt": { "path": "scripts/ao/lib/audit-recovery-receipt.js", "symbol": "AUDIT_RECOVERY_RECEIPT_SCHEMA_VERSION", "kind": "constant", "evidence": ["ao.workstation-self-hosting-receipt.v8"] },
+    "audit_recovery_verifier": { "path": "scripts/ao/lib/audit-recovery-receipt.js", "symbol": "verifyAuditRecoveryReceipt", "evidence": ["value.schema_version"] },
+    "worktree_evidence": { "path": "scripts/ao/lib/worktree-evidence.js", "symbol": "WORKTREE_EVIDENCE_SCHEMA_VERSION", "kind": "constant" },
+    "worktree_capture": { "path": "scripts/ao/lib/worktree-evidence.js", "symbol": "captureWorktreeEvidence", "evidence": ["schema_version:"] },
+    "worktree_publication": { "path": "scripts/ao/lib/orchestrator-worktree-publication.js", "symbol": "ORCHESTRATOR_WORKTREE_PUBLICATION_SCHEMA_VERSION", "kind": "constant" },
+    "worktree_publish": { "path": "scripts/ao/lib/orchestrator-worktree-publication.js", "symbol": "publishOrchestratorBoundWorktreeEvidence", "evidence": ["publicationReceipt"] },
+    "premerge_evidence": { "path": "scripts/ao/lib/premerge-verification-evidence.js", "symbol": "PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION", "kind": "constant" },
+    "premerge_publish": { "path": "scripts/ao/lib/premerge-verification-evidence.js", "symbol": "publishOrchestratorBoundPremergeEvidence", "evidence": ["publicationReceipt"] },
+    "premerge_validate": { "path": "scripts/ao/lib/premerge-verification-evidence.js", "symbol": "validateAuditPremergeVerificationEvidence", "evidence": ["schema_version", "worktree_evidence"] },
+    "terminal_merge_evidence": { "path": "scripts/ao/lib/terminal-merge-publication.js", "symbol": "TERMINAL_MERGE_OPERATION_SCHEMA_VERSION", "kind": "constant" },
+    "terminal_merge_publish": { "path": "scripts/ao/lib/terminal-merge-publication.js", "symbol": "executeAndPublishTerminalMergeEvidence", "evidence": ["pull?.merged === true", "github_readback_confirmed"] },
+    "orchestrator_done_evidence": { "path": "scripts/ao/lib/orchestrator-done-evidence.js", "symbol": "ORCHESTRATOR_DONE_EVIDENCE_SCHEMA_VERSION", "kind": "constant" },
+    "orchestrator_done_capture": { "path": "scripts/ao/lib/orchestrator-done-evidence.js", "symbol": "captureOrchestratorDoneEvidence", "evidence": ["schema_version:", "completed_at:"] },
+    "or_practice": { "path": "docs/AO_MULTI_WORKSTREAM.md", "symbol": "OR external effect", "evidence": ["provider outcome observation"] },
+    "or_practice_consumer": { "path": "docs/AO_MULTI_WORKSTREAM.md", "symbol": "AO later observes authoritative provider outcome", "evidence": ["AO later observes authoritative provider outcome"] },
+    "human_gate_mapping": { "path": "docs/AO_DOCUMENTATION_TRAJECTORY_KNOWLEDGE_SUBSTRATE.md", "symbol": "Legacy `human_gate` lifecycle disposition", "evidence": ["`escalation_required`", "`retry_required`", "`refresh_required`"] },
+    "lifecycle_constants": { "path": "scripts/ao/lib/lifecycle-contracts.js", "symbol": "LIFECYCLE_TOP_STATUSES", "kind": "constant" },
+    "lifecycle_engine": { "path": "scripts/ao/lib/lifecycle-engine.js", "symbol": "buildLifecycleReport", "evidence": ["release_decision:", "routing_decision:"] },
+    "lifecycle_review_gate": { "path": "scripts/ao/lib/lifecycle-engine.js", "symbol": "applyReviewGateToLifecycleReport", "evidence": ["release_decision:"] },
+    "decision_chain": { "path": "scripts/ao/lib/decision-chain.js", "symbol": "buildDecisionChainReport", "evidence": ["release_decision:", "next_actions:"] },
+    "gate_model": { "path": "scripts/ao/lib/gate-model.js", "symbol": "GATE_STATES", "kind": "constant" },
+    "reconciliation_contracts": { "path": "scripts/ao/lib/reconciliation-contracts.js", "symbol": "AUTOMATION_DISPOSITIONS", "kind": "constant" },
+    "reconciliation_engine": { "path": "scripts/ao/lib/reconciliation-engine.js", "symbol": "reconcileObservations", "evidence": ["release_readiness", "automation_disposition:"] },
+    "review_constants": { "path": "scripts/ao/lib/state-contracts.js", "symbol": "REVIEW_RECORD_STATUSES", "kind": "constant" },
+    "review_record": { "path": "scripts/ao/lib/state-contracts.js", "symbol": "createReviewRecord", "evidence": ["verdict:", "status:"] },
+    "review_protocol": { "path": "scripts/ao/lib/review-protocol.js", "symbol": "createReviewProtocol", "evidence": ["recordVerdict", "createReviewRecord"] },
+    "review_posture": { "path": "scripts/ao/lib/review-contracts.js", "symbol": "deriveReviewPosture", "evidence": ["review_pending", "review_passed"] },
+    "github_normalizer": { "path": "scripts/ao/lib/github-observation-source.js", "symbol": "normalizePrObservation", "evidence": ["head_sha:", "review_status:", "reviews:"] },
+    "github_reviews": { "path": "scripts/ao/lib/github-observation-source.js", "symbol": "normalizeReviews", "evidence": ["author_login:", "commit_oid:", "submitted_at:"] },
+    "github_loader": { "path": "scripts/ao/lib/github-observation-source.js", "symbol": "loadGitHubObservationSet", "evidence": ["fetchPrObservationByNumber", "fetchPrObservationsByBranch"] },
+    "ci_normalizer": { "path": "scripts/ao/lib/github-observation-source.js", "symbol": "normalizeCiStatus", "evidence": ["entry.status", "entry.conclusion"] },
+    "merge_normalizer": { "path": "scripts/ao/lib/github-observation-source.js", "symbol": "normalizeState", "evidence": ["MERGED"] },
+    "mergeability_normalizer": { "path": "scripts/ao/lib/github-observation-source.js", "symbol": "normalizeMergeability", "evidence": ["CONFLICTING"] },
+    "checkpoint_contract": { "path": "scripts/ao/lib/state-contracts.js", "symbol": "createCheckpointRecord", "evidence": ["snapshot:", "checkpoint_id:"] },
+    "checkpoint_snapshot": { "path": "scripts/ao/lib/state-contracts.js", "symbol": "createCheckpointSnapshot", "evidence": ["execution_ref:", "verification_ref:"] },
+    "checkpoint_producer": { "path": "scripts/ao/lib/checkpoint-store.js", "symbol": "createCheckpointStore", "evidence": ["captureCheckpoint({", "createCheckpointRecord"] },
+    "checkpoint_validator": { "path": "scripts/ao/lib/checkpoint-store.js", "symbol": "validateCheckpointRecord", "evidence": ["checkpointSnapshot", "reasonCodes"] },
+    "checkpoint_replay": { "path": "scripts/ao/lib/checkpoint-store.js", "symbol": "createCheckpointStore", "evidence": ["loadCheckpointForResume({", "inspection.state"] },
+    "manage_runner": { "path": "scripts/ao/lib/manage-runner.js", "symbol": "runManageCommand", "evidence": ["resumeCheckpoint", "checkpoint_id:"] }
+  },
+  "required_separations": {
+    "ao_judgment": "lifecycle.release_disposition",
+    "or_effect": "execution.or_effect_status",
+    "provider_outcome": "merge.provider_pr_state"
+  },
+  "items": [
+    {
+      "id": "action.lifecycle_action_id", "family": "action", "field": "lifecycle.actions[].id",
+      "values": ["auto_merge_ready_pr", "continue_worker", "handoff_worker", "hold_ci", "hold_local_control", "hold_mergeability", "hold_review", "human_gate", "notify_human_blocked", "notify_human_ready", "restore_worker"],
+      "meaning": "A requested AO control operation; the identifier is an instruction, not proof that an effect occurred.",
+      "semantic_owner": "AO lifecycle engine", "evidence_authority": "versioned lifecycle report", "episode_role": "judgment.action_requested",
+      "source": "action_templates", "producers": ["action_builder"], "consumers": ["action_model"]
+    },
+    {
+      "id": "action.lifecycle_action_class", "family": "action", "field": "lifecycle.actions[].action_class",
+      "values": ["continue_worker", "handoff_worker", "hold", "human_gate", "merge_pr", "notify_human", "restore_worker"],
+      "meaning": "Coarse action category used for routing and measurement; multiple action ids may share it.",
+      "semantic_owner": "AO lifecycle engine", "evidence_authority": "versioned lifecycle report", "episode_role": "judgment.action_class",
+      "source": "action_templates", "producers": ["action_builder"], "consumers": ["action_model"]
+    },
+    {
+      "id": "action.record_status", "family": "action", "field": "control_plane.actions[].status",
+      "values": ["blocked", "cancelled", "executed", "proposed"],
+      "meaning": "Durable AO action-record lifecycle only; executed does not establish a provider outcome.",
+      "semantic_owner": "AO state repository", "evidence_authority": "control-plane action record", "episode_role": "ao_state.action_status",
+      "source": "action_constants", "producers": ["action_record", "execution_run"], "consumers": ["action_summary"]
+    },
+    {
+      "id": "execution.action_outcome", "family": "execution_receipt", "field": "control_plane.actions[].payload.execution.outcome",
+      "values": ["blocked", "effect_attempted", "effect_failed", "executed", "missing"],
+      "meaning": "AO assist-executor disposition for one action attempt; effect_attempted explicitly remains unconfirmed.",
+      "semantic_owner": "AO assist executor", "evidence_authority": "durable action execution payload", "episode_role": "execution.attempt_disposition",
+      "source": "execution_records", "producers": ["execution_run"], "consumers": ["action_summary"]
+    },
+    {
+      "id": "execution.effect_status", "family": "execution_receipt", "field": "control_plane.actions[].payload.execution.effect.status",
+      "values": ["attempted", "durable_only", "failed", "missing", "succeeded"],
+      "meaning": "Status declared by the effect adapter; succeeded is adapter confirmation and must not replace provider observation.",
+      "semantic_owner": "AO effect adapter", "evidence_authority": "effect adapter receipt", "episode_role": "execution.adapter_status",
+      "source": "execution_records", "producers": ["execution_run", "blocked_transport"], "consumers": ["action_summary"]
+    },
+    {
+      "id": "execution.effect_receipt_fields", "family": "execution_receipt", "field": "payload.execution.effect.*",
+      "values": ["attempt_id", "attempted_at", "completed_at", "delivery_semantics", "intent", "kind", "receipt", "retryable", "status"],
+      "meaning": "Complete current effect-receipt field set; intent and receipt remain separate to preserve attempted-versus-observed evidence.",
+      "semantic_owner": "AO assist executor", "evidence_authority": "buildEffectReceipt output", "episode_role": "execution.effect_receipt",
+      "source": "execution_records", "producers": ["execution_run"], "consumers": ["action_summary"]
+    },
+    {
+      "id": "execution.command_receipt_fields", "family": "execution_receipt", "field": "payload.execution.effect.receipt.command_receipts[].*",
+      "values": ["args", "command", "cwd", "signal", "status"],
+      "meaning": "Sanitized subprocess fact set; exit status is process evidence, never merge outcome evidence.",
+      "semantic_owner": "AO command adapter", "evidence_authority": "local subprocess result", "episode_role": "execution.command_receipt",
+      "source": "command_receipt", "producers": ["auto_merge_execution"], "consumers": ["auto_merge_persistence"]
+    },
+    {
+      "id": "execution.transport_receipt_fields", "family": "execution_receipt", "field": "payload.execution.effect.receipt.*",
+      "values": ["attempts", "delivery_semantics", "http_status", "idempotency_key", "reason", "status", "transport"],
+      "meaning": "Sanitized notification-transport response; it proves bounded delivery handling, not human receipt or approval.",
+      "semantic_owner": "AO notification transport", "evidence_authority": "transport response receipt", "episode_role": "execution.notification_receipt",
+      "source": "transport_receipt", "producers": ["blocked_transport"], "consumers": ["execution_run"]
+    },
+    {
+      "id": "execution.or_effect_status", "family": "execution_receipt", "field": "production.or_effect.status",
+      "values": ["attempted", "failed", "succeeded", "unverifiable"],
+      "meaning": "Real OR effect execution fact. It is external to AO state mutation and cannot establish the provider outcome by itself.",
+      "semantic_owner": "OR effect executor", "evidence_authority": "OR execution receipt", "episode_role": "execution.or_effect",
+      "source": "or_practice", "producers": ["or_practice"], "consumers": ["or_practice_consumer"]
+    },
+    {
+      "id": "execution.runtime_bootstrap_receipt", "family": "execution_receipt", "field": "runtime-bootstrap.json",
+      "values": ["ao.runtime-bootstrap-receipt.v1"],
+      "meaning": "Immutable runtime installation evidence; it belongs in an Episode as an artifact reference, not as task completion.",
+      "semantic_owner": "runtime bootstrapper", "evidence_authority": "verified bootstrap receipt bytes", "episode_role": "artifact.runtime_bootstrap_receipt",
+      "source": "runtime_bootstrap_receipt", "producers": ["runtime_bootstrap_producer"], "consumers": ["runtime_bootstrap_verifier"]
+    },
+    {
+      "id": "execution.self_hosting_receipt", "family": "execution_receipt", "field": "workstation_self_hosting_receipt.schema_version",
+      "values": ["ao.workstation-self-hosting-receipt.v7", "ao.workstation-self-hosting-receipt.v8"],
+      "meaning": "P0 terminal proof bundle; v7 and v8 are immutable historical schemas and should enter an Episode by digest/reference.",
+      "semantic_owner": "P0 receipt verifier", "evidence_authority": "published issue-comment bytes plus protected verifier", "episode_role": "artifact.self_hosting_receipt",
+      "source": "self_hosting_receipt", "producers": ["audit_recovery_receipt"], "consumers": ["self_hosting_verifier", "audit_recovery_verifier"]
+    },
+    {
+      "id": "execution.worktree_evidence", "family": "execution_receipt", "field": "workstation_worktree_evidence.schema_version",
+      "values": ["ao.workstation-worktree-evidence.v6", "ao.workstation-worktree-evidence.v7"],
+      "meaning": "Governed worktree/runtime provenance evidence; it proves binding, not implementation or provider success.",
+      "semantic_owner": "AO worktree evidence collector", "evidence_authority": "live filesystem/session capture", "episode_role": "artifact.worktree_evidence",
+      "source": "worktree_evidence", "producers": ["worktree_capture", "worktree_publish"], "consumers": ["premerge_validate"]
+    },
+    {
+      "id": "execution.worktree_publication", "family": "execution_receipt", "field": "workstation_orchestrator_worktree_publication.schema_version",
+      "values": ["ao.workstation-orchestrator-worktree-publication.v2", "ao.workstation-orchestrator-worktree-provenance.v2"],
+      "meaning": "Publication/readback and process-binding evidence for a governed worktree capture.",
+      "semantic_owner": "AO orchestrator evidence publisher", "evidence_authority": "exact issue-comment readback and process binding", "episode_role": "artifact.worktree_publication",
+      "source": "worktree_publication", "producers": ["worktree_publish"], "consumers": ["premerge_validate"]
+    },
+    {
+      "id": "execution.premerge_evidence", "family": "execution_receipt", "field": "workstation_premerge_verification.schema_version",
+      "values": ["ao.workstation-premerge-verification-evidence.v2", "ao.workstation-premerge-verification-evidence.v3", "ao.workstation-premerge-verification-publication.v1"],
+      "meaning": "Exact-head CI/review/worktree gate evidence before merge; it is eligibility evidence, not a merge outcome.",
+      "semantic_owner": "P0 premerge verifier", "evidence_authority": "authenticated provider and worktree readback", "episode_role": "artifact.premerge_verification",
+      "source": "premerge_evidence", "producers": ["premerge_publish"], "consumers": ["premerge_validate", "terminal_merge_publish"]
+    },
+    {
+      "id": "execution.terminal_merge_evidence", "family": "execution_receipt", "field": "workstation_terminal_merge.schema_version",
+      "values": ["ao.workstation-terminal-merge-evidence.v2", "ao.workstation-terminal-merge-operation.v1", "ao.workstation-terminal-merge-publication.v2"],
+      "meaning": "Guarded merge operation and publication evidence; provider readback inside it is the outcome authority, not the command exit alone.",
+      "semantic_owner": "P0 merge evidence publisher", "evidence_authority": "guarded OR operation plus GitHub readback", "episode_role": "artifact.terminal_merge_evidence",
+      "source": "terminal_merge_evidence", "producers": ["terminal_merge_publish"], "consumers": ["self_hosting_verifier", "audit_recovery_verifier"]
+    },
+    {
+      "id": "execution.orchestrator_done_evidence", "family": "execution_receipt", "field": "orchestrator_done_evidence.schema_version",
+      "values": ["ao.orchestrator-done-evidence.v1"],
+      "meaning": "Durable OR completion-command evidence; it proves lifecycle closeout execution, not task/provider outcome.",
+      "semantic_owner": "AO lifecycle runtime", "evidence_authority": "pinned runtime command receipt", "episode_role": "artifact.orchestrator_done_evidence",
+      "source": "orchestrator_done_evidence", "producers": ["orchestrator_done_capture"], "consumers": ["self_hosting_verifier"]
+    },
+    {
+      "id": "lifecycle.top_status", "family": "lifecycle_disposition", "field": "lifecycle.top_status",
+      "values": ["continue", "handoff", "hold", "human_gate", "observe", "source_failure"],
+      "meaning": "Aggregate AO control posture for the lifecycle report, not delivery success.",
+      "semantic_owner": "AO lifecycle engine", "evidence_authority": "versioned lifecycle report", "episode_role": "judgment.lifecycle_posture",
+      "source": "lifecycle_constants", "producers": ["lifecycle_engine"], "consumers": ["decision_chain"]
+    },
+    {
+      "id": "lifecycle.routing_action", "family": "lifecycle_disposition", "field": "lifecycle.routing_decision.action",
+      "values": ["continue_current_worker", "handoff_to_successor", "hold_for_human", "no_action", "restore_existing_worker"],
+      "meaning": "AO worker-routing judgment; authoritative=false signals advisory or missing evidence.",
+      "semantic_owner": "AO lifecycle engine", "evidence_authority": "lifecycle routing decision", "episode_role": "judgment.routing",
+      "source": "lifecycle_engine", "producers": ["lifecycle_engine"], "consumers": ["decision_chain"]
+    },
+    {
+      "id": "lifecycle.release_disposition", "family": "lifecycle_disposition", "field": "lifecycle.release_decision.disposition",
+      "values": ["auto_merge_ready_pr", "await_ci", "await_mergeability", "await_review", "human_gate", "no_release_action", "not_applicable", "notify_human_ready"],
+      "meaning": "AO release judgment only. Ready/notify/auto-merge wording does not prove an OR effect or provider merge.",
+      "semantic_owner": "AO release judgment", "evidence_authority": "AO lifecycle decision", "episode_role": "judgment.release_disposition",
+      "source": "lifecycle_engine", "producers": ["lifecycle_engine", "lifecycle_review_gate"], "consumers": ["decision_chain", "action_builder"]
+    },
+    {
+      "id": "lifecycle.release_basis", "family": "lifecycle_disposition", "field": "lifecycle.release_decision.basis[]",
+      "values": ["all_release_signals_clear", "branch_mismatch_with_github", "bugbot_comments", "ci_blocked", "ci_pending", "ci_unknown", "doctor_ambiguous", "doctor_blocks_control", "draft_pr", "fallback_ambiguous", "merge_conflict_blocked", "mergeability_unknown", "missing_pr_assessment", "none", "orphan_open_pr", "ownership_ambiguous", "ownership_orphaned", "ownership_stale", "ownership_unknown", "pr_not_open", "project_scope_advisory_only", "ready_for_auto_merge", "ready_for_human_notification", "review_blocked", "review_changes_required", "review_escalated", "review_missing", "review_pending", "review_target_mismatch", "review_unknown", "source_failure"],
+      "meaning": "Reason vocabulary that disambiguates identical release dispositions; an empty basis is recorded as none rather than inferred.",
+      "semantic_owner": "AO release judgment", "evidence_authority": "AO lifecycle decision basis", "episode_role": "judgment.release_basis",
+      "source": "lifecycle_engine", "producers": ["lifecycle_engine", "lifecycle_review_gate"], "consumers": ["decision_chain", "action_builder"]
+    },
+    {
+      "id": "lifecycle.human_gate_mapping", "family": "lifecycle_disposition", "field": "episode_mapping.release_decision.human_gate",
+      "values": ["doctor_ambiguous:escalation_required", "fallback_ambiguous:escalation_required", "missing_pr_assessment:refresh_required", "release_status_ambiguous:escalation_required", "review_escalated:escalation_required", "source_failure:retry_required"],
+      "meaning": "Required later Episode mapping: authority ambiguity escalates, missing assessment refreshes, and source failure retries; human_gate alone is insufficient.",
+      "semantic_owner": "AO trajectory substrate contract", "evidence_authority": "versioned substrate design", "episode_role": "mapping.human_gate_basis",
+      "source": "human_gate_mapping", "producers": ["human_gate_mapping"], "consumers": ["human_gate_mapping"]
+    },
+    {
+      "id": "lifecycle.gate_state", "family": "lifecycle_disposition", "field": "reconciliation.pr_assessments[].release_readiness.gates.*.state",
+      "values": ["ambiguous", "blocked", "not_applicable", "open", "pending"],
+      "meaning": "Typed AO gate assessment; open means no blocker was observed for that gate, not that delivery completed.",
+      "semantic_owner": "AO reconciliation engine", "evidence_authority": "typed gate snapshot", "episode_role": "judgment.gate_state",
+      "source": "gate_model", "producers": ["reconciliation_engine"], "consumers": ["lifecycle_engine"]
+    },
+    {
+      "id": "lifecycle.automation_disposition", "family": "lifecycle_disposition", "field": "reconciliation.automation_disposition",
+      "values": ["continue", "human_gate", "pause", "source_failure"],
+      "meaning": "Reconciliation automation posture; continue is permission to continue evaluation, not execution success.",
+      "semantic_owner": "AO reconciliation engine", "evidence_authority": "versioned reconciliation report", "episode_role": "judgment.automation_posture",
+      "source": "reconciliation_contracts", "producers": ["reconciliation_engine"], "consumers": ["decision_chain"]
+    },
+    {
+      "id": "review.record_status", "family": "review_verdict", "field": "control_plane.review_records[].status",
+      "values": ["cancelled", "changes_required", "claimed", "escalated", "open", "passed"],
+      "meaning": "Local AO review workflow state; passed requires baseline execution but is not GitHub Codex evidence.",
+      "semantic_owner": "AO review protocol", "evidence_authority": "control-plane review record", "episode_role": "review.local_status",
+      "source": "review_constants", "producers": ["review_protocol", "review_record"], "consumers": ["review_posture", "lifecycle_review_gate"]
+    },
+    {
+      "id": "review.verdict", "family": "review_verdict", "field": "control_plane.review_records[].verdict",
+      "values": ["changes_required", "escalate_human", "missing", "pass"],
+      "meaning": "Local independent-review verdict. Missing is distinct from pass, and connector review remains separate evidence.",
+      "semantic_owner": "independent AO reviewer", "evidence_authority": "review record plus baseline execution", "episode_role": "review.local_verdict",
+      "source": "review_record", "producers": ["review_protocol"], "consumers": ["review_posture", "lifecycle_review_gate"]
+    },
+    {
+      "id": "review.posture", "family": "review_verdict", "field": "review_inspection.posture",
+      "values": ["idle", "review_changes_required", "review_escalated", "review_passed", "review_pending"],
+      "meaning": "Derived local review posture used by lifecycle gating; idle includes cancelled or absent review.",
+      "semantic_owner": "AO review contracts", "evidence_authority": "derived review record posture", "episode_role": "review.local_posture",
+      "source": "review_posture", "producers": ["review_posture"], "consumers": ["lifecycle_review_gate"]
+    },
+    {
+      "id": "review.github_decision", "family": "review_verdict", "field": "github.prs[].review_status",
+      "values": ["approved", "changes_requested", "pending", "unknown"],
+      "meaning": "Normalized GitHub aggregate reviewDecision; unknown is missing/unmapped evidence, never approval.",
+      "semantic_owner": "GitHub review state", "evidence_authority": "GitHub PR API", "episode_role": "review.provider_decision",
+      "source": "github_normalizer", "producers": ["github_loader"], "consumers": ["reconciliation_engine"]
+    },
+    {
+      "id": "review.github_target_head", "family": "review_verdict", "field": "github.prs[].head_sha",
+      "values": ["git_sha", "missing"],
+      "meaning": "Provider-observed target HEAD for the same PR observation; each reviews[].commit_oid must be compared with this value before treating that review as exact-HEAD evidence.",
+      "semantic_owner": "GitHub review evidence", "evidence_authority": "GitHub pull request API", "episode_role": "review.provider_target_head",
+      "source": "github_normalizer", "producers": ["github_loader"], "consumers": ["github_normalizer", "reconciliation_engine"]
+    },
+    {
+      "id": "review.github_review_fields", "family": "review_verdict", "field": "github.prs[].reviews[].*",
+      "values": ["author_login", "commit_oid", "review_id", "state", "submitted_at"],
+      "meaning": "Complete per-review provider evidence needed to bind actor, exact reviewed HEAD, submission time, and review identity.",
+      "semantic_owner": "GitHub review evidence", "evidence_authority": "GitHub pull reviews API", "episode_role": "review.provider_review_evidence",
+      "source": "github_reviews", "producers": ["github_reviews", "github_loader"], "consumers": ["github_normalizer", "reconciliation_engine"]
+    },
+    {
+      "id": "review.github_review_state", "family": "review_verdict", "field": "github.prs[].reviews[].state",
+      "values": ["approved", "changes_requested", "commented", "unknown"],
+      "meaning": "Normalized state of each submitted GitHub review; commented is retained and unknown never implies approval.",
+      "semantic_owner": "GitHub review evidence", "evidence_authority": "GitHub pull reviews API", "episode_role": "review.provider_review_state",
+      "source": "github_reviews", "producers": ["github_reviews", "github_loader"], "consumers": ["github_normalizer", "reconciliation_engine"]
+    },
+    {
+      "id": "ci.normalized_status", "family": "ci_state", "field": "github.prs[].ci_status",
+      "values": ["failing", "passing", "pending", "unknown"],
+      "meaning": "Normalized aggregate check-rollup observation. Unknown includes absent or unrecognized provider evidence.",
+      "semantic_owner": "GitHub check state", "evidence_authority": "GitHub statusCheckRollup API", "episode_role": "ci.provider_status",
+      "source": "ci_normalizer", "producers": ["github_loader"], "consumers": ["reconciliation_engine"]
+    },
+    {
+      "id": "ci.raw_check_state", "family": "ci_state", "field": "github.statusCheckRollup[].status/conclusion",
+      "values": ["completed_action_required", "completed_cancelled", "completed_error", "completed_failure", "completed_neutral", "completed_skipped", "completed_stale", "completed_startup_failure", "completed_success", "completed_timed_out", "expected", "in_progress", "not_run", "pending", "queued", "requested", "unrecognized", "waiting"],
+      "meaning": "Distinct provider check evidence classes before aggregation; code failure, runner/startup error, timeout, cancellation, queued/waiting, and not-run remain separate facts.",
+      "semantic_owner": "GitHub check run", "evidence_authority": "GitHub check/status object", "episode_role": "ci.provider_check",
+      "source": "ci_normalizer", "producers": ["github_loader"], "consumers": ["ci_normalizer"]
+    },
+    {
+      "id": "merge.provider_pr_state", "family": "merge_observation", "field": "github.prs[].state",
+      "values": ["CLOSED", "MERGED", "OPEN", "UNKNOWN"],
+      "meaning": "Authoritative observed PR outcome class. Only MERGED from provider readback establishes a provider merge outcome.",
+      "semantic_owner": "GitHub provider outcome", "evidence_authority": "live GitHub PR API observation", "episode_role": "outcome.provider_pr_state",
+      "source": "merge_normalizer", "producers": ["github_loader"], "consumers": ["reconciliation_engine"]
+    },
+    {
+      "id": "merge.mergeability", "family": "merge_observation", "field": "github.prs[].mergeability",
+      "values": ["conflicting", "mergeable", "unknown"],
+      "meaning": "Current provider mergeability observation, not a merge result.",
+      "semantic_owner": "GitHub mergeability state", "evidence_authority": "GitHub mergeStateStatus API", "episode_role": "outcome.mergeability_observation",
+      "source": "mergeability_normalizer", "producers": ["github_loader"], "consumers": ["reconciliation_engine"]
+    },
+    {
+      "id": "merge.assist_confirmation", "family": "merge_observation", "field": "action.payload.execution.effect.receipt.result.confirmed_state",
+      "values": ["CLOSED", "MERGED", "OPEN", "empty_string"],
+      "meaning": "Actual normalized provider state stored by the legacy assist merge readback; empty_string represents absent provider state, and only MERGED with a matching head confirms the effect.",
+      "semantic_owner": "legacy AO merge adapter", "evidence_authority": "fresh GitHub PR readback", "episode_role": "outcome.legacy_merge_confirmation",
+      "source": "auto_merge_execution", "producers": ["auto_merge_execution"], "consumers": ["auto_merge_persistence"]
+    },
+    {
+      "id": "checkpoint.checkpoint_id", "family": "checkpoint", "field": "checkpoints[].checkpoint_id", "values": ["non_empty_string"], "meaning": "Stable checkpoint identity.", "semantic_owner": "AO checkpoint store", "evidence_authority": "checkpoint record", "episode_role": "checkpoint.identity", "source": "checkpoint_contract", "producers": ["checkpoint_producer"], "consumers": ["checkpoint_validator", "checkpoint_replay"]
+    },
+    {
+      "id": "checkpoint.task_id", "family": "checkpoint", "field": "checkpoints[].task_id", "values": ["non_empty_string"], "meaning": "Task owning the checkpoint; must equal snapshot.task_ref.task_id.", "semantic_owner": "AO checkpoint store", "evidence_authority": "checkpoint record", "episode_role": "checkpoint.task_identity", "source": "checkpoint_contract", "producers": ["checkpoint_producer"], "consumers": ["checkpoint_validator", "manage_runner"]
+    },
+    {
+      "id": "checkpoint.recorded_at", "family": "checkpoint", "field": "checkpoints[].recorded_at", "values": ["iso_timestamp"], "meaning": "Checkpoint persistence time used for latest selection.", "semantic_owner": "AO checkpoint store", "evidence_authority": "checkpoint record", "episode_role": "checkpoint.recorded_at", "source": "checkpoint_contract", "producers": ["checkpoint_producer"], "consumers": ["checkpoint_validator", "checkpoint_replay"]
+    },
+    {
+      "id": "checkpoint.created_by", "family": "checkpoint", "field": "checkpoints[].created_by", "values": ["missing", "string"], "meaning": "Declared checkpoint producer identity; nullable and not independently authenticated.", "semantic_owner": "AO checkpoint store", "evidence_authority": "checkpoint record assertion", "episode_role": "checkpoint.producer", "source": "checkpoint_contract", "producers": ["checkpoint_producer"], "consumers": ["checkpoint_validator"]
+    },
+    {
+      "id": "checkpoint.reason", "family": "checkpoint", "field": "checkpoints[].reason", "values": ["missing", "string"], "meaning": "Human-readable capture reason; not a state code.", "semantic_owner": "AO checkpoint caller", "evidence_authority": "checkpoint record assertion", "episode_role": "checkpoint.reason", "source": "checkpoint_contract", "producers": ["checkpoint_producer"], "consumers": ["checkpoint_validator"]
+    },
+    {
+      "id": "checkpoint.metadata", "family": "checkpoint", "field": "checkpoints[].metadata", "values": ["json_object"], "meaning": "Unstructured extension metadata; never a reserved evidence authority.", "semantic_owner": "AO checkpoint caller", "evidence_authority": "checkpoint record assertion", "episode_role": "checkpoint.metadata", "source": "checkpoint_contract", "producers": ["checkpoint_producer"], "consumers": ["checkpoint_validator"]
+    },
+    {
+      "id": "checkpoint.snapshot_schema_version", "family": "checkpoint", "field": "checkpoints[].snapshot.schema_version", "values": ["ao.checkpoint.v1alpha1", "unsupported"], "meaning": "Checkpoint snapshot schema discriminator; unsupported values invalidate replay.", "semantic_owner": "AO state contracts", "evidence_authority": "checkpoint schema", "episode_role": "checkpoint.schema_version", "source": "checkpoint_snapshot", "producers": ["checkpoint_producer"], "consumers": ["checkpoint_validator"]
+    },
+    {
+      "id": "checkpoint.snapshot_format", "family": "checkpoint", "field": "checkpoints[].snapshot.format", "values": ["ao_checkpoint", "unsupported"], "meaning": "Checkpoint record format discriminator; unsupported values invalidate replay.", "semantic_owner": "AO state contracts", "evidence_authority": "checkpoint schema", "episode_role": "checkpoint.format", "source": "checkpoint_snapshot", "producers": ["checkpoint_producer"], "consumers": ["checkpoint_validator"]
+    },
+    {
+      "id": "checkpoint.task_ref_fields", "family": "checkpoint", "field": "checkpoints[].snapshot.task_ref.*", "values": ["branch_name", "issue_number", "pr_binding", "task_id", "title", "updated_at", "worktree_path"], "meaning": "Complete task-reference field set captured for drift and binding checks.", "semantic_owner": "AO managed-task repository", "evidence_authority": "checkpoint task snapshot", "episode_role": "checkpoint.task_ref", "source": "checkpoint_snapshot", "producers": ["checkpoint_producer"], "consumers": ["checkpoint_validator", "manage_runner"]
+    },
+    {
+      "id": "checkpoint.pr_binding_fields", "family": "checkpoint", "field": "checkpoints[].snapshot.task_ref.pr_binding.*", "values": ["base_branch", "binding_id", "branch_name", "pr_number", "status", "updated_at"], "meaning": "Complete optional PR-binding reference set used to detect binding drift.", "semantic_owner": "AO PR binding repository", "evidence_authority": "checkpoint PR-binding snapshot", "episode_role": "checkpoint.pr_binding_ref", "source": "checkpoint_snapshot", "producers": ["checkpoint_producer"], "consumers": ["checkpoint_validator", "manage_runner"]
+    },
+    {
+      "id": "checkpoint.task_spec_ref_fields", "family": "checkpoint", "field": "checkpoints[].snapshot.verification_ref.task_spec.*", "values": ["snapshot_schema_version", "state", "task_id", "updated_at"], "meaning": "Complete task-spec evidence reference used to reject missing, advanced, mixed-version, or invalid specs.", "semantic_owner": "AO task-spec repository", "evidence_authority": "checkpoint verification reference", "episode_role": "checkpoint.task_spec_ref", "source": "checkpoint_snapshot", "producers": ["checkpoint_producer"], "consumers": ["checkpoint_validator"]
+    },
+    {
+      "id": "checkpoint.runtime_preflight_ref_fields", "family": "checkpoint", "field": "checkpoints[].snapshot.verification_ref.runtime_preflight.*", "values": ["recorded_at", "replay_key", "runtime_ref", "snapshot_schema_version", "status"], "meaning": "Complete runtime-preflight evidence reference used to require an unchanged clean preflight.", "semantic_owner": "AO runtime-preflight repository", "evidence_authority": "checkpoint verification reference", "episode_role": "checkpoint.runtime_preflight_ref", "source": "checkpoint_snapshot", "producers": ["checkpoint_producer"], "consumers": ["checkpoint_validator"]
+    },
+    {
+      "id": "checkpoint.execution_ref_fields", "family": "checkpoint", "field": "checkpoints[].snapshot.execution_ref.*", "values": ["action_ids", "controller_id", "controller_mode", "controller_mode_updated_at", "derived_trigger", "lifecycle_top_status", "observed_at"], "meaning": "Complete execution-context reference set; action_ids link judgments while observed_at records source time.", "semantic_owner": "AO controller loop", "evidence_authority": "checkpoint execution snapshot", "episode_role": "checkpoint.execution_ref", "source": "checkpoint_snapshot", "producers": ["checkpoint_producer"], "consumers": ["checkpoint_validator", "checkpoint_replay"]
+    },
+    {
+      "id": "checkpoint.inspection_state", "family": "checkpoint", "field": "checkpoint_inspection.state", "values": ["invalid", "stale", "valid"], "meaning": "Derived replay eligibility: only valid may resume; missing/mixed-version/not-clean evidence is invalid, drift is stale.", "semantic_owner": "AO checkpoint validator", "evidence_authority": "live repository comparison", "episode_role": "checkpoint.replay_state", "source": "checkpoint_validator", "producers": ["checkpoint_validator"], "consumers": ["checkpoint_replay", "manage_runner"]
+    },
+    {
+      "id": "checkpoint.inspection_reason_codes", "family": "checkpoint", "field": "checkpoint_inspection.reason_codes[]", "values": ["checkpoint_execution_ref_missing", "checkpoint_invalid_format", "checkpoint_missing", "checkpoint_mixed_version", "checkpoint_runtime_preflight_missing", "checkpoint_task_spec_missing", "controller_mode_advanced", "controller_mode_missing", "managed_task_advanced", "managed_task_binding_changed", "managed_task_missing", "managed_task_retired", "pr_binding_advanced", "pr_binding_missing", "runtime_preflight_advanced", "runtime_preflight_missing", "runtime_preflight_mixed_version", "runtime_preflight_not_clean", "task_spec_advanced", "task_spec_invalid", "task_spec_missing", "task_spec_mixed_version"], "meaning": "Exhaustive current checkpoint validation reason vocabulary; replay fails closed for every non-empty set.", "semantic_owner": "AO checkpoint validator", "evidence_authority": "live repository comparison", "episode_role": "checkpoint.replay_reasons", "source": "checkpoint_validator", "producers": ["checkpoint_validator"], "consumers": ["checkpoint_replay", "manage_runner"]
+    }
+  ],
+  "ambiguities": [
+    {
+      "id": "success_overload", "term": "success / succeeded / executed / passed / ready",
+      "item_ids": ["action.record_status", "execution.action_outcome", "execution.effect_status", "review.verdict", "ci.normalized_status", "lifecycle.release_disposition", "merge.provider_pr_state"],
+      "problem": "The words describe different owners and evidence layers and cannot be collapsed into one success flag.",
+      "fail_closed_interpretation": "Record each layer separately; provider delivery succeeds only from live provider outcome evidence."
+    },
+    {
+      "id": "review_overload", "term": "review passed / approved",
+      "item_ids": ["review.record_status", "review.verdict", "review.github_decision"],
+      "problem": "AO local review, GitHub aggregate reviewDecision, and GitHub Codex connector review are distinct evidence sources.",
+      "fail_closed_interpretation": "Missing exact-head connector evidence remains missing even if a local review passed or GitHub says approved."
+    },
+    {
+      "id": "ci_passing_policy", "term": "passing",
+      "item_ids": ["ci.normalized_status", "ci.raw_check_state"],
+      "problem": "The current normalizer counts neutral/skipped as passing, groups code failure with runner/startup/timeout/cancellation outcomes, and does not identify required-check membership or not-run checks.",
+      "fail_closed_interpretation": "Episode evidence must retain each raw named check and required-check policy; aggregate passing/failing alone is insufficient for release or failure attribution."
+    },
+    {
+      "id": "merge_ready_vs_merged", "term": "mergeable / auto_merge_ready_pr / MERGED",
+      "item_ids": ["lifecycle.release_disposition", "merge.mergeability", "merge.provider_pr_state", "merge.assist_confirmation"],
+      "problem": "Eligibility, effect execution, immediate readback, and provider outcome are separate temporal facts.",
+      "fail_closed_interpretation": "Only provider state MERGED establishes merge outcome; all earlier states remain judgments or attempts."
+    },
+    {
+      "id": "unknown_missing", "term": "unknown / missing / ambiguous",
+      "item_ids": ["review.github_decision", "ci.normalized_status", "merge.mergeability", "checkpoint.inspection_state"],
+      "problem": "Unknown may mean absent data, unmapped provider data, or a genuinely indeterminate state.",
+      "fail_closed_interpretation": "Preserve source error/raw value and classify evidence completeness; never coerce unknown to a favorable state."
+    },
+    {
+      "id": "checkpoint_valid_scope", "term": "valid checkpoint",
+      "item_ids": ["checkpoint.inspection_state", "checkpoint.inspection_reason_codes"],
+      "problem": "Validity covers current task/spec/runtime/controller/binding equality but does not prove provider delivery or external effects.",
+      "fail_closed_interpretation": "Use valid only for replay eligibility and attach provider evidence independently."
+    },
+    {
+      "id": "human_gate_basis", "term": "human_gate",
+      "item_ids": ["lifecycle.release_disposition", "lifecycle.release_basis", "lifecycle.human_gate_mapping"],
+      "problem": "One disposition currently covers source failure, missing assessment, and authority ambiguity even though they require retry, refresh, and escalation respectively.",
+      "fail_closed_interpretation": "Persist the basis and apply the declared basis mapping; never interpret human_gate alone as an authority escalation."
+    }
+  ]
+}
