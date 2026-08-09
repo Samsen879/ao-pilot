@@ -119,4 +119,23 @@ describe('release judgment migration', () => {
       expect.objectContaining({ code: 'legacy_auto_merge_ready_pr_deprecated' }),
     ]);
   });
+
+  it.each([undefined, 'ao.lifecycle.v9', 'future.lifecycle.v1'])(
+    'does not project an unknown lifecycle schema %s',
+    (schemaVersion) => {
+      const observed = adaptLifecycleReportForObservation({
+        schema_version: schemaVersion,
+        scope: { mode: 'pr', project_id: 'my-project', pr_number: 44 },
+        release_decision: {
+          disposition: 'human_gate',
+          basis: ['missing_pr_assessment'],
+          authoritative: false,
+        },
+        findings: [],
+        actions: [],
+      });
+
+      expect(observed.release_decision_observation.disposition).toBe('human_gate');
+    },
+  );
 });

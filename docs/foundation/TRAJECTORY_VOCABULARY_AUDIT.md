@@ -106,9 +106,10 @@ highest-risk terms are:
    retain source health/raw evidence and fail closed.
 6. `checkpoint.valid` proves only that its captured local references still
    match. It does not prove review, CI, merge, replay, or cleanup completion.
-7. `human_gate` requires its `basis`: source failure maps to retry, missing
-   assessment to refresh, and authority ambiguity to escalation. The shared
-   disposition alone cannot select the later Episode disposition.
+7. Legacy `human_gate` requires its `basis`: source failure maps to retry,
+   missing assessment to refresh, and authority ambiguity to escalation. New
+   lifecycle reports emit those three judgments directly; immutable legacy
+   observation uses the versioned mapping rather than rewriting source data.
 8. `created_by`, `reason`, and checkpoint `metadata` are assertions without an
    independent authority. They may be useful context but cannot satisfy a gate.
 

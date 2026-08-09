@@ -7,6 +7,8 @@ import {
   EXECUTION_ATTEMPT_MEASUREMENT_SCHEMA_VERSION,
   LEGACY_CONTROLLER_RUN_MEASUREMENT_SCHEMA_VERSION,
   LEGACY_EXECUTION_ATTEMPT_MEASUREMENT_SCHEMA_VERSION,
+  RELEASE_JUDGMENT_CONTROLLER_RUN_MEASUREMENT_SCHEMA_VERSION,
+  RELEASE_JUDGMENT_EXECUTION_ATTEMPT_MEASUREMENT_SCHEMA_VERSION,
   MEASUREMENT_ACTION_CLASSES,
   MEASUREMENT_FAILURE_CLASSES,
   MEASUREMENT_INTERVENTION_KINDS,
@@ -23,10 +25,12 @@ import {
 describe('measurement taxonomy', () => {
   it('freezes the durable schema identities and stable vocabularies', () => {
     expect(LEGACY_CONTROLLER_RUN_MEASUREMENT_SCHEMA_VERSION).toBe('ao.controller-run-measurement.v1alpha1');
-    expect(CONTROLLER_RUN_MEASUREMENT_SCHEMA_VERSION).toBe('ao.controller-run-measurement.v1alpha2');
+    expect(RELEASE_JUDGMENT_CONTROLLER_RUN_MEASUREMENT_SCHEMA_VERSION).toBe('ao.controller-run-measurement.v1alpha2');
+    expect(CONTROLLER_RUN_MEASUREMENT_SCHEMA_VERSION).toBe('ao.controller-run-measurement.v1alpha3');
     expect(CONTROLLER_RUN_MEASUREMENT_FORMAT).toBe('ao_controller_run_measurement');
     expect(LEGACY_EXECUTION_ATTEMPT_MEASUREMENT_SCHEMA_VERSION).toBe('ao.execution-attempt-measurement.v1alpha1');
-    expect(EXECUTION_ATTEMPT_MEASUREMENT_SCHEMA_VERSION).toBe('ao.execution-attempt-measurement.v1alpha2');
+    expect(RELEASE_JUDGMENT_EXECUTION_ATTEMPT_MEASUREMENT_SCHEMA_VERSION).toBe('ao.execution-attempt-measurement.v1alpha2');
+    expect(EXECUTION_ATTEMPT_MEASUREMENT_SCHEMA_VERSION).toBe('ao.execution-attempt-measurement.v1alpha3');
     expect(EXECUTION_ATTEMPT_MEASUREMENT_FORMAT).toBe('ao_execution_attempt_measurement');
     expect(MEASUREMENT_TRIGGER_KINDS).toEqual([
       'manual',
@@ -46,6 +50,9 @@ describe('measurement taxonomy', () => {
       'merge_pr',
       'hold',
       'human_gate',
+      'retry',
+      'refresh',
+      'escalation',
       'restore_worker',
       'handoff_worker',
       'unknown',
@@ -57,6 +64,9 @@ describe('measurement taxonomy', () => {
       'successor_handoff',
       'policy_block',
       'preflight_block',
+      'retry_required',
+      'refresh_required',
+      'escalation_required',
     ]);
     expect(MEASUREMENT_RETRY_CAUSES).toEqual([
       'none',
@@ -65,6 +75,8 @@ describe('measurement taxonomy', () => {
       'policy_retry',
       'preflight_retry',
       'unknown',
+      'source_recovery',
+      'observation_refresh',
     ]);
     expect(MEASUREMENT_FAILURE_CLASSES).toEqual([
       'none',
@@ -73,6 +85,8 @@ describe('measurement taxonomy', () => {
       'merge_conflict',
       'source_failure',
       'human_gate',
+      'missing_evidence',
+      'authority_ambiguity',
       'override',
       'policy_block',
       'preflight_block',
@@ -130,6 +144,12 @@ describe('measurement taxonomy', () => {
       command: 'resume',
       acceptedHandoff: true,
     })).toBe('successor_handoff');
+    expect(resolveExecutionAttemptRetryCause({
+      actionKind: 'retry_required',
+    })).toBe('source_recovery');
+    expect(resolveExecutionAttemptRetryCause({
+      actionKind: 'refresh_required',
+    })).toBe('observation_refresh');
 
     expect(createMeasurementCountMap(MEASUREMENT_INTERVENTION_KINDS, {
       policy_block: 2,
@@ -141,6 +161,9 @@ describe('measurement taxonomy', () => {
       successor_handoff: 0,
       policy_block: 2,
       preflight_block: 0,
+      retry_required: 0,
+      refresh_required: 0,
+      escalation_required: 0,
     });
 
     expect(resolveExecutionAttemptFailureClass({
@@ -184,5 +207,12 @@ describe('measurement taxonomy', () => {
       }),
       lifecycleTopStatus: 'continue',
     })).toBe('policy_block');
+    expect(resolveMeasurementActionClass({ actionKind: 'retry_required' })).toBe('retry');
+    expect(resolveExecutionAttemptFailureClass({
+      reason: 'fresh_observation_required',
+    })).toBe('missing_evidence');
+    expect(resolveControllerRunFailureClass({
+      lifecycleTopStatus: 'escalation_required',
+    })).toBe('authority_ambiguity');
   });
 });

@@ -172,6 +172,30 @@ const ACTION_POLICIES = {
       buildTaskActivePrecondition(task),
     ],
   },
+  retry_required: {
+    riskClass: 'class_b',
+    phase4AssistExecutable: false,
+    nonExecutableReason: 'bounded_retry_scheduler_required',
+    buildPreconditions: ({ task }) => [
+      buildTaskActivePrecondition(task),
+    ],
+  },
+  refresh_required: {
+    riskClass: 'class_b',
+    phase4AssistExecutable: false,
+    nonExecutableReason: 'fresh_observation_required',
+    buildPreconditions: ({ task }) => [
+      buildTaskActivePrecondition(task),
+    ],
+  },
+  escalation_required: {
+    riskClass: 'class_b',
+    phase4AssistExecutable: false,
+    nonExecutableReason: 'explicit_authority_resolution_required',
+    buildPreconditions: ({ task }) => [
+      buildTaskActivePrecondition(task),
+    ],
+  },
   restore_worker: {
     riskClass: 'class_c',
     phase4AssistExecutable: false,

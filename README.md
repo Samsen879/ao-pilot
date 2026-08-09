@@ -605,6 +605,9 @@ The decision layer maps observed state and diagnostics into possible actions.
 Examples:
 
 - continue observing;
+- retry bounded provider/source recovery;
+- refresh missing or stale observations;
+- pause only an affected scope for unresolved authority ambiguity;
 - request human review;
 - mark work as blocked;
 - propose a handoff;

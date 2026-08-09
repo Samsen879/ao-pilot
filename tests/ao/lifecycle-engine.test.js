@@ -90,6 +90,27 @@ describe('lifecycle engine', () => {
     ]));
   });
 
+  it.each([
+    ['failed', 'retry_required'],
+    ['degraded', 'refresh_required'],
+  ])('keeps project-scoped %s recovery advisory', (sourceState, disposition) => {
+    const report = buildLifecycleReport({
+      scope: createLifecycleProjectScope({ projectId: 'my-project', trigger: 'manual' }),
+      reconciliationReport: buildReconciliationReport({
+        scope: { mode: 'project', selected_pr_numbers: [] },
+        source_health: { ao: 'ok', github: sourceState },
+        pr_assessments: [],
+      }),
+      doctorReport: buildDoctorReport(),
+    });
+
+    expect(report.release_decision).toMatchObject({
+      disposition,
+      authoritative: false,
+      affected_scope: { mode: 'project', project_id: 'my-project', pr_number: null },
+    });
+  });
+
   it('routes clear ownership to the current worker for worker-follow-up triggers', () => {
     const report = buildLifecycleReport({
       scope: createLifecyclePrScope({
@@ -264,7 +285,7 @@ describe('lifecycle engine', () => {
     });
   });
 
-  it('routes stale ownership to restore the previous worker', () => {
+  it('pauses stale-worker restoration when release authority remains ambiguous', () => {
     const report = buildLifecycleReport({
       scope: createLifecyclePrScope({
         projectId: 'my-project',
@@ -290,11 +311,12 @@ describe('lifecycle engine', () => {
     });
 
     expect(report.routing_decision).toMatchObject({
-      action: 'restore_existing_worker',
+      action: 'pause_affected_scope',
       owner_session: 'worker-44',
-      authoritative: true,
+      authoritative: false,
     });
-    expect(report.top_status).toBe('human_gate');
+    expect(report.top_status).toBe('escalation_required');
+    expect(report.actions.map((action) => action.id)).not.toContain('restore_worker');
   });
 
   it('routes orphaned ownership to successor handoff', () => {
@@ -327,7 +349,7 @@ describe('lifecycle engine', () => {
     expect(report.findings.map((finding) => finding.code)).toContain('successor_handoff_recommended');
   });
 
-  it('human-gates ambiguous ownership', () => {
+  it('escalates ambiguous ownership only for the affected scope', () => {
     const report = buildLifecycleReport({
       scope: createLifecyclePrScope({
         projectId: 'my-project',
@@ -352,9 +374,49 @@ describe('lifecycle engine', () => {
       doctorReport: buildDoctorReport(),
     });
 
-    expect(report.top_status).toBe('human_gate');
-    expect(report.routing_decision.action).toBe('hold_for_human');
+    expect(report.top_status).toBe('escalation_required');
+    expect(report.routing_decision.action).toBe('pause_affected_scope');
+    expect(report.release_decision).toMatchObject({
+      disposition: 'escalation_required',
+      affected_scope: { mode: 'pr', project_id: 'my-project', pr_number: 44 },
+      escalation: { pause_scope: 'affected_scope_only' },
+    });
     expect(report.findings.map((finding) => finding.code)).toContain('ownership_control_ambiguous');
+    expect(report.actions.map((action) => action.id)).not.toContain('human_gate');
+  });
+
+  it('pauses clear ownership when release authority remains ambiguous', () => {
+    const report = buildLifecycleReport({
+      scope: createLifecyclePrScope({
+        projectId: 'my-project',
+        prNumber: 44,
+        trigger: 'manual',
+      }),
+      reconciliationReport: buildReconciliationReport({
+        pr_assessments: [{
+          pr_number: 44,
+          branch_name: 'feat/issue-44',
+          ownership: {
+            status: 'clear',
+            owner_session: 'worker-44',
+            candidate_sessions: ['worker-44'],
+          },
+          release_readiness: {
+            status: 'ambiguous',
+            basis: ['release_status_ambiguous'],
+          },
+        }],
+      }),
+      doctorReport: buildDoctorReport(),
+    });
+
+    expect(report.top_status).toBe('escalation_required');
+    expect(report.routing_decision).toMatchObject({
+      action: 'pause_affected_scope',
+      authoritative: false,
+      reason_codes: ['release_status_ambiguous'],
+    });
+    expect(report.actions.map((action) => action.id)).not.toContain('continue_worker');
   });
 
   it('waits on mergeability when typed gates show mergeability remains ambiguous', () => {
@@ -439,7 +501,7 @@ describe('lifecycle engine', () => {
     expect(report.findings.map((finding) => finding.code)).toContain('doctor_blocks_control');
   });
 
-  it('human-gates when doctor remains ambiguous in PR mode', () => {
+  it('requires authority escalation when doctor remains ambiguous in PR mode', () => {
     const report = buildLifecycleReport({
       scope: createLifecyclePrScope({
         projectId: 'my-project',
@@ -464,8 +526,8 @@ describe('lifecycle engine', () => {
       }),
     });
 
-    expect(report.top_status).toBe('human_gate');
-    expect(report.routing_decision.action).toBe('hold_for_human');
+    expect(report.top_status).toBe('escalation_required');
+    expect(report.routing_decision.action).toBe('pause_affected_scope');
   });
 
   it('authorizes OR preflight without claiming an effect or human approval when approved-and-green is truly ready', () => {
@@ -587,7 +649,7 @@ describe('lifecycle engine', () => {
     ]));
   });
 
-  it('emits a provider-neutral blocked-notification action for human gates', () => {
+  it('refreshes a missing PR assessment without creating a human gate', () => {
     const report = buildLifecycleReport({
       scope: createLifecyclePrScope({
         projectId: 'my-project',
@@ -600,14 +662,14 @@ describe('lifecycle engine', () => {
       doctorReport: buildDoctorReport(),
     });
 
-    expect(report.top_status).toBe('human_gate');
+    expect(report.top_status).toBe('refresh_required');
     expect(report.actions).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        id: 'notify_human_blocked',
-        action_class: 'notify_human',
-        commands: [],
+        id: 'refresh_required',
+        action_class: 'refresh',
       }),
     ]));
+    expect(report.actions.map((action) => action.id)).not.toContain('notify_human_blocked');
   });
 
   it('fails closed when independent review is required and no matching pass exists', () => {
@@ -685,7 +747,7 @@ describe('lifecycle engine', () => {
     ]));
   });
 
-  it('converts escalated review verdicts into a human gate', () => {
+  it('converts escalated review verdicts into authority escalation', () => {
     const report = buildLifecycleReport({
       scope: createLifecyclePrScope({
         projectId: 'my-project',
@@ -707,12 +769,14 @@ describe('lifecycle engine', () => {
       currentHeadSha: 'abc123',
     });
 
-    expect(report.top_status).toBe('human_gate');
+    expect(report.top_status).toBe('escalation_required');
     expect(report.release_decision).toMatchObject({
-      disposition: 'human_gate',
+      disposition: 'escalation_required',
       basis: ['review_escalated'],
       authoritative: false,
     });
+    expect(report.routing_decision.action).toBe('pause_affected_scope');
+    expect(report.actions.map((action) => action.id)).not.toContain('continue_worker');
   });
 
   it('treats bugbot review comments as a deterministic review hold', () => {
@@ -739,7 +803,7 @@ describe('lifecycle engine', () => {
     ]));
   });
 
-  it('treats failed inputs as source failure', () => {
+  it('requires bounded retry for failed inputs without creating a human gate', () => {
     const report = buildLifecycleReport({
       scope: createLifecyclePrScope({
         projectId: 'my-project',
@@ -762,12 +826,113 @@ describe('lifecycle engine', () => {
           worktree: 'failed',
         },
       }),
+      reviewRequired: true,
+      reviewInspection: {
+        posture: 'review_pending',
+        target_head_sha: 'abc123',
+      },
+      currentHeadSha: 'abc123',
     });
 
     expect(report.source_health).toEqual({
       reconciliation: 'failed',
       doctor: 'failed',
     });
-    expect(report.top_status).toBe('source_failure');
+    expect(report.top_status).toBe('retry_required');
+    expect(report.routing_decision.action).toBe('retry_affected_scope');
+    expect(report.release_decision).toMatchObject({
+      disposition: 'retry_required',
+      recovery: {
+        strategy: 'exponential_backoff',
+        max_attempts: 3,
+        backoff_ms: [1000, 2000, 4000],
+        auditable: true,
+      },
+    });
+    expect(report.actions.map((action) => action.id)).not.toContain('notify_human_blocked');
+  });
+
+  it('preserves stale-observation refresh while independent review is pending', () => {
+    const report = buildLifecycleReport({
+      scope: createLifecyclePrScope({ projectId: 'my-project', prNumber: 44 }),
+      reconciliationReport: buildReconciliationReport({
+        source_health: { ao: 'ok', github: 'degraded' },
+      }),
+      doctorReport: buildDoctorReport(),
+      reviewRequired: true,
+      reviewInspection: { posture: 'review_pending', target_head_sha: 'abc123' },
+      currentHeadSha: 'abc123',
+    });
+
+    expect(report.top_status).toBe('refresh_required');
+    expect(report.release_decision.disposition).toBe('refresh_required');
+    expect(report.actions.map((action) => action.id)).toContain('refresh_required');
+    expect(report.actions.map((action) => action.id)).not.toContain('hold_review');
+  });
+
+  it.each([
+    ['blocked', 'hold', 'no_release_action', 'hold_local_control'],
+    ['ambiguous', 'escalation_required', 'escalation_required', 'escalation_required'],
+  ])('preserves doctor %s when the PR assessment is missing', (
+    doctorStatus,
+    topStatus,
+    disposition,
+    actionId,
+  ) => {
+    const severity = doctorStatus === 'blocked' ? 'blocker' : 'ambiguous';
+    const report = buildLifecycleReport({
+      scope: createLifecyclePrScope({ projectId: 'my-project', prNumber: 44 }),
+      reconciliationReport: buildReconciliationReport({ pr_assessments: [] }),
+      doctorReport: buildDoctorReport({
+        top_status: doctorStatus,
+        findings: [{
+          code: doctorStatus === 'blocked' ? 'detached_head' : 'current_branch_mismatch',
+          severity,
+          origin: 'doctor',
+          source_area: 'git',
+          subject_type: 'branch',
+          summary: 'Doctor condition.',
+        }],
+      }),
+    });
+
+    expect(report.top_status).toBe(topStatus);
+    expect(report.release_decision.disposition).toBe(disposition);
+    expect(report.actions.map((action) => action.id)).toContain(actionId);
+    expect(report.actions.map((action) => action.id)).not.toContain('refresh_required');
+  });
+
+  it.each([
+    ['blocked', 'hold', 'no_release_action', 'hold_local_control'],
+    ['ambiguous', 'escalation_required', 'escalation_required', 'escalation_required'],
+  ])('preserves doctor %s when an independent observation is degraded', (
+    doctorStatus,
+    topStatus,
+    disposition,
+    actionId,
+  ) => {
+    const severity = doctorStatus === 'blocked' ? 'blocker' : 'ambiguous';
+    const report = buildLifecycleReport({
+      scope: createLifecyclePrScope({ projectId: 'my-project', prNumber: 44 }),
+      reconciliationReport: buildReconciliationReport({
+        source_health: { ao: 'ok', github: 'degraded' },
+      }),
+      doctorReport: buildDoctorReport({
+        top_status: doctorStatus,
+        findings: [{
+          code: doctorStatus === 'blocked' ? 'detached_head' : 'current_branch_mismatch',
+          severity,
+          origin: 'doctor',
+          source_area: 'git',
+          subject_type: 'branch',
+          summary: 'Doctor condition.',
+        }],
+      }),
+    });
+
+    expect(report.top_status).toBe(topStatus);
+    expect(report.release_decision.disposition).toBe(disposition);
+    expect(report.actions.map((action) => action.id)).toContain(actionId);
+    expect(report.actions.map((action) => action.id)).not.toContain('refresh_required');
   });
 });
