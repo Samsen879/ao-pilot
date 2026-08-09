@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from '@jest/globals';
 
+import { createControllerLease } from '../../scripts/ao/lib/state-contracts.js';
 import {
   bootstrapControlPlaneState,
   resolveControlPlanePaths,
@@ -27,6 +28,42 @@ function readAuditEntries(filePath) {
   const text = fs.readFileSync(filePath, 'utf8').trim();
   if (!text) return [];
   return text.split('\n').map((line) => JSON.parse(line));
+}
+
+function controllerLease(leaseId = 'controller-default-migrated') {
+  return createControllerLease({
+    lease_id: leaseId,
+    controller_id: 'default',
+    holder_id: 'migration-holder',
+    holder_type: 'session',
+    incarnation_id: 'migration-incarnation',
+    status: 'active',
+    acquired_at: FIXED_NOW,
+    heartbeat_at: FIXED_NOW,
+    expires_at: '2026-03-29T05:45:00.000Z',
+    lease_timeout_ms: 3600000,
+    runtime_kind: 'continuous',
+  });
+}
+
+function materializeVersion10({ shadow = [controllerLease()], canonical = null, omitShadow = false } = {}) {
+  const repoRoot = createTempRepo();
+  bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW });
+  const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+  const schema = readJson(paths.schemaPath);
+  schema.current_version = 10;
+  schema.latest_version = 10;
+  schema.applied_migrations = schema.applied_migrations.filter((entry) => entry.version <= 10);
+  fs.writeFileSync(paths.schemaPath, `${JSON.stringify(schema, null, 2)}\n`, 'utf8');
+  const state = readJson(paths.statePath);
+  if (omitShadow) delete state.controller_leases;
+  else state.controller_leases = shadow;
+  fs.writeFileSync(paths.statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+  if (canonical == null) fs.unlinkSync(paths.controllerLeasesPath);
+  else fs.writeFileSync(paths.controllerLeasesPath, `${JSON.stringify(canonical, null, 2)}\n`, 'utf8');
+  const priorAudit = readAuditEntries(paths.auditPath).filter((entry) => entry.entity_id !== 'v11');
+  fs.writeFileSync(paths.auditPath, `${priorAudit.map((entry) => JSON.stringify(entry)).join('\n')}\n`, 'utf8');
+  return { repoRoot, paths };
 }
 
 afterEach(() => {
@@ -73,8 +110,8 @@ describe('ao state migrations', () => {
 
     expect(readJson(paths.schemaPath)).toMatchObject({
       project_id: PROJECT_ID,
-      current_version: 10,
-      latest_version: 10,
+      current_version: 11,
+      latest_version: 11,
       applied_migrations: [
         {
           version: 1,
@@ -124,6 +161,11 @@ describe('ao state migrations', () => {
         {
           version: 10,
           key: '0010_review_gate_v1',
+          applied_at: FIXED_NOW,
+        },
+        {
+          version: 11,
+          key: '0011_controller_lease_authority_v1',
           applied_at: FIXED_NOW,
         },
       ],
@@ -214,7 +256,22 @@ describe('ao state migrations', () => {
         operation: 'migrate',
         summary: 'Applied control-plane review-gate migration.',
       }),
+      expect.objectContaining({
+        entity_kind: 'schema',
+        entity_id: 'v11',
+        operation: 'migrate',
+        summary: 'Applied canonical controller-lease authority migration.',
+        details: expect.objectContaining({
+          migration_key: '0011_controller_lease_authority_v1',
+          canonical_authority: 'controller-leases.json',
+          authority_source: 'fresh_state_provenance',
+          controller_lease_count: 0,
+          state_shadow_removed: false,
+        }),
+      }),
     ]);
+    expect(readJson(paths.controllerLeasesPath)).toEqual([]);
+    expect(readJson(paths.statePath)).not.toHaveProperty('controller_leases');
   });
 
   it('is idempotent when the repo-local control-plane schema already exists', () => {
@@ -240,7 +297,106 @@ describe('ao state migrations', () => {
       migrated: false,
     });
     expect(readJson(paths.schemaPath).updated_at).toBe(FIXED_NOW);
-    expect(readAuditEntries(paths.auditPath)).toHaveLength(10);
+    expect(readAuditEntries(paths.auditPath)).toHaveLength(11);
+  });
+
+  it('migrates a legacy state shadow once with explicit schema and audit receipts', () => {
+    const { repoRoot, paths } = materializeVersion10();
+
+    const first = bootstrapControlPlaneState({
+      repoRoot,
+      projectId: PROJECT_ID,
+      now: '2026-03-29T05:00:00.000Z',
+    });
+    const firstBytes = {
+      schema: fs.readFileSync(paths.schemaPath),
+      state: fs.readFileSync(paths.statePath),
+      authority: fs.readFileSync(paths.controllerLeasesPath),
+      audit: fs.readFileSync(paths.auditPath),
+    };
+    const second = bootstrapControlPlaneState({
+      repoRoot,
+      projectId: PROJECT_ID,
+      now: '2026-03-29T06:00:00.000Z',
+    });
+
+    expect(first).toMatchObject({ bootstrapped: true, migrated: true });
+    expect(second).toMatchObject({ bootstrapped: true, migrated: false });
+    expect(readJson(paths.statePath)).not.toHaveProperty('controller_leases');
+    expect(readJson(paths.controllerLeasesPath)).toEqual([controllerLease()]);
+    expect(readJson(paths.schemaPath).applied_migrations.at(-1)).toMatchObject({
+      version: 11,
+      key: '0011_controller_lease_authority_v1',
+    });
+    expect(readAuditEntries(paths.auditPath).at(-1)).toMatchObject({
+      entity_id: 'v11',
+      operation: 'migrate',
+      details: {
+        migration_key: '0011_controller_lease_authority_v1',
+        migration_version: 11,
+        canonical_authority: 'controller-leases.json',
+        authority_source: 'legacy_state_shadow_migration',
+        controller_lease_count: 1,
+        state_shadow_removed: true,
+      },
+    });
+    expect(fs.readFileSync(paths.schemaPath)).toEqual(firstBytes.schema);
+    expect(fs.readFileSync(paths.statePath)).toEqual(firstBytes.state);
+    expect(fs.readFileSync(paths.controllerLeasesPath)).toEqual(firstBytes.authority);
+    expect(fs.readFileSync(paths.auditPath)).toEqual(firstBytes.audit);
+  });
+
+  it('preserves valid canonical authority during migration and discards the legacy shadow', () => {
+    const canonical = [controllerLease('controller-default-canonical')];
+    const shadow = [controllerLease('controller-default-shadow')];
+    const { repoRoot, paths } = materializeVersion10({ canonical, shadow });
+
+    bootstrapControlPlaneState({
+      repoRoot,
+      projectId: PROJECT_ID,
+      now: '2026-03-29T05:00:00.000Z',
+    });
+
+    expect(readJson(paths.controllerLeasesPath)).toEqual(canonical);
+    expect(readJson(paths.statePath)).not.toHaveProperty('controller_leases');
+    expect(readAuditEntries(paths.auditPath).at(-1).details).toMatchObject({
+      authority_source: 'existing_canonical_authority',
+      controller_lease_count: 1,
+      state_shadow_removed: true,
+    });
+  });
+
+  it('fails closed without migration evidence and leaves every persistent file untouched', () => {
+    const { repoRoot, paths } = materializeVersion10({ omitShadow: true });
+    const before = {
+      schema: fs.readFileSync(paths.schemaPath),
+      state: fs.readFileSync(paths.statePath),
+      audit: fs.readFileSync(paths.auditPath),
+    };
+
+    expect(() => bootstrapControlPlaneState({
+      repoRoot,
+      projectId: PROJECT_ID,
+      now: '2026-03-29T05:00:00.000Z',
+    })).toThrow('Missing canonical controller lease authority and no explicit migration evidence');
+    expect(fs.existsSync(paths.controllerLeasesPath)).toBe(false);
+    expect(fs.readFileSync(paths.schemaPath)).toEqual(before.schema);
+    expect(fs.readFileSync(paths.statePath)).toEqual(before.state);
+    expect(fs.readFileSync(paths.auditPath)).toEqual(before.audit);
+  });
+
+  it('fails closed on malformed canonical migration authority without selecting a valid shadow', () => {
+    const { repoRoot, paths } = materializeVersion10({ canonical: { records: [controllerLease()] } });
+    const beforeAuthority = fs.readFileSync(paths.controllerLeasesPath);
+
+    expect(() => bootstrapControlPlaneState({
+      repoRoot,
+      projectId: PROJECT_ID,
+      now: '2026-03-29T05:00:00.000Z',
+    })).toThrow('Malformed canonical controller lease authority');
+    expect(fs.readFileSync(paths.controllerLeasesPath)).toEqual(beforeAuthority);
+    expect(readJson(paths.statePath)).toHaveProperty('controller_leases');
+    expect(readJson(paths.schemaPath).current_version).toBe(10);
   });
 
   it('upgrades a stale schema version and backfills invalid task specs for enrolled tasks', () => {
@@ -316,7 +472,7 @@ describe('ao state migrations', () => {
       migrated: true,
     });
     expect(readJson(paths.schemaPath)).toMatchObject({
-      current_version: 10,
+      current_version: 11,
       applied_migrations: [
         {
           version: 1,
@@ -357,6 +513,10 @@ describe('ao state migrations', () => {
         {
           version: 10,
           key: '0010_review_gate_v1',
+        },
+        {
+          version: 11,
+          key: '0011_controller_lease_authority_v1',
         },
       ],
     });

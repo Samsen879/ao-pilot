@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 
 import {
@@ -102,8 +103,13 @@ export function createStateRepository({
   const controllerLeaseLockPath = `${paths.controllerLeasesPath}.lock`;
 
   function readControllerLeaseRecords() {
+    if (!fs.existsSync(paths.controllerLeasesPath)) {
+      throw new Error('Missing canonical controller lease authority: controller-leases.json');
+    }
     const records = readJsonFile(paths.controllerLeasesPath);
-    if (!Array.isArray(records)) return null;
+    if (!Array.isArray(records)) {
+      throw new Error('Malformed canonical controller lease authority: expected a JSON array');
+    }
     return sortRepositoryCollectionByKey(
       records.map((record) => createControllerLease(record)),
       'lease_id',
@@ -114,13 +120,17 @@ export function createStateRepository({
     const schema = readControlPlaneSchema({ schemaPath: paths.schemaPath });
     const state = readControlPlaneState({ statePath: paths.statePath });
 
-    if (!schema || !state) {
+    if (!schema && !state) {
       return {
         bootstrapped: false,
         schema: buildVirtualSchema(projectId),
         state: buildVirtualState(projectId),
         paths,
       };
+    }
+
+    if (!schema || !state) {
+      throw new Error('Incomplete control-plane state evidence: schema.json and state.json are both required');
     }
 
     const isolatedControllerLeases = readControllerLeaseRecords();
@@ -153,6 +163,7 @@ export function createStateRepository({
   } = {}) {
     const recordedAt = resolveNow(clock);
     const nextState = cloneJsonValue(state);
+    delete nextState.controller_leases;
     nextState.updated_at = recordedAt;
     writeJsonFileAtomic(paths.statePath, nextState);
     appendControlPlaneAuditEntry({

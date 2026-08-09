@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 
 import {
@@ -5,6 +6,7 @@ import {
   CONTROL_PLANE_LATEST_VERSION,
   createControlPlaneAuditEntry,
   createControlPlaneSchema,
+  createControllerLease,
   createControllerModeRecord,
   createEmptyControlPlaneState,
   createTaskSpecRecord,
@@ -67,6 +69,11 @@ export const CONTROL_PLANE_REVIEW_GATE_MIGRATION = {
   key: '0010_review_gate_v1',
 };
 
+export const CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION = {
+  version: 11,
+  key: '0011_controller_lease_authority_v1',
+};
+
 const CONTROL_PLANE_MIGRATIONS = [
   CONTROL_PLANE_BOOTSTRAP_MIGRATION,
   CONTROL_PLANE_TASK_SPEC_MIGRATION,
@@ -78,6 +85,7 @@ const CONTROL_PLANE_MIGRATIONS = [
   CONTROL_PLANE_MEASUREMENT_METRICS_MIGRATION,
   CONTROL_PLANE_REPO_KNOWLEDGE_MIGRATION,
   CONTROL_PLANE_REVIEW_GATE_MIGRATION,
+  CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION,
 ];
 
 function resolveNow(now) {
@@ -129,7 +137,6 @@ function buildBootstrapState({
     'managed_tasks',
     'pr_bindings',
     'ownership_leases',
-    'controller_leases',
     'actions',
     'overrides',
     'controller_modes',
@@ -285,6 +292,16 @@ function applyMigration({
     });
   }
 
+  if (migration.version === CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION.version) {
+    const nextState = buildBootstrapState({
+      projectId,
+      now,
+      existingState: state,
+    });
+    delete nextState.controller_leases;
+    return nextState;
+  }
+
   throw new Error(`Unsupported migration version ${migration.version}`);
 }
 
@@ -352,6 +369,13 @@ function buildAuditSummary(migration) {
     };
   }
 
+  if (migration.version === CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION.version) {
+    return {
+      operation: 'migrate',
+      summary: 'Applied canonical controller-lease authority migration.',
+    };
+  }
+
   return {
     operation: 'migrate',
     summary: 'Applied control-plane task-spec migration.',
@@ -392,6 +416,56 @@ export function readControlPlaneState({ statePath } = {}) {
   return readJsonFile(statePath);
 }
 
+function normalizeControllerLeaseAuthority(records) {
+  if (!Array.isArray(records)) {
+    throw new Error('Malformed canonical controller lease authority: expected a JSON array');
+  }
+  return records
+    .map((record) => createControllerLease(record))
+    .sort((left, right) => left.lease_id.localeCompare(right.lease_id));
+}
+
+function prepareControllerLeaseAuthorityMigration({
+  paths,
+  existingSchema,
+  existingState,
+} = {}) {
+  if (fs.existsSync(paths.controllerLeasesPath)) {
+    return {
+      records: normalizeControllerLeaseAuthority(readJsonFile(paths.controllerLeasesPath)),
+      source: 'existing_canonical_authority',
+      state_shadow_removed: Object.hasOwn(existingState ?? {}, 'controller_leases'),
+    };
+  }
+
+  if (existingSchema == null && existingState == null) {
+    return {
+      records: [],
+      source: 'fresh_state_provenance',
+      state_shadow_removed: false,
+    };
+  }
+
+  if (!Object.hasOwn(existingState ?? {}, 'controller_leases')) {
+    throw new Error(
+      'Missing canonical controller lease authority and no explicit migration evidence is available',
+    );
+  }
+
+  return {
+    records: normalizeControllerLeaseAuthority(existingState.controller_leases),
+    source: 'legacy_state_shadow_migration',
+    state_shadow_removed: true,
+  };
+}
+
+function validateCurrentControllerLeaseAuthority(paths) {
+  if (!fs.existsSync(paths.controllerLeasesPath)) {
+    throw new Error('Missing canonical controller lease authority: controller-leases.json');
+  }
+  return normalizeControllerLeaseAuthority(readJsonFile(paths.controllerLeasesPath));
+}
+
 export function bootstrapControlPlaneState({
   repoRoot,
   projectId,
@@ -410,11 +484,18 @@ export function bootstrapControlPlaneState({
     ? Number(existingSchema.current_version ?? 0)
     : 0;
 
+  let controllerLeaseAuthorityMigration = null;
+
+  if ((existingSchema == null) !== (existingState == null)) {
+    throw new Error('Incomplete control-plane migration evidence: schema.json and state.json are both required');
+  }
+
   if (
     existingSchema != null
     && existingState != null
     && effectiveCurrentVersion >= CONTROL_PLANE_LATEST_VERSION
   ) {
+    validateCurrentControllerLeaseAuthority(paths);
     return {
       bootstrapped: true,
       migrated: false,
@@ -423,6 +504,12 @@ export function bootstrapControlPlaneState({
       state: existingState,
     };
   }
+
+  controllerLeaseAuthorityMigration = prepareControllerLeaseAuthorityMigration({
+    paths,
+    existingSchema,
+    existingState,
+  });
 
   let nextState = existingState;
   const priorMigrations = Array.isArray(existingSchema?.applied_migrations)
@@ -456,8 +543,9 @@ export function bootstrapControlPlaneState({
     applied_migrations: [...priorMigrations, ...newAppliedMigrations],
   });
 
-  writeJsonFileAtomic(paths.schemaPath, nextSchema);
+  writeJsonFileAtomic(paths.controllerLeasesPath, controllerLeaseAuthorityMigration.records);
   writeJsonFileAtomic(paths.statePath, nextState);
+  writeJsonFileAtomic(paths.schemaPath, nextSchema);
 
   for (const migration of CONTROL_PLANE_MIGRATIONS) {
     if (migration.version <= effectiveCurrentVersion) continue;
@@ -476,6 +564,14 @@ export function bootstrapControlPlaneState({
         details: {
           migration_key: migration.key,
           migration_version: migration.version,
+          ...(migration.version === CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION.version
+            ? {
+                canonical_authority: 'controller-leases.json',
+                authority_source: controllerLeaseAuthorityMigration.source,
+                controller_lease_count: controllerLeaseAuthorityMigration.records.length,
+                state_shadow_removed: controllerLeaseAuthorityMigration.state_shadow_removed,
+              }
+            : {}),
         },
       }),
     });

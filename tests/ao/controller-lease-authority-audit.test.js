@@ -91,6 +91,8 @@ function materializeFixture(entry) {
     writeJsonFileAtomic(paths.controllerLeasesPath, { records: [lease('canonical-active')] });
   } else if (entry.dedicated.kind === 'invalid-json') {
     fs.writeFileSync(paths.controllerLeasesPath, '{ invalid json\n', 'utf8');
+  } else if (entry.dedicated.kind === 'missing') {
+    fs.unlinkSync(paths.controllerLeasesPath);
   }
   if (entry.state_file === 'missing') fs.unlinkSync(paths.statePath);
 
@@ -108,11 +110,11 @@ describe('controller lease authority design audit', () => {
   it('pins an exhaustive deterministic source scan and every semantic caller anchor', () => {
     expect(validateControllerLeaseInventory(inventory, repositoryRoot)).toEqual({
       caller_count: 14,
-      caller_metadata_digest: 'd5ef3c6d7eba2ca5c2454405567c7818e83ef2491861ecede0867523b1f0f88a',
-      source_match_count: 41,
-      source_digest: '067adb1d30ac64966d9f9e7099696d6650efd2dc4ce60838a4142c1b121ce386',
+      caller_metadata_digest: '9c0460b79cc9c8097eebbbe630a9c2ea3aaf14af8224cd7a09ed2dfea2ffb0eb',
+      source_match_count: 54,
+      source_digest: 'cd2e9a01baa60be82d94a2771d81d14a39329fae2635123b2e2439bff2f625e5',
     });
-    expect(scanControllerLeaseSources(inventory, repositoryRoot).matches).toHaveLength(41);
+    expect(scanControllerLeaseSources(inventory, repositoryRoot).matches).toHaveLength(54);
   });
 
   it('rejects a newly added uninventoried generic state shadow writer', () => {
@@ -217,13 +219,14 @@ describe('controller lease authority design audit', () => {
     expect(fs.readFileSync(paths.controllerLeasesPath)).toEqual(beforeAuthority);
   });
 
-  it('proves the state shadow is an unsafe current fallback, never admissible recovery evidence', () => {
-    const unsafeCases = fixturePack.cases.filter((entry) => entry.expected.safety === 'unsafe_fallback');
-    expect(unsafeCases.map((entry) => entry.class).sort()).toEqual(['malformed', 'missing']);
-    for (const entry of unsafeCases) {
+  it('proves missing and malformed canonical authority fail closed without shadow recovery', () => {
+    const closedCases = fixturePack.cases.filter((entry) => (
+      ['missing', 'malformed'].includes(entry.class)
+    ));
+    expect(closedCases).toHaveLength(4);
+    for (const entry of closedCases) {
       const { repository } = materializeFixture(entry);
-      expect(repository.getSnapshot().state.controller_leases.map((record) => record.lease_id))
-        .toEqual(['shadow-active']);
+      expect(() => repository.getSnapshot()).toThrow();
     }
     expect(inventory.authority_design).toMatchObject({
       canonical_persistent_authority: 'controller-leases.json',
@@ -233,7 +236,7 @@ describe('controller lease authority design audit', () => {
     });
   });
 
-  it('proves an ordinary state write creates a stale shadow that cannot establish recovery order', () => {
+  it('proves ordinary state persistence cannot write, refresh, overwrite, or revive lease authority', () => {
     const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-controller-lease-shadow-'));
     tempDirs.push(repoRoot);
     const repository = createStateRepository({ repoRoot, projectId: PROJECT_ID });
@@ -247,15 +250,15 @@ describe('controller lease authority design audit', () => {
     }));
 
     const paths = repository.getSnapshot().paths;
-    expect(JSON.parse(fs.readFileSync(paths.statePath, 'utf8')).controller_leases.map((record) => record.lease_id))
-      .toEqual(['canonical-first']);
+    const persistedState = JSON.parse(fs.readFileSync(paths.statePath, 'utf8'));
+    expect(persistedState).not.toHaveProperty('controller_leases');
 
     repository.upsertControllerLease(lease('canonical-later'));
     expect(repository.getSnapshot().state.controller_leases.map((record) => record.lease_id))
       .toEqual(['canonical-first', 'canonical-later']);
 
+    expect(JSON.parse(fs.readFileSync(paths.statePath, 'utf8'))).not.toHaveProperty('controller_leases');
     fs.unlinkSync(paths.controllerLeasesPath);
-    expect(repository.getSnapshot().state.controller_leases.map((record) => record.lease_id))
-      .toEqual(['canonical-first']);
+    expect(() => repository.getSnapshot()).toThrow('Missing canonical controller lease authority');
   });
 });
