@@ -27,7 +27,7 @@ if (args[0] === 'pr' && args.some((arg) => arg.includes('baseRefOid'))) {
   process.stderr.write('Unknown JSON field: "baseRefOid"\\n');
   process.exit(1);
 }
-if (args.join(' ') === 'api repos/example/project') {
+if (args.join(' ') === 'api --hostname github.com repos/example/project') {
   process.stdout.write(JSON.stringify({
     id: 321,
     full_name: 'example/project',
@@ -35,7 +35,7 @@ if (args.join(' ') === 'api repos/example/project') {
   }));
   process.exit(0);
 }
-if (args.join(' ') === 'api repos/example/project/pulls/7') {
+if (args.join(' ') === 'api --hostname github.com repos/example/project/pulls/7') {
   process.stdout.write(JSON.stringify({
     number: 7,
     state: 'closed',
@@ -53,6 +53,16 @@ if (args.join(' ') === 'api repos/example/project/pulls/7') {
   }));
   process.exit(0);
 }
+if (args.join(' ') === 'api --hostname github.com --paginate repos/example/project/issues/7/events?per_page=100 --jq .[] | select(.event == "merged") | {id,url,event,commit_id,created_at}') {
+  process.stdout.write(JSON.stringify({
+    id: 654,
+    url: 'https://api.github.com/repos/example/project/issues/events/654',
+    event: 'merged',
+    commit_id: '${'2'.repeat(40)}',
+    created_at: '2026-08-09T12:31:00Z',
+  }) + '\\n');
+  process.exit(0);
+}
 process.stderr.write('unsupported invocation: ' + args.join(' ') + '\\n');
 process.exit(2);
 `);
@@ -60,6 +70,7 @@ process.exit(2);
     const commandRunner = createLocalCommandRunner({
       baseEnv: {
         ...process.env,
+        GH_HOST: 'enterprise.invalid',
         PATH: `${directory}${path.delimiter}${process.env.PATH ?? ''}`,
       },
     });

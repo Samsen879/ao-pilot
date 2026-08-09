@@ -147,11 +147,24 @@ function isExactPullRequestUrl(value, repositorySlug, prNumber) {
   try {
     const parsed = new URL(value);
     return parsed.protocol === 'https:'
+      && parsed.hostname === 'github.com'
       && parsed.pathname === `/${repositorySlug}/pull/${prNumber}`
       && parsed.search === ''
       && parsed.hash === '';
   } catch {
     return false;
+  }
+}
+
+function parseJsonLinesOutput(result, fallbackLabel) {
+  try {
+    return String(result.stdout ?? '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+  } catch (error) {
+    throw new Error(`invalid ${fallbackLabel} json: ${error.message}`);
   }
 }
 
@@ -304,7 +317,7 @@ export async function loadGitHubMergeObservation({
   let repositoryResult;
   try {
     repositoryResult = await commandRunner.run('gh', [
-      'api', `repos/${repository.slug}`,
+      'api', '--hostname', 'github.com', `repos/${repository.slug}`,
     ], { encoding: 'utf8' });
   } catch (error) {
     return empty(error?.message ?? 'github_repository_observation_failed');
@@ -324,14 +337,15 @@ export async function loadGitHubMergeObservation({
     || repositoryRaw?.full_name !== repository.slug) {
     return empty('github_repository_identity_mismatch');
   }
-  if (!isNonEmptyString(repositoryRaw?.url)) {
+  const expectedRepositoryApiUrl = `https://api.github.com/repos/${repository.slug}`;
+  if (repositoryRaw?.url !== expectedRepositoryApiUrl) {
     return empty('github_repository_evidence_missing');
   }
 
   let result;
   try {
     result = await commandRunner.run('gh', [
-      'api', `repos/${repository.slug}/pulls/${prNumber}`,
+      'api', '--hostname', 'github.com', `repos/${repository.slug}/pulls/${prNumber}`,
     ], { encoding: 'utf8' });
   } catch (error) {
     return empty(error?.message ?? 'github_merge_observation_failed');
@@ -372,13 +386,49 @@ export async function loadGitHubMergeObservation({
   const apiUrl = raw?.url;
   const htmlUrl = raw?.html_url;
   if (!isNonEmptyString(baseRef) || !isGitSha(baseSha) || !isGitSha(headSha)
-    || !isNonEmptyString(apiUrl)
+    || apiUrl !== `${expectedRepositoryApiUrl}/pulls/${prNumber}`
     || !isExactPullRequestUrl(htmlUrl, repositoryRaw.full_name, raw.number)) {
     return empty('github_merge_evidence_missing');
   }
   if (merged && (!isGitSha(mergeCommitSha)
     || !isNonEmptyString(raw?.merged_at) || mergedAt == null)) {
     return empty('github_merged_evidence_missing');
+  }
+
+  let mergedEvent = null;
+  if (merged) {
+    let eventResult;
+    try {
+      eventResult = await commandRunner.run('gh', [
+        'api', '--hostname', 'github.com', '--paginate',
+        `repos/${repository.slug}/issues/${prNumber}/events?per_page=100`,
+        '--jq', '.[] | select(.event == "merged") | {id,url,event,commit_id,created_at}',
+      ], { encoding: 'utf8' });
+    } catch (error) {
+      return empty(error?.message ?? 'github_merge_event_observation_failed');
+    }
+    if (eventResult?.status !== 0) {
+      return empty((eventResult?.stderr || eventResult?.stdout
+        || 'gh api merge event observation failed').trim());
+    }
+    let mergedEvents;
+    try {
+      mergedEvents = parseJsonLinesOutput(eventResult, 'gh merge event observation');
+    } catch (error) {
+      return empty(error.message);
+    }
+    if (mergedEvents.length !== 1) {
+      return empty('github_merge_event_ambiguous');
+    }
+    [mergedEvent] = mergedEvents;
+    const expectedEventUrl = Number.isSafeInteger(mergedEvent?.id)
+      ? `${expectedRepositoryApiUrl}/issues/events/${mergedEvent.id}` : null;
+    if (mergedEvent?.event !== 'merged'
+      || mergedEvent?.commit_id !== mergeCommitSha
+      || toIsoString(mergedEvent?.created_at) !== mergedAt
+      || mergedEvent?.url !== expectedEventUrl) {
+      return empty('github_merge_event_mismatch');
+    }
   }
 
   return {
@@ -403,7 +453,8 @@ export async function loadGitHubMergeObservation({
     },
     evidence_refs: [
       `${String(repositoryRaw.url)}#repository-id:${Number(repositoryRaw.id)}`,
-      `${String(apiUrl)}#provider-readback:${observedAt}`,
+      ...(mergedEvent == null ? [`${String(apiUrl)}#provider-readback:${observedAt}`]
+        : [String(mergedEvent.url)]),
     ],
   };
 }

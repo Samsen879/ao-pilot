@@ -239,6 +239,17 @@ describe('github observation source', () => {
         html_url: 'https://github.com/Samsen879/ao-pilot/pull/85',
       }),
       stderr: '',
+      })
+      .mockReturnValueOnce({
+        status: 0,
+        stdout: `${JSON.stringify({
+          id: 456,
+          url: 'https://api.github.com/repos/Samsen879/ao-pilot/issues/events/456',
+          event: 'merged',
+          commit_id: '2'.repeat(40),
+          created_at: '2026-08-09T12:31:00Z',
+        })}\n`,
+        stderr: '',
       });
     const observation = await loadGitHubMergeObservation({
       repository: { repository_id: 123, slug: 'Samsen879/ao-pilot' },
@@ -261,11 +272,19 @@ describe('github observation source', () => {
       },
     });
     expect(mockSpawnSync.mock.calls[0][1]).toEqual([
-      'api', 'repos/Samsen879/ao-pilot',
+      'api', '--hostname', 'github.com', 'repos/Samsen879/ao-pilot',
     ]);
     expect(mockSpawnSync.mock.calls[1][1]).toEqual([
-      'api', 'repos/Samsen879/ao-pilot/pulls/85',
+      'api', '--hostname', 'github.com', 'repos/Samsen879/ao-pilot/pulls/85',
     ]);
+    expect(mockSpawnSync.mock.calls[2][1]).toEqual([
+      'api', '--hostname', 'github.com', '--paginate',
+      'repos/Samsen879/ao-pilot/issues/85/events?per_page=100',
+      '--jq', '.[] | select(.event == "merged") | {id,url,event,commit_id,created_at}',
+    ]);
+    expect(observation.evidence_refs).toContain(
+      'https://api.github.com/repos/Samsen879/ao-pilot/issues/events/456',
+    );
   });
 
   it('fails closed when the slug resolves to another immutable repository id', async () => {
@@ -367,6 +386,50 @@ describe('github observation source', () => {
     });
   });
 
+  it('fails closed when immutable merged-event evidence is missing', async () => {
+    mockSpawnSync
+      .mockReturnValueOnce({
+        status: 0,
+        stdout: JSON.stringify({
+          id: 123,
+          full_name: 'Samsen879/ao-pilot',
+          url: 'https://api.github.com/repos/Samsen879/ao-pilot',
+        }),
+        stderr: '',
+      })
+      .mockReturnValueOnce({
+        status: 0,
+        stdout: JSON.stringify({
+          number: 85,
+          state: 'closed',
+          merged: true,
+          base: {
+            ref: 'main',
+            sha: '0'.repeat(40),
+            repo: { id: 123, full_name: 'Samsen879/ao-pilot' },
+          },
+          head: { sha: '1'.repeat(40) },
+          merge_commit_sha: '2'.repeat(40),
+          merged_at: '2026-08-09T12:31:00Z',
+          url: 'https://api.github.com/repos/Samsen879/ao-pilot/pulls/85',
+          html_url: 'https://github.com/Samsen879/ao-pilot/pull/85',
+        }),
+        stderr: '',
+      })
+      .mockReturnValueOnce({ status: 0, stdout: '', stderr: '' });
+
+    const observation = await loadGitHubMergeObservation({
+      repository: { repository_id: 123, slug: 'Samsen879/ao-pilot' },
+      prNumber: 85,
+      now: '2026-08-09T12:32:00.000Z',
+    });
+
+    expect(observation).toMatchObject({
+      source_ok: false,
+      source_error: 'github_merge_event_ambiguous',
+    });
+  });
+
   it('fails closed when the supported pull request API call fails', async () => {
     mockSpawnSync
       .mockReturnValueOnce({
@@ -411,10 +474,18 @@ describe('github observation source', () => {
       url: 'https://api.github.com/repos/Samsen879/ao-pilot/pulls/85',
       html_url: 'https://github.com/Samsen879/ao-pilot/pull/85',
     });
+    const eventPayload = `${JSON.stringify({
+      id: 456,
+      url: 'https://api.github.com/repos/Samsen879/ao-pilot/issues/events/456',
+      event: 'merged',
+      commit_id: '2'.repeat(40),
+      created_at: '2026-08-09T12:31:00Z',
+    })}\n`;
     for (let index = 0; index < 2; index += 1) {
       mockSpawnSync
         .mockReturnValueOnce({ status: 0, stdout: repositoryPayload, stderr: '' })
-        .mockReturnValueOnce({ status: 0, stdout: pullPayload, stderr: '' });
+        .mockReturnValueOnce({ status: 0, stdout: pullPayload, stderr: '' })
+        .mockReturnValueOnce({ status: 0, stdout: eventPayload, stderr: '' });
     }
     const input = {
       repository: { repository_id: 123, slug: 'Samsen879/ao-pilot' },
