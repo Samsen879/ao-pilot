@@ -1,0 +1,14 @@
+{
+  "schema_version": "ao.trajectory-vocabulary-fixture.v1",
+  "scenario": "missing_evidence",
+  "evidence_complete": false,
+  "expectations": [
+    { "item_id": "action.record_status", "value": "proposed" },
+    { "item_id": "execution.action_outcome", "value": "missing" },
+    { "item_id": "lifecycle.release_disposition", "value": "human_gate" },
+    { "item_id": "review.verdict", "value": "missing" },
+    { "item_id": "ci.normalized_status", "value": "unknown" },
+    { "item_id": "merge.provider_pr_state", "value": "UNKNOWN" },
+    { "item_id": "checkpoint.inspection_state", "value": "invalid" }
+  ]
+}

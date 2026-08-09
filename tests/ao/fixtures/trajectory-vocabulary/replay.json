@@ -1,0 +1,15 @@
+{
+  "schema_version": "ao.trajectory-vocabulary-fixture.v1",
+  "scenario": "replay",
+  "replay_of": "success",
+  "evidence_complete": true,
+  "expectations": [
+    { "item_id": "action.record_status", "value": "executed" },
+    { "item_id": "execution.effect_status", "value": "succeeded" },
+    { "item_id": "lifecycle.release_disposition", "value": "notify_human_ready" },
+    { "item_id": "review.github_decision", "value": "approved" },
+    { "item_id": "ci.normalized_status", "value": "passing" },
+    { "item_id": "merge.provider_pr_state", "value": "MERGED" },
+    { "item_id": "checkpoint.inspection_state", "value": "valid" }
+  ]
+}
