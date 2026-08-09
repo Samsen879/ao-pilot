@@ -1,0 +1,520 @@
+{
+  "schema_version": "ao.completion-record-field-coverage.v1",
+  "ledger_version": "1.0.0",
+  "sources": [
+    {
+      "id": "consolidation_manifest",
+      "path": "docs/consolidation/cie-embedded-ao/consolidation-manifest.json",
+      "format": "json",
+      "schema_version": "ao.consolidation.v1",
+      "sha256": "ea8fce4f23e0f21d8d7beb63c1474e82c89fc5b6a0e2cb5d383bdeac51f9ddd4"
+    },
+    {
+      "id": "consolidation_baseline",
+      "path": "docs/consolidation/cie-embedded-ao/00-baseline.md",
+      "format": "markdown",
+      "sha256": "6fc5653a5d175ffcc1d5ed8fcf81437720977f2880e079a3d4679860e26f11f4",
+      "required_markers": ["# Phase 0 — Baseline and Freeze Boundary", "## Baseline failure policy"]
+    },
+    {
+      "id": "consolidation_inventory",
+      "path": "docs/consolidation/cie-embedded-ao/01-inventory.md",
+      "format": "markdown",
+      "sha256": "aead5a1577d5380db8a1244a02dca0b4d640cf5506e0fe48a0f9ad436c13bfc5",
+      "required_markers": ["# Phase 1 — Full AO Inventory", "## History and evidence limits"]
+    },
+    {
+      "id": "consolidation_classification",
+      "path": "docs/consolidation/cie-embedded-ao/02-classification.md",
+      "format": "markdown",
+      "sha256": "8b0bcc23a97c96661b115f49ff70caba9b9dd9c248cc452e5c571ff69412330c",
+      "required_markers": ["# Phase 2 — Semantic Diff and Classification", "## Unknowns retained as explicit limits"]
+    },
+    {
+      "id": "consolidation_boundary",
+      "path": "docs/consolidation/cie-embedded-ao/03-target-boundary.md",
+      "format": "markdown",
+      "sha256": "8905bc0427bb7fbb2b9300dcf86e27999b943843da49ad300b400d717663f88e",
+      "required_markers": ["# Phase 3 — Canonical Package Boundary", "## Source-of-truth rule"]
+    },
+    {
+      "id": "consolidation_migration",
+      "path": "docs/consolidation/cie-embedded-ao/04-migration-log.md",
+      "format": "markdown",
+      "sha256": "f1b50e3128c6b1c7e4336c5b5eed2edb572d3a275d2de52442bd97d0a878dd29",
+      "required_markers": ["# Phase 5 — Migration Log", "## M5 — Safety review and hardening", "## Remaining deliberate limitation"]
+    },
+    {
+      "id": "consolidation_parity",
+      "path": "docs/consolidation/cie-embedded-ao/05-parity-report.md",
+      "format": "markdown",
+      "sha256": "f6bd3bebb391e9c5eb439fc9ef60b2d32af0a133a24044e19d6a7bb5c0c4cdd3",
+      "required_markers": ["# Phase 4/9 — Behavioral Parity Report", "## Explicit limitation"]
+    },
+    {
+      "id": "consolidation_cutover",
+      "path": "docs/consolidation/cie-embedded-ao/06-cutover-report.md",
+      "format": "markdown",
+      "sha256": "db6e696f37df225d6135d89ffad3727c3bc7d3e1100ce8df0cc17e043e35a4c1",
+      "required_markers": ["# Phase 7/8 — CIE Cutover and Duplicate Removal Report", "## Rollback"]
+    },
+    {
+      "id": "consolidation_portability_erratum",
+      "path": "docs/consolidation/cie-embedded-ao/07-runtime-portability-erratum.md",
+      "format": "markdown",
+      "sha256": "d31728fbe5243af609c7a2dfa58001cd59bd0271a7000a3b6849abc9468499d6",
+      "required_markers": ["# Runtime Portability Erratum", "operational runtime portability is not established"]
+    },
+    {
+      "id": "consolidation_final_report",
+      "path": "docs/consolidation/cie-embedded-ao/FINAL_CONSOLIDATION_REPORT.md",
+      "format": "markdown",
+      "sha256": "c936519cd91557d4a63e021704ac82dd1ed7b346be817b0750fcf888020d9538",
+      "required_markers": ["# AO Pilot Canonical Consolidation and CIE Embedded AO Cutover", "## 11. Tests and Verification", "## 14. Remaining Risks and Limitations", "## 18. Completion Gate and Verdict"]
+    },
+    {
+      "id": "harvest_snapshot_manifest",
+      "path": "artifacts/harvest/Samsen879__ciecopilot-home/2026-07/ao.github-review-snapshot-manifest.v1alpha1.json",
+      "format": "json",
+      "schema_version": "ao.github-review-snapshot-manifest.v1alpha1",
+      "sha256": "250ce4452a5b80b9f81441e5aef0a81962c67e691877eb04e38ac4123caf827b"
+    },
+    {
+      "id": "harvest_block_inventory",
+      "path": "artifacts/harvest/Samsen879__ciecopilot-home/2026-07/ao.independent-review-block-inventory.v1alpha1.json",
+      "format": "json",
+      "schema_version": "ao.independent-review-block-inventory.v1alpha1",
+      "sha256": "1e10e8d5455e20495172640b82845cafe3571e47c364bcbf52adc83d4f8b6277"
+    },
+    {
+      "id": "harvest_review_baseline",
+      "path": "artifacts/harvest/Samsen879__ciecopilot-home/2026-07/ao.review-round-baseline.v1alpha1.json",
+      "format": "json",
+      "schema_version": "ao.review-round-baseline.v1alpha1",
+      "sha256": "f2117d31269665ae90a72bda79996cdf3f49fa035e54b73b45669b3568aa98d1"
+    },
+    {
+      "id": "harvest_result_report",
+      "path": "artifacts/harvest/Samsen879__ciecopilot-home/2026-07/RESULT_REPORT.md",
+      "format": "markdown",
+      "sha256": "6e82789d5340194ed91544c0f0a28ef3d738e4f73c8e4738589d1cc729a22ede",
+      "required_markers": ["# AO Track A P0-A Result Report", "## Coverage limitations", "All 40 `first_detectable_stage` values are `not_established`"]
+    },
+    {
+      "id": "harvest_replay_receipt",
+      "path": "artifacts/harvest/Samsen879__ciecopilot-home/2026-07/REPLAY_RECEIPT.md",
+      "format": "markdown",
+      "sha256": "1ae435c41fcd54bd0dfeb982881e7c529dc7d1d203ce5474899cf26247ee3c86",
+      "required_markers": ["# AO P0-A Deterministic Replay Receipt", "Two consecutive offline replays", "deleting a referenced page fails closed"]
+    }
+  ],
+  "candidates": [
+    {
+      "field": "artifact.byte_length",
+      "classification": "required",
+      "oracle_coverage": "established",
+      "when_missing": "fail_closed",
+      "source_contract": {"authority": "recorder_output_bytes", "selector": "artifact byte sequence", "transformation": "exact byte count"},
+      "mappings": [{"source_id": "harvest_snapshot_manifest", "kind": "json_pointer", "selector": "/raw_snapshot/total_uncompressed_bytes", "extraction": "direct integer exemplar for byte-count custody"}],
+      "rationale": "A replayable artifact must bind its exact size."
+    },
+    {
+      "field": "artifact.content_sha256",
+      "classification": "required",
+      "oracle_coverage": "established",
+      "when_missing": "fail_closed",
+      "source_contract": {"authority": "recorder_output_bytes", "selector": "artifact byte sequence", "transformation": "SHA-256 over exact bytes"},
+      "mappings": [{"source_id": "harvest_replay_receipt", "kind": "markdown_marker", "selector": "Canonical bytes and SHA-256 digests matched", "extraction": "digest custody requirement"}],
+      "rationale": "Content identity is required for byte-stable replay."
+    },
+    {
+      "field": "artifact.media_type",
+      "classification": "required",
+      "oracle_coverage": "established",
+      "when_missing": "fail_closed",
+      "source_contract": {"authority": "recorder_output_manifest", "selector": "artifact.media_type", "transformation": "direct allowlisted media type"},
+      "mappings": [{"source_id": "consolidation_final_report", "kind": "markdown_marker", "selector": "# AO Pilot Canonical Consolidation and CIE Embedded AO Cutover", "extraction": "Markdown artifact exemplar"}],
+      "rationale": "Consumers need an explicit representation type."
+    },
+    {
+      "field": "artifact.uri",
+      "classification": "required",
+      "oracle_coverage": "established",
+      "when_missing": "fail_closed",
+      "source_contract": {"authority": "recorder_output_manifest", "selector": "artifact.uri", "transformation": "direct repository-relative URI"},
+      "mappings": [{"source_id": "harvest_block_inventory", "kind": "json_pointer", "selector": "/source_snapshot_manifest_ref/path", "extraction": "repository-relative artifact reference exemplar"}],
+      "rationale": "The record must locate the bytes whose digest it declares."
+    },
+    {
+      "field": "autonomy_policy_ref",
+      "classification": "conditional",
+      "oracle_coverage": "not_established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "authenticated_task_spec", "selector": "autonomy_policy_ref", "transformation": "direct reference only"},
+      "mappings": [],
+      "coverage_gap": {"code": "autonomy_policy_ref_absent", "reason": "Neither oracle contains an authenticated autonomy-policy reference."},
+      "rationale": "Retain only when the task input explicitly binds a policy."
+    },
+    {
+      "field": "base_sha",
+      "classification": "conditional",
+      "oracle_coverage": "established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "authenticated_task_or_provider_evidence", "selector": "scoped base SHA", "transformation": "direct exact 40-hex SHA; reject ambiguous repository scope"},
+      "mappings": [
+        {"source_id": "consolidation_manifest", "kind": "json_pointer", "selector": "/ao_pilot_initial_head", "extraction": "AO-scoped initial HEAD"},
+        {"source_id": "consolidation_baseline", "kind": "markdown_marker", "selector": "### `ao-pilot` at `ba36262289c105471837d5ed191ebd424d6a61f4`", "extraction": "human-oracle exact AO base"}
+      ],
+      "rationale": "A base is meaningful only after repository scope is deterministic."
+    },
+    {
+      "field": "child_task_id",
+      "classification": "required",
+      "oracle_coverage": "not_established",
+      "when_missing": "fail_closed",
+      "source_contract": {"authority": "authenticated_task_spec_or_managed_task", "selector": "task_id", "transformation": "direct child-scoped identifier"},
+      "mappings": [],
+      "coverage_gap": {"code": "child_task_identity_absent", "reason": "The consolidation and harvest artifacts do not authenticate a child task id."},
+      "rationale": "Completion Record identity is child-scoped and cannot be inferred from branch, issue, or PR text."
+    },
+    {
+      "field": "delivery_status",
+      "classification": "required",
+      "oracle_coverage": "established",
+      "when_missing": "fail_closed",
+      "source_contract": {"authority": "review_and_provider_evidence", "selector": "review verdict plus provider merge observation", "transformation": "map only to review_passed, integrated, or abandoned"},
+      "mappings": [
+        {"source_id": "consolidation_manifest", "kind": "json_pointer", "selector": "/verdict", "extraction": "fixture verdict with explicit limitations"},
+        {"source_id": "consolidation_final_report", "kind": "markdown_marker", "selector": "## 18. Completion Gate and Verdict", "extraction": "human-oracle verdict section"}
+      ],
+      "rationale": "Status requires explicit evidence and never follows from local PASS alone."
+    },
+    {
+      "field": "deviations[]",
+      "classification": "unsupported",
+      "oracle_coverage": "unsupported",
+      "when_missing": "omit",
+      "mappings": [],
+      "rationale": "The oracles contain prose and regressions but no authenticated structured deviations field; relabeling them would infer narrative."
+    },
+    {
+      "field": "escalation_refs[]",
+      "classification": "conditional",
+      "oracle_coverage": "not_established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "authenticated_escalation_records", "selector": "escalation_id", "transformation": "ordered direct references"},
+      "mappings": [],
+      "coverage_gap": {"code": "escalation_records_absent", "reason": "No authenticated escalation record collection is present in either oracle."},
+      "rationale": "Do not reinterpret warnings, failures, or limitations as authority escalations."
+    },
+    {
+      "field": "evidence_refs[]",
+      "classification": "conditional",
+      "oracle_coverage": "established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "authenticated_input_manifest", "selector": "evidence_refs", "transformation": "stable ordered direct references"},
+      "mappings": [
+        {"source_id": "consolidation_manifest", "kind": "json_pointer", "selector": "/module_inventory/*/evidence", "extraction": "structured evidence reference lists"},
+        {"source_id": "harvest_block_inventory", "kind": "json_pointer", "selector": "/blockers/*/evidence_refs", "extraction": "review evidence reference lists"}
+      ],
+      "rationale": "Evidence references are copied only from authenticated source records."
+    },
+    {
+      "field": "generated_at",
+      "classification": "conditional",
+      "oracle_coverage": "established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "recorder_run_manifest", "selector": "generated_at", "transformation": "direct normalized timestamp excluded from stable body digest"},
+      "mappings": [{"source_id": "harvest_block_inventory", "kind": "json_pointer", "selector": "/generated_at", "extraction": "normalized producer timestamp exemplar"}],
+      "rationale": "A timestamp may be recorded but cannot perturb replay-stable semantic output."
+    },
+    {
+      "field": "generation_inputs.manifest_sha256",
+      "classification": "required",
+      "oracle_coverage": "established",
+      "when_missing": "fail_closed",
+      "source_contract": {"authority": "authenticated_input_manifest_bytes", "selector": "input manifest bytes", "transformation": "SHA-256 over exact manifest bytes"},
+      "mappings": [{"source_id": "harvest_replay_receipt", "kind": "markdown_marker", "selector": "Snapshot manifest | `250ce4452a5b80b9f81441e5aef0a81962c67e691877eb04e38ac4123caf827b`", "extraction": "exact manifest digest"}],
+      "rationale": "The input manifest path alone does not bind its contents."
+    },
+    {
+      "field": "generation_inputs.manifest_uri",
+      "classification": "required",
+      "oracle_coverage": "established",
+      "when_missing": "fail_closed",
+      "source_contract": {"authority": "recorder_run_manifest", "selector": "input manifest URI", "transformation": "direct repository-relative URI"},
+      "mappings": [{"source_id": "harvest_block_inventory", "kind": "json_pointer", "selector": "/source_snapshot_manifest_ref/path", "extraction": "direct immutable input-manifest reference"}],
+      "rationale": "Replay requires an addressable normalized input manifest."
+    },
+    {
+      "field": "generation_inputs_digest",
+      "classification": "required",
+      "oracle_coverage": "established",
+      "when_missing": "fail_closed",
+      "source_contract": {"authority": "recorder_normalized_inputs", "selector": "canonical ordered input manifest", "transformation": "SHA-256 over canonical normalized inputs"},
+      "mappings": [
+        {"source_id": "harvest_block_inventory", "kind": "json_pointer", "selector": "/deterministic_fingerprint", "extraction": "normalized inventory fingerprint exemplar"},
+        {"source_id": "harvest_replay_receipt", "kind": "markdown_marker", "selector": "Output-set digest for both runs", "extraction": "stable replay digest requirement"}
+      ],
+      "rationale": "All ordered normalized inputs, not merely their URI, must be bound."
+    },
+    {
+      "field": "generator_ref",
+      "classification": "required",
+      "oracle_coverage": "established",
+      "when_missing": "fail_closed",
+      "source_contract": {"authority": "recorder_run_manifest", "selector": "generator_ref", "transformation": "direct immutable generator/version reference"},
+      "mappings": [
+        {"source_id": "harvest_snapshot_manifest", "kind": "json_pointer", "selector": "/harvester_version", "extraction": "versioned deterministic producer exemplar"},
+        {"source_id": "harvest_block_inventory", "kind": "json_pointer", "selector": "/normalizer_version", "extraction": "versioned normalizer exemplar"}
+      ],
+      "rationale": "Replay must bind the deterministic implementation identity."
+    },
+    {
+      "field": "head_sha",
+      "classification": "conditional",
+      "oracle_coverage": "established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "exact_head_review_or_task_evidence", "selector": "reviewed implementation HEAD", "transformation": "direct exact 40-hex SHA"},
+      "mappings": [
+        {"source_id": "consolidation_manifest", "kind": "json_pointer", "selector": "/ao_pilot_implementation_head", "extraction": "structured implementation HEAD"},
+        {"source_id": "harvest_block_inventory", "kind": "json_pointer", "selector": "/blockers/*/reviewed_head_sha", "extraction": "exact-head review evidence"}
+      ],
+      "rationale": "Use an explicitly scoped implementation or reviewed HEAD only."
+    },
+    {
+      "field": "important_decisions[]",
+      "classification": "conditional",
+      "oracle_coverage": "established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "authenticated_structured_input", "selector": "canonical_decisions", "transformation": "mechanical field-preserving transcription with evidence reference"},
+      "mappings": [
+        {"source_id": "consolidation_manifest", "kind": "json_pointer", "selector": "/canonical_decisions/*/id", "extraction": "structured decision identities"},
+        {"source_id": "consolidation_final_report", "kind": "markdown_marker", "selector": "## 5. Canonical Decisions", "extraction": "human-oracle comparison section only"}
+      ],
+      "rationale": "Structured decisions may be copied mechanically; free narrative may not be generated."
+    },
+    {
+      "field": "issue_number",
+      "classification": "conditional",
+      "oracle_coverage": "not_established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "authenticated_task_spec_or_provider_issue", "selector": "issue_number", "transformation": "direct integer"},
+      "mappings": [],
+      "coverage_gap": {"code": "issue_identity_absent", "reason": "The consolidation fixture has no authenticated governing issue number, and harvest PR numbers do not imply issue identity."},
+      "rationale": "Never infer an issue from branch names, prose, or PR numbering."
+    },
+    {
+      "field": "lesson_candidates[]",
+      "classification": "unsupported",
+      "oracle_coverage": "unsupported",
+      "when_missing": "omit",
+      "mappings": [],
+      "rationale": "Neither oracle exposes authenticated structured lesson candidates; creating them would be classification or narrative generation."
+    },
+    {
+      "field": "merge_observation_ref",
+      "classification": "conditional",
+      "oracle_coverage": "not_established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "provider_post_merge_observation", "selector": "observation_ref", "transformation": "direct provider evidence reference"},
+      "mappings": [],
+      "coverage_gap": {"code": "merge_observation_reference_absent", "reason": "P0-A preserves merge SHAs and timestamps but no first-class provider observation reference."},
+      "rationale": "A merge SHA does not manufacture a missing observation-record identity."
+    },
+    {
+      "field": "merge_sha",
+      "classification": "conditional",
+      "oracle_coverage": "established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "provider_post_merge_observation", "selector": "merge_commit_sha", "transformation": "direct exact 40-hex SHA"},
+      "mappings": [{"source_id": "harvest_review_baseline", "kind": "json_pointer", "selector": "/per_pr_rounds/*/merge_commit_sha", "extraction": "provider-derived merge commit SHA"}],
+      "rationale": "Integrated outcome is conditional on provider evidence and is never inferred from review PASS."
+    },
+    {
+      "field": "model_generated_narrative",
+      "classification": "unsupported",
+      "oracle_coverage": "unsupported",
+      "when_missing": "omit",
+      "mappings": [],
+      "rationale": "Completion Record v1 explicitly excludes model-generated narrative."
+    },
+    {
+      "field": "narrative_summary",
+      "classification": "unsupported",
+      "oracle_coverage": "unsupported",
+      "when_missing": "omit",
+      "mappings": [],
+      "rationale": "Markdown prose is a comparison oracle, not authenticated structured input for a new summary field."
+    },
+    {
+      "field": "or_authorization_grant_ref",
+      "classification": "conditional",
+      "oracle_coverage": "not_established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "authenticated_or_grant", "selector": "grant_id", "transformation": "direct reference only"},
+      "mappings": [],
+      "coverage_gap": {"code": "or_grant_absent", "reason": "No versioned OR authorization grant is present in the consolidation or harvest artifacts."},
+      "rationale": "AO execution receipts and prose cannot substitute for OR effect authority."
+    },
+    {
+      "field": "parent_task_refs[]",
+      "classification": "conditional",
+      "oracle_coverage": "not_established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "authenticated_task_relations", "selector": "parent_of relations targeting child_task_id", "transformation": "sorted unique source task ids"},
+      "mappings": [],
+      "coverage_gap": {"code": "parent_relations_absent", "reason": "The oracles do not authenticate generic parent/child task relations."},
+      "rationale": "Repository or campaign context must not be reinterpreted as task parentage."
+    },
+    {
+      "field": "pr_number",
+      "classification": "conditional",
+      "oracle_coverage": "established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "provider_pr_evidence", "selector": "pr_number", "transformation": "direct integer for the selected episode"},
+      "mappings": [
+        {"source_id": "harvest_review_baseline", "kind": "json_pointer", "selector": "/per_pr_rounds/*/pr_number", "extraction": "per-episode PR identity"},
+        {"source_id": "harvest_result_report", "kind": "markdown_marker", "selector": "Full source coverage: `371/371` for PR metadata", "extraction": "human-oracle PR coverage statement"}
+      ],
+      "rationale": "A PR number is copied only from provider evidence for the selected task."
+    },
+    {
+      "field": "record_id",
+      "classification": "required",
+      "oracle_coverage": "not_established",
+      "when_missing": "fail_closed",
+      "source_contract": {"authority": "completion_record_contract", "selector": "child_task_id", "transformation": "prefix exact child id with child-completion:"},
+      "mappings": [],
+      "coverage_gap": {"code": "record_identity_absent", "reason": "The deterministic transformation is fixed, but the fixture lacks child_task_id input."},
+      "rationale": "Identity is derived only from authenticated child identity, never from mutable parents."
+    },
+    {
+      "field": "release_judgment_ref",
+      "classification": "conditional",
+      "oracle_coverage": "not_established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "ao_judgment_record", "selector": "judgment_id", "transformation": "direct reference only"},
+      "mappings": [],
+      "coverage_gap": {"code": "release_judgment_record_absent", "reason": "The oracles contain outcomes and verdicts but no first-class AO release judgment reference."},
+      "rationale": "A completion verdict cannot be relabeled as an AO judgment record."
+    },
+    {
+      "field": "review_refs[]",
+      "classification": "conditional",
+      "oracle_coverage": "established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "committed_review_snapshot", "selector": "review_ref", "transformation": "sorted unique direct references bound to selected PR/head"},
+      "mappings": [
+        {"source_id": "harvest_block_inventory", "kind": "json_pointer", "selector": "/blockers/*/review_ref", "extraction": "blocking review references"},
+        {"source_id": "harvest_review_baseline", "kind": "json_pointer", "selector": "/per_pr_rounds/*/rounds/*/review_ref", "extraction": "all exact-head round references"}
+      ],
+      "rationale": "Review references come only from the committed snapshot normalization."
+    },
+    {
+      "field": "review_round_summary.blocker_count",
+      "classification": "conditional",
+      "oracle_coverage": "established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "committed_review_round_baseline", "selector": "selected per_pr_rounds.blocker_count", "transformation": "direct integer"},
+      "mappings": [{"source_id": "harvest_review_baseline", "kind": "json_pointer", "selector": "/per_pr_rounds/*/blocker_count", "extraction": "per-PR blocker count"}],
+      "rationale": "Blocker totals must not be reconstructed from prose or commit timing."
+    },
+    {
+      "field": "review_round_summary.blocking_round_count",
+      "classification": "conditional",
+      "oracle_coverage": "established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "committed_review_round_baseline", "selector": "selected per_pr_rounds.blocking_round_count", "transformation": "direct integer"},
+      "mappings": [{"source_id": "harvest_review_baseline", "kind": "json_pointer", "selector": "/per_pr_rounds/*/blocking_round_count", "extraction": "per-PR blocking-round count"}],
+      "rationale": "Only normalized explicit blocking rounds count."
+    },
+    {
+      "field": "review_round_summary.correction_round_count",
+      "classification": "conditional",
+      "oracle_coverage": "established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "committed_review_round_baseline", "selector": "selected per_pr_rounds.correction_round_count", "transformation": "direct integer"},
+      "mappings": [{"source_id": "harvest_review_baseline", "kind": "json_pointer", "selector": "/per_pr_rounds/*/correction_round_count", "extraction": "per-PR correction-round count"}],
+      "rationale": "Corrections require a normalized correction HEAD and fresh review."
+    },
+    {
+      "field": "review_round_summary.first_pass",
+      "classification": "conditional",
+      "oracle_coverage": "established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "committed_review_round_baseline", "selector": "selected per_pr_rounds.first_pass_independent_review", "transformation": "direct boolean or explicit not_established"},
+      "mappings": [{"source_id": "harvest_review_baseline", "kind": "json_pointer", "selector": "/per_pr_rounds/*/first_pass_independent_review", "extraction": "per-PR first-pass value"}],
+      "rationale": "Missing exact-head review coverage cannot be converted to false."
+    },
+    {
+      "field": "review_round_summary.head_binding_coverage",
+      "classification": "conditional",
+      "oracle_coverage": "established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "committed_review_snapshot_and_baseline", "selector": "head_binding_coverage", "transformation": "direct numerator/denominator; preserve not_established records"},
+      "mappings": [
+        {"source_id": "harvest_review_baseline", "kind": "json_pointer", "selector": "/head_binding_coverage", "extraction": "aggregate exact-head coverage"},
+        {"source_id": "harvest_result_report", "kind": "markdown_marker", "selector": "Together, 33 protocol-marker records lack exact GitHub HEAD binding", "extraction": "explicit human-oracle limitation"}
+      ],
+      "rationale": "Coverage gaps remain visible and are never repaired with timing or login inference."
+    },
+    {
+      "field": "review_round_summary.review_round_count",
+      "classification": "conditional",
+      "oracle_coverage": "established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "committed_review_round_baseline", "selector": "selected per_pr_rounds.review_round_count", "transformation": "direct integer"},
+      "mappings": [{"source_id": "harvest_review_baseline", "kind": "json_pointer", "selector": "/per_pr_rounds/*/review_round_count", "extraction": "per-PR review-round count"}],
+      "rationale": "Rounds are replayed from normalized submissions, not inferred from later commits."
+    },
+    {
+      "field": "schema_version",
+      "classification": "required",
+      "oracle_coverage": "not_established",
+      "when_missing": "fail_closed",
+      "source_contract": {"authority": "completion_record_contract", "selector": "ao.child-completion.v1alpha1", "transformation": "fixed literal"},
+      "mappings": [],
+      "coverage_gap": {"code": "completion_schema_not_committed", "reason": "The oracle artifacts demonstrate versioning but do not contain a Completion Record instance or schema."},
+      "rationale": "The ledger audits the candidate contract; it does not create the future schema."
+    },
+    {
+      "field": "task_spec_ref",
+      "classification": "conditional",
+      "oracle_coverage": "not_established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "authenticated_task_spec", "selector": "artifact_ref", "transformation": "direct immutable reference"},
+      "mappings": [],
+      "coverage_gap": {"code": "task_spec_reference_absent", "reason": "The consolidation and P0-A artifacts do not identify an immutable governing TaskSpec artifact."},
+      "rationale": "Mention of managed-task capability is not a TaskSpec reference."
+    },
+    {
+      "field": "unresolved_items[]",
+      "classification": "required",
+      "oracle_coverage": "established",
+      "when_missing": "fail_closed",
+      "source_contract": {"authority": "validated_evidence_synthesis", "selector": "coverage gaps, remaining blockers, and explicit limitations", "transformation": "mechanical ordered findings; empty only after complete validation"},
+      "mappings": [
+        {"source_id": "consolidation_manifest", "kind": "json_pointer", "selector": "/remaining_blockers", "extraction": "structured remaining blockers"},
+        {"source_id": "consolidation_manifest", "kind": "json_pointer", "selector": "/explicit_limitations", "extraction": "structured explicit limitations"},
+        {"source_id": "consolidation_final_report", "kind": "markdown_marker", "selector": "## 14. Remaining Risks and Limitations", "extraction": "human-oracle comparison section"},
+        {"source_id": "consolidation_portability_erratum", "kind": "markdown_marker", "selector": "operational runtime portability is not established", "extraction": "superseding explicit not-established limitation"},
+        {"source_id": "harvest_result_report", "kind": "markdown_marker", "selector": "## Coverage limitations", "extraction": "P0-A explicit coverage gaps"}
+      ],
+      "rationale": "Known gaps must be durable and an empty list must be proven, not assumed."
+    },
+    {
+      "field": "verification_refs[]",
+      "classification": "conditional",
+      "oracle_coverage": "established",
+      "when_missing": "explicit_not_established",
+      "source_contract": {"authority": "authenticated_verification_receipts", "selector": "verification command or receipt references", "transformation": "stable ordered direct references"},
+      "mappings": [
+        {"source_id": "consolidation_manifest", "kind": "json_pointer", "selector": "/verification_commands/*/command", "extraction": "structured verification command identities"},
+        {"source_id": "consolidation_final_report", "kind": "markdown_marker", "selector": "## 11. Tests and Verification", "extraction": "human-oracle verification ledger"},
+        {"source_id": "harvest_replay_receipt", "kind": "markdown_marker", "selector": "Two consecutive offline replays", "extraction": "deterministic replay receipt"}
+      ],
+      "rationale": "Verification is referenced from committed evidence and is not summarized into invented success."
+    }
+  ]
+}
