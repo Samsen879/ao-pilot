@@ -32,9 +32,15 @@ function summarizeActions(actions) {
     }
     return String(left?.id ?? '').localeCompare(String(right?.id ?? ''));
   });
-  const commands = [...new Set(orderedActions.flatMap((action) => action.commands ?? []))];
-  if (!commands.length) return 'none';
-  return commands.join(' | ');
+  const suggestions = [...new Set(orderedActions.flatMap((action) => {
+    const commands = action.commands ?? [];
+    if (commands.length) return commands;
+    if (action.id) return [action.id];
+    if (action.summary) return [action.summary];
+    return [];
+  }))];
+  if (!suggestions.length) return 'none';
+  return suggestions.join(' | ');
 }
 
 function formatClaimValue(claims, claim) {

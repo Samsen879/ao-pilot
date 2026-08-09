@@ -138,4 +138,29 @@ describe('lifecycle report', () => {
     expect(summary).toContain('claims_merge=false claims_external_effect=invalid("yes") claims_human_approval=missing');
     expect(summary).toContain('[blocker] release_ready_contract_invalid');
   });
+
+  it('renders commandless intervention identifiers as suggested actions', () => {
+    const summary = renderLifecycleHumanSummary(buildReport({
+      top_status: 'escalation_required',
+      release_decision: {
+        disposition: 'escalation_required',
+        basis: ['doctor_ambiguous'],
+        authoritative: false,
+      },
+      findings: [],
+      actions: [{
+        id: 'escalation_required',
+        action_class: 'escalation',
+        summary: 'Pause the affected scope.',
+        commands: [],
+      }, {
+        id: 'notify_human_blocked',
+        action_class: 'notify_human',
+        summary: 'Request authority resolution.',
+        commands: [],
+      }],
+    }));
+
+    expect(summary).toContain('suggested_actions: escalation_required | notify_human_blocked');
+  });
 });

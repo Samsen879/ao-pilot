@@ -319,6 +319,26 @@ function buildRoutingDecision({
     };
   }
 
+  if (scope?.mode !== 'project' && doctorControlStatus === 'blocked') {
+    return {
+      action: 'hold_for_human',
+      owner_session: assessment?.ownership?.owner_session ?? null,
+      target_pr_number: assessment?.pr_number ?? scope?.pr_number ?? null,
+      reason_codes: ['doctor_blocks_control'],
+      authoritative: false,
+    };
+  }
+
+  if (scope?.mode !== 'project' && doctorControlStatus === 'ambiguous') {
+    return {
+      action: 'pause_affected_scope',
+      owner_session: assessment?.ownership?.owner_session ?? null,
+      target_pr_number: assessment?.pr_number ?? scope?.pr_number ?? null,
+      reason_codes: ['doctor_ambiguous'],
+      authoritative: false,
+    };
+  }
+
   if (Object.values(sourceHealth).some((state) => state === 'degraded')) {
     return {
       action: 'refresh_affected_scope',
@@ -345,26 +365,6 @@ function buildRoutingDecision({
       owner_session: null,
       target_pr_number: null,
       reason_codes: ['trigger_requires_pr_scope'],
-      authoritative: false,
-    };
-  }
-
-  if (doctorControlStatus === 'blocked') {
-    return {
-      action: 'hold_for_human',
-      owner_session: assessment?.ownership?.owner_session ?? null,
-      target_pr_number: assessment?.pr_number ?? scope?.pr_number ?? null,
-      reason_codes: ['doctor_blocks_control'],
-      authoritative: false,
-    };
-  }
-
-  if (doctorControlStatus === 'ambiguous') {
-    return {
-      action: 'pause_affected_scope',
-      owner_session: assessment?.ownership?.owner_session ?? null,
-      target_pr_number: assessment?.pr_number ?? scope?.pr_number ?? null,
-      reason_codes: ['doctor_ambiguous'],
       authoritative: false,
     };
   }
@@ -435,6 +435,18 @@ function buildReleaseDecision({
     });
   }
 
+  if (scope?.mode !== 'project' && doctorControlStatus === 'blocked') {
+    return {
+      disposition: 'no_release_action',
+      basis: ['doctor_blocks_control'],
+      authoritative: false,
+    };
+  }
+
+  if (scope?.mode !== 'project' && doctorControlStatus === 'ambiguous') {
+    return createEscalationRequiredDecision({ scope, basis: ['doctor_ambiguous'] });
+  }
+
   if (Object.values(sourceHealth).some((state) => state === 'degraded')) {
     return createRefreshRequiredDecision({
       scope,
@@ -455,18 +467,6 @@ function buildReleaseDecision({
       basis: ['project_scope_advisory_only'],
       authoritative: false,
     };
-  }
-
-  if (doctorControlStatus === 'blocked') {
-    return {
-      disposition: 'no_release_action',
-      basis: ['doctor_blocks_control'],
-      authoritative: false,
-    };
-  }
-
-  if (doctorControlStatus === 'ambiguous') {
-    return createEscalationRequiredDecision({ scope, basis: ['doctor_ambiguous'] });
   }
 
   if (!assessment) {
@@ -660,7 +660,7 @@ function buildLifecycleFindings({
       summary: 'Lifecycle control cannot determine a safe owner.',
       details: ['Ownership continuity remains ambiguous.'],
       evidence_refs: [],
-      action_ids: ['human_gate'],
+      action_ids: ['escalation_required'],
     }));
   }
 
@@ -859,6 +859,27 @@ function buildLifecycleFindings({
   return findings;
 }
 
+function pauseRoutingForEscalation(routingDecision, releaseDecision) {
+  if (releaseDecision.disposition !== INTERVENTION_JUDGMENTS.ESCALATION_REQUIRED) {
+    return routingDecision;
+  }
+
+  const continuationReasons = new Set([
+    'ownership_clear',
+    'ownership_stale',
+    'ownership_orphaned',
+  ]);
+  return {
+    ...routingDecision,
+    action: 'pause_affected_scope',
+    reason_codes: [...new Set([
+      ...(routingDecision.reason_codes ?? []).filter((code) => !continuationReasons.has(code)),
+      ...(releaseDecision.basis ?? []),
+    ])],
+    authoritative: false,
+  };
+}
+
 function buildActionTemplates(scope) {
   const projectId = scope?.project_id ?? 'my-project';
   const prNumber = scope?.pr_number;
@@ -1045,13 +1066,13 @@ export function applyReviewGateToLifecycleReport({
     return lifecycleReport;
   }
 
-  const normalizedRoutingDecision = {
+  const normalizedRoutingDecision = pauseRoutingForEscalation({
     action: lifecycleReport?.routing_decision?.action ?? 'no_action',
     owner_session: lifecycleReport?.routing_decision?.owner_session ?? null,
     target_pr_number: lifecycleReport?.routing_decision?.target_pr_number ?? lifecycleReport?.scope?.pr_number ?? null,
     reason_codes: lifecycleReport?.routing_decision?.reason_codes ?? [],
     authoritative: lifecycleReport?.routing_decision?.authoritative ?? false,
-  };
+  }, nextReleaseDecision);
   const nextFindings = [
     ...(lifecycleReport.findings ?? []).filter((finding) => finding?.origin !== 'lifecycle'),
     ...buildLifecycleFindings({
@@ -1070,6 +1091,7 @@ export function applyReviewGateToLifecycleReport({
       routingDecision: normalizedRoutingDecision,
       releaseDecision: nextReleaseDecision,
     }),
+    routing_decision: normalizedRoutingDecision,
     release_decision: nextReleaseDecision,
     findings: nextFindings,
     actions: nextActions,
@@ -1089,7 +1111,7 @@ export function buildLifecycleReport({
   const sourceHealth = deriveLifecycleSourceHealth(reconciliationReport, doctorReport);
   const doctorControlStatus = deriveDoctorControlStatus(doctorReport);
   const assessment = selectSingleAssessment(scope, reconciliationReport);
-  const routingDecision = buildRoutingDecision({
+  const initialRoutingDecision = buildRoutingDecision({
     scope,
     assessment,
     doctorControlStatus,
@@ -1104,6 +1126,7 @@ export function buildLifecycleReport({
     currentHeadSha,
     releaseReadyAction: normalizedReleaseReadyAction,
   });
+  const routingDecision = pauseRoutingForEscalation(initialRoutingDecision, releaseDecision);
   const findings = [
     ...preserveReconciliationFindings(reconciliationReport),
     ...preserveDoctorFindings(doctorReport),
