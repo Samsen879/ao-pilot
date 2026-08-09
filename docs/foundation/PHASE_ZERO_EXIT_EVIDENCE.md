@@ -48,14 +48,15 @@ risk, and excluded scope. It executes the fixtures twice and compares the
 committed [`phase-zero-exit-replay-receipt.v1.json`](phase-zero-exit-replay-receipt.v1.json).
 
 ```sh
-npm run verify:phase-zero-exit
 node scripts/verify-phase-zero-exit-evidence.js \
   --expected-head <reviewed-head-sha> --expected-tree <reviewed-tree-sha>
+AO_PHASE_ZERO_EXPECTED_HEAD=<reviewed-head-sha> \
+AO_PHASE_ZERO_EXPECTED_TREE=<reviewed-tree-sha> npm run release:check
 ```
 
-The first command binds its output to the live Git HEAD/tree. The second also
-fails unless that live identity equals the independently supplied reviewed
-candidate. A committed manifest cannot contain its own commit hash without a
+Both exact identities are required; omission is a failing gate. Verification
+also rejects any tracked or untracked worktree bytes. A committed manifest
+cannot contain its own commit hash without a
 self-reference cycle, so immutable head authority comes from the exact-head
 CI/review/provider handoff; the repository freezes the semantic receipt and
 explicitly claims no merge.

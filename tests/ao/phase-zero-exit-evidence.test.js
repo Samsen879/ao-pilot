@@ -1,4 +1,7 @@
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from '@jest/globals';
@@ -12,6 +15,10 @@ import {
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const bundle = loadPhaseZeroEvidence(repositoryRoot);
+
+function git(args, cwd) {
+  return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+}
 
 describe('Phase 0 integrated exit evidence', () => {
   it('accepts the exact F01-F11 evidence chain and frozen contracts', () => {
@@ -54,6 +61,10 @@ describe('Phase 0 integrated exit evidence', () => {
     const narrowedCoverage = structuredClone(bundle);
     narrowedCoverage.trajectory.completion_record.candidate_field_count = 39;
     expect(() => validatePhaseZeroEvidence(narrowedCoverage, { repositoryRoot })).toThrow('field count drifted');
+
+    const schemaPath = structuredClone(bundle);
+    schemaPath.trajectory.completion_record.schema_path = 'package.json';
+    expect(() => validatePhaseZeroEvidence(schemaPath, { repositoryRoot })).toThrow('schema path drifted');
   });
 
   it('keeps revoked history non-authoritative and does not claim contamination', () => {
@@ -122,17 +133,27 @@ describe('Phase 0 integrated exit evidence', () => {
       .toThrow('contradicts manifest');
   });
 
-  it('pins class-specific scenario outcomes and reads the live candidate identity', () => {
+  it('pins class-specific scenario outcomes and rejects dirty Git evidence', () => {
     const allFailure = structuredClone(bundle);
     allFailure.fixtures.scenarios[0].mutation = 'artifact_digest_missing';
     allFailure.fixtures.scenarios[0].expected = 'blocked';
     expect(() => validatePhaseZeroEvidence(allFailure, { repositoryRoot }))
       .toThrow('scenario semantics drifted');
 
-    expect(readGitIdentity(repositoryRoot)).toEqual({
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'phase-zero-git-'));
+    git(['init', '--quiet'], tempRoot);
+    git(['config', 'user.email', 'phase-zero@example.invalid'], tempRoot);
+    git(['config', 'user.name', 'Phase Zero'], tempRoot);
+    fs.writeFileSync(path.join(tempRoot, 'evidence.txt'), 'accepted\n');
+    git(['add', 'evidence.txt'], tempRoot);
+    git(['commit', '--quiet', '-m', 'fixture'], tempRoot);
+    expect(readGitIdentity(tempRoot)).toEqual({
       head_sha: expect.stringMatching(/^[0-9a-f]{40}$/),
       tree_sha: expect.stringMatching(/^[0-9a-f]{40}$/),
     });
+    fs.writeFileSync(path.join(tempRoot, 'untracked.txt'), 'drift\n');
+    expect(() => readGitIdentity(tempRoot)).toThrow('must be clean');
+    fs.rmSync(tempRoot, { recursive: true, force: true });
   });
 
   it('requires deterministic double replay', () => {

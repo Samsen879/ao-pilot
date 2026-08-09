@@ -15,6 +15,11 @@ import {
   loadTrajectoryVocabulary,
   validateTrajectoryVocabulary,
 } from './trajectory-vocabulary.js';
+import {
+  CONTROLLER_LEASE_SAFETY_RECEIPT_SCHEMA_VERSION,
+  digestControllerLeaseSafetyEvidence,
+  loadControllerLeaseSafetyFixturePack,
+} from '../controller-lease-safety-evaluation.js';
 
 export const PHASE_ZERO_MANIFEST_VERSION = 'ao.phase-zero-exit-manifest.v1';
 export const PHASE_ZERO_REPLAY_VERSION = 'ao.phase-zero-exit-replay-receipt.v1';
@@ -139,6 +144,8 @@ function validateTrajectoryReport(trajectory, repositoryRoot) {
   assert(trajectory.false_success.unresolved_producer_count === falseSuccess.summary.unresolved_producer_count, 'False-success producer count drifted');
   assert(trajectory.false_success.unresolved_promotion_path_count === 0, 'Trajectory truthfulness has an unresolved promotion path');
   exactKeys(trajectory.completion_record, ['schema_version', 'schema_path', 'input_manifest_schema_path', 'candidate_field_count', 'required_count', 'conditional_count', 'unsupported_count', 'coverage_fingerprint', 'missing_required_policy', 'unsupported_narrative_policy'], 'trajectory.completion_record');
+  assert(trajectory.completion_record.schema_path === 'schemas/ao.child-completion.v1alpha1.schema.json', 'Completion Record schema path drifted');
+  assert(trajectory.completion_record.input_manifest_schema_path === 'schemas/ao.child-completion-input-manifest.v1alpha1.schema.json', 'Completion input manifest schema path drifted');
   assert(completionSchema.properties.schema_version.const === trajectory.completion_record.schema_version, 'Completion Record schema version drifted');
   assert(inputSchema.properties.schema_version.const === 'ao.child-completion-input-manifest.v1alpha1', 'Completion input schema drifted');
   assert(trajectory.completion_record.coverage_fingerprint === coverage.report_fingerprint, 'Completion field coverage fingerprint drifted from source');
@@ -158,6 +165,15 @@ function validateLeaseReport(lease, repositoryRoot) {
   assert(canonicalJson(lease.projection) === canonicalJson({ path: 'snapshot.state.controller_leases', persistent: false, source: 'validated_canonical_authority_only' }), 'Lease projection contract drifted');
   assert(canonicalJson(lease.failure_policy) === canonicalJson({ missing_or_invalid_canonical: 'fail_closed', shadow_fallback: 'prohibited', automatic_destructive_recovery: 'prohibited', explicit_recovery: 'stop_the_world_with_separate_authority' }), 'Lease failure policy drifted');
   const receipt = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'docs/foundation/controller-lease-safety-verification.v1.json'), 'utf8'));
+  const fixturePack = loadControllerLeaseSafetyFixturePack(path.join(repositoryRoot, 'tests/ao/fixtures/controller-lease-safety/pack.v1.json'));
+  exactKeys(receipt, ['schema_version', 'fixture_pack_digest', 'fixture_count', 'replay_count', 'case_execution_count', 'stable_run_digest', 'run_digests', 'class_counts', 'status', 'receipt_digest'], 'canonical lease safety receipt');
+  assert(receipt.schema_version === CONTROLLER_LEASE_SAFETY_RECEIPT_SCHEMA_VERSION && receipt.status === 'passed', 'Canonical lease safety receipt is not successful');
+  assert(receipt.fixture_pack_digest === digestControllerLeaseSafetyEvidence(fixturePack), 'Canonical lease fixture digest drifted');
+  assert(receipt.fixture_count === fixturePack.cases.length && receipt.replay_count === fixturePack.required_replays && receipt.case_execution_count === fixturePack.cases.length * fixturePack.required_replays, 'Canonical lease safety counts drifted');
+  assert(receipt.run_digests.length === receipt.replay_count && receipt.run_digests.every((digest) => digest === receipt.stable_run_digest), 'Canonical lease safety replay is not deterministic');
+  const classCounts = Object.fromEntries([...new Set(fixturePack.cases.map((entry) => entry.class))].sort().map((name) => [name, fixturePack.cases.filter((entry) => entry.class === name).length]));
+  assert(canonicalJson(receipt.class_counts) === canonicalJson(classCounts), 'Canonical lease safety class coverage drifted');
+  assert(receipt.receipt_digest === digestControllerLeaseSafetyEvidence({ ...receipt, receipt_digest: undefined }), 'Canonical lease safety self-digest drifted');
   assert(canonicalJson(lease.replay) === canonicalJson({
     fixture_count: receipt.fixture_count,
     replay_count: receipt.replay_count,
@@ -290,6 +306,7 @@ export function replayPhaseZeroEvidence(bundle, { repositoryRoot, replayCount } 
 
 export function readGitIdentity(repositoryRoot) {
   const read = (args) => execFileSync('git', args, { cwd: repositoryRoot, encoding: 'utf8' }).trim();
+  assert(read(['status', '--porcelain=v1', '--untracked-files=all']) === '', 'Evidence worktree must be clean');
   const identity = { head_sha: read(['rev-parse', 'HEAD']), tree_sha: read(['rev-parse', 'HEAD^{tree}']) };
   assert(SHA.test(identity.head_sha) && SHA.test(identity.tree_sha), 'Live Git identity invalid');
   return identity;
