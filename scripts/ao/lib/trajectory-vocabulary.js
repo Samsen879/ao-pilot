@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -50,6 +51,58 @@ function symbolSection(source, symbol) {
   return nextDeclaration == null ? remainder : remainder.slice(0, nextDeclaration.index);
 }
 
+function constantArrayValues(source, symbol) {
+  const declaration = new RegExp(
+    `(?:export\\s+)?const\\s+${escapeRegExp(symbol)}\\s*=\\s*(?:Object\\.freeze\\(\\s*)?\\[([\\s\\S]*?)\\]`,
+  ).exec(source);
+  if (!declaration) return null;
+  return [...declaration[1].matchAll(/(['"])(.*?)\1/g)].map((match) => match[2]);
+}
+
+function semanticLayer(item) {
+  const role = String(item?.episode_role ?? '');
+  if (role.startsWith('judgment.') || role.startsWith('mapping.')) return 'ao_judgment';
+  if (role === 'execution.or_effect') return 'or_effect';
+  if (role.startsWith('outcome.') || role.startsWith('review.provider_') || role.startsWith('ci.provider_')) {
+    return 'provider_outcome';
+  }
+  return null;
+}
+
+function validateBaseline(baseline, repositoryRoot, verifyGit) {
+  const shaPattern = /^[0-9a-f]{40}$/;
+  const issueBodySha = nonEmptyString(baseline?.issue_body_sha, 'baseline.issue_body_sha');
+  const issueBodyTree = nonEmptyString(baseline?.issue_body_tree, 'baseline.issue_body_tree');
+  const admittedSha = nonEmptyString(baseline?.admitted_sha, 'baseline.admitted_sha');
+  const admittedTree = nonEmptyString(baseline?.admitted_tree, 'baseline.admitted_tree');
+  assert(shaPattern.test(issueBodySha), 'Invalid baseline.issue_body_sha');
+  assert(shaPattern.test(issueBodyTree), 'Invalid baseline.issue_body_tree');
+  assert(shaPattern.test(admittedSha), 'Invalid baseline.admitted_sha');
+  assert(shaPattern.test(admittedTree), 'Invalid baseline.admitted_tree');
+  assert(
+    baseline?.relationship === 'issue_body_sha_is_ancestor_of_admitted_sha',
+    'Invalid baseline.relationship',
+  );
+
+  if (!verifyGit) return;
+  const git = (args) => execFileSync('git', args, {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
+  try {
+    assert(git(['rev-parse', `${issueBodySha}^{tree}`]) === issueBodyTree, 'Issue-body tree does not match baseline SHA');
+    assert(git(['rev-parse', `${admittedSha}^{tree}`]) === admittedTree, 'Admitted tree does not match baseline SHA');
+    execFileSync('git', ['merge-base', '--is-ancestor', issueBodySha, admittedSha], {
+      cwd: repositoryRoot,
+      stdio: 'ignore',
+    });
+  } catch (error) {
+    if (error?.message?.startsWith('Issue-body tree') || error?.message?.startsWith('Admitted tree')) throw error;
+    throw new Error('Issue-body SHA is not an ancestor of admitted SHA');
+  }
+}
+
 export function trajectoryVocabularyDigest(inventory) {
   return createHash('sha256')
     .update(JSON.stringify(canonicalJson(inventory)))
@@ -71,6 +124,7 @@ function validateReference(reference, label, repositoryRoot, {
   assert(['constant', 'documentation', 'function', 'literal'].includes(kind), `Invalid ${label}.kind`);
   assert(!path.isAbsolute(relativePath) && !relativePath.split('/').includes('..'), `Unbounded ${label}.path`);
 
+  let declaredValues = null;
   if (verifySource) {
     const absolutePath = path.join(repositoryRoot, relativePath);
     assert(fs.existsSync(absolutePath), `Missing ${label} file: ${relativePath}`);
@@ -82,6 +136,7 @@ function validateReference(reference, label, repositoryRoot, {
     } else if (kind === 'constant') {
       const declaration = new RegExp(`(?:export\\s+)?const\\s+${escapeRegExp(symbol)}\\b`);
       assert(declaration.test(source), `Missing ${label} constant ${symbol} in ${relativePath}`);
+      declaredValues = constantArrayValues(source, symbol);
     } else {
       assert(source.includes(symbol), `Missing ${label} ${kind} ${symbol} in ${relativePath}`);
     }
@@ -96,7 +151,7 @@ function validateReference(reference, label, repositoryRoot, {
     }
   }
 
-  return { path: relativePath, symbol, kind };
+  return { path: relativePath, symbol, kind, declaredValues };
 }
 
 export function validateTrajectoryVocabulary(inventory, {
@@ -105,9 +160,7 @@ export function validateTrajectoryVocabulary(inventory, {
 } = {}) {
   assert(inventory?.schema_version === TRAJECTORY_VOCABULARY_SCHEMA_VERSION, 'Unsupported trajectory vocabulary schema');
   nonEmptyString(inventory.inventory_version, 'inventory_version');
-  nonEmptyString(inventory.baseline?.issue_body_sha, 'baseline.issue_body_sha');
-  nonEmptyString(inventory.baseline?.admitted_sha, 'baseline.admitted_sha');
-  nonEmptyString(inventory.baseline?.admitted_tree, 'baseline.admitted_tree');
+  validateBaseline(inventory.baseline, repositoryRoot, verifySource);
   assert(Array.isArray(inventory.families), 'Missing families');
   assert(Array.isArray(inventory.items) && inventory.items.length > 0, 'Missing vocabulary items');
   assert(Array.isArray(inventory.ambiguities), 'Missing ambiguity ledger');
@@ -137,10 +190,16 @@ export function validateTrajectoryVocabulary(inventory, {
     assert(Array.isArray(item.values) && item.values.length > 0, `Missing values for ${id}`);
     assert(item.values.every((value) => typeof value === 'string' && value !== ''), `Invalid values for ${id}`);
     assert(sortedUnique(item.values).length === item.values.length, `Duplicate values for ${id}`);
-    validateReference(item.source, `${prefix}.source`, repositoryRoot, {
+    const sourceReference = validateReference(item.source, `${prefix}.source`, repositoryRoot, {
       verifySource,
       references: inventory.references,
     });
+    if (sourceReference.declaredValues != null) {
+      assert(
+        JSON.stringify(sortedUnique(item.values)) === JSON.stringify(sortedUnique(sourceReference.declaredValues)),
+        `Declared values for ${id} differ from source constant ${sourceReference.symbol}`,
+      );
+    }
     assert(Array.isArray(item.producers) && item.producers.length > 0, `Missing producer for ${id}`);
     assert(Array.isArray(item.consumers) && item.consumers.length > 0, `Missing consumer for ${id}`);
     item.producers.forEach((reference, refIndex) => validateReference(
@@ -163,13 +222,33 @@ export function validateTrajectoryVocabulary(inventory, {
 
   const separations = inventory.required_separations;
   assert(separations != null && typeof separations === 'object', 'Missing required separations');
-  const separationItems = ['ao_judgment', 'or_effect', 'provider_outcome'].map((key) => {
+  const separationKeys = ['ao_judgment', 'or_effect', 'provider_outcome'];
+  const separationItems = separationKeys.map((key) => {
     const id = nonEmptyString(separations[key], `required_separations.${key}`);
     assert(itemIds.has(id), `Unknown required separation item: ${id}`);
     return inventory.items.find((item) => item.id === id);
   });
+  separationItems.forEach((item, index) => {
+    assert(semanticLayer(item) === separationKeys[index], `Required separation item has wrong semantic layer: ${item.id}`);
+  });
   assert(new Set(separationItems.map((item, index) => nonEmptyString(item.semantic_owner, `required separation ${index} semantic_owner`))).size === 3, 'AO judgment, OR effect, and provider outcome must have distinct semantic owners');
   assert(new Set(separationItems.map((item, index) => nonEmptyString(item.evidence_authority, `required separation ${index} evidence_authority`))).size === 3, 'AO judgment, OR effect, and provider outcome must have distinct evidence authorities');
+  const layerItems = Object.fromEntries(separationKeys.map((key) => [
+    key,
+    inventory.items.filter((item) => semanticLayer(item) === key),
+  ]));
+  for (const key of separationKeys) assert(layerItems[key].length > 0, `Missing semantic layer: ${key}`);
+  for (const [leftIndex, leftKey] of separationKeys.entries()) {
+    for (const rightKey of separationKeys.slice(leftIndex + 1)) {
+      for (const field of ['semantic_owner', 'evidence_authority']) {
+        const leftValues = new Set(layerItems[leftKey].map((item) => nonEmptyString(item[field], `${item.id}.${field}`)));
+        const overlap = layerItems[rightKey]
+          .map((item) => nonEmptyString(item[field], `${item.id}.${field}`))
+          .find((value) => leftValues.has(value));
+        assert(overlap == null, `${leftKey} and ${rightKey} must have distinct ${field} values across every role row`);
+      }
+    }
+  }
 
   const ambiguityIds = new Set();
   for (const [index, ambiguity] of inventory.ambiguities.entries()) {
@@ -214,6 +293,8 @@ export function validateTrajectoryFixture(fixture, inventory) {
   }
   if (scenario === 'missing_evidence') {
     assert(fixture.evidence_complete === false, 'Missing-evidence fixture must be incomplete');
+  } else {
+    assert(fixture.evidence_complete === true, `${scenario} fixture must have complete evidence`);
   }
   if (scenario === 'replay') {
     nonEmptyString(fixture.replay_of, 'fixture.replay_of');
@@ -231,6 +312,9 @@ export function validateTrajectoryFixture(fixture, inventory) {
 
 export function validateTrajectoryFixtureSet(fixtures, inventory) {
   assert(Array.isArray(fixtures), 'Fixture set must be an array');
+  assert(fixtures.length === 4, 'Fixture set must contain exactly four scenarios');
+  const scenarioNames = fixtures.map((fixture) => nonEmptyString(fixture?.scenario, 'fixture.scenario'));
+  assert(new Set(scenarioNames).size === scenarioNames.length, 'Duplicate fixture scenario');
   const reports = fixtures.map((fixture) => validateTrajectoryFixture(fixture, inventory));
   const byScenario = new Map(fixtures.map((fixture, index) => [fixture.scenario, {
     fixture,

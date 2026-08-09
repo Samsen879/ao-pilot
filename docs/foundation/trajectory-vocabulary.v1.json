@@ -29,6 +29,7 @@
     "execution_records": { "path": "scripts/ao/lib/action-executor.js", "symbol": "buildEffectReceipt", "evidence": ["attempt_id:", "delivery_semantics:"] },
     "execution_run": { "path": "scripts/ao/lib/action-executor.js", "symbol": "executeAssistActions", "evidence": ["repository.upsertAction", "executionDetails"] },
     "auto_merge_execution": { "path": "scripts/ao/lib/action-executor.js", "symbol": "prepareAutoMergeExecution", "evidence": ["confirmed_state", "confirmed_head_sha"] },
+    "auto_merge_persistence": { "path": "scripts/ao/lib/action-executor.js", "symbol": "executeAssistActions", "evidence": ["autoMergeReceipt", "autoMergeResult.details"] },
     "command_receipt": { "path": "scripts/ao/lib/action-executor.js", "symbol": "sanitizeCommandReceipt", "evidence": ["command:", "status:"] },
     "transport_receipt": { "path": "scripts/ao/lib/action-executor.js", "symbol": "sanitizeTransportReceipt", "evidence": ["delivery_semantics:", "idempotency_key:"] },
     "blocked_transport": { "path": "scripts/ao/lib/blocked-notification-transport.js", "symbol": "createBlockedNotificationWebhookTransport", "evidence": ["status: 'failed'", "status: 'succeeded'"] },
@@ -64,7 +65,7 @@
     "review_record": { "path": "scripts/ao/lib/state-contracts.js", "symbol": "createReviewRecord", "evidence": ["verdict:", "status:"] },
     "review_protocol": { "path": "scripts/ao/lib/review-protocol.js", "symbol": "createReviewProtocol", "evidence": ["recordVerdict", "createReviewRecord"] },
     "review_posture": { "path": "scripts/ao/lib/review-contracts.js", "symbol": "deriveReviewPosture", "evidence": ["review_pending", "review_passed"] },
-    "github_normalizer": { "path": "scripts/ao/lib/github-observation-source.js", "symbol": "normalizePrObservation", "evidence": ["review_status:", "reviews:"] },
+    "github_normalizer": { "path": "scripts/ao/lib/github-observation-source.js", "symbol": "normalizePrObservation", "evidence": ["head_sha:", "review_status:", "reviews:"] },
     "github_reviews": { "path": "scripts/ao/lib/github-observation-source.js", "symbol": "normalizeReviews", "evidence": ["author_login:", "commit_oid:", "submitted_at:"] },
     "github_loader": { "path": "scripts/ao/lib/github-observation-source.js", "symbol": "loadGitHubObservationSet", "evidence": ["fetchPrObservationByNumber", "fetchPrObservationsByBranch"] },
     "ci_normalizer": { "path": "scripts/ao/lib/github-observation-source.js", "symbol": "normalizeCiStatus", "evidence": ["entry.status", "entry.conclusion"] },
@@ -126,11 +127,11 @@
       "source": "execution_records", "producers": ["execution_run"], "consumers": ["action_summary"]
     },
     {
-      "id": "execution.command_receipt_fields", "family": "execution_receipt", "field": "payload.execution.details.command_receipts[].*",
-      "values": ["args", "command", "cwd", "error_name", "signal", "status"],
+      "id": "execution.command_receipt_fields", "family": "execution_receipt", "field": "payload.execution.effect.receipt.command_receipts[].*",
+      "values": ["args", "command", "cwd", "signal", "status"],
       "meaning": "Sanitized subprocess fact set; exit status is process evidence, never merge outcome evidence.",
       "semantic_owner": "AO command adapter", "evidence_authority": "local subprocess result", "episode_role": "execution.command_receipt",
-      "source": "command_receipt", "producers": ["execution_run"], "consumers": ["action_summary"]
+      "source": "command_receipt", "producers": ["auto_merge_execution"], "consumers": ["auto_merge_persistence"]
     },
     {
       "id": "execution.transport_receipt_fields", "family": "execution_receipt", "field": "payload.execution.effect.receipt.*",
@@ -218,14 +219,14 @@
     },
     {
       "id": "lifecycle.release_basis", "family": "lifecycle_disposition", "field": "lifecycle.release_decision.basis[]",
-      "values": ["bugbot_comments", "ci_blocked", "doctor_ambiguous", "doctor_blocks_control", "merge_conflict_blocked", "mergeability_unknown", "missing_pr_assessment", "none", "project_scope_advisory_only", "ready_for_auto_merge", "ready_for_human_notification", "review_blocked", "review_changes_required", "review_escalated", "review_missing", "review_pending", "review_target_mismatch", "source_failure"],
+      "values": ["all_release_signals_clear", "branch_mismatch_with_github", "bugbot_comments", "ci_blocked", "ci_pending", "ci_unknown", "doctor_ambiguous", "doctor_blocks_control", "draft_pr", "fallback_ambiguous", "merge_conflict_blocked", "mergeability_unknown", "missing_pr_assessment", "none", "orphan_open_pr", "ownership_ambiguous", "ownership_orphaned", "ownership_stale", "ownership_unknown", "pr_not_open", "project_scope_advisory_only", "ready_for_auto_merge", "ready_for_human_notification", "review_blocked", "review_changes_required", "review_escalated", "review_missing", "review_pending", "review_target_mismatch", "review_unknown", "source_failure"],
       "meaning": "Reason vocabulary that disambiguates identical release dispositions; an empty basis is recorded as none rather than inferred.",
       "semantic_owner": "AO release judgment", "evidence_authority": "AO lifecycle decision basis", "episode_role": "judgment.release_basis",
       "source": "lifecycle_engine", "producers": ["lifecycle_engine", "lifecycle_review_gate"], "consumers": ["decision_chain", "action_builder"]
     },
     {
       "id": "lifecycle.human_gate_mapping", "family": "lifecycle_disposition", "field": "episode_mapping.release_decision.human_gate",
-      "values": ["doctor_ambiguous:escalation_required", "missing_pr_assessment:refresh_required", "source_failure:retry_required"],
+      "values": ["doctor_ambiguous:escalation_required", "fallback_ambiguous:escalation_required", "missing_pr_assessment:refresh_required", "release_status_ambiguous:escalation_required", "review_escalated:escalation_required", "source_failure:retry_required"],
       "meaning": "Required later Episode mapping: authority ambiguity escalates, missing assessment refreshes, and source failure retries; human_gate alone is insufficient.",
       "semantic_owner": "AO trajectory substrate contract", "evidence_authority": "versioned substrate design", "episode_role": "mapping.human_gate_basis",
       "source": "human_gate_mapping", "producers": ["human_gate_mapping"], "consumers": ["human_gate_mapping"]
@@ -273,6 +274,13 @@
       "source": "github_normalizer", "producers": ["github_loader"], "consumers": ["reconciliation_engine"]
     },
     {
+      "id": "review.github_target_head", "family": "review_verdict", "field": "github.prs[].head_sha",
+      "values": ["git_sha", "missing"],
+      "meaning": "Provider-observed target HEAD for the same PR observation; each reviews[].commit_oid must be compared with this value before treating that review as exact-HEAD evidence.",
+      "semantic_owner": "GitHub review evidence", "evidence_authority": "GitHub pull request API", "episode_role": "review.provider_target_head",
+      "source": "github_normalizer", "producers": ["github_loader"], "consumers": ["github_normalizer", "reconciliation_engine"]
+    },
+    {
       "id": "review.github_review_fields", "family": "review_verdict", "field": "github.prs[].reviews[].*",
       "values": ["author_login", "commit_oid", "review_id", "state", "submitted_at"],
       "meaning": "Complete per-review provider evidence needed to bind actor, exact reviewed HEAD, submission time, and review identity.",
@@ -315,11 +323,11 @@
       "source": "mergeability_normalizer", "producers": ["github_loader"], "consumers": ["reconciliation_engine"]
     },
     {
-      "id": "merge.assist_confirmation", "family": "merge_observation", "field": "action.payload.execution.details.confirmed_state",
-      "values": ["MERGED", "missing", "non_merged"],
-      "meaning": "Immediate guarded provider readback by the legacy assist merge adapter; without MERGED and matching head the effect is unconfirmed.",
+      "id": "merge.assist_confirmation", "family": "merge_observation", "field": "action.payload.execution.effect.receipt.result.confirmed_state",
+      "values": ["CLOSED", "MERGED", "OPEN", "empty_string"],
+      "meaning": "Actual normalized provider state stored by the legacy assist merge readback; empty_string represents absent provider state, and only MERGED with a matching head confirms the effect.",
       "semantic_owner": "legacy AO merge adapter", "evidence_authority": "fresh GitHub PR readback", "episode_role": "outcome.legacy_merge_confirmation",
-      "source": "execution_run", "producers": ["execution_run"], "consumers": ["action_summary"]
+      "source": "auto_merge_execution", "producers": ["auto_merge_execution"], "consumers": ["auto_merge_persistence"]
     },
     {
       "id": "checkpoint.checkpoint_id", "family": "checkpoint", "field": "checkpoints[].checkpoint_id", "values": ["non_empty_string"], "meaning": "Stable checkpoint identity.", "semantic_owner": "AO checkpoint store", "evidence_authority": "checkpoint record", "episode_role": "checkpoint.identity", "source": "checkpoint_contract", "producers": ["checkpoint_producer"], "consumers": ["checkpoint_validator", "checkpoint_replay"]

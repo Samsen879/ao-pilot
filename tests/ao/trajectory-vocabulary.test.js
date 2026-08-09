@@ -81,6 +81,27 @@ describe('trajectory vocabulary inventory', () => {
       .toThrow('Missing items[2].consumers[0] relationship evidence');
   });
 
+  it('fails closed when a declared constant vocabulary drifts from its source enum', () => {
+    const drifted = structuredClone(inventory);
+    const topStatus = drifted.items.find((item) => item.id === 'lifecycle.top_status');
+    topStatus.values = topStatus.values.filter((value) => value !== 'observe');
+
+    expect(() => validateTrajectoryVocabulary(drifted, { repositoryRoot }))
+      .toThrow('Declared values for lifecycle.top_status differ from source constant LIFECYCLE_TOP_STATUSES');
+  });
+
+  it('validates both baseline trees and the admitted ancestry relationship', () => {
+    const badTree = structuredClone(inventory);
+    badTree.baseline.issue_body_tree = '0'.repeat(40);
+    expect(() => validateTrajectoryVocabulary(badTree, { repositoryRoot }))
+      .toThrow('Issue-body tree does not match baseline SHA');
+
+    const badRelationship = structuredClone(inventory);
+    badRelationship.baseline.relationship = 'unverified';
+    expect(() => validateTrajectoryVocabulary(badRelationship, { repositoryRoot, verifySource: false }))
+      .toThrow('Invalid baseline.relationship');
+  });
+
   it('normalizes owner and authority identity before enforcing separation', () => {
     const whitespaceAlias = structuredClone(inventory);
     const aoJudgment = whitespaceAlias.items.find((item) => item.id === 'lifecycle.release_disposition');
@@ -89,6 +110,17 @@ describe('trajectory vocabulary inventory', () => {
 
     expect(() => validateTrajectoryVocabulary(whitespaceAlias, { repositoryRoot, verifySource: false }))
       .toThrow('must have distinct semantic owners');
+  });
+
+  it('enforces AO judgment, OR effect, and provider outcome separation across every role row', () => {
+    const aliased = structuredClone(inventory);
+    const routing = aliased.items.find((item) => item.id === 'lifecycle.routing_action');
+    const providerState = aliased.items.find((item) => item.id === 'merge.provider_pr_state');
+    routing.semantic_owner = providerState.semantic_owner;
+    routing.evidence_authority = providerState.evidence_authority;
+
+    expect(() => validateTrajectoryVocabulary(aliased, { repositoryRoot, verifySource: false }))
+      .toThrow('ao_judgment and provider_outcome must have distinct semantic_owner values across every role row');
   });
 
   it('rejects replay targets that are missing or semantically different', () => {
@@ -108,6 +140,20 @@ describe('trajectory vocabulary inventory', () => {
       .toThrow('Replay projection differs from success');
   });
 
+  it('requires complete positive evidence and unique fixture scenarios', () => {
+    const incompleteSuccess = loadFixture('success');
+    incompleteSuccess.evidence_complete = false;
+    expect(() => validateTrajectoryFixture(incompleteSuccess, inventory))
+      .toThrow('success fixture must have complete evidence');
+
+    expect(() => validateTrajectoryFixtureSet([
+      loadFixture('failure'),
+      loadFixture('missing-evidence'),
+      loadFixture('success'),
+      loadFixture('success'),
+    ], inventory)).toThrow('Duplicate fixture scenario');
+  });
+
   it('retains per-review evidence, distinct CI outcomes, and human-gate basis mappings', () => {
     const item = (id) => inventory.items.find((entry) => entry.id === id);
 
@@ -115,13 +161,26 @@ describe('trajectory vocabulary inventory', () => {
       'author_login', 'commit_oid', 'review_id', 'state', 'submitted_at',
     ]);
     expect(item('review.github_review_state').values).toContain('commented');
+    expect(item('review.github_target_head').meaning).toContain('reviews[].commit_oid');
     expect(item('ci.raw_check_state').values).toEqual(expect.arrayContaining([
       'completed_failure', 'completed_startup_failure', 'completed_cancelled', 'not_run', 'queued',
     ]));
+    expect(item('lifecycle.release_basis').values).toEqual(expect.arrayContaining([
+      'all_release_signals_clear', 'branch_mismatch_with_github', 'ci_pending', 'fallback_ambiguous',
+      'review_unknown',
+    ]));
     expect(item('lifecycle.human_gate_mapping').values).toEqual(expect.arrayContaining([
       'doctor_ambiguous:escalation_required',
+      'fallback_ambiguous:escalation_required',
       'missing_pr_assessment:refresh_required',
+      'release_status_ambiguous:escalation_required',
+      'review_escalated:escalation_required',
       'source_failure:retry_required',
     ]));
+    expect(item('execution.command_receipt_fields').field)
+      .toBe('payload.execution.effect.receipt.command_receipts[].*');
+    expect(item('execution.command_receipt_fields').values)
+      .toEqual(['args', 'command', 'cwd', 'signal', 'status']);
+    expect(item('merge.assist_confirmation').values).toEqual(['CLOSED', 'MERGED', 'OPEN', 'empty_string']);
   });
 });
