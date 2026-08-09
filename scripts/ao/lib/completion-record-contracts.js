@@ -62,7 +62,8 @@ function exactKeys(value, field, required, optional = []) {
 
 function requiredString(value, field) {
   assert(typeof value === 'string' && value.trim() !== '', `${field} is required`);
-  return value.trim();
+  assert(value === value.trim(), `${field} cannot have leading or trailing whitespace`);
+  return value;
 }
 
 function immutableRef(value, field) {

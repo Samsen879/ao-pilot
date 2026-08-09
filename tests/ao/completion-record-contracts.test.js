@@ -89,6 +89,7 @@ describe('child Completion Record v1alpha1 contracts', () => {
   it.each([
     ['negative/integrated-missing-evidence.json', /requires merge_sha and merge_observation_ref/i],
     ['negative/mixed-version.json', /unsupported completion record input manifest schema/i],
+    ['negative/padded-contract-string.json', /leading or trailing whitespace/i],
   ])('rejects negative Completion Record fixture %s', (name, expected) => {
     expect(() => normalizeCompletionRecord(fixture(name))).toThrow(expected);
   });
@@ -125,6 +126,38 @@ describe('child Completion Record v1alpha1 contracts', () => {
     };
     expect(normalizeCompletionRecord(record).review_round_summary)
       .toEqual(record.review_round_summary);
+  });
+
+  it('keeps schema and library rejection rules aligned for padded contract strings', () => {
+    const recordSchema = JSON.parse(fs.readFileSync(path.join(
+      repositoryRoot, 'schemas/ao.child-completion.v1alpha1.schema.json',
+    ), 'utf8'));
+    const manifestSchema = JSON.parse(fs.readFileSync(path.join(
+      repositoryRoot, 'schemas/ao.child-completion-input-manifest.v1alpha1.schema.json',
+    ), 'utf8'));
+    const paddedDigest = ` ${'a'.repeat(64)}`;
+    const paddedUri = ' evidence/review.json';
+    const paddedChildId = ' issue-15 ';
+
+    expect(new RegExp(recordSchema.$defs.sha256.pattern).test(paddedDigest)).toBe(false);
+    expect(new RegExp(recordSchema.$defs.repositoryUri.pattern).test(paddedUri)).toBe(false);
+    expect(new RegExp(recordSchema.$defs.nonEmptyString.pattern).test(paddedChildId)).toBe(false);
+    expect(new RegExp(manifestSchema.properties.child_task_id.pattern).test(paddedChildId))
+      .toBe(false);
+
+    const record = fixture('positive/review-passed.json');
+    record.artifact.content_sha256 = paddedDigest;
+    expect(() => normalizeCompletionRecord(record)).toThrow(/leading or trailing whitespace/i);
+
+    const manifest = fixture('input-manifest.v1alpha1.json');
+    manifest.inputs[0].uri = paddedUri;
+    expect(() => normalizeCompletionInputManifest(manifest))
+      .toThrow(/leading or trailing whitespace/i);
+
+    const paddedIdentity = fixture('positive/review-passed.json');
+    paddedIdentity.child_task_id = paddedChildId;
+    expect(() => normalizeCompletionRecord(paddedIdentity))
+      .toThrow(/leading or trailing whitespace/i);
   });
 
   it('fails closed when terminal evidence or artifact custody is missing', () => {

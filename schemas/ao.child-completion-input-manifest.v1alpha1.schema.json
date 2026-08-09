@@ -7,7 +7,11 @@
   "required": ["schema_version", "child_task_id", "inputs"],
   "properties": {
     "schema_version": { "const": "ao.child-completion-input-manifest.v1alpha1" },
-    "child_task_id": { "type": "string", "minLength": 1, "pattern": "\\S" },
+    "child_task_id": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^\\S(?:.*\\S)?$"
+    },
     "inputs": {
       "type": "array",
       "minItems": 1,

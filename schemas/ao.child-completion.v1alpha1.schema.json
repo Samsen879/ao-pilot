@@ -131,7 +131,11 @@
     }
   ],
   "$defs": {
-    "nonEmptyString": { "type": "string", "minLength": 1, "pattern": "\\S" },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^\\S(?:.*\\S)?$"
+    },
     "immutableRef": { "type": "string", "minLength": 1, "pattern": "^[^\\s]+$" },
     "repositoryUri": {
       "type": "string",
