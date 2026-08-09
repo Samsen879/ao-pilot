@@ -96,7 +96,7 @@ function recoveryEvidence(kind) {
   return evidence;
 }
 
-function classifySafetyError(error) {
+export function classifyControllerLeaseSafetyError(error) {
   const message = String(error?.message ?? '');
   if (error instanceof SyntaxError) return 'canonical_authority_invalid_json';
   if (message.includes('Missing canonical controller lease authority')) return 'canonical_authority_missing';
@@ -264,7 +264,7 @@ async function executeCase(entry, tempRoots) {
     try {
       return { disposition: 'accepted', ...verifyControllerLeaseRecoveryEvidence(recoveryEvidence(entry.setup.recovery_evidence)) };
     } catch (error) {
-      return { disposition: 'rejected', error_code: classifySafetyError(error) };
+      return { disposition: 'rejected', error_code: classifyControllerLeaseSafetyError(error) };
     }
   }
   const { paths, repoRoot } = materialize(entry, tempRoots);
@@ -276,7 +276,7 @@ async function executeCase(entry, tempRoots) {
       clock: FIXED_NOW,
     }));
   } catch (error) {
-    return { disposition: 'rejected', error_code: classifySafetyError(error) };
+    return { disposition: 'rejected', error_code: classifyControllerLeaseSafetyError(error) };
   }
 }
 

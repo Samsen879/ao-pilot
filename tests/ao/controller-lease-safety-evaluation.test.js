@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from '@jest/globals';
 
 import {
+  classifyControllerLeaseSafetyError,
   digestControllerLeaseSafetyEvidence,
   loadControllerLeaseSafetyFixturePack,
   replayControllerLeaseSafetyFixturePack,
@@ -51,6 +52,21 @@ describe('controller lease safety evaluation pack', () => {
     drifted.cases[0].expected.lease_ids = ['stale-lease'];
     await expect(replayControllerLeaseSafetyFixturePack(drifted))
       .rejects.toThrow('canonical-wins-over-stale-shadow');
+  });
+
+  it('normalizes runtime-specific parse diagnostics to identical safety evidence', () => {
+    const node20 = new SyntaxError("Unexpected token 'i', \"{ invalid\"... is not valid JSON");
+    const node22 = new SyntaxError("Expected property name or '}' in JSON at position 2");
+    const observations = [node20, node22].map((error) => ({
+      disposition: 'rejected',
+      error_code: classifyControllerLeaseSafetyError(error),
+    }));
+    expect(observations[0]).toEqual({
+      disposition: 'rejected',
+      error_code: 'canonical_authority_invalid_json',
+    });
+    expect(digestControllerLeaseSafetyEvidence(observations[0]))
+      .toBe(digestControllerLeaseSafetyEvidence(observations[1]));
   });
 
   it('requires explicit operator intent and binds the resulting canonical authority', () => {
