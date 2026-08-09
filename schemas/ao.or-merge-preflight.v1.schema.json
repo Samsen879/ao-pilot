@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.ao-pilot.dev/ao.or-merge-preflight.v1.schema.json",
+  "title": "AO OR merge preflight v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "disposition", "reason_codes", "input_fingerprint", "binding", "effect_authority", "claims", "fingerprint"],
+  "properties": {
+    "schema_version": { "const": "ao.or-merge-preflight.v1" },
+    "disposition": { "enum": ["merge_authorized", "already_merged", "blocked"] },
+    "reason_codes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "input_fingerprint": { "$ref": "#/$defs/sha256" },
+    "binding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["repository", "task", "pull_request", "authorization_grant_fingerprint", "release_judgment_contract", "live_observation_fingerprint", "live_observed_at"],
+      "properties": {
+        "repository": { "anyOf": [{ "$ref": "#/$defs/repository" }, { "type": "null" }] },
+        "task": { "anyOf": [{ "$ref": "#/$defs/task" }, { "type": "null" }] },
+        "pull_request": { "anyOf": [{ "$ref": "#/$defs/pullRequest" }, { "type": "null" }] },
+        "authorization_grant_fingerprint": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "release_judgment_contract": { "type": ["string", "null"] },
+        "live_observation_fingerprint": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "live_observed_at": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "effect_authority": { "enum": ["or_only", "none"] },
+    "claims": {
+      "type": "object", "additionalProperties": false,
+      "required": ["ao_executed_merge", "merge_dispatched", "provider_merge_confirmed"],
+      "properties": {
+        "ao_executed_merge": { "const": false },
+        "merge_dispatched": { "const": false },
+        "provider_merge_confirmed": { "type": "boolean" }
+      }
+    },
+    "fingerprint": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "gitSha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
+    "repository": { "type": "object", "additionalProperties": false, "required": ["repository_id", "slug"], "properties": { "repository_id": { "type": ["integer", "null"], "minimum": 1 }, "slug": { "type": ["string", "null"] } } },
+    "task": { "type": "object", "additionalProperties": false, "required": ["admission_ref", "issue_number", "task_id"], "properties": { "admission_ref": { "type": ["string", "null"] }, "issue_number": { "type": ["integer", "null"], "minimum": 1 }, "task_id": { "type": ["string", "null"] } } },
+    "pullRequest": { "type": "object", "additionalProperties": false, "required": ["number", "base_ref", "base_sha", "head_ref", "head_sha"], "properties": { "number": { "type": ["integer", "null"], "minimum": 1 }, "base_ref": { "type": ["string", "null"] }, "base_sha": { "$ref": "#/$defs/gitSha" }, "head_ref": { "type": ["string", "null"] }, "head_sha": { "$ref": "#/$defs/gitSha" } } }
+  }
+}

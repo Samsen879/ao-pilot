@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.ao-pilot.dev/ao.or-merge-outcome.v1.schema.json",
+  "title": "AO OR merge outcome binding v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "disposition", "outcome", "reason_codes", "preflight_fingerprint", "dispatch", "provider_observation_fingerprint", "merge_binding", "claims", "fingerprint"],
+  "properties": {
+    "schema_version": { "const": "ao.or-merge-outcome.v1" },
+    "disposition": { "enum": ["confirmed_merged", "blocked"] },
+    "outcome": { "enum": ["merged", "already_merged", "unknown_effect", "not_merged"] },
+    "reason_codes": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "preflight_fingerprint": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+    "dispatch": { "anyOf": [{ "$ref": "#/$defs/dispatch" }, { "type": "null" }] },
+    "provider_observation_fingerprint": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+    "merge_binding": { "anyOf": [{ "$ref": "#/$defs/mergeBinding" }, { "type": "null" }] },
+    "claims": { "type": "object", "additionalProperties": false, "required": ["provider_authoritative", "exact_head_confirmed", "merged"], "properties": { "provider_authoritative": { "type": "boolean" }, "exact_head_confirmed": { "type": "boolean" }, "merged": { "type": "boolean" } } },
+    "fingerprint": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "gitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "repository": { "type": "object", "additionalProperties": false, "required": ["repository_id", "slug"], "properties": { "repository_id": { "type": "integer", "minimum": 1 }, "slug": { "type": "string" } } },
+    "dispatch": { "type": "object", "additionalProperties": false, "required": ["status", "attempt_ref", "evidence_refs"], "properties": { "status": { "enum": ["not_dispatched", "succeeded", "failed", "unknown"] }, "attempt_ref": { "type": ["string", "null"] }, "evidence_refs": { "type": "array", "uniqueItems": true, "items": { "type": "string" } } } },
+    "mergeBinding": { "type": "object", "additionalProperties": false, "required": ["repository", "pr_number", "head_sha", "merge_commit_sha", "merged_at", "evidence_refs"], "properties": { "repository": { "$ref": "#/$defs/repository" }, "pr_number": { "type": "integer", "minimum": 1 }, "head_sha": { "$ref": "#/$defs/gitSha" }, "merge_commit_sha": { "$ref": "#/$defs/gitSha" }, "merged_at": { "type": "string", "format": "date-time" }, "evidence_refs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } } } }
+  }
+}

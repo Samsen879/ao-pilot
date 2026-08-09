@@ -6,6 +6,13 @@ The project follows semantic versioning while its public interfaces stabilize.
 
 ## Unreleased
 
+- added deterministic `ao.or-merge-preflight.v1` and authoritative
+  `ao.github-merge-observation.v1` contracts so OR can guard exact-live merge
+  effects while GitHub readback alone confirms the outcome;
+- removed AO's legacy `auto_merge_ready_pr` command executor. Historical
+  records remain observable and explicitly deprecated, but the action is now
+  structurally non-executable because merge authority remains with OR.
+
 ### Changed
 
 - lifecycle reports now emit the versioned `release_ready` AO judgment, which

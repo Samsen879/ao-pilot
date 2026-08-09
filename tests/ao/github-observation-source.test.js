@@ -6,7 +6,7 @@ jest.unstable_mockModule('node:child_process', () => ({
   spawnSync: mockSpawnSync,
 }));
 
-const { loadGitHubObservationSet } = await import('../../scripts/ao/lib/github-observation-source.js');
+const { loadGitHubMergeObservation, loadGitHubObservationSet } = await import('../../scripts/ao/lib/github-observation-source.js');
 
 describe('github observation source', () => {
   beforeEach(() => {
@@ -208,5 +208,42 @@ describe('github observation source', () => {
         },
       ],
     });
+  });
+
+  it('loads an exact-live authoritative post-merge GitHub observation', async () => {
+    mockSpawnSync.mockReturnValueOnce({
+      status: 0,
+      stdout: JSON.stringify({
+        number: 85,
+        state: 'MERGED',
+        headRefOid: '1'.repeat(40),
+        mergeCommit: { oid: '2'.repeat(40) },
+        mergedAt: '2026-08-09T12:31:00Z',
+        url: 'https://github.com/Samsen879/ao-pilot/pull/85',
+      }),
+      stderr: '',
+    });
+    const observation = await loadGitHubMergeObservation({
+      repository: { repository_id: 123, slug: 'Samsen879/ao-pilot' },
+      prNumber: 85,
+      now: '2026-08-09T12:32:00.000Z',
+    });
+    expect(observation).toMatchObject({
+      schema_version: 'ao.github-merge-observation.v1',
+      provider: 'github',
+      source_ok: true,
+      repository: { repository_id: 123, slug: 'Samsen879/ao-pilot' },
+      pull_request: {
+        number: 85,
+        state: 'MERGED',
+        head_sha: '1'.repeat(40),
+        merge_commit_sha: '2'.repeat(40),
+        merged_at: '2026-08-09T12:31:00.000Z',
+      },
+    });
+    expect(mockSpawnSync.mock.calls[0][1]).toEqual([
+      'pr', 'view', '85', '--repo', 'Samsen879/ao-pilot', '--json',
+      'number,state,headRefOid,mergeCommit,mergedAt,url',
+    ]);
   });
 });

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.ao-pilot.dev/ao.github-merge-observation.v1.schema.json",
+  "title": "AO authoritative GitHub merge observation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "provider", "source_ok", "source_error", "observed_at", "repository", "pull_request", "evidence_refs"],
+  "properties": {
+    "schema_version": { "const": "ao.github-merge-observation.v1" },
+    "provider": { "const": "github" },
+    "source_ok": { "type": "boolean" },
+    "source_error": { "type": ["string", "null"] },
+    "observed_at": { "type": "string", "format": "date-time" },
+    "repository": { "type": "object", "additionalProperties": false, "required": ["repository_id", "slug"], "properties": { "repository_id": { "type": "integer", "minimum": 1 }, "slug": { "type": "string" } } },
+    "pull_request": { "type": "object", "additionalProperties": false, "required": ["number", "state", "head_sha", "merge_commit_sha", "merged_at", "url"], "properties": { "number": { "type": "integer", "minimum": 1 }, "state": { "enum": ["OPEN", "CLOSED", "MERGED", "UNKNOWN"] }, "head_sha": { "anyOf": [{ "$ref": "#/$defs/gitSha" }, { "type": "null" }] }, "merge_commit_sha": { "anyOf": [{ "$ref": "#/$defs/gitSha" }, { "type": "null" }] }, "merged_at": { "type": ["string", "null"], "format": "date-time" }, "url": { "type": ["string", "null"] } } },
+    "evidence_refs": { "type": "array", "uniqueItems": true, "items": { "type": "string" } }
+  },
+  "$defs": { "gitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" } }
+}

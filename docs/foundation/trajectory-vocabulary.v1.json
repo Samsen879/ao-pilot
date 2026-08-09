@@ -1,14 +1,14 @@
 {
   "schema_version": "ao.trajectory-vocabulary.v1",
-  "inventory_version": "1.2.0",
-  "status": "intervention_judgment_split_with_immutable_legacy_observation",
+  "inventory_version": "1.3.0",
+  "status": "or_effect_boundary_with_authoritative_provider_observation",
   "baseline": {
     "issue_body_sha": "e51bef40ccd124939b2781b14af3297e856c6f17",
     "issue_body_tree": "67aa09d8b11a6532876353f500df7fb529e4d9b5",
-    "admitted_sha": "5708cd7532d815c87a017015db2b576e65dcfd67",
-    "admitted_tree": "8d1118e1092913503b50b89e37f560bbbaaa8406",
+    "admitted_sha": "bb4611731675d293b96e402a14002475f71d9a7e",
+    "admitted_tree": "9b10f0c45ce71cd26111a01f7b65317610acc87c",
     "relationship": "issue_body_sha_is_ancestor_of_admitted_sha",
-    "accepted_program_input": "Foundation #21 explicit admission comment 5231962753"
+    "accepted_program_input": "Foundation #22 explicit admission comment 5232259527"
   },
   "families": [
     { "id": "action", "meaning": "AO-proposed control action and its durable state." },
@@ -28,9 +28,10 @@
     "action_summary": { "path": "scripts/ao/lib/action-executor.js", "symbol": "summarizeAssistActionRecord", "evidence": ["execution_outcome:", "effect_status:"] },
     "execution_records": { "path": "scripts/ao/lib/action-executor.js", "symbol": "buildEffectReceipt", "evidence": ["attempt_id:", "delivery_semantics:"] },
     "execution_run": { "path": "scripts/ao/lib/action-executor.js", "symbol": "executeAssistActions", "evidence": ["repository.upsertAction", "executionDetails"] },
-    "auto_merge_execution": { "path": "scripts/ao/lib/action-executor.js", "symbol": "prepareAutoMergeExecution", "evidence": ["confirmed_state", "confirmed_head_sha"] },
-    "auto_merge_persistence": { "path": "scripts/ao/lib/action-executor.js", "symbol": "executeAssistActions", "evidence": ["autoMergeReceipt", "autoMergeResult.details"] },
-    "command_receipt": { "path": "scripts/ao/lib/action-executor.js", "symbol": "sanitizeCommandReceipt", "evidence": ["command:", "status:"] },
+    "or_merge_preflight": { "path": "scripts/ao/lib/or-merge-protocol.js", "symbol": "evaluateOrMergePreflight", "evidence": ["merge_authorized", "exact_head_drift"] },
+    "or_merge_outcome": { "path": "scripts/ao/lib/or-merge-protocol.js", "symbol": "bindGitHubMergeOutcome", "evidence": ["normalizedDispatch", "provider_merge_not_confirmed"] },
+    "or_merge_dispatch": { "path": "scripts/ao/lib/or-merge-protocol.js", "symbol": "bindGitHubMergeOutcome", "evidence": ["attempt_ref", "dispatch_status_ambiguous"] },
+    "provider_merge_observation": { "path": "scripts/ao/lib/or-merge-protocol.js", "symbol": "normalizeGitHubMergeObservation", "evidence": ["MERGED", "provider_merged_evidence_incomplete"] },
     "transport_receipt": { "path": "scripts/ao/lib/action-executor.js", "symbol": "sanitizeTransportReceipt", "evidence": ["delivery_semantics:", "idempotency_key:"] },
     "blocked_transport": { "path": "scripts/ao/lib/blocked-notification-transport.js", "symbol": "createBlockedNotificationWebhookTransport", "evidence": ["status: 'failed'", "status: 'succeeded'"] },
     "runtime_bootstrap_receipt": { "path": "scripts/ao/lib/runtime-bootstrap.js", "symbol": "ao.runtime-bootstrap-receipt.v1", "kind": "literal" },
@@ -127,11 +128,11 @@
       "source": "execution_records", "producers": ["execution_run"], "consumers": ["action_summary"]
     },
     {
-      "id": "execution.command_receipt_fields", "family": "execution_receipt", "field": "payload.execution.effect.receipt.command_receipts[].*",
-      "values": ["args", "command", "cwd", "signal", "status"],
-      "meaning": "Sanitized subprocess fact set; exit status is process evidence, never merge outcome evidence.",
-      "semantic_owner": "AO command adapter", "evidence_authority": "local subprocess result", "episode_role": "execution.command_receipt",
-      "source": "command_receipt", "producers": ["auto_merge_execution"], "consumers": ["auto_merge_persistence"]
+      "id": "execution.command_receipt_fields", "family": "execution_receipt", "field": "or_merge_outcome.dispatch.*",
+      "values": ["attempt_ref", "evidence_refs", "status"],
+      "meaning": "Normalized OR dispatch fact set; even succeeded status is effect evidence and never provider merge outcome authority.",
+      "semantic_owner": "OR effect executor", "evidence_authority": "OR dispatch receipt", "episode_role": "execution.or_dispatch",
+      "source": "or_merge_dispatch", "producers": ["or_merge_preflight"], "consumers": ["or_merge_outcome"]
     },
     {
       "id": "execution.transport_receipt_fields", "family": "execution_receipt", "field": "payload.execution.effect.receipt.*",
@@ -323,11 +324,11 @@
       "source": "mergeability_normalizer", "producers": ["github_loader"], "consumers": ["reconciliation_engine"]
     },
     {
-      "id": "merge.assist_confirmation", "family": "merge_observation", "field": "action.payload.execution.effect.receipt.result.confirmed_state",
+      "id": "merge.assist_confirmation", "family": "merge_observation", "field": "github_merge_observation.pull_request.state",
       "values": ["CLOSED", "MERGED", "OPEN", "empty_string"],
-      "meaning": "Actual normalized provider state stored by the legacy assist merge readback; empty_string represents absent provider state, and only MERGED with a matching head confirms the effect.",
-      "semantic_owner": "legacy AO merge adapter", "evidence_authority": "fresh GitHub PR readback", "episode_role": "outcome.legacy_merge_confirmation",
-      "source": "auto_merge_execution", "producers": ["auto_merge_execution"], "consumers": ["auto_merge_persistence"]
+      "meaning": "Authoritative post-effect GitHub state; empty_string represents absent provider state, and only MERGED with a matching governed head and merge commit confirms the effect.",
+      "semantic_owner": "GitHub provider", "evidence_authority": "exact-live GitHub PR readback", "episode_role": "outcome.provider_merge_confirmation",
+      "source": "provider_merge_observation", "producers": ["provider_merge_observation"], "consumers": ["or_merge_outcome"]
     },
     {
       "id": "checkpoint.checkpoint_id", "family": "checkpoint", "field": "checkpoints[].checkpoint_id", "values": ["non_empty_string"], "meaning": "Stable checkpoint identity.", "semantic_owner": "AO checkpoint store", "evidence_authority": "checkpoint record", "episode_role": "checkpoint.identity", "source": "checkpoint_contract", "producers": ["checkpoint_producer"], "consumers": ["checkpoint_validator", "checkpoint_replay"]

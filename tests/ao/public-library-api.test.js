@@ -54,6 +54,12 @@ describe('ao-pilot public library API', () => {
         './schemas/ao.or-authorization-grant.v1.schema.json',
       './schemas/ao.or-authorization-escalation.v1.schema.json':
         './schemas/ao.or-authorization-escalation.v1.schema.json',
+      './schemas/ao.or-merge-preflight.v1.schema.json':
+        './schemas/ao.or-merge-preflight.v1.schema.json',
+      './schemas/ao.github-merge-observation.v1.schema.json':
+        './schemas/ao.github-merge-observation.v1.schema.json',
+      './schemas/ao.or-merge-outcome.v1.schema.json':
+        './schemas/ao.or-merge-outcome.v1.schema.json',
       './package.json': './package.json',
     });
   });
@@ -92,10 +98,13 @@ describe('ao-pilot public library API', () => {
     expect(engines.runControllerLoop).toEqual(expect.any(Function));
     expect(protocols.createHandoffProtocol).toEqual(expect.any(Function));
     expect(protocols.createReviewProtocol).toEqual(expect.any(Function));
+    expect(protocols.evaluateOrMergePreflight).toEqual(expect.any(Function));
+    expect(protocols.bindGitHubMergeOutcome).toEqual(expect.any(Function));
     expect(providers.createLocalCommandRunner).toEqual(expect.any(Function));
     expect(providers.createBlockedNotificationWebhookTransport).toEqual(expect.any(Function));
     expect(providers.listRuntimeProviderContracts()).toEqual(expect.any(Array));
     expect(providers.resolveManagedRuntime).toEqual(expect.any(Function));
+    expect(providers.loadGitHubMergeObservation).toEqual(expect.any(Function));
 
     expect(rootApi.contracts).toBeDefined();
     expect(rootApi.repository).toBeDefined();
