@@ -277,4 +277,32 @@ describe('github observation source', () => {
     });
     expect(mockSpawnSync).toHaveBeenCalledTimes(1);
   });
+
+  it('returns a schema-shaped nullable failure observation for invalid scope', async () => {
+    const observation = await loadGitHubMergeObservation({
+      repository: null,
+      prNumber: null,
+      now: '2026-08-09T12:32:00.000Z',
+    });
+    expect(observation).toEqual({
+      schema_version: 'ao.github-merge-observation.v1',
+      provider: 'github',
+      source_ok: false,
+      source_error: 'invalid_exact_merge_observation_scope',
+      observed_at: '2026-08-09T12:32:00.000Z',
+      repository: { repository_id: null, slug: null },
+      pull_request: {
+        number: null,
+        state: 'UNKNOWN',
+        base_ref: null,
+        base_sha: null,
+        head_sha: null,
+        merge_commit_sha: null,
+        merged_at: null,
+        url: null,
+      },
+      evidence_refs: [],
+    });
+    expect(mockSpawnSync).not.toHaveBeenCalled();
+  });
 });

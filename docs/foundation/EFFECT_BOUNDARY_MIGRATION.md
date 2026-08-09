@@ -24,8 +24,12 @@ missing readback, or mismatched head produces a blocked unknown outcome.
 Unknown effects must not be replayed automatically.
 The post-effect collector verifies the slug's immutable GitHub repository ID
 and binds the provider-observed base ref and base SHA as well as the head.
-Outcome binding validates and re-fingerprints the complete preflight record
-before consuming it.
+Outcome binding re-evaluates the original grant/request, release judgment,
+exact-live observation, and evaluation time and requires the regenerated
+preflight to match byte-for-byte before consuming it. A caller-computable hash
+alone is not treated as authority evidence. Blocked provider observations keep
+nullable, schema-valid scope fields so missing or invalid evidence remains
+durably recordable.
 
 The unused AO `auto_merge_ready_pr` executor has been removed. Its legacy
 vocabulary is retained only for immutable history and deprecation findings;

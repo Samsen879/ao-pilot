@@ -257,11 +257,13 @@ export async function loadGitHubMergeObservation({
     source_error: String(sourceError),
     observed_at: observedAt,
     repository: {
-      repository_id: Number(repository?.repository_id),
-      slug: repository?.slug == null ? null : String(repository.slug),
+      repository_id: Number.isSafeInteger(repository?.repository_id)
+        && repository.repository_id > 0 ? repository.repository_id : null,
+      slug: typeof repository?.slug === 'string' && repository.slug.trim() === repository.slug
+        && repository.slug !== '' ? repository.slug : null,
     },
     pull_request: {
-      number: Number(prNumber),
+      number: Number.isSafeInteger(prNumber) && prNumber > 0 ? prNumber : null,
       state: 'UNKNOWN',
       base_ref: null,
       base_sha: null,

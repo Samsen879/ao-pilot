@@ -223,6 +223,10 @@ export function evaluateOrMergePreflight({
     if (live.pull_request.number !== expected.pull_request?.number) reasons.push('pull_request_binding_mismatch');
     if (live.pull_request.base_ref !== expected.branch?.base_ref
       || live.pull_request.base_sha !== expected.branch?.base_sha) reasons.push('exact_base_drift');
+    if (live.pull_request.base_sha !== expected.merge?.expected_base_sha
+      || live.pull_request.base_sha !== expected.review?.base_sha) {
+      reasons.push('merge_base_binding_mismatch');
+    }
     if (live.pull_request.head_ref !== expected.branch?.head_ref
       || live.pull_request.head_sha !== expected.branch?.head_sha
       || live.pull_request.head_sha !== expected.merge?.expected_head_sha) reasons.push('exact_head_drift');
@@ -297,13 +301,35 @@ export function normalizeGitHubMergeObservation(observation) {
   return { ok: reasons.length === 0, reason_codes: reasons.sort(), observation: normalized };
 }
 
-export function bindGitHubMergeOutcome({ preflight, dispatch, provider_observation: providerObservation } = {}) {
+export function bindGitHubMergeOutcome({
+  preflight,
+  preflight_inputs: preflightInputs,
+  dispatch,
+  provider_observation: providerObservation,
+} = {}) {
   const normalized = normalizeGitHubMergeObservation(providerObservation);
   const reasons = [...normalized.reason_codes];
   const observation = normalized.observation;
   const expected = preflight?.binding;
   const preflightValidation = validateOrMergePreflightRecord(preflight);
   reasons.push(...preflightValidation.reason_codes);
+  let regeneratedPreflight = null;
+  if (hasExactKeys(preflightInputs, [
+    'authorization_request', 'grant', 'live_observation', 'now', 'release_judgment',
+  ])) {
+    regeneratedPreflight = evaluateOrMergePreflight({
+      grant: preflightInputs.grant,
+      authorization_request: preflightInputs.authorization_request,
+      release_judgment: preflightInputs.release_judgment,
+      live_observation: preflightInputs.live_observation,
+      now: preflightInputs.now,
+    });
+    if (canonicalMergeProtocolJson(regeneratedPreflight) !== canonicalMergeProtocolJson(preflight)) {
+      reasons.push('preflight_authority_evidence_mismatch');
+    }
+  } else {
+    reasons.push('preflight_authority_evidence_missing');
+  }
   const dispatchKeys = isObject(dispatch) ? Object.keys(dispatch) : [];
   if (dispatchKeys.some((key) => !['attempt_ref', 'evidence_refs', 'status'].includes(key))) {
     reasons.push('dispatch_contract_unknown_field');
@@ -348,7 +374,8 @@ export function bindGitHubMergeOutcome({ preflight, dispatch, provider_observati
       ? (preflight.disposition === 'already_merged' ? 'already_merged' : 'merged')
       : (['succeeded', 'failed', 'unknown'].includes(normalizedDispatch?.status) ? 'unknown_effect' : 'not_merged'),
     reason_codes: [...new Set(reasons)].sort(),
-    preflight_fingerprint: preflight?.fingerprint ?? null,
+    preflight_fingerprint: /^[0-9a-f]{64}$/.test(preflight?.fingerprint ?? '')
+      ? preflight.fingerprint : null,
     dispatch: normalizedDispatch,
     provider_observation_fingerprint: observation == null ? null : mergeProtocolFingerprint(observation),
     merge_binding: confirmed ? {

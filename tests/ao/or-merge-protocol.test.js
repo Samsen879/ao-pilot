@@ -9,6 +9,7 @@ import {
   OR_MERGE_PREFLIGHT_SCHEMA_VERSION,
   bindGitHubMergeOutcome,
   evaluateOrMergePreflight,
+  mergeProtocolFingerprint,
 } from '../../scripts/ao/lib/or-merge-protocol.js';
 import { authorizationGrantFingerprint } from '../../scripts/ao/lib/authorization-grant-contracts.js';
 import { buildAssistActionModel, executeAssistActions } from '../../scripts/ao/lib/action-executor.js';
@@ -85,6 +86,16 @@ function preflight(overrides = {}) {
   });
 }
 
+function toPreflightInputs(input = materialize()) {
+  return {
+    grant: input.grant,
+    authorization_request: input.authorizationRequest,
+    release_judgment: input.releaseJudgment,
+    live_observation: input.liveObservation,
+    now: NOW,
+  };
+}
+
 function mergedObservation(authorized, mutation = null) {
   const result = {
     schema_version: GITHUB_MERGE_OBSERVATION_SCHEMA_VERSION,
@@ -154,6 +165,7 @@ describe('OR merge effect-boundary protocol', () => {
       ? null : mergedObservation(authorized, fixture.observation);
     const result = bindGitHubMergeOutcome({
       preflight: authorized,
+      preflight_inputs: toPreflightInputs(),
       dispatch,
       provider_observation: observation,
     });
@@ -170,6 +182,7 @@ describe('OR merge effect-boundary protocol', () => {
     const alreadyMerged = preflight(input);
     const result = bindGitHubMergeOutcome({
       preflight: alreadyMerged,
+      preflight_inputs: toPreflightInputs(input),
       dispatch: { status: 'not_dispatched' },
       provider_observation: mergedObservation(alreadyMerged),
     });
@@ -216,6 +229,7 @@ describe('OR merge effect-boundary protocol', () => {
     mutated.binding.task.task_id = 'other-task';
     expect(bindGitHubMergeOutcome({
       preflight: mutated,
+      preflight_inputs: toPreflightInputs(),
       dispatch: { status: 'succeeded', attempt_ref: 'or:merge-attempt:85' },
       provider_observation: observation,
     })).toMatchObject({
@@ -231,6 +245,7 @@ describe('OR merge effect-boundary protocol', () => {
     };
     expect(bindGitHubMergeOutcome({
       preflight: fabricated,
+      preflight_inputs: toPreflightInputs(),
       dispatch: { status: 'succeeded', attempt_ref: 'or:merge-attempt:85' },
       provider_observation: observation,
     }).reason_codes).toEqual(expect.arrayContaining([
@@ -240,15 +255,64 @@ describe('OR merge effect-boundary protocol', () => {
     ]));
   });
 
+  it('re-evaluates original authority evidence instead of trusting a recomputed hash', () => {
+    const authorized = preflight();
+    const forged = structuredClone(authorized);
+    forged.binding.task.task_id = 'forged-task';
+    forged.binding.authorization_grant_fingerprint = '6'.repeat(64);
+    forged.input_fingerprint = '5'.repeat(64);
+    const { fingerprint: ignored, ...core } = forged;
+    forged.fingerprint = mergeProtocolFingerprint(core);
+    const result = bindGitHubMergeOutcome({
+      preflight: forged,
+      preflight_inputs: toPreflightInputs(),
+      dispatch: { status: 'succeeded', attempt_ref: 'or:merge-attempt:85' },
+      provider_observation: mergedObservation(authorized),
+    });
+    expect(result).toMatchObject({
+      disposition: 'blocked',
+      reason_codes: expect.arrayContaining(['preflight_authority_evidence_mismatch']),
+    });
+  });
+
+  it('normalizes an invalid supplied preflight fingerprint to a schema-valid null', () => {
+    const authorized = preflight();
+    authorized.fingerprint = 'not-a-digest';
+    const result = bindGitHubMergeOutcome({
+      preflight: authorized,
+      preflight_inputs: toPreflightInputs(),
+      dispatch: { status: 'succeeded', attempt_ref: 'or:merge-attempt:85' },
+      provider_observation: mergedObservation(authorized),
+    });
+    expect(result).toMatchObject({
+      disposition: 'blocked',
+      preflight_fingerprint: null,
+      reason_codes: expect.arrayContaining(['preflight_fingerprint_invalid']),
+    });
+  });
+
   it('binds the provider-observed base ref and SHA after merge', () => {
     const authorized = preflight();
     const observation = mergedObservation(authorized);
     observation.pull_request.base_sha = '7'.repeat(40);
     expect(bindGitHubMergeOutcome({
       preflight: authorized,
+      preflight_inputs: toPreflightInputs(),
       dispatch: { status: 'succeeded', attempt_ref: 'or:merge-attempt:85' },
       provider_observation: observation,
     }).reason_codes).toContain('provider_exact_base_drift');
+  });
+
+  it('binds live base to both merge scope and independent review scope', () => {
+    const input = materialize();
+    const otherBase = '7'.repeat(40);
+    input.grant.merge_scope.expected_base_sha = otherBase;
+    input.authorizationRequest.merge.expected_base_sha = otherBase;
+    input.authorizationRequest.review.base_sha = otherBase;
+    expect(preflight(input)).toMatchObject({
+      disposition: 'blocked',
+      reason_codes: expect.arrayContaining(['merge_base_binding_mismatch']),
+    });
   });
 
   it('rejects stale, future, unknown-field, and preflight-predating evidence', () => {
@@ -269,6 +333,7 @@ describe('OR merge effect-boundary protocol', () => {
     observation.observed_at = '2026-08-09T12:29:59.000Z';
     expect(bindGitHubMergeOutcome({
       preflight: authorized,
+      preflight_inputs: toPreflightInputs(),
       dispatch: { status: 'succeeded', attempt_ref: 'or:merge-attempt:85' },
       provider_observation: observation,
     }).reason_codes).toContain('provider_observation_predates_preflight');
@@ -277,6 +342,7 @@ describe('OR merge effect-boundary protocol', () => {
     providerWidened.authority_override = true;
     expect(bindGitHubMergeOutcome({
       preflight: authorized,
+      preflight_inputs: toPreflightInputs(),
       dispatch: { status: 'succeeded', attempt_ref: 'or:merge-attempt:85' },
       provider_observation: providerWidened,
     }).reason_codes).toContain('provider_observation_unknown_field');
