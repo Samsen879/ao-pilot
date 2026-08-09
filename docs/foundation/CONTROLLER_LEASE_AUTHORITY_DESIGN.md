@@ -21,7 +21,8 @@ through `persistState()`, continuously refreshing the second persistent copy.
 If either schema or `state.json` is absent, `readSnapshot()` returns a virtual
 empty state without even reading an extant isolated file.
 
-Malformed JSON throws during parsing and invalid records in an isolated array
+An existing empty isolated array also overlays a nonempty shadow with empty;
+it is distinct from a missing file. Malformed JSON throws during parsing and invalid records in an isolated array
 throw during contract normalization. Those failures are not shadow fallbacks.
 The committed characterization pack freezes all four distinctions.
 
@@ -32,7 +33,9 @@ The machine-readable inventory is
 Its verifier scans every JavaScript file under `scripts/ao/lib` for the file
 path, state property, atomic API, and upsert API selectors. It also requires a
 unique source anchor for every semantic caller below. Any added, removed, or
-changed source occurrence fails the deterministic digest gate.
+changed or relocated source occurrence fails the deterministic digest gate;
+each digest tuple includes its line position. The complete authority-design
+object is pinned as well, so no individual policy can weaken silently.
 
 | Boundary | Reads | Writes | Fallback/projection consequence |
 | --- | --- | --- | --- |

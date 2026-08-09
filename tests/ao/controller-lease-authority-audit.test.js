@@ -51,14 +51,37 @@ function lease(leaseId) {
   });
 }
 
+function legacyLease(leaseId) {
+  return {
+    lease_id: leaseId,
+    controller_id: 'default',
+    holder_id: `${leaseId}-holder`,
+    holder_type: 'session',
+    status: 'active',
+    acquired_at: '2026-01-01T00:00:00.000Z',
+    expires_at: '2026-08-09T10:08:11.000Z',
+    metadata: { legacy_format: 'v1' },
+  };
+}
+
 function materializeFixture(entry) {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-controller-lease-audit-'));
   tempDirs.push(repoRoot);
   bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: NOW });
   const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
   const state = JSON.parse(fs.readFileSync(paths.statePath, 'utf8'));
-  state.controller_leases = entry.state_shadow == null ? [] : [lease(entry.state_shadow)];
+  state.controller_leases = entry.state_shadow == null
+    ? []
+    : [entry.state_shadow_format === 'legacy-v1' ? legacyLease(entry.state_shadow) : lease(entry.state_shadow)];
   writeJsonFileAtomic(paths.statePath, state);
+  if (entry.schema_current_version != null) {
+    const schema = JSON.parse(fs.readFileSync(paths.schemaPath, 'utf8'));
+    schema.current_version = entry.schema_current_version;
+    schema.applied_migrations = schema.applied_migrations.filter(
+      (migration) => migration.version <= entry.schema_current_version,
+    );
+    writeJsonFileAtomic(paths.schemaPath, schema);
+  }
 
   if (entry.dedicated.kind === 'records') {
     writeJsonFileAtomic(paths.controllerLeasesPath, entry.dedicated.leases.map(lease));
@@ -86,7 +109,7 @@ describe('controller lease authority design audit', () => {
     expect(validateControllerLeaseInventory(inventory, repositoryRoot)).toEqual({
       caller_count: 14,
       source_match_count: 37,
-      source_digest: 'ed19078a6b71b1f1b443737db2b99a8106bb56252e1568dca9f205a68e7fd84f',
+      source_digest: 'dc9d9abe31976887791bb321486cc9141f017ed78fef08401d400ff3e694ff66',
     });
     expect(scanControllerLeaseSources(inventory, repositoryRoot).matches).toHaveLength(37);
   });
@@ -101,6 +124,11 @@ describe('controller lease authority design audit', () => {
     sourceDrift.source_scan.expected_digest = '0'.repeat(64);
     expect(() => validateControllerLeaseInventory(sourceDrift, repositoryRoot))
       .toThrow('source inventory drifted');
+
+    const projectionDrift = structuredClone(inventory);
+    projectionDrift.authority_design.missing_authority_policy = 'fall back to state.json';
+    expect(() => validateControllerLeaseInventory(projectionDrift, repositoryRoot))
+      .toThrow('complete frozen controller lease authority design has drifted');
 
     const missingAnchor = structuredClone(inventory);
     missingAnchor.callers[0].anchors = ['not present in the governed source'];
@@ -128,6 +156,9 @@ describe('controller lease authority design audit', () => {
         .toEqual(entry.expected.lease_ids);
       if (entry.expected.bootstrapped != null) {
         expect(snapshot.bootstrapped).toBe(entry.expected.bootstrapped);
+      }
+      if (entry.expected.schema_current_version != null) {
+        expect(snapshot.schema.current_version).toBe(entry.expected.schema_current_version);
       }
     },
   );

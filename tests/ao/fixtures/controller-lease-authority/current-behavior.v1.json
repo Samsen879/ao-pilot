@@ -10,6 +10,13 @@
       "expected": { "outcome": "snapshot", "lease_ids": ["canonical-active"] }
     },
     {
+      "id": "empty-dedicated-clears-shadow",
+      "class": "success",
+      "state_shadow": "shadow-active",
+      "dedicated": { "kind": "records", "leases": [] },
+      "expected": { "outcome": "snapshot", "lease_ids": [] }
+    },
+    {
       "id": "invalid-dedicated-record-fails",
       "class": "failure",
       "state_shadow": "shadow-active",
@@ -49,8 +56,10 @@
       "id": "canonical-wins-mixed-version",
       "class": "mixed-version",
       "state_shadow": "legacy-shadow",
+      "state_shadow_format": "legacy-v1",
+      "schema_current_version": 1,
       "dedicated": { "kind": "records", "leases": ["canonical-active"] },
-      "expected": { "outcome": "snapshot", "lease_ids": ["canonical-active"] }
+      "expected": { "outcome": "snapshot", "lease_ids": ["canonical-active"], "schema_current_version": 1 }
     },
     {
       "id": "snapshot-replay-is-byte-stable",

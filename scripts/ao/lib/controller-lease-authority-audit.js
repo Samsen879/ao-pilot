@@ -2,6 +2,16 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
+const FROZEN_AUTHORITY_DESIGN = Object.freeze({
+  canonical_persistent_authority: 'controller-leases.json',
+  compatible_read_projection: 'snapshot.state.controller_leases',
+  projection_persistent: false,
+  state_shadow_recovery_authority: false,
+  missing_authority_policy: 'fail_closed_after_explicit_migration_or initialize_empty_only_when fresh-state provenance is proven',
+  malformed_authority_policy: 'fail_closed',
+  mixed_version_policy: 'validate and migrate the canonical file; never select the state.json shadow by freshness',
+});
+
 function stableJson(value) {
   if (Array.isArray(value)) return value.map(stableJson);
   if (value && typeof value === 'object') {
@@ -45,13 +55,14 @@ export function scanControllerLeaseSources(inventory, repositoryRoot) {
       const relativePath = path.relative(repositoryRoot, filePath).split(path.sep).join('/');
       if ((inventory.source_scan.exclude_paths ?? []).includes(relativePath)) continue;
       const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
-      for (const line of lines) {
+      for (const [lineIndex, line] of lines.entries()) {
         const normalizedLine = line.trim();
         for (const selector of selectors) {
           if (selector.regex.test(line)) {
             matches.push({
               selector: selector.id,
               path: relativePath,
+              line: lineIndex + 1,
               source: normalizedLine,
             });
           }
@@ -63,6 +74,7 @@ export function scanControllerLeaseSources(inventory, repositoryRoot) {
   matches.sort((left, right) => (
     left.selector.localeCompare(right.selector)
     || left.path.localeCompare(right.path)
+    || left.line - right.line
     || left.source.localeCompare(right.source)
   ));
   return {
@@ -81,6 +93,9 @@ export function validateControllerLeaseInventory(inventory, repositoryRoot) {
   }
   if (inventory.authority_design?.state_shadow_recovery_authority !== false) {
     throw new Error('The inventory must prohibit state.json shadow recovery authority');
+  }
+  if (stableDigest(inventory.authority_design) !== stableDigest(FROZEN_AUTHORITY_DESIGN)) {
+    throw new Error('The complete frozen controller lease authority design has drifted');
   }
 
   const ids = inventory.callers.map((caller) => caller.id);
