@@ -1,6 +1,6 @@
 {
   "schema_version": "ao.controller-lease-safety-fixtures.v1",
-  "fixture_version": "2026-08-09.1",
+  "fixture_version": "2026-08-09.2",
   "required_replays": 2,
   "cases": [
     {
@@ -46,6 +46,13 @@
       "expected": { "disposition": "accepted", "lease_ids": ["latest-lease"], "persistent_bytes_unchanged": true }
     },
     {
+      "id": "persistent-supporting-artifact-mutation-is-detected",
+      "class": "restart",
+      "setup": { "canonical": "latest", "shadow": "absent" },
+      "operation": "persistent-artifact-mutation",
+      "expected": { "disposition": "accepted", "artifact_path": "audit-log.jsonl", "mutation_detected": true }
+    },
+    {
       "id": "legacy-v10-array-migrates-once",
       "class": "mixed-version",
       "setup": { "canonical": "legacy-array", "shadow": "stale", "schema_version": 10 },
@@ -86,6 +93,41 @@
       "setup": { "recovery_evidence": "result-digest-mismatch" },
       "operation": "verify-recovery-evidence",
       "expected": { "disposition": "rejected", "error_code": "recovery_result_digest_mismatch" }
+    },
+    {
+      "id": "recovery-non-text-operator-is-rejected",
+      "class": "missing-evidence",
+      "setup": { "recovery_evidence": "non-text-operator" },
+      "operation": "verify-recovery-evidence",
+      "expected": { "disposition": "rejected", "error_code": "recovery_operator_identity_invalid" }
+    },
+    {
+      "id": "recovery-target-replay-is-rejected",
+      "class": "recovery-failure",
+      "setup": { "recovery_evidence": "target-mismatch" },
+      "operation": "verify-recovery-evidence",
+      "expected": { "disposition": "rejected", "error_code": "recovery_target_mismatch" }
+    },
+    {
+      "id": "recovery-missing-quiescence-is-rejected",
+      "class": "missing-evidence",
+      "setup": { "recovery_evidence": "missing-quiescence" },
+      "operation": "verify-recovery-evidence",
+      "expected": { "disposition": "rejected", "error_code": "recovery_quiescence_evidence_invalid" }
+    },
+    {
+      "id": "recovery-forged-quiescence-is-rejected",
+      "class": "recovery-failure",
+      "setup": { "recovery_evidence": "forged-quiescence" },
+      "operation": "verify-recovery-evidence",
+      "expected": { "disposition": "rejected", "error_code": "recovery_quiescence_evidence_invalid" }
+    },
+    {
+      "id": "recovery-invalid-timestamp-order-is-rejected",
+      "class": "recovery-failure",
+      "setup": { "recovery_evidence": "invalid-order" },
+      "operation": "verify-recovery-evidence",
+      "expected": { "disposition": "rejected", "error_code": "recovery_timestamp_order_invalid" }
     }
   ]
 }

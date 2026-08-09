@@ -14,11 +14,14 @@ codes, removes all path and wall-clock variability from its observations,
 and executes the complete pack twice. The committed receipt is
 [`controller-lease-safety-verification.v1.json`](controller-lease-safety-verification.v1.json).
 
-The 12 cases (24 executions per verifier invocation) prove:
+The 18 cases (36 executions per verifier invocation) prove:
 
 - missing or invalid canonical bytes never select a stale `state.json` lease;
 - a valid canonical authority wins over a stale shadow and regenerates the
-  compatible projection after restart/cold read;
+  compatible projection after restart/cold read without changing any file in
+  the persistent project state root. The comparison includes every file under
+  that root and excludes only `*.lock` coordination files and atomic-write
+  `*.tmp-<pid>-<epoch-ms>` files, which are documented transient artifacts;
 - partial evidence either preserves the canonical read-only projection or
   fails closed, according to whether schema and state evidence are both absent
   or contradictory;
@@ -52,7 +55,7 @@ never writes runtime state.
 4. The authorized operator records
    `schema_version=ao.controller-lease-recovery-evidence.v1`, project and
    incident ids (also supplied independently to the verifier as the expected
-   recovery target), operator id/role, the exact intent
+   recovery target), trimmed non-empty textual operator id/role, the exact intent
    `restore_verified_canonical_backup`, reason and approval time, backup digest,
    observed zero-controller evidence with an observer-bound integrity digest,
    canonical observation/approval timestamps, and the proposed resulting records.

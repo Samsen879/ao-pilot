@@ -104,6 +104,13 @@ function recoveryEvidence(kind) {
   };
   if (kind === 'missing-intent') delete evidence.operator_intent;
   if (kind === 'result-digest-mismatch') evidence.resulting_authority.digest = 'sha256:'.concat('0'.repeat(64));
+  if (kind === 'non-text-operator') evidence.operator = { id: 7, role: true };
+  if (kind === 'target-mismatch') evidence.project_id = 'different-project';
+  if (kind === 'missing-quiescence') delete evidence.source_evidence.quiescence_evidence;
+  if (kind === 'forged-quiescence') {
+    evidence.source_evidence.quiescence_evidence.integrity_digest = `sha256:${'0'.repeat(64)}`;
+  }
+  if (kind === 'invalid-order') evidence.resulting_authority.observed_at = '2026-08-09T10:50:00.000Z';
   return evidence;
 }
 
@@ -113,6 +120,32 @@ function isCanonicalTimestamp(value) {
   return Number.isFinite(timestampMs) && new Date(timestampMs).toISOString() === value;
 }
 
+function isNonEmptyText(value) {
+  return typeof value === 'string' && value.trim() === value && value !== '';
+}
+
+export function snapshotControllerLeasePersistentArtifacts(stateRoot) {
+  const artifacts = [];
+  function visit(directory) {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const artifactPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(artifactPath);
+      } else if (entry.isFile()) {
+        if (entry.name.endsWith('.lock') || /\.tmp-\d+-\d+$/.test(entry.name)) continue;
+        artifacts.push({
+          path: path.relative(stateRoot, artifactPath).split(path.sep).join('/'),
+          sha256: crypto.createHash('sha256').update(fs.readFileSync(artifactPath)).digest('hex'),
+        });
+      } else {
+        throw new Error(`Unsupported persistent controller lease artifact: ${entry.name}`);
+      }
+    }
+  }
+  visit(stateRoot);
+  return artifacts.sort((left, right) => left.path.localeCompare(right.path));
+}
+
 export function classifyControllerLeaseSafetyError(error) {
   const message = String(error?.message ?? '');
   if (error instanceof SyntaxError) return 'canonical_authority_invalid_json';
@@ -120,6 +153,10 @@ export function classifyControllerLeaseSafetyError(error) {
   if (message.includes('Incomplete control-plane state evidence')) return 'control_plane_evidence_incomplete';
   if (message.includes('expected a versioned JSON object')) return 'canonical_authority_unversioned';
   if (message.includes('explicit operator intent')) return 'recovery_operator_intent_missing';
+  if (message.includes('textual operator identity')) return 'recovery_operator_identity_invalid';
+  if (message.includes('expected project and incident')) return 'recovery_target_mismatch';
+  if (message.includes('quiescence evidence')) return 'recovery_quiescence_evidence_invalid';
+  if (message.includes('timestamps are invalid or out of order')) return 'recovery_timestamp_order_invalid';
   if (message.includes('resulting authority digest mismatch')) return 'recovery_result_digest_mismatch';
   return 'unexpected_error';
 }
@@ -128,13 +165,23 @@ export function verifyControllerLeaseRecoveryEvidence(evidence, { projectId, inc
   if (!evidence || evidence.schema_version !== CONTROLLER_LEASE_RECOVERY_EVIDENCE_SCHEMA_VERSION) {
     throw new Error('Unsupported controller lease recovery evidence');
   }
-  if (!evidence.operator?.id || !evidence.operator?.role || !evidence.operator_intent) {
+  if (!isNonEmptyText(evidence.operator?.id) || !isNonEmptyText(evidence.operator?.role)) {
+    throw new Error('Controller lease recovery requires textual operator identity fields');
+  }
+  if (!evidence.operator_intent) {
     throw new Error('Controller lease recovery requires explicit operator intent and identity');
   }
   if (evidence.operator_intent !== 'restore_verified_canonical_backup') {
     throw new Error('Unsupported controller lease recovery intent');
   }
-  if (!projectId || !incidentId || evidence.project_id !== projectId || evidence.incident_id !== incidentId) {
+  if (
+    !isNonEmptyText(projectId)
+    || !isNonEmptyText(incidentId)
+    || !isNonEmptyText(evidence.project_id)
+    || !isNonEmptyText(evidence.incident_id)
+    || evidence.project_id !== projectId
+    || evidence.incident_id !== incidentId
+  ) {
     throw new Error('Controller lease recovery evidence does not match the expected project and incident');
   }
   if (!evidence.reason || evidence.source_evidence?.kind !== 'offline_verified_backup') {
@@ -223,10 +270,7 @@ function materialize(entry, tempRoots) {
 }
 
 function acceptedSnapshot(entry, paths, repository) {
-  const before = {
-    authority: fs.existsSync(paths.controllerLeasesPath) ? fs.readFileSync(paths.controllerLeasesPath) : null,
-    state: fs.existsSync(paths.statePath) ? fs.readFileSync(paths.statePath) : null,
-  };
+  const beforeArtifacts = snapshotControllerLeasePersistentArtifacts(paths.stateRoot);
   let snapshot = repository.getSnapshot();
   if (entry.operation === 'restart-cold-read') {
     snapshot = createStateRepository({ repoRoot: paths.repoRoot, projectId: PROJECT_ID, clock: FIXED_NOW }).getSnapshot();
@@ -241,9 +285,9 @@ function acceptedSnapshot(entry, paths, repository) {
     ),
   };
   if (entry.operation === 'restart-cold-read') {
-    result.persistent_bytes_unchanged = before.authority != null
-      && fs.readFileSync(paths.controllerLeasesPath).equals(before.authority)
-      && (before.state == null || fs.readFileSync(paths.statePath).equals(before.state));
+    result.persistent_bytes_unchanged = digestControllerLeaseSafetyEvidence(
+      snapshotControllerLeasePersistentArtifacts(paths.stateRoot),
+    ) === digestControllerLeaseSafetyEvidence(beforeArtifacts);
   }
   if (entry.expected.migration_receipt) {
     const beforeReceipt = fs.readFileSync(paths.controllerLeaseMigrationReceiptPath);
@@ -316,6 +360,16 @@ async function executeCase(entry, tempRoots) {
   const { paths, repoRoot } = materialize(entry, tempRoots);
   try {
     if (entry.operation === 'concurrent-heartbeat') return await runConcurrentHeartbeat(paths, repoRoot);
+    if (entry.operation === 'persistent-artifact-mutation') {
+      const before = snapshotControllerLeasePersistentArtifacts(paths.stateRoot);
+      fs.appendFileSync(paths.auditPath, '{"fixture":"persistent-mutation"}\n');
+      const after = snapshotControllerLeasePersistentArtifacts(paths.stateRoot);
+      return {
+        disposition: 'accepted',
+        artifact_path: 'audit-log.jsonl',
+        mutation_detected: digestControllerLeaseSafetyEvidence(before) !== digestControllerLeaseSafetyEvidence(after),
+      };
+    }
     return acceptedSnapshot(entry, { ...paths, repoRoot }, createStateRepository({
       repoRoot,
       projectId: PROJECT_ID,

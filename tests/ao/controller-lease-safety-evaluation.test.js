@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,6 +11,7 @@ import {
   digestControllerLeaseSafetyEvidence,
   loadControllerLeaseSafetyFixturePack,
   replayControllerLeaseSafetyFixturePack,
+  snapshotControllerLeasePersistentArtifacts,
   verifyControllerLeaseRecoveryEvidence,
 } from '../../scripts/ao/controller-lease-safety-evaluation.js';
 
@@ -75,6 +77,7 @@ describe('controller lease safety evaluation pack', () => {
     expect(recoveryCase.expected.operator_intent).toBe('restore_verified_canonical_backup');
     expect(() => verifyControllerLeaseRecoveryEvidence({
       schema_version: 'ao.controller-lease-recovery-evidence.v1',
+      operator: { id: 'operator-18', role: 'repository_owner' },
     }, { projectId: 'controller-lease-safety', incidentId: 'incident-18' }))
       .toThrow('explicit operator intent');
   });
@@ -101,6 +104,11 @@ describe('controller lease safety evaluation pack', () => {
     expect(() => verifyControllerLeaseRecoveryEvidence(base, {
       projectId: 'project-b', incidentId: 'incident-a',
     })).toThrow('expected project and incident');
+    const nonTextOperator = structuredClone(base);
+    nonTextOperator.operator = { id: 7, role: true };
+    expect(() => verifyControllerLeaseRecoveryEvidence(nonTextOperator, {
+      projectId: 'project-a', incidentId: 'incident-a',
+    })).toThrow('textual operator identity');
     expect(() => verifyControllerLeaseRecoveryEvidence(base, {
       projectId: 'project-a', incidentId: 'incident-a',
     })).toThrow('quiescence evidence');
@@ -147,6 +155,40 @@ describe('controller lease safety evaluation pack', () => {
     expect(() => verifyControllerLeaseRecoveryEvidence(runningController, {
       projectId: 'project-a', incidentId: 'incident-a',
     })).toThrow('quiescence evidence');
+  });
+
+  it('detects every persistent artifact class and excludes only documented transient files', () => {
+    const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-lease-artifact-snapshot-'));
+    try {
+      const persistentPaths = [
+        'schema.json',
+        'controller-leases.json',
+        'state.json',
+        'controller-lease-migration-receipt.json',
+        'controller-lease-migration-audit-checkpoint.json',
+        'bootstrap-provenance.json',
+        'audit-log.jsonl',
+        'nested/other-persistent-artifact.json',
+      ];
+      for (const relativePath of persistentPaths) {
+        fs.mkdirSync(path.dirname(path.join(stateRoot, relativePath)), { recursive: true });
+        fs.writeFileSync(path.join(stateRoot, relativePath), '{}\n');
+      }
+      fs.writeFileSync(path.join(stateRoot, 'state.json.lock'), '{"pid":1}\n');
+      fs.writeFileSync(path.join(stateRoot, 'state.json.tmp-123-456'), '{}\n');
+      const before = snapshotControllerLeasePersistentArtifacts(stateRoot);
+      expect(before.map((entry) => entry.path)).toEqual([...persistentPaths].sort());
+      for (const relativePath of persistentPaths) {
+        fs.writeFileSync(path.join(stateRoot, relativePath), '{"status":"changed"}\n');
+        expect(snapshotControllerLeasePersistentArtifacts(stateRoot)).not.toEqual(before);
+        fs.writeFileSync(path.join(stateRoot, relativePath), '{}\n');
+      }
+      fs.writeFileSync(path.join(stateRoot, 'state.json.lock'), '{"pid":2}\n');
+      fs.writeFileSync(path.join(stateRoot, 'state.json.tmp-123-456'), '{"changed":true}\n');
+      expect(snapshotControllerLeasePersistentArtifacts(stateRoot)).toEqual(before);
+    } finally {
+      fs.rmSync(stateRoot, { recursive: true, force: true });
+    }
   });
 
   it('keeps the fixture artifact newline terminated with a stable digest', () => {
