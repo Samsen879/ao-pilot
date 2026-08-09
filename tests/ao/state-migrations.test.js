@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
 import { afterEach, describe, expect, it } from '@jest/globals';
 
@@ -35,6 +37,14 @@ function readAuditEntries(filePath) {
   return text.split('\n').map((line) => JSON.parse(line));
 }
 
+async function waitForPath(filePath, timeoutMs = 1000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!fs.existsSync(filePath)) {
+    if (Date.now() >= deadline) throw new Error(`Timed out waiting for ${filePath}`);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 function controllerLease(leaseId = 'controller-default-migrated') {
   return createControllerLease({
     lease_id: leaseId,
@@ -45,7 +55,7 @@ function controllerLease(leaseId = 'controller-default-migrated') {
     status: 'active',
     acquired_at: FIXED_NOW,
     heartbeat_at: FIXED_NOW,
-    expires_at: '2026-03-29T05:45:00.000Z',
+    expires_at: '2026-03-29T04:44:00.000Z',
     lease_timeout_ms: 3600000,
     runtime_kind: 'continuous',
   });
@@ -446,6 +456,13 @@ describe('ao state migrations', () => {
     const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
     const withoutV11 = readAuditEntries(paths.auditPath).filter((entry) => entry.entity_id !== 'v11');
     fs.writeFileSync(paths.auditPath, `${withoutV11.map((entry) => JSON.stringify(entry)).join('\n')}\n`, 'utf8');
+    const checkpoint = readJson(paths.controllerLeaseMigrationAuditCheckpointPath);
+    checkpoint.status = 'pending';
+    fs.writeFileSync(
+      paths.controllerLeaseMigrationAuditCheckpointPath,
+      `${JSON.stringify(checkpoint, null, 2)}\n`,
+      'utf8',
+    );
 
     bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: '2026-03-29T06:00:00.000Z' });
     bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: '2026-03-29T07:00:00.000Z' });
@@ -476,7 +493,152 @@ describe('ao state migrations', () => {
     receipt.destination_authority_digest = `sha256:${'0'.repeat(64)}`;
     fs.writeFileSync(paths.controllerLeaseMigrationReceiptPath, `${JSON.stringify(receipt, null, 2)}\n`, 'utf8');
     expect(() => bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
-      .toThrow('Controller lease migration audit receipt digest mismatch');
+      .toThrow('Malformed controller lease authority migration receipt');
+  });
+
+  it('fails closed rather than blessing a corrupted receipt during pending audit repair', () => {
+    const repoRoot = createTempRepo();
+    bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW });
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    const withoutV11 = readAuditEntries(paths.auditPath).filter((entry) => entry.entity_id !== 'v11');
+    fs.writeFileSync(paths.auditPath, `${withoutV11.map((entry) => JSON.stringify(entry)).join('\n')}\n`, 'utf8');
+    const checkpoint = readJson(paths.controllerLeaseMigrationAuditCheckpointPath);
+    checkpoint.status = 'pending';
+    fs.writeFileSync(paths.controllerLeaseMigrationAuditCheckpointPath, `${JSON.stringify(checkpoint, null, 2)}\n`);
+    const receipt = readJson(paths.controllerLeaseMigrationReceiptPath);
+    receipt.source_evidence_digest = `sha256:${'f'.repeat(64)}`;
+    fs.writeFileSync(paths.controllerLeaseMigrationReceiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
+
+    expect(() => bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
+      .toThrow('Malformed controller lease authority migration receipt');
+    expect(readAuditEntries(paths.auditPath).some((entry) => entry.entity_id === 'v11')).toBe(false);
+  });
+
+  it('binds migration receipts and fresh-root provenance to the requested project', () => {
+    const repoRoot = createTempRepo();
+    bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW });
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    const receipt = readJson(paths.controllerLeaseMigrationReceiptPath);
+    receipt.project_id = 'another-project';
+    const receiptEvidence = { ...receipt };
+    delete receiptEvidence.receipt_integrity_digest;
+    receipt.receipt_integrity_digest = digestControllerLeaseAuthorityEvidence(receiptEvidence);
+    fs.writeFileSync(paths.controllerLeaseMigrationReceiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
+    expect(() => bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
+      .toThrow('Malformed controller lease authority migration receipt');
+
+    const otherRepoRoot = createTempRepo();
+    const otherPaths = resolveControlPlanePaths({ repoRoot: otherRepoRoot, projectId: PROJECT_ID });
+    fs.mkdirSync(otherPaths.stateRoot, { recursive: true });
+    fs.writeFileSync(otherPaths.bootstrapProvenancePath, `${JSON.stringify({
+      schema_version: 'ao.control-plane-bootstrap-provenance.v1',
+      format: 'ao_control_plane_bootstrap_provenance',
+      project_id: 'another-project',
+      status: 'initializing',
+      source: 'fresh_state_root',
+      recorded_at: FIXED_NOW,
+    }, null, 2)}\n`);
+    expect(() => bootstrapControlPlaneState({ repoRoot: otherRepoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
+      .toThrow('Malformed control-plane bootstrap provenance');
+  });
+
+  it('detects a legacy state writer change before committing the v11 rewrite', async () => {
+    const { repoRoot, paths } = materializeVersion10();
+    const migrationModuleUrl = pathToFileURL(
+      path.resolve('scripts/ao/lib/state-migrations.js'),
+    ).href;
+    let child;
+    let childResult;
+
+    await withFileLock(paths.stateWriteLockPath, async () => {
+      child = spawn(process.execPath, [
+        '--input-type=module',
+        '--eval',
+        `import { bootstrapControlPlaneState } from ${JSON.stringify(migrationModuleUrl)};
+try {
+  bootstrapControlPlaneState({ repoRoot: process.argv[1], projectId: ${JSON.stringify(PROJECT_ID)}, now: '2026-03-29T05:00:00.000Z' });
+  process.exitCode = 0;
+} catch (error) {
+  process.stderr.write(String(error.message));
+  process.exitCode = 2;
+}`,
+        repoRoot,
+      ], { stdio: ['ignore', 'pipe', 'pipe'] });
+      await waitForPath(`${paths.controllerLeasesPath}.lock`);
+      const state = readJson(paths.statePath);
+      state.actions.push({ action_id: 'legacy-writer-race' });
+      fs.writeFileSync(paths.statePath, `${JSON.stringify(state, null, 2)}\n`);
+      childResult = new Promise((resolve) => {
+        let stderr = '';
+        child.stderr.on('data', (chunk) => { stderr += chunk; });
+        child.on('close', (code) => resolve({ code, stderr }));
+      });
+    });
+    const result = await childResult;
+
+    expect(result).toMatchObject({ code: 2 });
+    expect(result.stderr).toContain(
+      'Legacy state writer changed state.json during v11 migration; quiescence not established',
+    );
+    expect(readJson(paths.schemaPath).current_version).toBe(10);
+    expect(readJson(paths.statePath).actions).toContainEqual({ action_id: 'legacy-writer-race' });
+  });
+
+  it('requires explicit legacy-controller quiescence before rewriting v10 state', () => {
+    const liveLease = {
+      ...controllerLease(),
+      expires_at: '2026-03-29T06:00:00.000Z',
+    };
+    const { repoRoot, paths } = materializeVersion10({ shadow: [liveLease] });
+
+    expect(() => bootstrapControlPlaneState({
+      repoRoot,
+      projectId: PROJECT_ID,
+      now: '2026-03-29T05:00:00.000Z',
+    })).toThrow('Legacy controller writer quiescence required before v11 migration');
+    expect(readJson(paths.schemaPath).current_version).toBe(10);
+    expect(readJson(paths.statePath).controller_leases).toEqual([liveLease]);
+  });
+
+  it('uses the bounded audit checkpoint on the steady-state bootstrap path', () => {
+    const repoRoot = createTempRepo();
+    bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW });
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    fs.renameSync(paths.auditPath, `${paths.auditPath}.held`);
+
+    expect(bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
+      .toMatchObject({ bootstrapped: true, migrated: false });
+    expect(fs.existsSync(paths.auditPath)).toBe(false);
+  });
+
+  it('fails closed if a legacy writer revives the forbidden shadow after migration', () => {
+    const repoRoot = createTempRepo();
+    bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW });
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    const state = readJson(paths.statePath);
+    state.controller_leases = [controllerLease('controller-default-revived')];
+    fs.writeFileSync(paths.statePath, `${JSON.stringify(state, null, 2)}\n`);
+
+    expect(() => bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
+      .toThrow('Prohibited controller_leases shadow detected in v11 state.json');
+  });
+
+  it('resumes an atomically claimed fresh root with initializing provenance', () => {
+    const repoRoot = createTempRepo();
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    fs.mkdirSync(paths.stateRoot, { recursive: true });
+    fs.writeFileSync(paths.bootstrapProvenancePath, `${JSON.stringify({
+      schema_version: 'ao.control-plane-bootstrap-provenance.v1',
+      format: 'ao_control_plane_bootstrap_provenance',
+      project_id: PROJECT_ID,
+      status: 'initializing',
+      source: 'fresh_state_root',
+      recorded_at: FIXED_NOW,
+    }, null, 2)}\n`);
+
+    expect(bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
+      .toMatchObject({ bootstrapped: true, migrated: true });
+    expect(readJson(paths.bootstrapProvenancePath).status).toBe('complete');
   });
 
   it('requires positive fresh-root provenance and rejects partially restored roots', () => {

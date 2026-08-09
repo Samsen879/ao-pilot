@@ -28,6 +28,7 @@ import {
 
 const CONTROLLER_LEASE_MIGRATION_RECEIPT_SCHEMA_VERSION = 'ao.controller-lease-migration-receipt.v1';
 const CONTROL_PLANE_BOOTSTRAP_PROVENANCE_SCHEMA_VERSION = 'ao.control-plane-bootstrap-provenance.v1';
+const CONTROLLER_LEASE_MIGRATION_AUDIT_CHECKPOINT_SCHEMA_VERSION = 'ao.controller-lease-migration-audit-checkpoint.v1';
 
 export const CONTROL_PLANE_BOOTSTRAP_MIGRATION = {
   version: 1,
@@ -407,7 +408,14 @@ export function resolveControlPlanePaths({
     statePath: path.join(stateRoot, 'state.json'),
     controllerLeasesPath: path.join(stateRoot, 'controller-leases.json'),
     controllerLeaseMigrationReceiptPath: path.join(stateRoot, 'controller-lease-migration-receipt.json'),
+    controllerLeaseMigrationAuditCheckpointPath: path.join(stateRoot, 'controller-lease-migration-audit-checkpoint.json'),
     bootstrapProvenancePath: path.join(stateRoot, 'bootstrap-provenance.json'),
+    bootstrapInitializationLockPath: path.join(
+      normalizedRepoRoot,
+      '.ao-control-plane',
+      `.${normalizedProjectId}.bootstrap.lock`,
+    ),
+    stateWriteLockPath: path.join(stateRoot, 'state.json.lock'),
     auditPath: path.join(stateRoot, 'audit-log.jsonl'),
     evalRoot: path.join(stateRoot, 'eval'),
     evalScorecardRoot: path.join(stateRoot, 'eval', 'scorecards'),
@@ -484,6 +492,12 @@ function validateCurrentControllerLeaseAuthority(paths) {
   return readControllerLeaseAuthorityFile(paths.controllerLeasesPath);
 }
 
+function assertNoControllerLeaseShadow(state) {
+  if (Object.hasOwn(state ?? {}, 'controller_leases')) {
+    throw new Error('Prohibited controller_leases shadow detected in v11 state.json');
+  }
+}
+
 function createBootstrapProvenance({ projectId, status, now, source }) {
   return {
     schema_version: CONTROL_PLANE_BOOTSTRAP_PROVENANCE_SCHEMA_VERSION,
@@ -495,22 +509,35 @@ function createBootstrapProvenance({ projectId, status, now, source }) {
   };
 }
 
-function readBootstrapProvenance(paths) {
+function readBootstrapProvenance(paths, projectId) {
   const provenance = readJsonFile(paths.bootstrapProvenancePath);
   if (provenance == null) return null;
   if (
     provenance.schema_version !== CONTROL_PLANE_BOOTSTRAP_PROVENANCE_SCHEMA_VERSION
     || provenance.format !== 'ao_control_plane_bootstrap_provenance'
+    || provenance.project_id !== projectId
+    || !['initializing', 'complete'].includes(provenance.status)
+    || !['fresh_state_root', 'legacy_migration'].includes(provenance.source)
+    || typeof provenance.recorded_at !== 'string'
+    || provenance.recorded_at.trim() === ''
   ) {
     throw new Error('Malformed control-plane bootstrap provenance');
   }
   return provenance;
 }
 
-function createControllerLeaseMigrationReceipt({ migration, sourceSchemaVersion, now }) {
-  return {
+function createControllerLeaseMigrationReceipt({
+  projectId,
+  migration,
+  sourceSchemaVersion,
+  sourceStateDigest,
+  legacyWriterQuiescence,
+  now,
+}) {
+  const receipt = {
     schema_version: CONTROLLER_LEASE_MIGRATION_RECEIPT_SCHEMA_VERSION,
     format: 'ao_controller_lease_migration_receipt',
+    project_id: projectId,
     migration_key: CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION.key,
     source_schema_version: sourceSchemaVersion,
     destination_schema_version: CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION.version,
@@ -519,18 +546,39 @@ function createControllerLeaseMigrationReceipt({ migration, sourceSchemaVersion,
     destination_authority_digest: digestControllerLeaseAuthorityEvidence(migration.envelope),
     controller_lease_count: migration.envelope.records.length,
     state_shadow_removed: migration.state_shadow_removed,
+    source_state_digest: sourceStateDigest,
+    state_write_fence: 'state.json.lock+sha256_cas',
+    legacy_writer_quiescence: legacyWriterQuiescence,
     recorded_at: now,
+  };
+  return {
+    ...receipt,
+    receipt_integrity_digest: digestControllerLeaseAuthorityEvidence(receipt),
   };
 }
 
-function readControllerLeaseMigrationReceipt(paths, envelope, { validateDestination = true } = {}) {
+function readControllerLeaseMigrationReceipt(
+  paths,
+  envelope,
+  projectId,
+  { validateDestination = true } = {},
+) {
   const receipt = readJsonFile(paths.controllerLeaseMigrationReceiptPath);
   if (receipt == null) return null;
+  const { receipt_integrity_digest: integrityDigest, ...receiptEvidence } = receipt;
   if (
     receipt.schema_version !== CONTROLLER_LEASE_MIGRATION_RECEIPT_SCHEMA_VERSION
     || receipt.format !== 'ao_controller_lease_migration_receipt'
+    || receipt.project_id !== projectId
     || receipt.migration_key !== CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION.key
     || receipt.destination_schema_version !== CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION.version
+    || typeof receipt.source_evidence_digest !== 'string'
+    || typeof receipt.source_state_digest !== 'string'
+    || receipt.state_write_fence !== 'state.json.lock+sha256_cas'
+    || !['not_required', 'verified'].includes(receipt.legacy_writer_quiescence?.result)
+    || typeof receipt.legacy_writer_quiescence?.verified_at !== 'string'
+    || receipt.legacy_writer_quiescence?.evidence !== 'no_unexpired_active_controller_leases'
+    || integrityDigest !== digestControllerLeaseAuthorityEvidence(receiptEvidence)
   ) {
     throw new Error('Malformed controller lease authority migration receipt');
   }
@@ -539,6 +587,77 @@ function readControllerLeaseMigrationReceipt(paths, envelope, { validateDestinat
     throw new Error('Controller lease authority migration receipt destination digest mismatch');
   }
   return receipt;
+}
+
+function verifyLegacyWriterQuiescence({ records, sourceSchemaVersion, now }) {
+  const result = sourceSchemaVersion > 0 ? 'verified' : 'not_required';
+  if (sourceSchemaVersion > 0) {
+    const timestampMs = new Date(now).getTime();
+    const liveLegacyLease = records.find((record) => (
+      record.status === 'active'
+      && new Date(record.expires_at).getTime() > timestampMs
+    ));
+    if (liveLegacyLease) {
+      throw new Error(
+        `Legacy controller writer quiescence required before v11 migration: stop controller lease ${liveLegacyLease.lease_id} and wait for expiry or obtain a human-approved shutdown`,
+      );
+    }
+  }
+  return {
+    result,
+    verified_at: now,
+    evidence: 'no_unexpired_active_controller_leases',
+  };
+}
+
+function createMigrationAuditCheckpoint({ projectId, receipt, status }) {
+  return {
+    schema_version: CONTROLLER_LEASE_MIGRATION_AUDIT_CHECKPOINT_SCHEMA_VERSION,
+    format: 'ao_controller_lease_migration_audit_checkpoint',
+    project_id: projectId,
+    migration_key: CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION.key,
+    audit_id: `migration-${CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION.version}`,
+    receipt_digest: digestControllerLeaseAuthorityEvidence(receipt),
+    status,
+    recorded_at: receipt.recorded_at,
+  };
+}
+
+function readMigrationAuditCheckpoint(paths, projectId, receipt) {
+  const checkpoint = readJsonFile(paths.controllerLeaseMigrationAuditCheckpointPath);
+  if (checkpoint == null) return null;
+  if (
+    checkpoint.schema_version !== CONTROLLER_LEASE_MIGRATION_AUDIT_CHECKPOINT_SCHEMA_VERSION
+    || checkpoint.format !== 'ao_controller_lease_migration_audit_checkpoint'
+    || checkpoint.project_id !== projectId
+    || checkpoint.migration_key !== CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION.key
+    || checkpoint.audit_id !== `migration-${CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION.version}`
+    || checkpoint.receipt_digest !== digestControllerLeaseAuthorityEvidence(receipt)
+    || !['pending', 'complete'].includes(checkpoint.status)
+    || checkpoint.recorded_at !== receipt.recorded_at
+  ) {
+    throw new Error('Malformed controller lease migration audit checkpoint');
+  }
+  return checkpoint;
+}
+
+function claimFreshStateRoot({ paths, projectId, now, timeoutMs, retryMs }) {
+  return withFileLockSync(paths.bootstrapInitializationLockPath, () => {
+    if (fs.existsSync(paths.stateRoot)) return false;
+    ensureDirectory(path.dirname(paths.stateRoot));
+    const stagingRoot = fs.mkdtempSync(`${paths.stateRoot}.initializing-`);
+    writeJsonFileAtomic(
+      path.join(stagingRoot, path.basename(paths.bootstrapProvenancePath)),
+      createBootstrapProvenance({
+        projectId,
+        status: 'initializing',
+        source: 'fresh_state_root',
+        now,
+      }),
+    );
+    fs.renameSync(stagingRoot, paths.stateRoot);
+    return true;
+  }, { timeoutMs, retryMs });
 }
 
 function buildControllerLeaseMigrationAuditDetails(receipt) {
@@ -592,8 +711,14 @@ export function bootstrapControlPlaneState({
     repoRoot,
     projectId,
   });
-  const stateRootInitiallyAbsent = !fs.existsSync(paths.stateRoot);
-  ensureDirectory(paths.stateRoot);
+  const initialTimestamp = resolveNow(now);
+  const freshStateRootClaimed = claimFreshStateRoot({
+    paths,
+    projectId,
+    now: initialTimestamp,
+    timeoutMs: controllerLeaseLockTimeoutMs,
+    retryMs: controllerLeaseLockRetryMs,
+  });
   const controllerLeaseLockPath = `${paths.controllerLeasesPath}.lock`;
 
   const initialSchema = readControlPlaneSchema({ schemaPath: paths.schemaPath });
@@ -603,17 +728,14 @@ export function bootstrapControlPlaneState({
     && initialState != null
     && Number(initialSchema.current_version ?? 0) >= CONTROL_PLANE_LATEST_VERSION
   ) {
+    assertNoControllerLeaseShadow(initialState);
     const envelope = validateCurrentControllerLeaseAuthority(paths);
-    const receipt = readControllerLeaseMigrationReceipt(paths, envelope, {
+    const receipt = readControllerLeaseMigrationReceipt(paths, envelope, projectId, {
       validateDestination: false,
     });
     if (receipt == null) throw new Error('Missing controller lease authority migration receipt');
-    const auditEntry = readControlPlaneAuditEntries({ auditPath: paths.auditPath })
-      .find((entry) => entry.audit_id === `migration-${CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION.version}`);
-    if (
-      auditEntry?.details?.migration_receipt_digest
-      === digestControllerLeaseAuthorityEvidence(receipt)
-    ) {
+    const checkpoint = readMigrationAuditCheckpoint(paths, projectId, receipt);
+    if (checkpoint?.status === 'complete') {
       return {
         bootstrapped: true,
         migrated: false,
@@ -622,17 +744,16 @@ export function bootstrapControlPlaneState({
         state: initialState,
       };
     }
-    if (auditEntry != null) throw new Error('Controller lease migration audit receipt digest mismatch');
   }
 
   return withFileLockSync(controllerLeaseLockPath, () => {
     const existingSchema = readControlPlaneSchema({ schemaPath: paths.schemaPath });
     const existingState = readControlPlaneState({ statePath: paths.statePath });
-    const timestamp = resolveNow(now);
+    const timestamp = initialTimestamp;
     const effectiveCurrentVersion = existingSchema != null && existingState != null
       ? Number(existingSchema.current_version ?? 0)
       : 0;
-    const provenance = readBootstrapProvenance(paths);
+    const provenance = readBootstrapProvenance(paths, projectId);
 
     if ((existingSchema == null) !== (existingState == null)) {
       throw new Error('Incomplete control-plane migration evidence: schema.json and state.json are both required');
@@ -643,20 +764,41 @@ export function bootstrapControlPlaneState({
       && existingState != null
       && effectiveCurrentVersion >= CONTROL_PLANE_LATEST_VERSION
     ) {
+      assertNoControllerLeaseShadow(existingState);
       const envelope = validateCurrentControllerLeaseAuthority(paths);
-      const receipt = readControllerLeaseMigrationReceipt(paths, envelope, {
+      const receipt = readControllerLeaseMigrationReceipt(paths, envelope, projectId, {
         validateDestination: false,
       });
       if (receipt == null) {
         throw new Error('Missing controller lease authority migration receipt');
       }
-      ensureMigrationAuditEntry({
-        paths,
-        projectId,
-        migration: CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION,
-        recordedAt: receipt.recorded_at,
-        details: buildControllerLeaseMigrationAuditDetails(receipt),
-      });
+      const checkpoint = readMigrationAuditCheckpoint(paths, projectId, receipt);
+      if (checkpoint == null) {
+        const auditEntry = readControlPlaneAuditEntries({ auditPath: paths.auditPath })
+          .find((entry) => entry.audit_id === `migration-${CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION.version}`);
+        if (
+          auditEntry?.details?.migration_receipt_digest
+          !== digestControllerLeaseAuthorityEvidence(receipt)
+        ) {
+          throw new Error('Missing independently validated controller lease migration audit checkpoint');
+        }
+        writeJsonFileAtomic(
+          paths.controllerLeaseMigrationAuditCheckpointPath,
+          createMigrationAuditCheckpoint({ projectId, receipt, status: 'complete' }),
+        );
+      } else if (checkpoint.status === 'pending') {
+        ensureMigrationAuditEntry({
+          paths,
+          projectId,
+          migration: CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION,
+          recordedAt: receipt.recorded_at,
+          details: buildControllerLeaseMigrationAuditDetails(receipt),
+        });
+        writeJsonFileAtomic(
+          paths.controllerLeaseMigrationAuditCheckpointPath,
+          createMigrationAuditCheckpoint({ projectId, receipt, status: 'complete' }),
+        );
+      }
       return {
         bootstrapped: true,
         migrated: false,
@@ -670,28 +812,19 @@ export function bootstrapControlPlaneState({
     const resumableFreshInitialization = provenance?.status === 'initializing'
       && provenance?.source === 'fresh_state_root';
     const allowFreshInitialization = coreStateMissing
-      && (stateRootInitiallyAbsent || resumableFreshInitialization);
+      && (freshStateRootClaimed || resumableFreshInitialization);
     if (coreStateMissing && !allowFreshInitialization) {
       throw new Error(
         'Incomplete control-plane migration evidence: existing or orphaned state root cannot initialize empty authority',
       );
     }
-    if (allowFreshInitialization && provenance == null) {
-      writeJsonFileAtomic(paths.bootstrapProvenancePath, createBootstrapProvenance({
-        projectId,
-        status: 'initializing',
-        source: 'fresh_state_root',
-        now: timestamp,
-      }));
-    }
-
     let controllerLeaseAuthorityMigration;
     let migrationReceipt = null;
     if (fs.existsSync(paths.controllerLeasesPath)) {
       const existingPayload = readJsonFile(paths.controllerLeasesPath);
       if (!Array.isArray(existingPayload)) {
         const existingEnvelope = parseControllerLeaseAuthority(existingPayload);
-        migrationReceipt = readControllerLeaseMigrationReceipt(paths, existingEnvelope);
+        migrationReceipt = readControllerLeaseMigrationReceipt(paths, existingEnvelope, projectId);
         if (migrationReceipt != null) {
           controllerLeaseAuthorityMigration = {
             envelope: existingEnvelope,
@@ -742,15 +875,39 @@ export function bootstrapControlPlaneState({
       updated_at: timestamp,
       applied_migrations: [...priorMigrations, ...newAppliedMigrations],
     });
+    const sourceStateDigest = digestControllerLeaseAuthorityEvidence(existingState);
+    const legacyWriterQuiescence = verifyLegacyWriterQuiescence({
+      records: controllerLeaseAuthorityMigration.envelope.records,
+      sourceSchemaVersion: effectiveCurrentVersion,
+      now: timestamp,
+    });
     migrationReceipt ??= createControllerLeaseMigrationReceipt({
+      projectId,
       migration: controllerLeaseAuthorityMigration,
       sourceSchemaVersion: effectiveCurrentVersion,
+      sourceStateDigest,
+      legacyWriterQuiescence,
       now: timestamp,
     });
 
     writeJsonFileAtomic(paths.controllerLeasesPath, controllerLeaseAuthorityMigration.envelope);
     writeJsonFileAtomic(paths.controllerLeaseMigrationReceiptPath, migrationReceipt);
-    writeJsonFileAtomic(paths.statePath, nextState);
+    writeJsonFileAtomic(
+      paths.controllerLeaseMigrationAuditCheckpointPath,
+      createMigrationAuditCheckpoint({ projectId, receipt: migrationReceipt, status: 'pending' }),
+    );
+    withFileLockSync(paths.stateWriteLockPath, () => {
+      const currentStateDigest = digestControllerLeaseAuthorityEvidence(
+        readControlPlaneState({ statePath: paths.statePath }),
+      );
+      if (currentStateDigest !== sourceStateDigest) {
+        throw new Error('Legacy state writer changed state.json during v11 migration; quiescence not established');
+      }
+      writeJsonFileAtomic(paths.statePath, nextState);
+    }, {
+      timeoutMs: controllerLeaseLockTimeoutMs,
+      retryMs: controllerLeaseLockRetryMs,
+    });
 
     for (const migration of CONTROL_PLANE_MIGRATIONS) {
       if (migration.version <= effectiveCurrentVersion) continue;
@@ -765,7 +922,13 @@ export function bootstrapControlPlaneState({
       });
     }
 
+    writeJsonFileAtomic(
+      paths.controllerLeaseMigrationAuditCheckpointPath,
+      createMigrationAuditCheckpoint({ projectId, receipt: migrationReceipt, status: 'complete' }),
+    );
+
     writeJsonFileAtomic(paths.schemaPath, nextSchema);
+    assertNoControllerLeaseShadow(readControlPlaneState({ statePath: paths.statePath }));
     writeJsonFileAtomic(paths.bootstrapProvenancePath, createBootstrapProvenance({
       projectId,
       status: 'complete',

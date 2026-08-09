@@ -105,6 +105,7 @@ export function createStateRepository({
     projectId,
   });
   const controllerLeaseLockPath = `${paths.controllerLeasesPath}.lock`;
+  const stateWriteLockPath = paths.stateWriteLockPath;
 
   function readControllerLeaseRecords() {
     return readControllerLeaseAuthorityFile(paths.controllerLeasesPath).records;
@@ -178,7 +179,9 @@ export function createStateRepository({
     const nextState = cloneJsonValue(state);
     delete nextState.controller_leases;
     nextState.updated_at = recordedAt;
-    writeJsonFileAtomic(paths.statePath, nextState);
+    withFileLockSync(stateWriteLockPath, () => {
+      writeJsonFileAtomic(paths.statePath, nextState);
+    });
     appendControlPlaneAuditEntry({
       auditPath: paths.auditPath,
       entry: createControlPlaneAuditEntry({

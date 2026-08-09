@@ -135,7 +135,7 @@
       { "id": "persist-state-api", "pattern": "\\bpersistState\\b" },
       { "id": "file-name", "pattern": "controller-leases\\.json" }
     ],
-    "expected_match_count": 56,
-    "expected_digest": "cda2e4c338c03583c87fcf62f177b16402cfe2a6c11da08c833a9c712dcf8789"
+    "expected_match_count": 58,
+    "expected_digest": "9a9ae784c9052450811b9725004310bba121c71c9815dd75a0a4f15f683ab729"
   }
 }
