@@ -1,0 +1,951 @@
+{
+  "schema_version": "ao.false-success-trajectory-audit-report.v1",
+  "fixture_pack_version": "2026-08-09.1",
+  "inventory_schema_version": "ao.trajectory-vocabulary.v1",
+  "inventory_version": "1.0.0",
+  "status": "blocked_as_expected",
+  "summary": {
+    "fixture_count": 16,
+    "false_success_fixture_count": 11,
+    "unknown_outcome_fixture_count": 5,
+    "covered_item_count": 50,
+    "inventory_item_count": 50,
+    "blocking_finding_count": 16,
+    "unresolved_producer_count": 14
+  },
+  "coverage": [
+    {
+      "item_id": "action.lifecycle_action_class",
+      "family": "action",
+      "field": "lifecycle.actions[].action_class",
+      "fixture_ids": [
+        "release-ready-judgment-is-not-outcome"
+      ],
+      "policies": [
+        "lifecycle_judgment_outcome"
+      ],
+      "finding_fingerprints": [
+        "e687e5618f32a8656118f5ca38ff7191de0bd67d4db46fe895ba859a78b82056"
+      ]
+    },
+    {
+      "item_id": "action.lifecycle_action_id",
+      "family": "action",
+      "field": "lifecycle.actions[].id",
+      "fixture_ids": [
+        "release-ready-judgment-is-not-outcome"
+      ],
+      "policies": [
+        "lifecycle_judgment_outcome"
+      ],
+      "finding_fingerprints": [
+        "e687e5618f32a8656118f5ca38ff7191de0bd67d4db46fe895ba859a78b82056"
+      ]
+    },
+    {
+      "item_id": "action.record_status",
+      "family": "action",
+      "field": "control_plane.actions[].status",
+      "fixture_ids": [
+        "executed-action-is-not-merge"
+      ],
+      "policies": [
+        "provider_merge_outcome"
+      ],
+      "finding_fingerprints": [
+        "ea6a409836070e9819d279d1cb41fd117111dfd288c119b7156d842be92dccfd"
+      ]
+    },
+    {
+      "item_id": "checkpoint.checkpoint_id",
+      "family": "checkpoint",
+      "field": "checkpoints[].checkpoint_id",
+      "fixture_ids": [
+        "valid-checkpoint-is-not-terminal-delivery"
+      ],
+      "policies": [
+        "checkpoint_terminality"
+      ],
+      "finding_fingerprints": [
+        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+      ]
+    },
+    {
+      "item_id": "checkpoint.created_by",
+      "family": "checkpoint",
+      "field": "checkpoints[].created_by",
+      "fixture_ids": [
+        "self-asserted-context-lacks-authority",
+        "valid-checkpoint-is-not-terminal-delivery"
+      ],
+      "policies": [
+        "checkpoint_terminality",
+        "independent_evidence"
+      ],
+      "finding_fingerprints": [
+        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f",
+        "eecf995e277db27bdfe21ee46e247c57bf65e31872e9933ca79920d0aa97ec64"
+      ]
+    },
+    {
+      "item_id": "checkpoint.execution_ref_fields",
+      "family": "checkpoint",
+      "field": "checkpoints[].snapshot.execution_ref.*",
+      "fixture_ids": [
+        "valid-checkpoint-is-not-terminal-delivery"
+      ],
+      "policies": [
+        "checkpoint_terminality"
+      ],
+      "finding_fingerprints": [
+        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+      ]
+    },
+    {
+      "item_id": "checkpoint.inspection_reason_codes",
+      "family": "checkpoint",
+      "field": "checkpoint_inspection.reason_codes[]",
+      "fixture_ids": [
+        "valid-checkpoint-is-not-terminal-delivery"
+      ],
+      "policies": [
+        "checkpoint_terminality"
+      ],
+      "finding_fingerprints": [
+        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+      ]
+    },
+    {
+      "item_id": "checkpoint.inspection_state",
+      "family": "checkpoint",
+      "field": "checkpoint_inspection.state",
+      "fixture_ids": [
+        "replay-preserves-unknown-outcome",
+        "valid-checkpoint-is-not-terminal-delivery"
+      ],
+      "policies": [
+        "checkpoint_terminality",
+        "provider_merge_outcome"
+      ],
+      "finding_fingerprints": [
+        "4f0de5f113a9230b7167136a805591153d05fc2e628d406b141eb093790e8249",
+        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+      ]
+    },
+    {
+      "item_id": "checkpoint.metadata",
+      "family": "checkpoint",
+      "field": "checkpoints[].metadata",
+      "fixture_ids": [
+        "self-asserted-context-lacks-authority",
+        "valid-checkpoint-is-not-terminal-delivery"
+      ],
+      "policies": [
+        "checkpoint_terminality",
+        "independent_evidence"
+      ],
+      "finding_fingerprints": [
+        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f",
+        "eecf995e277db27bdfe21ee46e247c57bf65e31872e9933ca79920d0aa97ec64"
+      ]
+    },
+    {
+      "item_id": "checkpoint.pr_binding_fields",
+      "family": "checkpoint",
+      "field": "checkpoints[].snapshot.task_ref.pr_binding.*",
+      "fixture_ids": [
+        "valid-checkpoint-is-not-terminal-delivery"
+      ],
+      "policies": [
+        "checkpoint_terminality"
+      ],
+      "finding_fingerprints": [
+        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+      ]
+    },
+    {
+      "item_id": "checkpoint.reason",
+      "family": "checkpoint",
+      "field": "checkpoints[].reason",
+      "fixture_ids": [
+        "self-asserted-context-lacks-authority",
+        "valid-checkpoint-is-not-terminal-delivery"
+      ],
+      "policies": [
+        "checkpoint_terminality",
+        "independent_evidence"
+      ],
+      "finding_fingerprints": [
+        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f",
+        "eecf995e277db27bdfe21ee46e247c57bf65e31872e9933ca79920d0aa97ec64"
+      ]
+    },
+    {
+      "item_id": "checkpoint.recorded_at",
+      "family": "checkpoint",
+      "field": "checkpoints[].recorded_at",
+      "fixture_ids": [
+        "valid-checkpoint-is-not-terminal-delivery"
+      ],
+      "policies": [
+        "checkpoint_terminality"
+      ],
+      "finding_fingerprints": [
+        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+      ]
+    },
+    {
+      "item_id": "checkpoint.runtime_preflight_ref_fields",
+      "family": "checkpoint",
+      "field": "checkpoints[].snapshot.verification_ref.runtime_preflight.*",
+      "fixture_ids": [
+        "valid-checkpoint-is-not-terminal-delivery"
+      ],
+      "policies": [
+        "checkpoint_terminality"
+      ],
+      "finding_fingerprints": [
+        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+      ]
+    },
+    {
+      "item_id": "checkpoint.snapshot_format",
+      "family": "checkpoint",
+      "field": "checkpoints[].snapshot.format",
+      "fixture_ids": [
+        "valid-checkpoint-is-not-terminal-delivery"
+      ],
+      "policies": [
+        "checkpoint_terminality"
+      ],
+      "finding_fingerprints": [
+        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+      ]
+    },
+    {
+      "item_id": "checkpoint.snapshot_schema_version",
+      "family": "checkpoint",
+      "field": "checkpoints[].snapshot.schema_version",
+      "fixture_ids": [
+        "valid-checkpoint-is-not-terminal-delivery"
+      ],
+      "policies": [
+        "checkpoint_terminality"
+      ],
+      "finding_fingerprints": [
+        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+      ]
+    },
+    {
+      "item_id": "checkpoint.task_id",
+      "family": "checkpoint",
+      "field": "checkpoints[].task_id",
+      "fixture_ids": [
+        "valid-checkpoint-is-not-terminal-delivery"
+      ],
+      "policies": [
+        "checkpoint_terminality"
+      ],
+      "finding_fingerprints": [
+        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+      ]
+    },
+    {
+      "item_id": "checkpoint.task_ref_fields",
+      "family": "checkpoint",
+      "field": "checkpoints[].snapshot.task_ref.*",
+      "fixture_ids": [
+        "valid-checkpoint-is-not-terminal-delivery"
+      ],
+      "policies": [
+        "checkpoint_terminality"
+      ],
+      "finding_fingerprints": [
+        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+      ]
+    },
+    {
+      "item_id": "checkpoint.task_spec_ref_fields",
+      "family": "checkpoint",
+      "field": "checkpoints[].snapshot.verification_ref.task_spec.*",
+      "fixture_ids": [
+        "valid-checkpoint-is-not-terminal-delivery"
+      ],
+      "policies": [
+        "checkpoint_terminality"
+      ],
+      "finding_fingerprints": [
+        "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+      ]
+    },
+    {
+      "item_id": "ci.normalized_status",
+      "family": "ci_state",
+      "field": "github.prs[].ci_status",
+      "fixture_ids": [
+        "aggregate-passing-misses-required-checks",
+        "missing-required-ci-outcome"
+      ],
+      "policies": [
+        "ci_success"
+      ],
+      "finding_fingerprints": [
+        "214a93156b1277b105963e3f8f8a025458b599a6cb414b751be86a36c4c162c2",
+        "403b6c0d6998f9890d9364750e4a1c1c2d42879d10e4e9d336cd04796f26b53c"
+      ]
+    },
+    {
+      "item_id": "ci.raw_check_state",
+      "family": "ci_state",
+      "field": "github.statusCheckRollup[].status/conclusion",
+      "fixture_ids": [
+        "aggregate-passing-misses-required-checks",
+        "missing-required-ci-outcome",
+        "queued-ci-is-not-execution",
+        "runner-error-is-not-code-failure"
+      ],
+      "policies": [
+        "ci_code_failure",
+        "ci_execution",
+        "ci_success"
+      ],
+      "finding_fingerprints": [
+        "214a93156b1277b105963e3f8f8a025458b599a6cb414b751be86a36c4c162c2",
+        "403b6c0d6998f9890d9364750e4a1c1c2d42879d10e4e9d336cd04796f26b53c",
+        "bf1efb3598ce17ea3e169e15b803fba4079e455148fd48e5b320c90388e2f735",
+        "f2a0d8c70e66d24956b851860c22b456479cdc70390b924a6ac4e9d59c87036c"
+      ]
+    },
+    {
+      "item_id": "execution.action_outcome",
+      "family": "execution_receipt",
+      "field": "control_plane.actions[].payload.execution.outcome",
+      "fixture_ids": [
+        "executed-action-is-not-merge",
+        "missing-provider-merge-outcome"
+      ],
+      "policies": [
+        "provider_merge_outcome"
+      ],
+      "finding_fingerprints": [
+        "35ba375c67550f41f62912f3fdb7df82a3dd7320f6e19aa3aa62493a16fca550",
+        "ea6a409836070e9819d279d1cb41fd117111dfd288c119b7156d842be92dccfd"
+      ]
+    },
+    {
+      "item_id": "execution.command_receipt_fields",
+      "family": "execution_receipt",
+      "field": "payload.execution.effect.receipt.command_receipts[].*",
+      "fixture_ids": [
+        "dispatch-is-not-provider-outcome"
+      ],
+      "policies": [
+        "provider_dispatch_outcome"
+      ],
+      "finding_fingerprints": [
+        "8d714ee952daa9b2162e14cc7072f57dc24627f59cd6008ad689b0f00d084fe2"
+      ]
+    },
+    {
+      "item_id": "execution.effect_receipt_fields",
+      "family": "execution_receipt",
+      "field": "payload.execution.effect.*",
+      "fixture_ids": [
+        "executed-action-is-not-merge"
+      ],
+      "policies": [
+        "provider_merge_outcome"
+      ],
+      "finding_fingerprints": [
+        "ea6a409836070e9819d279d1cb41fd117111dfd288c119b7156d842be92dccfd"
+      ]
+    },
+    {
+      "item_id": "execution.effect_status",
+      "family": "execution_receipt",
+      "field": "control_plane.actions[].payload.execution.effect.status",
+      "fixture_ids": [
+        "executed-action-is-not-merge",
+        "missing-provider-merge-outcome"
+      ],
+      "policies": [
+        "provider_merge_outcome"
+      ],
+      "finding_fingerprints": [
+        "35ba375c67550f41f62912f3fdb7df82a3dd7320f6e19aa3aa62493a16fca550",
+        "ea6a409836070e9819d279d1cb41fd117111dfd288c119b7156d842be92dccfd"
+      ]
+    },
+    {
+      "item_id": "execution.or_effect_status",
+      "family": "execution_receipt",
+      "field": "production.or_effect.status",
+      "fixture_ids": [
+        "dispatch-is-not-provider-outcome"
+      ],
+      "policies": [
+        "provider_dispatch_outcome"
+      ],
+      "finding_fingerprints": [
+        "8d714ee952daa9b2162e14cc7072f57dc24627f59cd6008ad689b0f00d084fe2"
+      ]
+    },
+    {
+      "item_id": "execution.orchestrator_done_evidence",
+      "family": "execution_receipt",
+      "field": "orchestrator_done_evidence.schema_version",
+      "fixture_ids": [
+        "specialized-receipt-is-not-terminal-delivery"
+      ],
+      "policies": [
+        "receipt_terminality"
+      ],
+      "finding_fingerprints": [
+        "8ea159892ac4052bf54a6c3edd96a7ad2e14092a34f32ce759e7d5fd92d703b9"
+      ]
+    },
+    {
+      "item_id": "execution.premerge_evidence",
+      "family": "execution_receipt",
+      "field": "workstation_premerge_verification.schema_version",
+      "fixture_ids": [
+        "specialized-receipt-is-not-terminal-delivery"
+      ],
+      "policies": [
+        "receipt_terminality"
+      ],
+      "finding_fingerprints": [
+        "8ea159892ac4052bf54a6c3edd96a7ad2e14092a34f32ce759e7d5fd92d703b9"
+      ]
+    },
+    {
+      "item_id": "execution.runtime_bootstrap_receipt",
+      "family": "execution_receipt",
+      "field": "runtime-bootstrap.json",
+      "fixture_ids": [
+        "specialized-receipt-is-not-terminal-delivery"
+      ],
+      "policies": [
+        "receipt_terminality"
+      ],
+      "finding_fingerprints": [
+        "8ea159892ac4052bf54a6c3edd96a7ad2e14092a34f32ce759e7d5fd92d703b9"
+      ]
+    },
+    {
+      "item_id": "execution.self_hosting_receipt",
+      "family": "execution_receipt",
+      "field": "workstation_self_hosting_receipt.schema_version",
+      "fixture_ids": [
+        "specialized-receipt-is-not-terminal-delivery"
+      ],
+      "policies": [
+        "receipt_terminality"
+      ],
+      "finding_fingerprints": [
+        "8ea159892ac4052bf54a6c3edd96a7ad2e14092a34f32ce759e7d5fd92d703b9"
+      ]
+    },
+    {
+      "item_id": "execution.terminal_merge_evidence",
+      "family": "execution_receipt",
+      "field": "workstation_terminal_merge.schema_version",
+      "fixture_ids": [
+        "specialized-receipt-is-not-terminal-delivery"
+      ],
+      "policies": [
+        "receipt_terminality"
+      ],
+      "finding_fingerprints": [
+        "8ea159892ac4052bf54a6c3edd96a7ad2e14092a34f32ce759e7d5fd92d703b9"
+      ]
+    },
+    {
+      "item_id": "execution.transport_receipt_fields",
+      "family": "execution_receipt",
+      "field": "payload.execution.effect.receipt.*",
+      "fixture_ids": [
+        "dispatch-is-not-provider-outcome"
+      ],
+      "policies": [
+        "provider_dispatch_outcome"
+      ],
+      "finding_fingerprints": [
+        "8d714ee952daa9b2162e14cc7072f57dc24627f59cd6008ad689b0f00d084fe2"
+      ]
+    },
+    {
+      "item_id": "execution.worktree_evidence",
+      "family": "execution_receipt",
+      "field": "workstation_worktree_evidence.schema_version",
+      "fixture_ids": [
+        "specialized-receipt-is-not-terminal-delivery"
+      ],
+      "policies": [
+        "receipt_terminality"
+      ],
+      "finding_fingerprints": [
+        "8ea159892ac4052bf54a6c3edd96a7ad2e14092a34f32ce759e7d5fd92d703b9"
+      ]
+    },
+    {
+      "item_id": "execution.worktree_publication",
+      "family": "execution_receipt",
+      "field": "workstation_orchestrator_worktree_publication.schema_version",
+      "fixture_ids": [
+        "specialized-receipt-is-not-terminal-delivery"
+      ],
+      "policies": [
+        "receipt_terminality"
+      ],
+      "finding_fingerprints": [
+        "8ea159892ac4052bf54a6c3edd96a7ad2e14092a34f32ce759e7d5fd92d703b9"
+      ]
+    },
+    {
+      "item_id": "lifecycle.automation_disposition",
+      "family": "lifecycle_disposition",
+      "field": "reconciliation.automation_disposition",
+      "fixture_ids": [
+        "release-ready-judgment-is-not-outcome"
+      ],
+      "policies": [
+        "lifecycle_judgment_outcome"
+      ],
+      "finding_fingerprints": [
+        "e687e5618f32a8656118f5ca38ff7191de0bd67d4db46fe895ba859a78b82056"
+      ]
+    },
+    {
+      "item_id": "lifecycle.gate_state",
+      "family": "lifecycle_disposition",
+      "field": "reconciliation.pr_assessments[].release_readiness.gates.*.state",
+      "fixture_ids": [
+        "release-ready-judgment-is-not-outcome"
+      ],
+      "policies": [
+        "lifecycle_judgment_outcome"
+      ],
+      "finding_fingerprints": [
+        "e687e5618f32a8656118f5ca38ff7191de0bd67d4db46fe895ba859a78b82056"
+      ]
+    },
+    {
+      "item_id": "lifecycle.human_gate_mapping",
+      "family": "lifecycle_disposition",
+      "field": "episode_mapping.release_decision.human_gate",
+      "fixture_ids": [
+        "release-ready-judgment-is-not-outcome"
+      ],
+      "policies": [
+        "lifecycle_judgment_outcome"
+      ],
+      "finding_fingerprints": [
+        "e687e5618f32a8656118f5ca38ff7191de0bd67d4db46fe895ba859a78b82056"
+      ]
+    },
+    {
+      "item_id": "lifecycle.release_basis",
+      "family": "lifecycle_disposition",
+      "field": "lifecycle.release_decision.basis[]",
+      "fixture_ids": [
+        "release-ready-judgment-is-not-outcome"
+      ],
+      "policies": [
+        "lifecycle_judgment_outcome"
+      ],
+      "finding_fingerprints": [
+        "e687e5618f32a8656118f5ca38ff7191de0bd67d4db46fe895ba859a78b82056"
+      ]
+    },
+    {
+      "item_id": "lifecycle.release_disposition",
+      "family": "lifecycle_disposition",
+      "field": "lifecycle.release_decision.disposition",
+      "fixture_ids": [
+        "release-ready-judgment-is-not-outcome"
+      ],
+      "policies": [
+        "lifecycle_judgment_outcome"
+      ],
+      "finding_fingerprints": [
+        "e687e5618f32a8656118f5ca38ff7191de0bd67d4db46fe895ba859a78b82056"
+      ]
+    },
+    {
+      "item_id": "lifecycle.routing_action",
+      "family": "lifecycle_disposition",
+      "field": "lifecycle.routing_decision.action",
+      "fixture_ids": [
+        "release-ready-judgment-is-not-outcome"
+      ],
+      "policies": [
+        "lifecycle_judgment_outcome"
+      ],
+      "finding_fingerprints": [
+        "e687e5618f32a8656118f5ca38ff7191de0bd67d4db46fe895ba859a78b82056"
+      ]
+    },
+    {
+      "item_id": "lifecycle.top_status",
+      "family": "lifecycle_disposition",
+      "field": "lifecycle.top_status",
+      "fixture_ids": [
+        "release-ready-judgment-is-not-outcome"
+      ],
+      "policies": [
+        "lifecycle_judgment_outcome"
+      ],
+      "finding_fingerprints": [
+        "e687e5618f32a8656118f5ca38ff7191de0bd67d4db46fe895ba859a78b82056"
+      ]
+    },
+    {
+      "item_id": "merge.assist_confirmation",
+      "family": "merge_observation",
+      "field": "action.payload.execution.effect.receipt.result.confirmed_state",
+      "fixture_ids": [
+        "mergeability-is-not-merged"
+      ],
+      "policies": [
+        "provider_merge_outcome"
+      ],
+      "finding_fingerprints": [
+        "9e0ac2024821f317dd5ed49b881ccb873f915ebeaeb7e8ca577362c9a641a53c"
+      ]
+    },
+    {
+      "item_id": "merge.mergeability",
+      "family": "merge_observation",
+      "field": "github.prs[].mergeability",
+      "fixture_ids": [
+        "mergeability-is-not-merged"
+      ],
+      "policies": [
+        "provider_merge_outcome"
+      ],
+      "finding_fingerprints": [
+        "9e0ac2024821f317dd5ed49b881ccb873f915ebeaeb7e8ca577362c9a641a53c"
+      ]
+    },
+    {
+      "item_id": "merge.provider_pr_state",
+      "family": "merge_observation",
+      "field": "github.prs[].state",
+      "fixture_ids": [
+        "mergeability-is-not-merged",
+        "missing-provider-merge-outcome",
+        "replay-preserves-unknown-outcome"
+      ],
+      "policies": [
+        "provider_merge_outcome"
+      ],
+      "finding_fingerprints": [
+        "35ba375c67550f41f62912f3fdb7df82a3dd7320f6e19aa3aa62493a16fca550",
+        "4f0de5f113a9230b7167136a805591153d05fc2e628d406b141eb093790e8249",
+        "9e0ac2024821f317dd5ed49b881ccb873f915ebeaeb7e8ca577362c9a641a53c"
+      ]
+    },
+    {
+      "item_id": "review.github_decision",
+      "family": "review_verdict",
+      "field": "github.prs[].review_status",
+      "fixture_ids": [
+        "aggregate-approval-misses-exact-head-review",
+        "missing-exact-head-review-outcome"
+      ],
+      "policies": [
+        "exact_head_review"
+      ],
+      "finding_fingerprints": [
+        "2ab9fd866203f351aa3d9a11b2bc1bec12dc9a0c0f8a668397931d281d331b7a",
+        "a6edfd832c96bd0921864964c656b8a1d3bd787cc21d5a33a53f00d31e4b2a65"
+      ]
+    },
+    {
+      "item_id": "review.github_review_fields",
+      "family": "review_verdict",
+      "field": "github.prs[].reviews[].*",
+      "fixture_ids": [
+        "aggregate-approval-misses-exact-head-review",
+        "missing-exact-head-review-outcome"
+      ],
+      "policies": [
+        "exact_head_review"
+      ],
+      "finding_fingerprints": [
+        "2ab9fd866203f351aa3d9a11b2bc1bec12dc9a0c0f8a668397931d281d331b7a",
+        "a6edfd832c96bd0921864964c656b8a1d3bd787cc21d5a33a53f00d31e4b2a65"
+      ]
+    },
+    {
+      "item_id": "review.github_review_state",
+      "family": "review_verdict",
+      "field": "github.prs[].reviews[].state",
+      "fixture_ids": [
+        "aggregate-approval-misses-exact-head-review",
+        "missing-exact-head-review-outcome"
+      ],
+      "policies": [
+        "exact_head_review"
+      ],
+      "finding_fingerprints": [
+        "2ab9fd866203f351aa3d9a11b2bc1bec12dc9a0c0f8a668397931d281d331b7a",
+        "a6edfd832c96bd0921864964c656b8a1d3bd787cc21d5a33a53f00d31e4b2a65"
+      ]
+    },
+    {
+      "item_id": "review.github_target_head",
+      "family": "review_verdict",
+      "field": "github.prs[].head_sha",
+      "fixture_ids": [
+        "aggregate-approval-misses-exact-head-review",
+        "missing-exact-head-review-outcome"
+      ],
+      "policies": [
+        "exact_head_review"
+      ],
+      "finding_fingerprints": [
+        "2ab9fd866203f351aa3d9a11b2bc1bec12dc9a0c0f8a668397931d281d331b7a",
+        "a6edfd832c96bd0921864964c656b8a1d3bd787cc21d5a33a53f00d31e4b2a65"
+      ]
+    },
+    {
+      "item_id": "review.posture",
+      "family": "review_verdict",
+      "field": "review_inspection.posture",
+      "fixture_ids": [
+        "local-pass-is-not-merge"
+      ],
+      "policies": [
+        "provider_merge_outcome"
+      ],
+      "finding_fingerprints": [
+        "a9262738cc06f1122b4ea8741c52bc786a4d7cd048425380a366d672c0646543"
+      ]
+    },
+    {
+      "item_id": "review.record_status",
+      "family": "review_verdict",
+      "field": "control_plane.review_records[].status",
+      "fixture_ids": [
+        "local-pass-is-not-merge"
+      ],
+      "policies": [
+        "provider_merge_outcome"
+      ],
+      "finding_fingerprints": [
+        "a9262738cc06f1122b4ea8741c52bc786a4d7cd048425380a366d672c0646543"
+      ]
+    },
+    {
+      "item_id": "review.verdict",
+      "family": "review_verdict",
+      "field": "control_plane.review_records[].verdict",
+      "fixture_ids": [
+        "local-pass-is-not-merge"
+      ],
+      "policies": [
+        "provider_merge_outcome"
+      ],
+      "finding_fingerprints": [
+        "a9262738cc06f1122b4ea8741c52bc786a4d7cd048425380a366d672c0646543"
+      ]
+    }
+  ],
+  "blocking_findings": [
+    {
+      "code": "required_ci_outcome_unknown",
+      "fixture_id": "missing-required-ci-outcome",
+      "fixture_type": "unknown_outcome",
+      "policy": "ci_success",
+      "claim": "required_ci_passed",
+      "producer_item_id": "ci.normalized_status",
+      "producer_value": "unknown",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "214a93156b1277b105963e3f8f8a025458b599a6cb414b751be86a36c4c162c2"
+    },
+    {
+      "code": "review_does_not_bind_exact_head",
+      "fixture_id": "aggregate-approval-misses-exact-head-review",
+      "fixture_type": "false_success",
+      "policy": "exact_head_review",
+      "claim": "exact_head_review_passed",
+      "producer_item_id": "review.github_decision",
+      "producer_value": "approved",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "2ab9fd866203f351aa3d9a11b2bc1bec12dc9a0c0f8a668397931d281d331b7a"
+    },
+    {
+      "code": "provider_merge_outcome_unknown",
+      "fixture_id": "missing-provider-merge-outcome",
+      "fixture_type": "unknown_outcome",
+      "policy": "provider_merge_outcome",
+      "claim": "pull_request_merged",
+      "producer_item_id": "execution.action_outcome",
+      "producer_value": "missing",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "35ba375c67550f41f62912f3fdb7df82a3dd7320f6e19aa3aa62493a16fca550"
+    },
+    {
+      "code": "aggregate_ci_does_not_prove_required_success",
+      "fixture_id": "aggregate-passing-misses-required-checks",
+      "fixture_type": "false_success",
+      "policy": "ci_success",
+      "claim": "required_ci_passed",
+      "producer_item_id": "ci.normalized_status",
+      "producer_value": "passing",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "403b6c0d6998f9890d9364750e4a1c1c2d42879d10e4e9d336cd04796f26b53c"
+    },
+    {
+      "code": "provider_merge_outcome_unknown",
+      "fixture_id": "replay-preserves-unknown-outcome",
+      "fixture_type": "unknown_outcome",
+      "policy": "provider_merge_outcome",
+      "claim": "pull_request_merged",
+      "producer_item_id": "merge.provider_pr_state",
+      "producer_value": "UNKNOWN",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "4f0de5f113a9230b7167136a805591153d05fc2e628d406b141eb093790e8249"
+    },
+    {
+      "code": "dispatch_is_not_provider_outcome",
+      "fixture_id": "dispatch-is-not-provider-outcome",
+      "fixture_type": "false_success",
+      "policy": "provider_dispatch_outcome",
+      "claim": "provider_effect_succeeded",
+      "producer_item_id": "execution.or_effect_status",
+      "producer_value": "attempted",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "8d714ee952daa9b2162e14cc7072f57dc24627f59cd6008ad689b0f00d084fe2"
+    },
+    {
+      "code": "specialized_receipt_is_not_terminal_delivery",
+      "fixture_id": "specialized-receipt-is-not-terminal-delivery",
+      "fixture_type": "false_success",
+      "policy": "receipt_terminality",
+      "claim": "terminal_delivery_succeeded",
+      "producer_item_id": "execution.terminal_merge_evidence",
+      "producer_value": "ao.workstation-terminal-merge-evidence.v2",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "8ea159892ac4052bf54a6c3edd96a7ad2e14092a34f32ce759e7d5fd92d703b9"
+    },
+    {
+      "code": "checkpoint_validity_is_not_terminal_delivery",
+      "fixture_id": "valid-checkpoint-is-not-terminal-delivery",
+      "fixture_type": "false_success",
+      "policy": "checkpoint_terminality",
+      "claim": "terminal_delivery_succeeded",
+      "producer_item_id": "checkpoint.inspection_state",
+      "producer_value": "valid",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "9cd9eb46a5536e373f46fdb013e0bcf30b77cb5e179f9e128d77ac58b402021f"
+    },
+    {
+      "code": "provider_merge_not_observed",
+      "fixture_id": "mergeability-is-not-merged",
+      "fixture_type": "false_success",
+      "policy": "provider_merge_outcome",
+      "claim": "pull_request_merged",
+      "producer_item_id": "merge.mergeability",
+      "producer_value": "mergeable",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "9e0ac2024821f317dd5ed49b881ccb873f915ebeaeb7e8ca577362c9a641a53c"
+    },
+    {
+      "code": "exact_head_review_outcome_unknown",
+      "fixture_id": "missing-exact-head-review-outcome",
+      "fixture_type": "unknown_outcome",
+      "policy": "exact_head_review",
+      "claim": "exact_head_review_passed",
+      "producer_item_id": "review.github_target_head",
+      "producer_value": "missing",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "a6edfd832c96bd0921864964c656b8a1d3bd787cc21d5a33a53f00d31e4b2a65"
+    },
+    {
+      "code": "provider_merge_not_observed",
+      "fixture_id": "local-pass-is-not-merge",
+      "fixture_type": "false_success",
+      "policy": "provider_merge_outcome",
+      "claim": "pull_request_merged",
+      "producer_item_id": "review.verdict",
+      "producer_value": "pass",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "a9262738cc06f1122b4ea8741c52bc786a4d7cd048425380a366d672c0646543"
+    },
+    {
+      "code": "runner_outcome_is_not_code_failure",
+      "fixture_id": "runner-error-is-not-code-failure",
+      "fixture_type": "false_success",
+      "policy": "ci_code_failure",
+      "claim": "code_failed",
+      "producer_item_id": "ci.raw_check_state",
+      "producer_value": "completed_startup_failure",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "bf1efb3598ce17ea3e169e15b803fba4079e455148fd48e5b320c90388e2f735"
+    },
+    {
+      "code": "ao_judgment_is_not_external_outcome",
+      "fixture_id": "release-ready-judgment-is-not-outcome",
+      "fixture_type": "false_success",
+      "policy": "lifecycle_judgment_outcome",
+      "claim": "terminal_delivery_succeeded",
+      "producer_item_id": "lifecycle.release_disposition",
+      "producer_value": "notify_human_ready",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "e687e5618f32a8656118f5ca38ff7191de0bd67d4db46fe895ba859a78b82056"
+    },
+    {
+      "code": "provider_merge_not_observed",
+      "fixture_id": "executed-action-is-not-merge",
+      "fixture_type": "false_success",
+      "policy": "provider_merge_outcome",
+      "claim": "pull_request_merged",
+      "producer_item_id": "action.record_status",
+      "producer_value": "executed",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "ea6a409836070e9819d279d1cb41fd117111dfd288c119b7156d842be92dccfd"
+    },
+    {
+      "code": "external_outcome_unknown",
+      "fixture_id": "self-asserted-context-lacks-authority",
+      "fixture_type": "unknown_outcome",
+      "policy": "independent_evidence",
+      "claim": "terminal_delivery_succeeded",
+      "producer_item_id": "checkpoint.metadata",
+      "producer_value": "json_object",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "eecf995e277db27bdfe21ee46e247c57bf65e31872e9933ca79920d0aa97ec64"
+    },
+    {
+      "code": "ci_was_not_executed",
+      "fixture_id": "queued-ci-is-not-execution",
+      "fixture_type": "false_success",
+      "policy": "ci_execution",
+      "claim": "ci_executed",
+      "producer_item_id": "ci.raw_check_state",
+      "producer_value": "queued",
+      "disposition": "block",
+      "durable": true,
+      "fingerprint": "f2a0d8c70e66d24956b851860c22b456479cdc70390b924a6ac4e9d59c87036c"
+    }
+  ],
+  "report_fingerprint": "347aaff4635c622c056458c3f7f2774adbe027e0d59d480bbef2ccdf866a0a6d"
+}

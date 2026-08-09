@@ -30,7 +30,11 @@ npm pack --dry-run
 The release check runs the full test suite, lifecycle acceptance suite,
 operator smoke, isolated tarball installation, bundled evaluation pack,
 runtime-lock, bootstrap-contract, exact lifecycle-routing verification,
-isolated fresh-clone runtime smoke, and full dependency audit.
+isolated fresh-clone runtime smoke, the F01 trajectory-vocabulary source gate,
+the deterministic false-success/unknown-outcome fixture audit, and the full
+dependency audit. `npm run verify:false-success` replays the negative fixture
+pack twice, requires stable fingerprints, and checks the committed 50-row
+coverage report without writing to the worktree.
 
 Confirm version consistency:
 

@@ -1,0 +1,183 @@
+{
+  "schema_version": "ao.false-success-trajectory-fixture-pack.v1",
+  "inventory_schema_version": "ao.trajectory-vocabulary.v1",
+  "fixture_pack_version": "2026-08-09.1",
+  "fixtures": [
+    {
+      "id": "local-pass-is-not-merge",
+      "type": "false_success",
+      "description": "A local PASS verdict cannot establish a GitHub merge outcome.",
+      "producer": { "item_id": "review.verdict", "value": "pass" },
+      "policy": "provider_merge_outcome",
+      "claim": "pull_request_merged",
+      "observation": { "provider_readback_complete": false, "provider_pr_state": "UNKNOWN" },
+      "covers": ["review.record_status", "review.verdict", "review.posture"],
+      "expected": { "disposition": "block", "finding_code": "provider_merge_not_observed" }
+    },
+    {
+      "id": "executed-action-is-not-merge",
+      "type": "false_success",
+      "description": "Durable handling and a succeeded adapter receipt do not establish the remote merge outcome.",
+      "producer": { "item_id": "action.record_status", "value": "executed" },
+      "policy": "provider_merge_outcome",
+      "claim": "pull_request_merged",
+      "observation": { "provider_readback_complete": true, "provider_pr_state": "OPEN" },
+      "covers": ["action.record_status", "execution.action_outcome", "execution.effect_status", "execution.effect_receipt_fields"],
+      "expected": { "disposition": "block", "finding_code": "provider_merge_not_observed" }
+    },
+    {
+      "id": "dispatch-is-not-provider-outcome",
+      "type": "false_success",
+      "description": "Command or transport dispatch evidence cannot be promoted to an external provider outcome.",
+      "producer": { "item_id": "execution.or_effect_status", "value": "attempted" },
+      "policy": "provider_dispatch_outcome",
+      "claim": "provider_effect_succeeded",
+      "observation": { "provider_readback_complete": false, "provider_outcome": "dispatched" },
+      "covers": ["execution.command_receipt_fields", "execution.transport_receipt_fields", "execution.or_effect_status"],
+      "expected": { "disposition": "block", "finding_code": "dispatch_is_not_provider_outcome" }
+    },
+    {
+      "id": "queued-ci-is-not-execution",
+      "type": "false_success",
+      "description": "A queued provider check has not executed.",
+      "producer": { "item_id": "ci.raw_check_state", "value": "queued" },
+      "policy": "ci_execution",
+      "claim": "ci_executed",
+      "observation": { "raw_check_state": "queued" },
+      "covers": ["ci.raw_check_state"],
+      "expected": { "disposition": "block", "finding_code": "ci_was_not_executed" }
+    },
+    {
+      "id": "runner-error-is-not-code-failure",
+      "type": "false_success",
+      "description": "A runner/startup outcome must not be attributed to product code failure.",
+      "producer": { "item_id": "ci.raw_check_state", "value": "completed_startup_failure" },
+      "policy": "ci_code_failure",
+      "claim": "code_failed",
+      "observation": { "raw_check_state": "completed_startup_failure" },
+      "covers": ["ci.raw_check_state"],
+      "expected": { "disposition": "block", "finding_code": "runner_outcome_is_not_code_failure" }
+    },
+    {
+      "id": "aggregate-passing-misses-required-checks",
+      "type": "false_success",
+      "description": "An aggregate passing value without exact-head required-check membership is not release evidence.",
+      "producer": { "item_id": "ci.normalized_status", "value": "passing" },
+      "policy": "ci_success",
+      "claim": "required_ci_passed",
+      "observation": { "raw_check_state": "completed_neutral", "required_checks_complete": false, "exact_head": true },
+      "covers": ["ci.normalized_status", "ci.raw_check_state"],
+      "expected": { "disposition": "block", "finding_code": "aggregate_ci_does_not_prove_required_success" }
+    },
+    {
+      "id": "aggregate-approval-misses-exact-head-review",
+      "type": "false_success",
+      "description": "Aggregate approval or a review on another commit is not an exact-head submitted review.",
+      "producer": { "item_id": "review.github_decision", "value": "approved" },
+      "policy": "exact_head_review",
+      "claim": "exact_head_review_passed",
+      "observation": { "review_state": "approved", "target_head": "head-b", "review_commit_oid": "head-a", "submitted_review_evidence": true },
+      "covers": ["review.github_decision", "review.github_target_head", "review.github_review_fields", "review.github_review_state"],
+      "expected": { "disposition": "block", "finding_code": "review_does_not_bind_exact_head" }
+    },
+    {
+      "id": "mergeability-is-not-merged",
+      "type": "false_success",
+      "description": "Merge eligibility and legacy confirmation do not replace authoritative provider MERGED state.",
+      "producer": { "item_id": "merge.mergeability", "value": "mergeable" },
+      "policy": "provider_merge_outcome",
+      "claim": "pull_request_merged",
+      "observation": { "provider_readback_complete": true, "provider_pr_state": "OPEN" },
+      "covers": ["merge.provider_pr_state", "merge.mergeability", "merge.assist_confirmation"],
+      "expected": { "disposition": "block", "finding_code": "provider_merge_not_observed" }
+    },
+    {
+      "id": "release-ready-judgment-is-not-outcome",
+      "type": "false_success",
+      "description": "Lifecycle routing, release and automation judgments cannot establish an external outcome.",
+      "producer": { "item_id": "lifecycle.release_disposition", "value": "notify_human_ready" },
+      "policy": "lifecycle_judgment_outcome",
+      "claim": "terminal_delivery_succeeded",
+      "observation": { "judgment": "ready" },
+      "covers": ["action.lifecycle_action_id", "action.lifecycle_action_class", "lifecycle.top_status", "lifecycle.routing_action", "lifecycle.release_disposition", "lifecycle.release_basis", "lifecycle.human_gate_mapping", "lifecycle.gate_state", "lifecycle.automation_disposition"],
+      "expected": { "disposition": "block", "finding_code": "ao_judgment_is_not_external_outcome" }
+    },
+    {
+      "id": "specialized-receipt-is-not-terminal-delivery",
+      "type": "false_success",
+      "description": "A specialized operational receipt proves only its declared scope, not ordinary task terminality.",
+      "producer": { "item_id": "execution.terminal_merge_evidence", "value": "ao.workstation-terminal-merge-evidence.v2" },
+      "policy": "receipt_terminality",
+      "claim": "terminal_delivery_succeeded",
+      "observation": { "receipt_status": "passed" },
+      "covers": ["execution.runtime_bootstrap_receipt", "execution.self_hosting_receipt", "execution.worktree_evidence", "execution.worktree_publication", "execution.premerge_evidence", "execution.terminal_merge_evidence", "execution.orchestrator_done_evidence"],
+      "expected": { "disposition": "block", "finding_code": "specialized_receipt_is_not_terminal_delivery" }
+    },
+    {
+      "id": "valid-checkpoint-is-not-terminal-delivery",
+      "type": "false_success",
+      "description": "A valid local checkpoint proves continuity only and cannot prove review, CI, merge, replay or cleanup.",
+      "producer": { "item_id": "checkpoint.inspection_state", "value": "valid" },
+      "policy": "checkpoint_terminality",
+      "claim": "terminal_delivery_succeeded",
+      "observation": { "checkpoint_state": "valid" },
+      "covers": ["checkpoint.checkpoint_id", "checkpoint.task_id", "checkpoint.recorded_at", "checkpoint.created_by", "checkpoint.reason", "checkpoint.metadata", "checkpoint.snapshot_schema_version", "checkpoint.snapshot_format", "checkpoint.task_ref_fields", "checkpoint.pr_binding_fields", "checkpoint.task_spec_ref_fields", "checkpoint.runtime_preflight_ref_fields", "checkpoint.execution_ref_fields", "checkpoint.inspection_state", "checkpoint.inspection_reason_codes"],
+      "expected": { "disposition": "block", "finding_code": "checkpoint_validity_is_not_terminal_delivery" }
+    },
+    {
+      "id": "missing-provider-merge-outcome",
+      "type": "unknown_outcome",
+      "description": "Missing provider readback fails closed even when execution says succeeded.",
+      "producer": { "item_id": "execution.action_outcome", "value": "missing" },
+      "policy": "provider_merge_outcome",
+      "claim": "pull_request_merged",
+      "observation": { "provider_readback_complete": false, "provider_pr_state": "UNKNOWN" },
+      "covers": ["execution.action_outcome", "execution.effect_status", "merge.provider_pr_state"],
+      "expected": { "disposition": "block", "finding_code": "provider_merge_outcome_unknown" }
+    },
+    {
+      "id": "missing-required-ci-outcome",
+      "type": "unknown_outcome",
+      "description": "Unknown or not-run required CI fails closed.",
+      "producer": { "item_id": "ci.normalized_status", "value": "unknown" },
+      "policy": "ci_success",
+      "claim": "required_ci_passed",
+      "observation": { "raw_check_state": "not_run", "required_checks_complete": false, "exact_head": true },
+      "covers": ["ci.normalized_status", "ci.raw_check_state"],
+      "expected": { "disposition": "block", "finding_code": "required_ci_outcome_unknown" }
+    },
+    {
+      "id": "missing-exact-head-review-outcome",
+      "type": "unknown_outcome",
+      "description": "A missing review target or submitted review record fails closed.",
+      "producer": { "item_id": "review.github_target_head", "value": "missing" },
+      "policy": "exact_head_review",
+      "claim": "exact_head_review_passed",
+      "observation": { "review_state": "unknown", "target_head": "", "review_commit_oid": "", "submitted_review_evidence": false },
+      "covers": ["review.github_decision", "review.github_target_head", "review.github_review_fields", "review.github_review_state"],
+      "expected": { "disposition": "block", "finding_code": "exact_head_review_outcome_unknown" }
+    },
+    {
+      "id": "self-asserted-context-lacks-authority",
+      "type": "unknown_outcome",
+      "description": "Creator, reason and metadata assertions without independent authority cannot satisfy a delivery gate.",
+      "producer": { "item_id": "checkpoint.metadata", "value": "json_object" },
+      "policy": "independent_evidence",
+      "claim": "terminal_delivery_succeeded",
+      "observation": { "evidence_complete": true, "independent_authority": false, "outcome_known": false },
+      "covers": ["checkpoint.created_by", "checkpoint.reason", "checkpoint.metadata"],
+      "expected": { "disposition": "block", "finding_code": "external_outcome_unknown" }
+    },
+    {
+      "id": "replay-preserves-unknown-outcome",
+      "type": "unknown_outcome",
+      "description": "Replaying incomplete evidence must preserve the block and must not manufacture a fresh outcome.",
+      "producer": { "item_id": "merge.provider_pr_state", "value": "UNKNOWN" },
+      "policy": "provider_merge_outcome",
+      "claim": "pull_request_merged",
+      "observation": { "provider_readback_complete": false, "provider_pr_state": "UNKNOWN", "replay_of": "missing-provider-merge-outcome" },
+      "covers": ["merge.provider_pr_state", "checkpoint.inspection_state"],
+      "expected": { "disposition": "block", "finding_code": "provider_merge_outcome_unknown" }
+    }
+  ]
+}
