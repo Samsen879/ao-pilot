@@ -11,7 +11,7 @@ const FROZEN_AUTHORITY_DESIGN = Object.freeze({
   malformed_authority_policy: 'fail_closed',
   mixed_version_policy: 'validate and migrate the canonical file; never select the state.json shadow by freshness',
 });
-const FROZEN_CALLER_METADATA_DIGEST = 'd5ef3c6d7eba2ca5c2454405567c7818e83ef2491861ecede0867523b1f0f88a';
+const FROZEN_CALLER_METADATA_DIGEST = '9a33c814e330606fb9022b399c5feed85b4d37b4886aa24f7c125e5bce141859';
 
 function stableJson(value) {
   if (Array.isArray(value)) return value.map(stableJson);
@@ -108,8 +108,8 @@ export function validateControllerLeaseInventory(inventory, repositoryRoot) {
   if (callerMetadataDigest !== FROZEN_CALLER_METADATA_DIGEST) {
     throw new Error('The frozen controller lease caller or governed-base metadata has drifted');
   }
-  if (!inventory.callers.some((caller) => caller.roles.includes('fallback'))) {
-    throw new Error('Controller lease inventory must account for the current fallback path');
+  if (inventory.callers.some((caller) => caller.roles.includes('fallback') || caller.roles.includes('shadow-writer'))) {
+    throw new Error('Controller lease inventory must not retain a fallback or state shadow writer');
   }
   if (!inventory.callers.some((caller) => caller.roles.includes('writer'))) {
     throw new Error('Controller lease inventory must account for writers');

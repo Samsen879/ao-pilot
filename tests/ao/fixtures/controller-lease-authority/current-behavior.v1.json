@@ -24,26 +24,26 @@
       "expected": { "outcome": "throw", "message": "Invalid lease_id" }
     },
     {
-      "id": "missing-dedicated-revives-shadow",
+      "id": "missing-dedicated-fails-closed",
       "class": "missing",
       "state_shadow": "shadow-active",
       "dedicated": { "kind": "missing" },
-      "expected": { "outcome": "snapshot", "lease_ids": ["shadow-active"], "safety": "unsafe_fallback" }
+      "expected": { "outcome": "throw", "message": "Missing canonical controller lease authority" }
     },
     {
-      "id": "missing-state-hides-canonical-file",
+      "id": "missing-state-fails-closed",
       "class": "missing",
       "state_shadow": "shadow-active",
       "state_file": "missing",
       "dedicated": { "kind": "records", "leases": ["canonical-active"] },
-      "expected": { "outcome": "snapshot", "lease_ids": [], "bootstrapped": false, "safety": "canonical_evidence_ignored" }
+      "expected": { "outcome": "throw", "message": "Incomplete control-plane state evidence" }
     },
     {
-      "id": "non-array-dedicated-revives-shadow",
+      "id": "non-array-dedicated-fails-closed",
       "class": "malformed",
       "state_shadow": "shadow-active",
       "dedicated": { "kind": "json-object" },
-      "expected": { "outcome": "snapshot", "lease_ids": ["shadow-active"], "safety": "unsafe_fallback" }
+      "expected": { "outcome": "throw", "message": "Unsupported canonical controller lease authority version" }
     },
     {
       "id": "invalid-json-dedicated-fails",
@@ -59,7 +59,7 @@
       "state_shadow_format": "legacy-v1",
       "schema_current_version": 1,
       "dedicated": { "kind": "records", "leases": ["canonical-active"] },
-      "expected": { "outcome": "snapshot", "lease_ids": ["canonical-active"], "schema_current_version": 1 }
+      "expected": { "outcome": "snapshot", "lease_ids": ["canonical-active"], "schema_current_version": 11 }
     },
     {
       "id": "snapshot-replay-is-byte-stable",

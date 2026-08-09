@@ -1,11 +1,11 @@
 {
   "schema_version": "ao.controller-lease-caller-inventory.v1",
-  "inventory_version": "2026-08-09.1",
+  "inventory_version": "2026-08-09.3",
   "governed_base": {
-    "commit": "025bf55bfac0397da20a46671adcf1084aea802a",
-    "tree": "adade1d2b31eef5aea0aad66aa4a9fbfde3fa2e6",
-    "issue": 16,
-    "admission_comment": 5230730748
+    "commit": "17f1527b87f8666ccd331ff316296ca1bb05ba89",
+    "tree": "b9137f59109c3171b6bf1090b1717135d061f26e",
+    "issue": 17,
+    "admission_comment": 5230906657
   },
   "authority_design": {
     "canonical_persistent_authority": "controller-leases.json",
@@ -28,56 +28,63 @@
       "id": "state.shadow-schema-and-bootstrap",
       "path": "scripts/ao/lib/state-contracts.js",
       "symbol": "createEmptyControlPlaneState",
-      "roles": ["shadow-writer", "fallback-seed"],
+      "roles": ["projection-schema"],
       "anchors": ["controller_leases: []"]
     },
     {
-      "id": "migration.shadow-copy-and-state-write",
+      "id": "migration.explicit-authority-transition",
       "path": "scripts/ao/lib/state-migrations.js",
-      "symbol": "buildBootstrapState/bootstrapControlPlaneState",
-      "roles": ["shadow-reader", "shadow-writer", "fallback"],
-      "anchors": ["'controller_leases',", "writeJsonFileAtomic(paths.statePath, nextState)"]
+      "symbol": "prepareControllerLeaseAuthorityMigration/bootstrapControlPlaneState",
+      "roles": ["migration-reader", "migration-writer", "shadow-stripper", "lock"],
+      "anchors": ["function prepareControllerLeaseAuthorityMigration({", "delete nextState.controller_leases;", "withFileLockSync(controllerLeaseLockPath", "writeJsonFileAtomic(paths.controllerLeasesPath, controllerLeaseAuthorityMigration.envelope)"]
+    },
+    {
+      "id": "authority.versioned-envelope",
+      "path": "scripts/ao/lib/controller-lease-authority.js",
+      "symbol": "createControllerLeaseAuthority/parseControllerLeaseAuthority",
+      "roles": ["reader", "writer", "format", "fail-closed"],
+      "anchors": ["export const CONTROLLER_LEASE_AUTHORITY_SCHEMA_VERSION", "export function createControllerLeaseAuthority", "export function parseControllerLeaseAuthority"]
     },
     {
       "id": "repository.collection-boundary",
       "path": "scripts/ao/lib/state-repository/collections.js",
       "symbol": "STATE_REPOSITORY_COLLECTIONS/sortRepositoryStateCollections",
-      "roles": ["projection", "fallback"],
+      "roles": ["projection"],
       "anchors": ["collectionKey: 'controller_leases'", "nextState.controller_leases = controllerLeases"]
     },
     {
       "id": "repository.canonical-read-and-projection",
       "path": "scripts/ao/lib/state-repository.js",
       "symbol": "readControllerLeaseRecords/readSnapshot",
-      "roles": ["reader", "projection", "fallback"],
-      "anchors": ["if (!schema || !state) {", "const records = readJsonFile(paths.controllerLeasesPath)", "controllerLeases: isolatedControllerLeases"]
+      "roles": ["reader", "projection", "fail-closed"],
+      "anchors": ["return readControllerLeaseAuthorityFile(paths.controllerLeasesPath).records", "const nextState = sortRepositoryStateCollections(cloneJsonValue(state), {"]
     },
     {
       "id": "repository.canonical-write",
       "path": "scripts/ao/lib/state-repository.js",
       "symbol": "persistControllerLeases",
       "roles": ["writer"],
-      "anchors": ["writeJsonFileAtomic(paths.controllerLeasesPath, nextControllerLeases)"]
+      "anchors": ["createControllerLeaseAuthority(nextControllerLeases)"]
     },
     {
-      "id": "repository.shadow-persist-via-ordinary-writes",
+      "id": "repository.ordinary-state-shadow-stripper",
       "path": "scripts/ao/lib/state-repository.js",
       "symbol": "persistState/upsertCollectionRecord/ensureRuntimePreflights/ensureRepoKnowledge",
-      "roles": ["shadow-reader", "shadow-writer", "fallback-seed"],
-      "anchors": ["function persistState({", "function upsertCollectionRecord({", "ensureRuntimePreflights({", "ensureRepoKnowledge({"]
+      "roles": ["shadow-stripper"],
+      "anchors": ["function persistState({", "delete nextState.controller_leases;", "function upsertCollectionRecord({", "ensureRuntimePreflights({", "ensureRepoKnowledge({"]
     },
     {
       "id": "repository.atomic-mutation",
       "path": "scripts/ao/lib/state-repository.js",
       "symbol": "mutateControllerLeasesAtomically",
-      "roles": ["reader", "writer", "lock", "fallback"],
+      "roles": ["reader", "writer", "lock"],
       "anchors": ["async function mutateControllerLeasesAtomically"]
     },
     {
       "id": "repository.synchronous-upsert",
       "path": "scripts/ao/lib/state-repository.js",
       "symbol": "upsertControllerLease",
-      "roles": ["reader", "writer", "lock", "fallback"],
+      "roles": ["reader", "writer", "lock"],
       "anchors": ["upsertControllerLease(record) {"]
     },
     {
@@ -128,7 +135,7 @@
       { "id": "persist-state-api", "pattern": "\\bpersistState\\b" },
       { "id": "file-name", "pattern": "controller-leases\\.json" }
     ],
-    "expected_match_count": 41,
-    "expected_digest": "067adb1d30ac64966d9f9e7099696d6650efd2dc4ce60838a4142c1b121ce386"
+    "expected_match_count": 58,
+    "expected_digest": "9a9ae784c9052450811b9725004310bba121c71c9815dd75a0a4f15f683ab729"
   }
 }

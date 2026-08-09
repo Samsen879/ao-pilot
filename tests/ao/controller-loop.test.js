@@ -126,6 +126,42 @@ beforeEach(() => {
 });
 
 describe('ao controller loop', () => {
+  it('migrates legacy v10 authority before resolving startup mode from a direct snapshot', async () => {
+    const repoRoot = createTempRepo();
+    const repository = createStateRepository({ repoRoot, projectId: PROJECT_ID });
+    repository.upsertControllerMode(createControllerModeRecord({
+      controller_id: 'default',
+      mode: 'observe',
+      updated_at: '2026-03-29T06:40:00.000Z',
+      updated_by: 'operator',
+      reason: 'Legacy startup migration fixture.',
+    }));
+    const paths = repository.getSnapshot().paths;
+    const schema = JSON.parse(fs.readFileSync(paths.schemaPath, 'utf8'));
+    schema.current_version = 10;
+    schema.latest_version = 10;
+    schema.applied_migrations = schema.applied_migrations.filter((entry) => entry.version <= 10);
+    fs.writeFileSync(paths.schemaPath, `${JSON.stringify(schema, null, 2)}\n`, 'utf8');
+    const state = JSON.parse(fs.readFileSync(paths.statePath, 'utf8'));
+    state.controller_leases = [];
+    fs.writeFileSync(paths.statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    fs.unlinkSync(paths.controllerLeasesPath);
+    fs.unlinkSync(paths.controllerLeaseMigrationReceiptPath);
+    const auditEntries = fs.readFileSync(paths.auditPath, 'utf8').trim().split('\n')
+      .map((line) => JSON.parse(line))
+      .filter((entry) => entry.entity_id !== 'v11');
+    fs.writeFileSync(paths.auditPath, `${auditEntries.map((entry) => JSON.stringify(entry)).join('\n')}\n`, 'utf8');
+
+    await expect(runControllerLoop({
+      repoRoot,
+      projectId: PROJECT_ID,
+      now: '2026-03-29T06:41:00.000Z',
+      stopSignal: { aborted: true },
+    })).resolves.toMatchObject({ mode: 'observe', pass_count: 0 });
+    expect(JSON.parse(fs.readFileSync(paths.schemaPath, 'utf8')).current_version).toBe(11);
+    expect(JSON.parse(fs.readFileSync(paths.statePath, 'utf8'))).not.toHaveProperty('controller_leases');
+  });
+
   it('observe mode persists observations without proposing actions', async () => {
     const repository = createStateRepository({
       repoRoot: createTempRepo(),
