@@ -76,6 +76,12 @@ function materializeVersion10({ shadow = [controllerLease()], canonical = null, 
   fs.writeFileSync(paths.statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
   if (canonical == null) fs.unlinkSync(paths.controllerLeasesPath);
   else fs.writeFileSync(paths.controllerLeasesPath, `${JSON.stringify(canonical, null, 2)}\n`, 'utf8');
+  for (const migrationEvidencePath of [
+    paths.controllerLeaseMigrationReceiptPath,
+    paths.controllerLeaseMigrationAuditCheckpointPath,
+  ]) {
+    if (fs.existsSync(migrationEvidencePath)) fs.unlinkSync(migrationEvidencePath);
+  }
   const priorAudit = readAuditEntries(paths.auditPath).filter((entry) => entry.entity_id !== 'v11');
   fs.writeFileSync(paths.auditPath, `${priorAudit.map((entry) => JSON.stringify(entry)).join('\n')}\n`, 'utf8');
   return { repoRoot, paths };
@@ -564,7 +570,7 @@ try {
 }`,
         repoRoot,
       ], { stdio: ['ignore', 'pipe', 'pipe'] });
-      await waitForPath(`${paths.controllerLeasesPath}.lock`);
+      await waitForPath(paths.controllerLeaseMigrationAuditCheckpointPath);
       const state = readJson(paths.statePath);
       state.actions.push({ action_id: 'legacy-writer-race' });
       fs.writeFileSync(paths.statePath, `${JSON.stringify(state, null, 2)}\n`);
