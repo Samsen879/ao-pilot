@@ -3,7 +3,7 @@
   "fixture_pack_version": "2026-08-09.1",
   "fixture_pack_digest": "50cca6323da72b166a4728d2edcc9ceb37111cb81e91664c0d6cc90d35c6b8b1",
   "inventory_schema_version": "ao.trajectory-vocabulary.v1",
-  "inventory_version": "1.2.0",
+  "inventory_version": "1.3.0",
   "status": "blocked_as_expected",
   "summary": {
     "fixture_count": 18,
@@ -515,7 +515,7 @@
     {
       "item_id": "execution.command_receipt_fields",
       "family": "execution_receipt",
-      "field": "payload.execution.effect.receipt.command_receipts[].*",
+      "field": "or_merge_outcome.dispatch.*",
       "fixture_ids": [
         "dispatch-is-not-provider-outcome"
       ],
@@ -937,7 +937,7 @@
     {
       "item_id": "merge.assist_confirmation",
       "family": "merge_observation",
-      "field": "action.payload.execution.effect.receipt.result.confirmed_state",
+      "field": "github_merge_observation.pull_request.state",
       "fixture_ids": [
         "mergeability-is-not-merged"
       ],
@@ -1425,5 +1425,5 @@
       "fingerprint": "ea20d918b7bf47f6d5ce3ceff9b9800714314a891d1e1b20cb0b772ee75777d6"
     }
   ],
-  "report_fingerprint": "6e3c0b96af161e9511fe6be7a2dd611e62fd4d57a0d7aa4d02980ff49827a2e4"
+  "report_fingerprint": "b76c2254e6b1b61d44b4510f84b0bbfbd85cb408021b2de19669d5a94bf976e3"
 }

@@ -195,9 +195,9 @@ describe('trajectory vocabulary inventory', () => {
       'source_failure:retry_required',
     ]));
     expect(item('execution.command_receipt_fields').field)
-      .toBe('payload.execution.effect.receipt.command_receipts[].*');
+      .toBe('or_merge_outcome.dispatch.*');
     expect(item('execution.command_receipt_fields').values)
-      .toEqual(['args', 'command', 'cwd', 'signal', 'status']);
+      .toEqual(['attempt_ref', 'evidence_refs', 'status']);
     expect(item('merge.assist_confirmation').values).toEqual(['CLOSED', 'MERGED', 'OPEN', 'empty_string']);
   });
 });

@@ -1,0 +1,15 @@
+{
+  "schema_version": "ao.or-merge-protocol-fixture-pack.v1",
+  "cases": [
+    { "id": "success", "mutation": null, "expected": "merge_authorized" },
+    { "id": "exact-head-drift", "mutation": "live_head", "expected": "blocked", "reason": "exact_head_drift" },
+    { "id": "missing-evidence", "mutation": "evidence_refs", "expected": "blocked", "reason": "live_observation_evidence_missing" },
+    { "id": "already-merged", "mutation": "already_merged", "expected": "already_merged" }
+  ],
+  "outcomes": [
+    { "id": "confirmed", "dispatch": "succeeded", "observation": "merged", "expected": "confirmed_merged" },
+    { "id": "unknown-effect", "dispatch": "unknown", "observation": "missing", "expected": "blocked", "reason": "provider_observation_missing" },
+    { "id": "ambiguous-dispatch", "dispatch": "ambiguous", "observation": "merged", "expected": "blocked", "reason": "dispatch_status_ambiguous" },
+    { "id": "provider-head-drift", "dispatch": "succeeded", "observation": "head_drift", "expected": "blocked", "reason": "provider_exact_head_drift" }
+  ]
+}

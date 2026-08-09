@@ -5,6 +5,7 @@ import {
 import { LOCAL_COMMAND_RUNNER } from './providers/command-runner.js';
 
 const PR_JSON_FIELDS = 'number,state,headRefName,headRefOid,reviewDecision,mergeStateStatus,isDraft,statusCheckRollup,url,reviews';
+const MERGE_OBSERVATION_JSON_FIELDS = 'number,state,baseRefName,baseRefOid,headRefOid,mergeCommit,mergedAt,url';
 
 function toIsoString(value) {
   if (!value) return null;
@@ -239,5 +240,112 @@ export async function loadGitHubObservationSet({
     source_ok: true,
     source_error: null,
     prs: [...observationMap.values()].sort((left, right) => left.pr_number - right.pr_number),
+  };
+}
+
+export async function loadGitHubMergeObservation({
+  repository,
+  prNumber,
+  now = new Date().toISOString(),
+  commandRunner = LOCAL_COMMAND_RUNNER,
+} = {}) {
+  const observedAt = toIsoString(now) ?? new Date().toISOString();
+  const empty = (sourceError) => ({
+    schema_version: 'ao.github-merge-observation.v1',
+    provider: 'github',
+    source_ok: false,
+    source_error: String(sourceError),
+    observed_at: observedAt,
+    repository: {
+      repository_id: Number.isSafeInteger(repository?.repository_id)
+        && repository.repository_id > 0 ? repository.repository_id : null,
+      slug: typeof repository?.slug === 'string' && repository.slug.trim() === repository.slug
+        && repository.slug !== '' ? repository.slug : null,
+    },
+    pull_request: {
+      number: Number.isSafeInteger(prNumber) && prNumber > 0 ? prNumber : null,
+      state: 'UNKNOWN',
+      base_ref: null,
+      base_sha: null,
+      head_sha: null,
+      merge_commit_sha: null,
+      merged_at: null,
+      url: null,
+    },
+    evidence_refs: [],
+  });
+  if (!Number.isSafeInteger(repository?.repository_id) || repository.repository_id <= 0
+    || typeof repository?.slug !== 'string' || repository.slug.trim() !== repository.slug
+    || !Number.isSafeInteger(prNumber) || prNumber <= 0) {
+    return empty('invalid_exact_merge_observation_scope');
+  }
+
+  let repositoryResult;
+  try {
+    repositoryResult = await commandRunner.run('gh', [
+      'api', `repos/${repository.slug}`,
+    ], { encoding: 'utf8' });
+  } catch (error) {
+    return empty(error?.message ?? 'github_repository_observation_failed');
+  }
+  if (repositoryResult?.status !== 0) {
+    return empty((repositoryResult?.stderr || repositoryResult?.stdout
+      || 'gh api repository view failed').trim());
+  }
+  let repositoryRaw;
+  try {
+    repositoryRaw = parseJsonOutput(repositoryResult, 'gh repository observation');
+  } catch (error) {
+    return empty(error.message);
+  }
+  if (Number(repositoryRaw?.id) !== repository.repository_id
+    || String(repositoryRaw?.full_name ?? '') !== repository.slug) {
+    return empty('github_repository_identity_mismatch');
+  }
+
+  let result;
+  try {
+    result = await commandRunner.run('gh', [
+      'pr', 'view', String(prNumber), '--repo', repository.slug,
+      '--json', MERGE_OBSERVATION_JSON_FIELDS,
+    ], { encoding: 'utf8' });
+  } catch (error) {
+    return empty(error?.message ?? 'github_merge_observation_failed');
+  }
+  if (result?.status !== 0) {
+    return empty((result?.stderr || result?.stdout || 'gh pr view failed').trim());
+  }
+
+  let raw;
+  try {
+    raw = parseJsonOutput(result, 'gh merge observation');
+  } catch (error) {
+    return empty(error.message);
+  }
+  const state = normalizeState(raw?.state);
+  return {
+    schema_version: 'ao.github-merge-observation.v1',
+    provider: 'github',
+    source_ok: true,
+    source_error: null,
+    observed_at: observedAt,
+    repository: {
+      repository_id: repository.repository_id,
+      slug: repository.slug,
+    },
+    pull_request: {
+      number: Number(raw?.number),
+      state,
+      base_ref: raw?.baseRefName == null ? null : String(raw.baseRefName),
+      base_sha: raw?.baseRefOid == null ? null : String(raw.baseRefOid),
+      head_sha: raw?.headRefOid == null ? null : String(raw.headRefOid),
+      merge_commit_sha: raw?.mergeCommit?.oid == null ? null : String(raw.mergeCommit.oid),
+      merged_at: toIsoString(raw?.mergedAt),
+      url: raw?.url == null ? null : String(raw.url),
+    },
+    evidence_refs: raw?.url == null ? [] : [
+      `https://api.github.com/repos/${repository.slug}#repository-id:${repository.repository_id}`,
+      `${String(raw.url)}#provider-readback:${observedAt}`,
+    ],
   };
 }
