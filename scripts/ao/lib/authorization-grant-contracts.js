@@ -226,7 +226,8 @@ export function normalizeAuthorizationGrant(grant) {
   assert(merge.permitted === true
     ? merge.pr_number != null && merge.expected_head_sha != null
       && merge.expected_base_sha != null && merge.method != null
-    : merge.pr_number == null && merge.expected_head_sha == null && merge.expected_base_sha == null,
+    : merge.pr_number == null && merge.expected_head_sha == null
+      && merge.expected_base_sha == null && merge.method == null,
   'grant.merge_scope exact bindings must be present only when merge is permitted');
   assert(typeof rollback.destructive_authorized === 'boolean'
     && rollback.destructive_authorized === false,
@@ -459,6 +460,14 @@ function rawFingerprint(value) {
   }
 }
 
+function normalizedOrNull(value, field, normalizer) {
+  try {
+    return value == null ? null : normalizer(value, field);
+  } catch {
+    return null;
+  }
+}
+
 function escalationRecord(grant, request, kind, reasonCode, now) {
   const createdAt = canonicalTimestamp(now, 'escalation.created_at');
   let grantFingerprint = rawFingerprint(grant);
@@ -474,13 +483,16 @@ function escalationRecord(grant, request, kind, reasonCode, now) {
     policy_input_fingerprint: inputFingerprint,
     reason_code: reasonCode,
     reason_kind: kind,
-    authorized_repository: grant?.repository?.slug ?? null,
-    authorized_task_id: grant?.task?.task_id ?? null,
-    recovery_ref: typeof grant?.rollback_recovery?.recovery_ref === 'string'
-      ? grant.rollback_recovery.recovery_ref
-      : null,
-    requested_repository: request?.repository?.slug ?? null,
-    requested_task_id: request?.task?.task_id ?? null,
+    authorized_repository: normalizedOrNull(grant?.repository?.slug,
+      'escalation.authorized_repository', repositorySlug),
+    authorized_task_id: normalizedOrNull(grant?.task?.task_id,
+      'escalation.authorized_task_id', string),
+    recovery_ref: normalizedOrNull(grant?.rollback_recovery?.recovery_ref,
+      'escalation.recovery_ref', string),
+    requested_repository: normalizedOrNull(request?.repository?.slug,
+      'escalation.requested_repository', repositorySlug),
+    requested_task_id: normalizedOrNull(request?.task?.task_id,
+      'escalation.requested_task_id', string),
     schema_version: OR_AUTHORIZATION_ESCALATION_SCHEMA_VERSION,
     status: 'human_authority_required',
   };

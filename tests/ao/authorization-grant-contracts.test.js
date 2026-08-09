@@ -109,6 +109,16 @@ describe('OR authorization grant v1', () => {
     const { grant } = materialize();
     grant.merge_scope.method = null;
     expect(() => normalizeAuthorizationGrant(grant)).toThrow(/exact bindings/i);
+
+    const disabled = clone(pack.grant);
+    disabled.merge_scope = {
+      permitted: false,
+      pr_number: null,
+      expected_head_sha: null,
+      expected_base_sha: null,
+      method: 'squash',
+    };
+    expect(() => normalizeAuthorizationGrant(disabled)).toThrow(/exact bindings/i);
   });
 
   it.each([
@@ -290,6 +300,29 @@ describe('OR authorization grant v1', () => {
       .toBe(authorizationPolicyInputFingerprint(
         credentialRequest.grant, credentialRequest.request,
       ));
+  });
+
+  it('sanitizes malformed pre-normalization scope in durable escalations', () => {
+    const { grant, request } = materialize();
+    request.action = 'destroy';
+    request.repository.slug = ' bad';
+    request.task.task_id = 'bad task';
+    grant.rollback_recovery.recovery_ref = 'bad recovery ref';
+    const result = evaluateAuthorizationGrant(grant, request, { now: NOW });
+    expect(result).toMatchObject({
+      decision: 'escalate',
+      escalation: {
+        reason_kind: 'destructive_migration_or_rollback',
+        authorized_repository: 'Samsen879/ao-pilot',
+        authorized_task_id: 'foundation-19',
+        requested_repository: null,
+        requested_task_id: null,
+        recovery_ref: null,
+      },
+    });
+    expect(normalizeAuthorizationEscalation(result.escalation)).toEqual(result.escalation);
+    expect(result.escalation.policy_input_fingerprint)
+      .toBe(authorizationPolicyInputFingerprint(grant, request));
   });
 
   it('keeps schema and runtime rejection aligned for internal whitespace', () => {

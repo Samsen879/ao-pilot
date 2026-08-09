@@ -86,6 +86,8 @@ the authorized and requested repository/task context when available, the recover
 a content-derived identifier under
 `ao.or-authorization-escalation.v1`. The corresponding closed Schema is
 [`schemas/ao.or-authorization-escalation.v1.schema.json`](../../schemas/ao.or-authorization-escalation.v1.schema.json).
+Malformed pre-normalization repository/task values are recorded as `null`; their
+exact raw bytes remain auditable through the rejected policy-input fingerprint.
 
 Durable positive, negative, expired, revoked, missing, mixed-version,
 cross-scope, and replay fixtures live in
