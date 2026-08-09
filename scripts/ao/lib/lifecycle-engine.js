@@ -604,7 +604,10 @@ function buildLifecycleFindings({
     }));
   }
 
-  if (routingDecision.reason_codes.includes('ownership_clear')) {
+  if (
+    routingDecision.action === 'continue_current_worker'
+    && routingDecision.reason_codes.includes('ownership_clear')
+  ) {
     findings.push(createLifecycleFinding({
       code: 'worker_continuation_clear',
       severity: 'info',
@@ -619,7 +622,10 @@ function buildLifecycleFindings({
     }));
   }
 
-  if (routingDecision.reason_codes.includes('ownership_stale')) {
+  if (
+    routingDecision.action === 'restore_existing_worker'
+    && routingDecision.reason_codes.includes('ownership_stale')
+  ) {
     findings.push(createLifecycleFinding({
       code: 'worker_restore_recommended',
       severity: 'warning',
@@ -634,7 +640,10 @@ function buildLifecycleFindings({
     }));
   }
 
-  if (routingDecision.reason_codes.includes('ownership_orphaned')) {
+  if (
+    routingDecision.action === 'handoff_to_successor'
+    && routingDecision.reason_codes.includes('ownership_orphaned')
+  ) {
     findings.push(createLifecycleFinding({
       code: 'successor_handoff_recommended',
       severity: 'warning',

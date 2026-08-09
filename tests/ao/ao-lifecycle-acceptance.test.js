@@ -329,7 +329,7 @@ describe('ao lifecycle acceptance', () => {
     });
   });
 
-  it('restores stale ownership instead of losing continuity entirely', async () => {
+  it('pauses stale ownership when release authority remains ambiguous', async () => {
     useScenario('stale-worker-ownership');
     const stdout = [];
 
@@ -339,18 +339,20 @@ describe('ao lifecycle acceptance', () => {
     });
 
     expect(result.exitCode).toBe(38);
-    expect(JSON.parse(stdout.join(''))).toMatchObject({
+    const report = JSON.parse(stdout.join(''));
+    expect(report).toMatchObject({
       top_status: 'escalation_required',
       routing_decision: {
-        action: 'restore_existing_worker',
+        action: 'pause_affected_scope',
         owner_session: 'worker-95',
         target_pr_number: 95,
-        authoritative: true,
+        authoritative: false,
       },
       release_decision: {
         disposition: 'escalation_required',
       },
     });
+    expect(report.actions.map((action) => action.id)).not.toContain('restore_worker');
   });
 
   it('authorizes only OR preflight when approved-and-green is truly clear end to end', async () => {
