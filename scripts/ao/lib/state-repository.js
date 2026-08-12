@@ -18,11 +18,17 @@ import {
 import { materializeRepoKnowledge } from './repo-knowledge.js';
 import { runRuntimeBootstrapPreflight } from './runtime-preflight.js';
 import {
+  STATE_REPOSITORY_COLLECTIONS,
   createRepositoryCollectionUpsertMethods,
   sortRepositoryCollectionByKey,
   sortRepositoryStateCollections,
   upsertRepositoryCollectionRecord,
 } from './state-repository/collections.js';
+import {
+  assertTaskRelationGraphWrite,
+  createTaskRelation,
+  TASK_RELATION_KINDS,
+} from './task-relations.js';
 import { appendControlPlaneAuditEntry, readControlPlaneAuditEntries } from './state-audit.js';
 import {
   bootstrapControlPlaneState,
@@ -94,6 +100,40 @@ function sanitizeArtifactToken(value, fieldName) {
   return normalized;
 }
 
+function normalizeRelationId(value) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error('Invalid relationId');
+  }
+  return value.trim();
+}
+
+const TASK_RELATION_COLLECTION = STATE_REPOSITORY_COLLECTIONS.find(
+  (descriptor) => descriptor.collectionKey === 'task_relations',
+);
+
+function normalizeStoredTaskRelations(state) {
+  if (!Array.isArray(state?.task_relations)) {
+    throw new Error('Invalid durable task_relations collection');
+  }
+  const taskIds = new Set((state.managed_tasks ?? []).map((task) => task?.task_id));
+  const normalizedRelations = [];
+  const relationIds = new Set();
+  for (const relation of state.task_relations) {
+    const normalizedRelation = createTaskRelation(relation);
+    if (relationIds.has(normalizedRelation.relation_id)) {
+      throw new Error(`Duplicate durable task relation ${normalizedRelation.relation_id}`);
+    }
+    assertTaskRelationGraphWrite({
+      relation: normalizedRelation,
+      taskIds,
+      existingRelations: normalizedRelations,
+    });
+    normalizedRelations.push(normalizedRelation);
+    relationIds.add(normalizedRelation.relation_id);
+  }
+  return normalizedRelations;
+}
+
 export function createStateRepository({
   repoRoot,
   projectId,
@@ -151,6 +191,7 @@ export function createStateRepository({
     const nextState = sortRepositoryStateCollections(cloneJsonValue(state), {
       controllerLeases: isolatedControllerLeases,
     });
+    nextState.task_relations = normalizeStoredTaskRelations(nextState);
 
     return {
       bootstrapped: true,
@@ -174,14 +215,18 @@ export function createStateRepository({
     entityId,
     summary,
     details,
+    operation = 'upsert',
+    stateLockHeld = false,
   } = {}) {
     const recordedAt = resolveNow(clock);
     const nextState = cloneJsonValue(state);
     delete nextState.controller_leases;
     nextState.updated_at = recordedAt;
-    withFileLockSync(stateWriteLockPath, () => {
+    const writeState = () => {
       writeJsonFileAtomic(paths.statePath, nextState);
-    });
+    };
+    if (stateLockHeld) writeState();
+    else withFileLockSync(stateWriteLockPath, writeState);
     appendControlPlaneAuditEntry({
       auditPath: paths.auditPath,
       entry: createControlPlaneAuditEntry({
@@ -190,7 +235,7 @@ export function createStateRepository({
         recorded_at: recordedAt,
         entity_kind: entityKind,
         entity_id: entityId,
-        operation: 'upsert',
+        operation,
         actor: 'state_repository',
         summary,
         details,
@@ -312,6 +357,44 @@ export function createStateRepository({
 
   const collectionUpsertMethods = createRepositoryCollectionUpsertMethods(upsertCollectionRecord);
 
+  function validateTaskRelationWrite(record, snapshot, { requireAbsent = false } = {}) {
+    const normalizedRecord = createTaskRelation(record);
+    const existingRecord = (snapshot.state.task_relations ?? []).find(
+      (entry) => entry?.relation_id === normalizedRecord.relation_id,
+    );
+    if (requireAbsent && existingRecord) {
+      throw new Error(`Task relation already exists: ${normalizedRecord.relation_id}`);
+    }
+    return assertTaskRelationGraphWrite({
+      relation: normalizedRecord,
+      taskIds: new Set((snapshot.state.managed_tasks ?? []).map((task) => task?.task_id)),
+      existingRelations: snapshot.state.task_relations ?? [],
+    });
+  }
+
+  function writeTaskRelation(record, { requireAbsent = false } = {}) {
+    ensureBootstrapped();
+    return withFileLockSync(stateWriteLockPath, () => {
+      const snapshot = readSnapshot();
+      const normalizedRecord = validateTaskRelationWrite(record, snapshot, { requireAbsent });
+      const nextState = cloneJsonValue(snapshot.state);
+      upsertRepositoryCollectionRecord({
+        state: nextState,
+        descriptor: TASK_RELATION_COLLECTION,
+        record: normalizedRecord,
+      });
+      persistState({
+        state: nextState,
+        entityKind: 'task_relation',
+        entityId: normalizedRecord.relation_id,
+        summary: `Persisted task relation ${normalizedRecord.relation_id}.`,
+        details: normalizedRecord,
+        stateLockHeld: true,
+      });
+      return normalizedRecord;
+    });
+  }
+
   return {
     getSnapshot() {
       return readSnapshot();
@@ -351,6 +434,69 @@ export function createStateRepository({
     },
 
     ...collectionUpsertMethods,
+
+    createTaskRelation(record) {
+      return writeTaskRelation(record, { requireAbsent: true });
+    },
+
+    upsertTaskRelation(record) {
+      return writeTaskRelation(record);
+    },
+
+    getTaskRelation(relationId) {
+      const normalizedRelationId = normalizeRelationId(relationId);
+      return readSnapshot().state.task_relations.find(
+        (relation) => relation.relation_id === normalizedRelationId,
+      ) ?? null;
+    },
+
+    listTaskRelations({
+      taskId = null,
+      relationKind = null,
+      direction = 'any',
+    } = {}) {
+      if (!['any', 'outgoing', 'incoming'].includes(direction)) {
+        throw new Error('Invalid task relation direction');
+      }
+      const normalizedTaskId = taskId == null ? null : normalizeRelationId(taskId);
+      const normalizedRelationKind = relationKind == null ? null : String(relationKind).trim();
+      if (normalizedRelationKind != null && !TASK_RELATION_KINDS.includes(normalizedRelationKind)) {
+        throw new Error('Invalid task relation kind');
+      }
+      return readSnapshot().state.task_relations.filter((relation) => {
+        if (normalizedRelationKind != null && relation.relation_kind !== normalizedRelationKind) return false;
+        if (normalizedTaskId == null) return true;
+        if (direction === 'outgoing') return relation.source_task_id === normalizedTaskId;
+        if (direction === 'incoming') return relation.target_task_id === normalizedTaskId;
+        return relation.source_task_id === normalizedTaskId || relation.target_task_id === normalizedTaskId;
+      });
+    },
+
+    deleteTaskRelation(relationId) {
+      const normalizedRelationId = normalizeRelationId(relationId);
+      ensureBootstrapped();
+      return withFileLockSync(stateWriteLockPath, () => {
+        const snapshot = readSnapshot();
+        const existingRecord = snapshot.state.task_relations.find(
+          (relation) => relation.relation_id === normalizedRelationId,
+        );
+        if (!existingRecord) return null;
+        const nextState = cloneJsonValue(snapshot.state);
+        nextState.task_relations = nextState.task_relations.filter(
+          (relation) => relation.relation_id !== normalizedRelationId,
+        );
+        persistState({
+          state: nextState,
+          entityKind: 'task_relation',
+          entityId: normalizedRelationId,
+          operation: 'delete',
+          summary: `Deleted task relation ${normalizedRelationId}.`,
+          details: existingRecord,
+          stateLockHeld: true,
+        });
+        return existingRecord;
+      });
+    },
 
     upsertControllerLease(record) {
       ensureBootstrapped();

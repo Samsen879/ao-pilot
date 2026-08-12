@@ -1,5 +1,22 @@
 # AO Migration History
 
+## Control-plane v12 task relations
+
+Migration `0012_task_relations_v1alpha1` adds the durable `task_relations`
+collection. Existing state is preserved byte-for-byte at the record level and
+the new collection starts empty; relation-like task metadata is deliberately
+not promoted. Every accepted edge is instead represented by the public
+`ao.task-relation.v1alpha1` contract with a canonical identity derived from its
+type and endpoints.
+
+The allowed edge kinds are `parent_of` (source is the parent, target is the
+child) and `depends_on` (source depends on target). Repository writes require
+both endpoints to exist in `managed_tasks` and reject self edges, duplicate
+creates, non-canonical identities, and cycles across the stored relation graph.
+The repository exposes create/upsert, read, filtered list, and delete operations;
+each mutation records a `task_relation` audit entry. Task metadata is never
+read as graph authority.
+
 ## P0 runtime portability correction
 
 The independently installable package baseline did not establish operational

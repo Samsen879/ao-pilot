@@ -242,6 +242,8 @@ function materialize(entry, tempRoots) {
   writeJsonFileAtomic(paths.statePath, state);
 
   if (entry.setup.schema_version === 10) {
+    delete state.task_relations;
+    writeJsonFileAtomic(paths.statePath, state);
     const schema = JSON.parse(fs.readFileSync(paths.schemaPath, 'utf8'));
     schema.current_version = 10;
     schema.applied_migrations = schema.applied_migrations.filter((migration) => migration.version <= 10);
@@ -275,10 +277,15 @@ function acceptedSnapshot(entry, paths, repository) {
   if (entry.operation === 'restart-cold-read') {
     snapshot = createStateRepository({ repoRoot: paths.repoRoot, projectId: PROJECT_ID, clock: FIXED_NOW }).getSnapshot();
   }
+  const migrationReceipt = fs.existsSync(paths.controllerLeaseMigrationReceiptPath)
+    ? JSON.parse(fs.readFileSync(paths.controllerLeaseMigrationReceiptPath, 'utf8'))
+    : null;
   const result = {
     disposition: 'accepted',
     bootstrapped: snapshot.bootstrapped,
-    schema_version: snapshot.schema.current_version,
+    schema_version: snapshot.bootstrapped
+      ? migrationReceipt?.destination_schema_version ?? snapshot.schema.current_version
+      : snapshot.schema.current_version,
     lease_ids: snapshot.state.controller_leases.map((record) => record.lease_id),
     authority_digest: digestControllerLeaseAuthorityEvidence(
       createControllerLeaseAuthority(snapshot.state.controller_leases),

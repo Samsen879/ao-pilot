@@ -85,6 +85,11 @@ export const CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION = {
   key: '0011_controller_lease_authority_v1',
 };
 
+export const CONTROL_PLANE_TASK_RELATIONS_MIGRATION = {
+  version: 12,
+  key: '0012_task_relations_v1alpha1',
+};
+
 const CONTROL_PLANE_MIGRATIONS = [
   CONTROL_PLANE_BOOTSTRAP_MIGRATION,
   CONTROL_PLANE_TASK_SPEC_MIGRATION,
@@ -97,6 +102,7 @@ const CONTROL_PLANE_MIGRATIONS = [
   CONTROL_PLANE_REPO_KNOWLEDGE_MIGRATION,
   CONTROL_PLANE_REVIEW_GATE_MIGRATION,
   CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION,
+  CONTROL_PLANE_TASK_RELATIONS_MIGRATION,
 ];
 
 function resolveNow(now) {
@@ -157,6 +163,7 @@ function buildBootstrapState({
     'policy_decisions',
     'credential_provenances',
     'task_specs',
+    'task_relations',
     'runtime_preflights',
     'repo_knowledge',
     'review_records',
@@ -178,6 +185,12 @@ function buildBootstrapState({
   }
 
   return state;
+}
+
+function removeControllerLeaseShadow(state) {
+  const nextState = state;
+  delete nextState.controller_leases;
+  return nextState;
 }
 
 function backfillTaskSpecs({
@@ -304,12 +317,27 @@ function applyMigration({
   }
 
   if (migration.version === CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION.version) {
+    return removeControllerLeaseShadow(buildBootstrapState({
+      projectId,
+      now,
+      existingState: state,
+    }));
+  }
+
+  if (migration.version === CONTROL_PLANE_TASK_RELATIONS_MIGRATION.version) {
+    if (
+      Object.hasOwn(state ?? {}, 'task_relations')
+      && (!Array.isArray(state.task_relations) || state.task_relations.length > 0)
+    ) {
+      throw new Error('Pre-v12 task_relations evidence is not authoritative and cannot be migrated');
+    }
     const nextState = buildBootstrapState({
       projectId,
       now,
       existingState: state,
     });
-    delete nextState.controller_leases;
+    removeControllerLeaseShadow(nextState);
+    nextState.task_relations = [];
     return nextState;
   }
 
@@ -384,6 +412,14 @@ function buildAuditSummary(migration) {
     return {
       operation: 'migrate',
       summary: 'Applied canonical controller-lease authority migration.',
+    };
+  }
+
+
+  if (migration.version === CONTROL_PLANE_TASK_RELATIONS_MIGRATION.version) {
+    return {
+      operation: 'migrate',
+      summary: 'Applied control-plane task-relations migration.',
     };
   }
 
