@@ -275,7 +275,7 @@ try {
     expect(() => repository.getSnapshot()).toThrow('Invalid durable task_relations collection');
   });
 
-  it.each(['before-state-write', 'after-state-write'])(
+  it.each(['before-state-write', 'after-state-write', 'after-partial-audit'])(
     'recovers a journaled relation mutation %s without losing its audit',
     (crashPoint) => {
       const repository = createRepository();
@@ -311,6 +311,10 @@ try {
       if (crashPoint === 'after-state-write') {
         fs.writeFileSync(snapshot.paths.statePath, `${JSON.stringify(nextState, null, 2)}\n`, 'utf8');
       }
+      if (crashPoint === 'after-partial-audit') {
+        fs.writeFileSync(snapshot.paths.statePath, `${JSON.stringify(nextState, null, 2)}\n`, 'utf8');
+        fs.appendFileSync(snapshot.paths.auditPath, '{"schema_version":"truncated', 'utf8');
+      }
 
       const recovered = createStateRepository({
         repoRoot: snapshot.paths.repoRoot,
@@ -323,4 +327,61 @@ try {
       expect(fs.existsSync(snapshot.paths.stateMutationJournalPath)).toBe(false);
     },
   );
+
+  it('rechecks a pending journal after waiting for the state lock', async () => {
+    const repository = createRepository();
+    repository.upsertManagedTask(managedTask('task-a'));
+    const snapshot = repository.getSnapshot();
+    fs.writeFileSync(snapshot.paths.stateMutationJournalPath, '{}\n', 'utf8');
+    let childResult;
+
+    await withFileLock(snapshot.paths.stateWriteLockPath, async () => {
+      const child = spawn(process.execPath, [
+        '--input-type=module',
+        '--eval',
+        `import { createStateRepository } from ${JSON.stringify(new URL('../../scripts/ao/lib/state-repository.js', import.meta.url).href)};
+process.stdout.write('ready\\n');
+try {
+  createStateRepository({ repoRoot: process.argv[1], projectId: 'task-relations-test' }).getSnapshot();
+} catch (error) {
+  process.stderr.write(String(error.stack ?? error));
+  process.exitCode = 2;
+}`,
+        snapshot.paths.repoRoot,
+      ], { stdio: ['ignore', 'pipe', 'pipe'] });
+      childResult = new Promise((resolve) => {
+        let stderr = '';
+        child.stderr.on('data', (chunk) => { stderr += chunk; });
+        child.on('close', (code) => resolve({ code, stderr }));
+      });
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Journal reader did not start')), 1000);
+        child.stdout.on('data', (chunk) => {
+          if (String(chunk).includes('ready')) {
+            clearTimeout(timeout);
+            setTimeout(resolve, 100);
+          }
+        });
+      });
+      fs.rmSync(snapshot.paths.stateMutationJournalPath);
+    });
+
+    await expect(childResult).resolves.toEqual({ code: 0, stderr: '' });
+  });
+
+  it('returns relations in canonical identity order after raw validation', () => {
+    const repository = createRepository();
+    for (const taskId of ['task-a', 'task-b', 'task-c']) {
+      repository.upsertManagedTask(managedTask(taskId));
+    }
+    const first = repository.createTaskRelation(relation('depends_on', 'task-a', 'task-b'));
+    const second = repository.createTaskRelation(relation('parent_of', 'task-c', 'task-b'));
+    const paths = repository.getSnapshot().paths;
+    const state = JSON.parse(fs.readFileSync(paths.statePath, 'utf8'));
+    state.task_relations.reverse();
+    writeJsonFileAtomic(paths.statePath, state);
+
+    expect(repository.listTaskRelations().map((entry) => entry.relation_id))
+      .toEqual([first.relation_id, second.relation_id].sort());
+  });
 });

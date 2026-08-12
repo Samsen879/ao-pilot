@@ -716,7 +716,15 @@ function resolveAppliedMigration(schema, migration) {
 }
 
 function assertTaskRelationsMigrationAuditEntry(entry, { projectId, recordedAt }) {
+  let normalizedEntry;
+  try {
+    normalizedEntry = createControlPlaneAuditEntry(entry);
+  } catch {
+    throw new Error('Malformed control-plane task-relations migration audit evidence');
+  }
   if (
+    JSON.stringify(normalizedEntry) !== JSON.stringify(entry)
+    ||
     entry?.audit_id !== `migration-${CONTROL_PLANE_TASK_RELATIONS_MIGRATION.version}`
     || entry.project_id !== projectId
     || entry.recorded_at !== recordedAt
@@ -730,6 +738,18 @@ function assertTaskRelationsMigrationAuditEntry(entry, { projectId, recordedAt }
   ) {
     throw new Error('Malformed control-plane task-relations migration audit evidence');
   }
+}
+
+function resolveMigrationAppliedAt({ paths, projectId, migration, fallback }) {
+  if (migration.version !== CONTROL_PLANE_TASK_RELATIONS_MIGRATION.version) return fallback;
+  const existing = readControlPlaneAuditEntries({ auditPath: paths.auditPath })
+    .find((entry) => entry.audit_id === `migration-${migration.version}`);
+  if (existing == null) return fallback;
+  assertTaskRelationsMigrationAuditEntry(existing, {
+    projectId,
+    recordedAt: existing.recorded_at,
+  });
+  return existing.recorded_at;
 }
 
 function ensureMigrationAuditEntry({ paths, projectId, migration, recordedAt, details = {} }) {
@@ -940,19 +960,27 @@ export function bootstrapControlPlaneState({
         )
       : [];
     const newAppliedMigrations = [];
+    const migrationAppliedAt = new Map();
 
     for (const migration of CONTROL_PLANE_MIGRATIONS) {
       if (migration.version <= effectiveCurrentVersion) continue;
+      const appliedAt = resolveMigrationAppliedAt({
+        paths,
+        projectId,
+        migration,
+        fallback: timestamp,
+      });
       nextState = applyMigration({
         migration,
         projectId,
-        now: timestamp,
+        now: appliedAt,
         state: nextState,
       });
+      migrationAppliedAt.set(migration.version, appliedAt);
       newAppliedMigrations.push({
         version: migration.version,
         key: migration.key,
-        applied_at: timestamp,
+        applied_at: appliedAt,
       });
     }
 
@@ -1004,7 +1032,7 @@ export function bootstrapControlPlaneState({
         paths,
         projectId,
         migration,
-        recordedAt: timestamp,
+        recordedAt: migrationAppliedAt.get(migration.version) ?? timestamp,
         details: migration.version === CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION.version
           ? buildControllerLeaseMigrationAuditDetails(migrationReceipt)
           : {},

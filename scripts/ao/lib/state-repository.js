@@ -161,6 +161,7 @@ export function createStateRepository({
     if (!fs.existsSync(paths.stateMutationJournalPath)) return;
     const recover = () => {
       const journal = readJsonFile(paths.stateMutationJournalPath);
+      if (journal == null) return;
       if (
         journal?.schema_version !== STATE_MUTATION_JOURNAL_SCHEMA_VERSION
         || journal.project_id !== projectId
@@ -182,7 +183,21 @@ export function createStateRepository({
       } else if (currentDigest !== journal.next_state_digest) {
         throw new Error('State mutation recovery journal conflicts with durable state');
       }
-      const existingAudit = readControlPlaneAuditEntries({ auditPath: paths.auditPath })
+      let auditEntries;
+      try {
+        auditEntries = readControlPlaneAuditEntries({ auditPath: paths.auditPath });
+      } catch (error) {
+        const auditText = fs.readFileSync(paths.auditPath, 'utf8');
+        if (auditText.endsWith('\n')) throw error;
+        const completeLines = auditText.split('\n');
+        completeLines.pop();
+        auditEntries = completeLines.filter(Boolean).map((line) => JSON.parse(line));
+        const repairedText = auditEntries.length
+          ? `${auditEntries.map((entry) => JSON.stringify(entry)).join('\n')}\n`
+          : '';
+        fs.writeFileSync(paths.auditPath, repairedText, 'utf8');
+      }
+      const existingAudit = auditEntries
         .find((entry) => entry.audit_id === normalizedAuditEntry.audit_id);
       if (existingAudit == null) {
         appendControlPlaneAuditEntry({ auditPath: paths.auditPath, entry: normalizedAuditEntry });
@@ -237,7 +252,10 @@ export function createStateRepository({
     const nextState = sortRepositoryStateCollections(cloneJsonValue(state), {
       controllerLeases: isolatedControllerLeases,
     });
-    nextState.task_relations = normalizedTaskRelations;
+    nextState.task_relations = sortRepositoryCollectionByKey(
+      normalizedTaskRelations,
+      'relation_id',
+    );
 
     return {
       bootstrapped: true,

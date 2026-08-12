@@ -455,6 +455,46 @@ describe('ao state migrations', () => {
     );
     expect(() => bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
       .toThrow('Malformed control-plane task-relations migration audit evidence');
+
+    malformed.find((entry) => entry.audit_id === 'migration-12').details.migration_key =
+      '0012_task_relations_v1alpha1';
+    malformed.find((entry) => entry.audit_id === 'migration-12').schema_version = 'forged';
+    fs.writeFileSync(
+      paths.auditPath,
+      `${malformed.map((entry) => JSON.stringify(entry)).join('\n')}\n`,
+      'utf8',
+    );
+    expect(() => bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
+      .toThrow('Malformed control-plane task-relations migration audit evidence');
+  });
+
+  it('preserves the first v12 audit timestamp when migration resumes before schema commit', () => {
+    const repoRoot = createTempRepo();
+    bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW });
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    const schema = readJson(paths.schemaPath);
+    schema.current_version = 11;
+    schema.latest_version = 11;
+    schema.applied_migrations = schema.applied_migrations.filter((entry) => entry.version <= 11);
+    fs.writeFileSync(paths.schemaPath, `${JSON.stringify(schema, null, 2)}\n`, 'utf8');
+    const state = readJson(paths.statePath);
+    delete state.task_relations;
+    fs.writeFileSync(paths.statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    const firstAppliedAt = readAuditEntries(paths.auditPath)
+      .find((entry) => entry.audit_id === 'migration-12').recorded_at;
+
+    expect(bootstrapControlPlaneState({
+      repoRoot,
+      projectId: PROJECT_ID,
+      now: '2026-08-12T02:30:00.000Z',
+    })).toMatchObject({ bootstrapped: true, migrated: true });
+    expect(readJson(paths.schemaPath).applied_migrations.at(-1)).toEqual({
+      version: 12,
+      key: '0012_task_relations_v1alpha1',
+      applied_at: firstAppliedAt,
+    });
+    expect(readAuditEntries(paths.auditPath).filter((entry) => entry.audit_id === 'migration-12'))
+      .toHaveLength(1);
   });
 
   it.each([
