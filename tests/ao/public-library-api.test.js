@@ -50,6 +50,8 @@ describe('ao-pilot public library API', () => {
         './schemas/ao.child-completion.v1alpha1.schema.json',
       './schemas/ao.child-completion-input-manifest.v1alpha1.schema.json':
         './schemas/ao.child-completion-input-manifest.v1alpha1.schema.json',
+      './schemas/ao.task-relation.v1alpha1.schema.json':
+        './schemas/ao.task-relation.v1alpha1.schema.json',
       './schemas/ao.or-authorization-grant.v1.schema.json':
         './schemas/ao.or-authorization-grant.v1.schema.json',
       './schemas/ao.or-authorization-escalation.v1.schema.json':
@@ -87,6 +89,8 @@ describe('ao-pilot public library API', () => {
     expect(contracts.normalizeAuthorizationGrant).toEqual(expect.any(Function));
     expect(contracts.evaluateAuthorizationGrant).toEqual(expect.any(Function));
     expect(contracts.INTERVENTION_JUDGMENT_SCHEMA_VERSION).toBe('ao.intervention-judgment.v1');
+    expect(contracts.TASK_RELATION_SCHEMA_VERSION).toBe('ao.task-relation.v1alpha1');
+    expect(contracts.createTaskRelation).toEqual(expect.any(Function));
     expect(contracts.createRetryRequiredDecision).toEqual(expect.any(Function));
     expect(contracts.interventionJudgmentContracts.INTERVENTION_JUDGMENTS)
       .toMatchObject({ RETRY_REQUIRED: 'retry_required' });

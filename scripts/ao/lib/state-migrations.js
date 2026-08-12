@@ -85,6 +85,11 @@ export const CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION = {
   key: '0011_controller_lease_authority_v1',
 };
 
+export const CONTROL_PLANE_TASK_RELATIONS_MIGRATION = {
+  version: 12,
+  key: '0012_task_relations_v1alpha1',
+};
+
 const CONTROL_PLANE_MIGRATIONS = [
   CONTROL_PLANE_BOOTSTRAP_MIGRATION,
   CONTROL_PLANE_TASK_SPEC_MIGRATION,
@@ -97,6 +102,7 @@ const CONTROL_PLANE_MIGRATIONS = [
   CONTROL_PLANE_REPO_KNOWLEDGE_MIGRATION,
   CONTROL_PLANE_REVIEW_GATE_MIGRATION,
   CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION,
+  CONTROL_PLANE_TASK_RELATIONS_MIGRATION,
 ];
 
 function resolveNow(now) {
@@ -157,6 +163,7 @@ function buildBootstrapState({
     'policy_decisions',
     'credential_provenances',
     'task_specs',
+    'task_relations',
     'runtime_preflights',
     'repo_knowledge',
     'review_records',
@@ -178,6 +185,12 @@ function buildBootstrapState({
   }
 
   return state;
+}
+
+function removeControllerLeaseShadow(state) {
+  const nextState = state;
+  delete nextState.controller_leases;
+  return nextState;
 }
 
 function backfillTaskSpecs({
@@ -304,12 +317,27 @@ function applyMigration({
   }
 
   if (migration.version === CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION.version) {
+    return removeControllerLeaseShadow(buildBootstrapState({
+      projectId,
+      now,
+      existingState: state,
+    }));
+  }
+
+  if (migration.version === CONTROL_PLANE_TASK_RELATIONS_MIGRATION.version) {
+    if (
+      Object.hasOwn(state ?? {}, 'task_relations')
+      && (!Array.isArray(state.task_relations) || state.task_relations.length > 0)
+    ) {
+      throw new Error('Pre-v12 task_relations evidence is not authoritative and cannot be migrated');
+    }
     const nextState = buildBootstrapState({
       projectId,
       now,
       existingState: state,
     });
-    delete nextState.controller_leases;
+    removeControllerLeaseShadow(nextState);
+    nextState.task_relations = [];
     return nextState;
   }
 
@@ -387,6 +415,14 @@ function buildAuditSummary(migration) {
     };
   }
 
+
+  if (migration.version === CONTROL_PLANE_TASK_RELATIONS_MIGRATION.version) {
+    return {
+      operation: 'migrate',
+      summary: 'Applied control-plane task-relations migration.',
+    };
+  }
+
   return {
     operation: 'migrate',
     summary: 'Applied control-plane task-spec migration.',
@@ -416,6 +452,7 @@ export function resolveControlPlanePaths({
       `.${normalizedProjectId}.bootstrap.lock`,
     ),
     stateWriteLockPath: path.join(stateRoot, 'state.json.lock'),
+    stateMutationJournalPath: path.join(stateRoot, 'state-mutation-journal.json'),
     auditPath: path.join(stateRoot, 'audit-log.jsonl'),
     evalRoot: path.join(stateRoot, 'eval'),
     evalScorecardRoot: path.join(stateRoot, 'eval', 'scorecards'),
@@ -668,6 +705,53 @@ function buildControllerLeaseMigrationAuditDetails(receipt) {
   };
 }
 
+function resolveAppliedMigration(schema, migration) {
+  const applied = (schema?.applied_migrations ?? []).find(
+    (entry) => Number(entry?.version) === migration.version,
+  );
+  if (applied?.key !== migration.key || typeof applied?.applied_at !== 'string') {
+    throw new Error(`Missing or malformed applied migration evidence for ${migration.key}`);
+  }
+  return applied;
+}
+
+function assertTaskRelationsMigrationAuditEntry(entry, { projectId, recordedAt }) {
+  let normalizedEntry;
+  try {
+    normalizedEntry = createControlPlaneAuditEntry(entry);
+  } catch {
+    throw new Error('Malformed control-plane task-relations migration audit evidence');
+  }
+  if (
+    JSON.stringify(normalizedEntry) !== JSON.stringify(entry)
+    ||
+    entry?.audit_id !== `migration-${CONTROL_PLANE_TASK_RELATIONS_MIGRATION.version}`
+    || entry.project_id !== projectId
+    || entry.recorded_at !== recordedAt
+    || entry.entity_kind !== 'schema'
+    || entry.entity_id !== `v${CONTROL_PLANE_TASK_RELATIONS_MIGRATION.version}`
+    || entry.operation !== 'migrate'
+    || entry.actor !== 'bootstrap'
+    || entry.summary !== 'Applied control-plane task-relations migration.'
+    || entry.details?.migration_key !== CONTROL_PLANE_TASK_RELATIONS_MIGRATION.key
+    || entry.details?.migration_version !== CONTROL_PLANE_TASK_RELATIONS_MIGRATION.version
+  ) {
+    throw new Error('Malformed control-plane task-relations migration audit evidence');
+  }
+}
+
+function resolveMigrationAppliedAt({ paths, projectId, migration, fallback }) {
+  if (migration.version !== CONTROL_PLANE_TASK_RELATIONS_MIGRATION.version) return fallback;
+  const existing = readControlPlaneAuditEntries({ auditPath: paths.auditPath })
+    .find((entry) => entry.audit_id === `migration-${migration.version}`);
+  if (existing == null) return fallback;
+  assertTaskRelationsMigrationAuditEntry(existing, {
+    projectId,
+    recordedAt: existing.recorded_at,
+  });
+  return existing.recorded_at;
+}
+
 function ensureMigrationAuditEntry({ paths, projectId, migration, recordedAt, details = {} }) {
   const auditId = `migration-${migration.version}`;
   const existing = readControlPlaneAuditEntries({ auditPath: paths.auditPath })
@@ -677,6 +761,9 @@ function ensureMigrationAuditEntry({ paths, projectId, migration, recordedAt, de
       if (existing.details?.migration_receipt_digest !== details.migration_receipt_digest) {
         throw new Error('Controller lease migration audit receipt digest mismatch');
       }
+    }
+    if (migration.version === CONTROL_PLANE_TASK_RELATIONS_MIGRATION.version) {
+      assertTaskRelationsMigrationAuditEntry(existing, { projectId, recordedAt });
     }
     return existing;
   }
@@ -736,13 +823,25 @@ export function bootstrapControlPlaneState({
     if (receipt == null) throw new Error('Missing controller lease authority migration receipt');
     const checkpoint = readMigrationAuditCheckpoint(paths, projectId, receipt);
     if (checkpoint?.status === 'complete') {
-      return {
-        bootstrapped: true,
-        migrated: false,
-        state_root: paths.stateRoot,
-        schema: initialSchema,
-        state: initialState,
-      };
+      const taskMigration = resolveAppliedMigration(
+        initialSchema,
+        CONTROL_PLANE_TASK_RELATIONS_MIGRATION,
+      );
+      const taskAudit = readControlPlaneAuditEntries({ auditPath: paths.auditPath })
+        .find((entry) => entry.audit_id === `migration-${CONTROL_PLANE_TASK_RELATIONS_MIGRATION.version}`);
+      if (taskAudit != null) {
+        assertTaskRelationsMigrationAuditEntry(taskAudit, {
+          projectId,
+          recordedAt: taskMigration.applied_at,
+        });
+        return {
+          bootstrapped: true,
+          migrated: false,
+          state_root: paths.stateRoot,
+          schema: initialSchema,
+          state: initialState,
+        };
+      }
     }
   }
 
@@ -799,6 +898,16 @@ export function bootstrapControlPlaneState({
           createMigrationAuditCheckpoint({ projectId, receipt, status: 'complete' }),
         );
       }
+      const taskMigration = resolveAppliedMigration(
+        existingSchema,
+        CONTROL_PLANE_TASK_RELATIONS_MIGRATION,
+      );
+      ensureMigrationAuditEntry({
+        paths,
+        projectId,
+        migration: CONTROL_PLANE_TASK_RELATIONS_MIGRATION,
+        recordedAt: taskMigration.applied_at,
+      });
       return {
         bootstrapped: true,
         migrated: false,
@@ -851,19 +960,27 @@ export function bootstrapControlPlaneState({
         )
       : [];
     const newAppliedMigrations = [];
+    const migrationAppliedAt = new Map();
 
     for (const migration of CONTROL_PLANE_MIGRATIONS) {
       if (migration.version <= effectiveCurrentVersion) continue;
+      const appliedAt = resolveMigrationAppliedAt({
+        paths,
+        projectId,
+        migration,
+        fallback: timestamp,
+      });
       nextState = applyMigration({
         migration,
         projectId,
-        now: timestamp,
+        now: appliedAt,
         state: nextState,
       });
+      migrationAppliedAt.set(migration.version, appliedAt);
       newAppliedMigrations.push({
         version: migration.version,
         key: migration.key,
-        applied_at: timestamp,
+        applied_at: appliedAt,
       });
     }
 
@@ -915,7 +1032,7 @@ export function bootstrapControlPlaneState({
         paths,
         projectId,
         migration,
-        recordedAt: timestamp,
+        recordedAt: migrationAppliedAt.get(migration.version) ?? timestamp,
         details: migration.version === CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION.version
           ? buildControllerLeaseMigrationAuditDetails(migrationReceipt)
           : {},

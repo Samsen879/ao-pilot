@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.ao-pilot.dev/ao.task-relation.v1alpha1.schema.json",
+  "title": "AO Task Relation v1alpha1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "format",
+    "relation_id",
+    "relation_kind",
+    "source_task_id",
+    "target_task_id",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_version": { "const": "ao.task-relation.v1alpha1" },
+    "format": { "const": "ao_task_relation" },
+    "relation_id": { "type": "string", "pattern": "^task-relation:[a-f0-9]{64}$" },
+    "relation_kind": { "enum": ["parent_of", "depends_on"] },
+    "source_task_id": { "type": "string", "minLength": 1 },
+    "target_task_id": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  }
+}

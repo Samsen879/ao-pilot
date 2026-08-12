@@ -126,10 +126,10 @@ describe('controller lease authority design audit', () => {
     expect(validateControllerLeaseInventory(inventory, repositoryRoot)).toEqual({
       caller_count: 15,
       caller_metadata_digest: '9a33c814e330606fb9022b399c5feed85b4d37b4886aa24f7c125e5bce141859',
-      source_match_count: 58,
-      source_digest: '9a9ae784c9052450811b9725004310bba121c71c9815dd75a0a4f15f683ab729',
+      source_match_count: 60,
+      source_digest: 'e6332e14dc8ef4b03937ccdc7365bee6114bc9cbfdc18d295029259509232692',
     });
-    expect(scanControllerLeaseSources(inventory, repositoryRoot).matches).toHaveLength(58);
+    expect(scanControllerLeaseSources(inventory, repositoryRoot).matches).toHaveLength(60);
   });
 
   it('rejects a newly added uninventoried generic state shadow writer', () => {

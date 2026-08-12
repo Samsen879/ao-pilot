@@ -82,7 +82,8 @@ function materializeVersion10({ shadow = [controllerLease()], canonical = null, 
   ]) {
     if (fs.existsSync(migrationEvidencePath)) fs.unlinkSync(migrationEvidencePath);
   }
-  const priorAudit = readAuditEntries(paths.auditPath).filter((entry) => entry.entity_id !== 'v11');
+  const priorAudit = readAuditEntries(paths.auditPath)
+    .filter((entry) => Number(entry?.details?.migration_version) <= 10);
   fs.writeFileSync(paths.auditPath, `${priorAudit.map((entry) => JSON.stringify(entry)).join('\n')}\n`, 'utf8');
   return { repoRoot, paths };
 }
@@ -131,8 +132,8 @@ describe('ao state migrations', () => {
 
     expect(readJson(paths.schemaPath)).toMatchObject({
       project_id: PROJECT_ID,
-      current_version: 11,
-      latest_version: 11,
+      current_version: 12,
+      latest_version: 12,
       applied_migrations: [
         {
           version: 1,
@@ -189,6 +190,11 @@ describe('ao state migrations', () => {
           key: '0011_controller_lease_authority_v1',
           applied_at: FIXED_NOW,
         },
+        {
+          version: 12,
+          key: '0012_task_relations_v1alpha1',
+          applied_at: FIXED_NOW,
+        },
       ],
     });
     expect(readJson(paths.statePath)).toMatchObject({
@@ -197,6 +203,7 @@ describe('ao state migrations', () => {
       policy_decisions: [],
       credential_provenances: [],
       task_specs: [],
+      task_relations: [],
       runtime_preflights: [],
       repo_knowledge: [],
       review_records: [],
@@ -290,6 +297,16 @@ describe('ao state migrations', () => {
           state_shadow_removed: false,
         }),
       }),
+      expect.objectContaining({
+        entity_kind: 'schema',
+        entity_id: 'v12',
+        operation: 'migrate',
+        summary: 'Applied control-plane task-relations migration.',
+        details: expect.objectContaining({
+          migration_key: '0012_task_relations_v1alpha1',
+          migration_version: 12,
+        }),
+      }),
     ]);
     expect(readJson(paths.controllerLeasesPath)).toEqual(createControllerLeaseAuthority([]));
     expect(readJson(paths.statePath)).not.toHaveProperty('controller_leases');
@@ -331,7 +348,178 @@ describe('ao state migrations', () => {
       migrated: false,
     });
     expect(readJson(paths.schemaPath).updated_at).toBe(FIXED_NOW);
-    expect(readAuditEntries(paths.auditPath)).toHaveLength(11);
+    expect(readAuditEntries(paths.auditPath)).toHaveLength(12);
+  });
+
+  it('replays the v12 task-relations migration without promoting metadata', () => {
+    const repoRoot = createTempRepo();
+    bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW });
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    const schema = readJson(paths.schemaPath);
+    schema.current_version = 11;
+    schema.latest_version = 11;
+    schema.applied_migrations = schema.applied_migrations.filter((entry) => entry.version <= 11);
+    fs.writeFileSync(paths.schemaPath, `${JSON.stringify(schema, null, 2)}\n`, 'utf8');
+    const state = readJson(paths.statePath);
+    delete state.task_relations;
+    state.managed_tasks.push({
+      task_id: 'task-with-legacy-metadata',
+      issue_number: 24,
+      title: 'Legacy relation-shaped metadata is not graph authority',
+      branch_name: null,
+      worktree_path: null,
+      status: 'active',
+      created_at: FIXED_NOW,
+      updated_at: FIXED_NOW,
+      metadata: {
+        parent_task_id: 'invented-parent',
+        depends_on: ['invented-dependency'],
+      },
+    });
+    fs.writeFileSync(paths.statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    const priorAudit = readAuditEntries(paths.auditPath).filter((entry) => entry.entity_id !== 'v12');
+    fs.writeFileSync(
+      paths.auditPath,
+      `${priorAudit.map((entry) => JSON.stringify(entry)).join('\n')}\n`,
+      'utf8',
+    );
+
+    const first = bootstrapControlPlaneState({
+      repoRoot,
+      projectId: PROJECT_ID,
+      now: '2026-08-10T08:10:00.000Z',
+    });
+    const firstBytes = {
+      schema: fs.readFileSync(paths.schemaPath),
+      state: fs.readFileSync(paths.statePath),
+      audit: fs.readFileSync(paths.auditPath),
+    };
+    const second = bootstrapControlPlaneState({
+      repoRoot,
+      projectId: PROJECT_ID,
+      now: '2026-08-10T08:11:00.000Z',
+    });
+
+    expect(first).toMatchObject({ bootstrapped: true, migrated: true });
+    expect(second).toMatchObject({ bootstrapped: true, migrated: false });
+    expect(readJson(paths.schemaPath)).toMatchObject({
+      current_version: 12,
+      latest_version: 12,
+      applied_migrations: expect.arrayContaining([
+        expect.objectContaining({ version: 12, key: '0012_task_relations_v1alpha1' }),
+      ]),
+    });
+    expect(readJson(paths.statePath)).toMatchObject({
+      task_relations: [],
+      managed_tasks: [expect.objectContaining({
+        task_id: 'task-with-legacy-metadata',
+        metadata: {
+          parent_task_id: 'invented-parent',
+          depends_on: ['invented-dependency'],
+        },
+      })],
+    });
+    expect(readAuditEntries(paths.auditPath).filter((entry) => entry.entity_id === 'v12'))
+      .toEqual([expect.objectContaining({
+        operation: 'migrate',
+        summary: 'Applied control-plane task-relations migration.',
+      })]);
+    expect(fs.readFileSync(paths.schemaPath)).toEqual(firstBytes.schema);
+    expect(fs.readFileSync(paths.statePath)).toEqual(firstBytes.state);
+    expect(fs.readFileSync(paths.auditPath)).toEqual(firstBytes.audit);
+  });
+
+  it('recreates missing v12 audit evidence and rejects malformed replay evidence', () => {
+    const repoRoot = createTempRepo();
+    bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW });
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    const withoutV12 = readAuditEntries(paths.auditPath)
+      .filter((entry) => entry.audit_id !== 'migration-12');
+    fs.writeFileSync(
+      paths.auditPath,
+      `${withoutV12.map((entry) => JSON.stringify(entry)).join('\n')}\n`,
+      'utf8',
+    );
+
+    expect(bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
+      .toMatchObject({ bootstrapped: true, migrated: false });
+    expect(readAuditEntries(paths.auditPath).filter((entry) => entry.audit_id === 'migration-12'))
+      .toHaveLength(1);
+
+    const malformed = readAuditEntries(paths.auditPath);
+    malformed.find((entry) => entry.audit_id === 'migration-12').details.migration_key = 'forged';
+    fs.writeFileSync(
+      paths.auditPath,
+      `${malformed.map((entry) => JSON.stringify(entry)).join('\n')}\n`,
+      'utf8',
+    );
+    expect(() => bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
+      .toThrow('Malformed control-plane task-relations migration audit evidence');
+
+    malformed.find((entry) => entry.audit_id === 'migration-12').details.migration_key =
+      '0012_task_relations_v1alpha1';
+    malformed.find((entry) => entry.audit_id === 'migration-12').schema_version = 'forged';
+    fs.writeFileSync(
+      paths.auditPath,
+      `${malformed.map((entry) => JSON.stringify(entry)).join('\n')}\n`,
+      'utf8',
+    );
+    expect(() => bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
+      .toThrow('Malformed control-plane task-relations migration audit evidence');
+  });
+
+  it('preserves the first v12 audit timestamp when migration resumes before schema commit', () => {
+    const repoRoot = createTempRepo();
+    bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW });
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    const schema = readJson(paths.schemaPath);
+    schema.current_version = 11;
+    schema.latest_version = 11;
+    schema.applied_migrations = schema.applied_migrations.filter((entry) => entry.version <= 11);
+    fs.writeFileSync(paths.schemaPath, `${JSON.stringify(schema, null, 2)}\n`, 'utf8');
+    const state = readJson(paths.statePath);
+    delete state.task_relations;
+    fs.writeFileSync(paths.statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    const firstAppliedAt = readAuditEntries(paths.auditPath)
+      .find((entry) => entry.audit_id === 'migration-12').recorded_at;
+
+    expect(bootstrapControlPlaneState({
+      repoRoot,
+      projectId: PROJECT_ID,
+      now: '2026-08-12T02:30:00.000Z',
+    })).toMatchObject({ bootstrapped: true, migrated: true });
+    expect(readJson(paths.schemaPath).applied_migrations.at(-1)).toEqual({
+      version: 12,
+      key: '0012_task_relations_v1alpha1',
+      applied_at: firstAppliedAt,
+    });
+    expect(readAuditEntries(paths.auditPath).filter((entry) => entry.audit_id === 'migration-12'))
+      .toHaveLength(1);
+  });
+
+  it.each([
+    { relation_kind: 'parent_of' },
+    [{ relation_kind: 'parent_of' }],
+  ])('fails closed on unauthenticated pre-v12 task-relations evidence %#', (taskRelations) => {
+    const repoRoot = createTempRepo();
+    bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW });
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    const schema = readJson(paths.schemaPath);
+    schema.current_version = 11;
+    schema.latest_version = 11;
+    schema.applied_migrations = schema.applied_migrations.filter((entry) => entry.version <= 11);
+    fs.writeFileSync(paths.schemaPath, `${JSON.stringify(schema, null, 2)}\n`, 'utf8');
+    const state = readJson(paths.statePath);
+    state.task_relations = taskRelations;
+    fs.writeFileSync(paths.statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+
+    expect(() => bootstrapControlPlaneState({
+      repoRoot,
+      projectId: PROJECT_ID,
+      now: '2026-08-10T08:10:00.000Z',
+    })).toThrow('Pre-v12 task_relations evidence is not authoritative and cannot be migrated');
+    expect(readJson(paths.schemaPath).current_version).toBe(11);
+    expect(readJson(paths.statePath).task_relations).toEqual(taskRelations);
   });
 
   it('migrates a legacy state shadow once with explicit schema and audit receipts', () => {
@@ -359,10 +547,10 @@ describe('ao state migrations', () => {
     expect(readJson(paths.statePath)).not.toHaveProperty('controller_leases');
     expect(readJson(paths.controllerLeasesPath)).toEqual(createControllerLeaseAuthority([controllerLease()]));
     expect(readJson(paths.schemaPath).applied_migrations.at(-1)).toMatchObject({
-      version: 11,
-      key: '0011_controller_lease_authority_v1',
+      version: 12,
+      key: '0012_task_relations_v1alpha1',
     });
-    expect(readAuditEntries(paths.auditPath).at(-1)).toMatchObject({
+    expect(readAuditEntries(paths.auditPath).find((entry) => entry.entity_id === 'v11')).toMatchObject({
       entity_id: 'v11',
       operation: 'migrate',
       details: {
@@ -393,11 +581,12 @@ describe('ao state migrations', () => {
 
     expect(readJson(paths.controllerLeasesPath)).toEqual(createControllerLeaseAuthority(canonical));
     expect(readJson(paths.statePath)).not.toHaveProperty('controller_leases');
-    expect(readAuditEntries(paths.auditPath).at(-1).details).toMatchObject({
+    expect(readAuditEntries(paths.auditPath).find((entry) => entry.entity_id === 'v11').details)
+      .toMatchObject({
       authority_source: 'legacy_canonical_array_migration',
       controller_lease_count: 1,
       state_shadow_removed: true,
-    });
+      });
   });
 
   it('fails closed without migration evidence and leaves every persistent file untouched', () => {
@@ -606,7 +795,7 @@ try {
     expect(readJson(paths.statePath).controller_leases).toEqual([liveLease]);
   });
 
-  it('uses the bounded audit checkpoint on the steady-state bootstrap path', () => {
+  it('uses the bounded lease checkpoint and recreates missing v12 audit evidence', () => {
     const repoRoot = createTempRepo();
     bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW });
     const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
@@ -614,7 +803,12 @@ try {
 
     expect(bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
       .toMatchObject({ bootstrapped: true, migrated: false });
-    expect(fs.existsSync(paths.auditPath)).toBe(false);
+    expect(readAuditEntries(paths.auditPath)).toEqual([
+      expect.objectContaining({
+        audit_id: 'migration-12',
+        details: expect.objectContaining({ migration_key: '0012_task_relations_v1alpha1' }),
+      }),
+    ]);
   });
 
   it('fails closed if a legacy writer revives the forbidden shadow after migration', () => {
@@ -733,7 +927,7 @@ try {
       migrated: true,
     });
     expect(readJson(paths.schemaPath)).toMatchObject({
-      current_version: 11,
+      current_version: 12,
       applied_migrations: [
         {
           version: 1,
@@ -779,6 +973,10 @@ try {
           version: 11,
           key: '0011_controller_lease_authority_v1',
         },
+        {
+          version: 12,
+          key: '0012_task_relations_v1alpha1',
+        },
       ],
     });
     expect(readJson(paths.statePath)).toMatchObject({
@@ -804,6 +1002,7 @@ try {
           },
         },
       ],
+      task_relations: [],
     });
   });
 });

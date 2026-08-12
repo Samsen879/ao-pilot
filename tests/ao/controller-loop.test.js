@@ -149,7 +149,7 @@ describe('ao controller loop', () => {
     fs.unlinkSync(paths.controllerLeaseMigrationReceiptPath);
     const auditEntries = fs.readFileSync(paths.auditPath, 'utf8').trim().split('\n')
       .map((line) => JSON.parse(line))
-      .filter((entry) => entry.entity_id !== 'v11');
+      .filter((entry) => Number(entry?.details?.migration_version) <= 10);
     fs.writeFileSync(paths.auditPath, `${auditEntries.map((entry) => JSON.stringify(entry)).join('\n')}\n`, 'utf8');
 
     await expect(runControllerLoop({
@@ -158,7 +158,7 @@ describe('ao controller loop', () => {
       now: '2026-03-29T06:41:00.000Z',
       stopSignal: { aborted: true },
     })).resolves.toMatchObject({ mode: 'observe', pass_count: 0 });
-    expect(JSON.parse(fs.readFileSync(paths.schemaPath, 'utf8')).current_version).toBe(11);
+    expect(JSON.parse(fs.readFileSync(paths.schemaPath, 'utf8')).current_version).toBe(12);
     expect(JSON.parse(fs.readFileSync(paths.statePath, 'utf8'))).not.toHaveProperty('controller_leases');
   });
 

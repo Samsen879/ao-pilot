@@ -23,7 +23,7 @@ export const CONTROL_PLANE_STATE_SCHEMA_VERSION = 'ao.control-plane.state.v1alph
 export const CONTROL_PLANE_STATE_FORMAT = 'ao_control_plane_state';
 export const CONTROL_PLANE_AUDIT_SCHEMA_VERSION = 'ao.control-plane.audit.v1alpha1';
 export const CONTROL_PLANE_AUDIT_FORMAT = 'ao_control_plane_audit_entry';
-export const CONTROL_PLANE_LATEST_VERSION = 11;
+export const CONTROL_PLANE_LATEST_VERSION = 12;
 export const CONTROL_PLANE_DEFAULT_CONTROLLER_ID = 'default';
 export const CHECKPOINT_SCHEMA_VERSION = 'ao.checkpoint.v1alpha1';
 export const CHECKPOINT_FORMAT = 'ao_checkpoint';
@@ -363,6 +363,7 @@ export function createEmptyControlPlaneState({
     policy_decisions: [],
     credential_provenances: [],
     task_specs: [],
+    task_relations: [],
     runtime_preflights: [],
     repo_knowledge: [],
     review_records: [],

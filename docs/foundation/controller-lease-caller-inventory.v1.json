@@ -1,6 +1,6 @@
 {
   "schema_version": "ao.controller-lease-caller-inventory.v1",
-  "inventory_version": "2026-08-09.3",
+  "inventory_version": "2026-08-12.4",
   "governed_base": {
     "commit": "17f1527b87f8666ccd331ff316296ca1bb05ba89",
     "tree": "b9137f59109c3171b6bf1090b1717135d061f26e",
@@ -138,7 +138,7 @@
       { "id": "persist-state-api", "pattern": "\\bpersistState\\b" },
       { "id": "file-name", "pattern": "controller-leases\\.json" }
     ],
-    "expected_match_count": 58,
-    "expected_digest": "9a9ae784c9052450811b9725004310bba121c71c9815dd75a0a4f15f683ab729"
+    "expected_match_count": 60,
+    "expected_digest": "e6332e14dc8ef4b03937ccdc7365bee6114bc9cbfdc18d295029259509232692"
   }
 }

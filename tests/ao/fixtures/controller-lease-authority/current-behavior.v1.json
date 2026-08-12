@@ -59,7 +59,7 @@
       "state_shadow_format": "legacy-v1",
       "schema_current_version": 1,
       "dedicated": { "kind": "records", "leases": ["canonical-active"] },
-      "expected": { "outcome": "snapshot", "lease_ids": ["canonical-active"], "schema_current_version": 11 }
+      "expected": { "outcome": "snapshot", "lease_ids": ["canonical-active"], "schema_current_version": 12 }
     },
     {
       "id": "snapshot-replay-is-byte-stable",

@@ -159,11 +159,11 @@ describe('ao state repository', () => {
     fs.unlinkSync(paths.controllerLeaseMigrationReceiptPath);
     const auditEntries = fs.readFileSync(paths.auditPath, 'utf8').trim().split('\n')
       .map((line) => JSON.parse(line))
-      .filter((entry) => entry.entity_id !== 'v11');
+      .filter((entry) => Number(entry?.details?.migration_version) <= 10);
     fs.writeFileSync(paths.auditPath, `${auditEntries.map((entry) => JSON.stringify(entry)).join('\n')}\n`, 'utf8');
 
     const snapshot = repository.getSnapshot();
-    expect(snapshot.schema.current_version).toBe(11);
+    expect(snapshot.schema.current_version).toBe(12);
     expect(snapshot.state.controller_leases).toEqual([]);
     expect(JSON.parse(fs.readFileSync(paths.statePath, 'utf8'))).not.toHaveProperty('controller_leases');
     expect(JSON.parse(fs.readFileSync(paths.controllerLeasesPath, 'utf8'))).toEqual(
@@ -358,6 +358,7 @@ describe('ao state repository', () => {
         'schema:migrate:v9',
         'schema:migrate:v10',
         'schema:migrate:v11',
+        'schema:migrate:v12',
         'managed_task:upsert:task-1',
       'pr_binding:upsert:binding-1',
       'ownership_lease:upsert:ownership-1',

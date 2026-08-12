@@ -22,6 +22,7 @@ import {
   createRuntimePreflightRecord,
   createTaskSpecRecord,
 } from '../state-contracts.js';
+import { createTaskRelation } from '../task-relations.js';
 
 function persistedSummary(label, identityKey) {
   return (record) => `Persisted ${label} ${record?.[identityKey]}.`;
@@ -131,6 +132,14 @@ const COLLECTION_DESCRIPTORS = [
     summary: persistedSummary('task spec', 'task_id'),
   },
   {
+    collectionKey: 'task_relations',
+    identityKey: 'relation_id',
+    entityKind: 'task_relation',
+    methodName: null,
+    normalize: createTaskRelation,
+    summary: persistedSummary('task relation', 'relation_id'),
+  },
+  {
     collectionKey: 'runtime_preflights',
     identityKey: 'runtime_ref',
     entityKind: 'runtime_preflight',
@@ -217,7 +226,9 @@ export const STATE_REPOSITORY_COLLECTIONS = Object.freeze(
 );
 
 export const STATE_REPOSITORY_UPSERT_COLLECTIONS = Object.freeze(
-  STATE_REPOSITORY_COLLECTIONS.filter((descriptor) => descriptor.isolatedPersistence !== true),
+  STATE_REPOSITORY_COLLECTIONS.filter((descriptor) => (
+    descriptor.isolatedPersistence !== true && descriptor.methodName != null
+  )),
 );
 
 export function sortRepositoryCollectionByKey(items, key) {
