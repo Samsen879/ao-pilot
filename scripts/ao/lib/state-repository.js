@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -52,6 +52,12 @@ function resolveNow(clock) {
 function cloneJsonValue(value) {
   if (value == null) return value;
   return JSON.parse(JSON.stringify(value));
+}
+
+const STATE_MUTATION_JOURNAL_SCHEMA_VERSION = 'ao.state-mutation-journal.v1';
+
+function digestJsonValue(value) {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
 function buildVirtualSchema(projectId) {
@@ -151,7 +157,46 @@ export function createStateRepository({
     return readControllerLeaseAuthorityFile(paths.controllerLeasesPath).records;
   }
 
-  function readSnapshot() {
+  function recoverPendingStateMutation({ stateLockHeld = false } = {}) {
+    if (!fs.existsSync(paths.stateMutationJournalPath)) return;
+    const recover = () => {
+      const journal = readJsonFile(paths.stateMutationJournalPath);
+      if (
+        journal?.schema_version !== STATE_MUTATION_JOURNAL_SCHEMA_VERSION
+        || journal.project_id !== projectId
+        || journal.next_state == null
+        || journal.next_state_digest !== digestJsonValue(journal.next_state)
+        || typeof journal.prior_state_digest !== 'string'
+        || journal.audit_entry?.project_id !== projectId
+      ) {
+        throw new Error('Malformed state mutation recovery journal');
+      }
+      const normalizedAuditEntry = createControlPlaneAuditEntry(journal.audit_entry);
+      if (JSON.stringify(normalizedAuditEntry) !== JSON.stringify(journal.audit_entry)) {
+        throw new Error('Malformed state mutation recovery journal audit evidence');
+      }
+      const currentState = readJsonFile(paths.statePath);
+      const currentDigest = digestJsonValue(currentState);
+      if (currentDigest === journal.prior_state_digest) {
+        writeJsonFileAtomic(paths.statePath, journal.next_state);
+      } else if (currentDigest !== journal.next_state_digest) {
+        throw new Error('State mutation recovery journal conflicts with durable state');
+      }
+      const existingAudit = readControlPlaneAuditEntries({ auditPath: paths.auditPath })
+        .find((entry) => entry.audit_id === normalizedAuditEntry.audit_id);
+      if (existingAudit == null) {
+        appendControlPlaneAuditEntry({ auditPath: paths.auditPath, entry: normalizedAuditEntry });
+      } else if (JSON.stringify(existingAudit) !== JSON.stringify(normalizedAuditEntry)) {
+        throw new Error('State mutation recovery journal conflicts with durable audit evidence');
+      }
+      fs.rmSync(paths.stateMutationJournalPath, { force: true });
+    };
+    if (stateLockHeld) recover();
+    else withFileLockSync(stateWriteLockPath, recover);
+  }
+
+  function readSnapshot({ stateLockHeld = false } = {}) {
+    recoverPendingStateMutation({ stateLockHeld });
     const schema = readControlPlaneSchema({ schemaPath: paths.schemaPath });
     const state = readControlPlaneState({ statePath: paths.statePath });
 
@@ -188,10 +233,11 @@ export function createStateRepository({
     }
 
     const isolatedControllerLeases = readControllerLeaseRecords();
+    const normalizedTaskRelations = normalizeStoredTaskRelations(state);
     const nextState = sortRepositoryStateCollections(cloneJsonValue(state), {
       controllerLeases: isolatedControllerLeases,
     });
-    nextState.task_relations = normalizeStoredTaskRelations(nextState);
+    nextState.task_relations = normalizedTaskRelations;
 
     return {
       bootstrapped: true,
@@ -207,6 +253,7 @@ export function createStateRepository({
       projectId,
       now: clock,
     });
+    recoverPendingStateMutation();
   }
 
   function persistState({
@@ -222,25 +269,39 @@ export function createStateRepository({
     const nextState = cloneJsonValue(state);
     delete nextState.controller_leases;
     nextState.updated_at = recordedAt;
+    const auditEntry = createControlPlaneAuditEntry({
+      audit_id: auditIdGenerator(),
+      project_id: projectId,
+      recorded_at: recordedAt,
+      entity_kind: entityKind,
+      entity_id: entityId,
+      operation,
+      actor: 'state_repository',
+      summary,
+      details,
+    });
     const writeState = () => {
+      recoverPendingStateMutation({ stateLockHeld: true });
+      const priorState = readJsonFile(paths.statePath);
+      const existingAudit = readControlPlaneAuditEntries({ auditPath: paths.auditPath })
+        .find((entry) => entry.audit_id === auditEntry.audit_id);
+      if (existingAudit != null) {
+        throw new Error(`Duplicate state mutation audit id ${auditEntry.audit_id}`);
+      }
+      writeJsonFileAtomic(paths.stateMutationJournalPath, {
+        schema_version: STATE_MUTATION_JOURNAL_SCHEMA_VERSION,
+        project_id: projectId,
+        prior_state_digest: digestJsonValue(priorState),
+        next_state_digest: digestJsonValue(nextState),
+        next_state: nextState,
+        audit_entry: auditEntry,
+      });
       writeJsonFileAtomic(paths.statePath, nextState);
+      appendControlPlaneAuditEntry({ auditPath: paths.auditPath, entry: auditEntry });
+      fs.rmSync(paths.stateMutationJournalPath, { force: true });
     };
     if (stateLockHeld) writeState();
     else withFileLockSync(stateWriteLockPath, writeState);
-    appendControlPlaneAuditEntry({
-      auditPath: paths.auditPath,
-      entry: createControlPlaneAuditEntry({
-        audit_id: auditIdGenerator(),
-        project_id: projectId,
-        recorded_at: recordedAt,
-        entity_kind: entityKind,
-        entity_id: entityId,
-        operation,
-        actor: 'state_repository',
-        summary,
-        details,
-      }),
-    });
   }
 
   function persistControllerLeases({
@@ -336,23 +397,26 @@ export function createStateRepository({
     record,
   } = {}) {
     ensureBootstrapped();
-    const snapshot = readSnapshot();
-    const nextState = cloneJsonValue(snapshot.state);
-    const normalizedRecord = upsertRepositoryCollectionRecord({
-      state: nextState,
-      descriptor,
-      record,
-    });
+    return withFileLockSync(stateWriteLockPath, () => {
+      const snapshot = readSnapshot({ stateLockHeld: true });
+      const nextState = cloneJsonValue(snapshot.state);
+      const normalizedRecord = upsertRepositoryCollectionRecord({
+        state: nextState,
+        descriptor,
+        record,
+      });
 
-    persistState({
-      state: nextState,
-      entityKind: descriptor.entityKind,
-      entityId: normalizedRecord[descriptor.identityKey],
-      summary: descriptor.summary(record, normalizedRecord),
-      details: normalizedRecord,
-    });
+      persistState({
+        state: nextState,
+        entityKind: descriptor.entityKind,
+        entityId: normalizedRecord[descriptor.identityKey],
+        summary: descriptor.summary(record, normalizedRecord),
+        details: normalizedRecord,
+        stateLockHeld: true,
+      });
 
-    return normalizedRecord;
+      return normalizedRecord;
+    });
   }
 
   const collectionUpsertMethods = createRepositoryCollectionUpsertMethods(upsertCollectionRecord);
@@ -375,7 +439,7 @@ export function createStateRepository({
   function writeTaskRelation(record, { requireAbsent = false } = {}) {
     ensureBootstrapped();
     return withFileLockSync(stateWriteLockPath, () => {
-      const snapshot = readSnapshot();
+      const snapshot = readSnapshot({ stateLockHeld: true });
       const normalizedRecord = validateTaskRelationWrite(record, snapshot, { requireAbsent });
       const nextState = cloneJsonValue(snapshot.state);
       upsertRepositoryCollectionRecord({
@@ -427,6 +491,7 @@ export function createStateRepository({
     },
 
     listAuditEntries({ limit = null } = {}) {
+      recoverPendingStateMutation();
       return readControlPlaneAuditEntries({
         auditPath: paths.auditPath,
         limit,
@@ -476,7 +541,7 @@ export function createStateRepository({
       const normalizedRelationId = normalizeRelationId(relationId);
       ensureBootstrapped();
       return withFileLockSync(stateWriteLockPath, () => {
-        const snapshot = readSnapshot();
+        const snapshot = readSnapshot({ stateLockHeld: true });
         const existingRecord = snapshot.state.task_relations.find(
           (relation) => relation.relation_id === normalizedRelationId,
         );
@@ -535,7 +600,7 @@ export function createStateRepository({
     } = {}) {
       ensureBootstrapped();
       const timestamp = resolveNow(now);
-      let snapshot = readSnapshot();
+      const snapshot = readSnapshot();
       const requestedRuntimeRefs = runtimeRefs == null
         ? extractRuntimeRefsFromState(snapshot.state)
         : normalizeRuntimeRefs(runtimeRefs);
@@ -552,37 +617,36 @@ export function createStateRepository({
           recorded_at: timestamp,
           snapshot: preflightSnapshot,
         });
-        const existingRecord = (snapshot.state.runtime_preflights ?? []).find(
-          (record) => record?.runtime_ref === normalizedRecord.runtime_ref,
-        );
+        const ensuredRecord = withFileLockSync(stateWriteLockPath, () => {
+          const currentSnapshot = readSnapshot({ stateLockHeld: true });
+          const existingRecord = (currentSnapshot.state.runtime_preflights ?? []).find(
+            (record) => record?.runtime_ref === normalizedRecord.runtime_ref,
+          );
+          if (existingRecord?.replay_key === normalizedRecord.replay_key) {
+            return existingRecord;
+          }
 
-        if (existingRecord?.replay_key === normalizedRecord.replay_key) {
-          ensuredRecords.push(existingRecord);
-          continue;
-        }
+          const nextState = cloneJsonValue(currentSnapshot.state);
+          const existingIndex = nextState.runtime_preflights.findIndex(
+            (record) => record?.runtime_ref === normalizedRecord.runtime_ref,
+          );
+          if (existingIndex >= 0) {
+            nextState.runtime_preflights[existingIndex] = normalizedRecord;
+          } else {
+            nextState.runtime_preflights.push(normalizedRecord);
+          }
 
-        const nextState = cloneJsonValue(snapshot.state);
-        const existingIndex = nextState.runtime_preflights.findIndex(
-          (record) => record?.runtime_ref === normalizedRecord.runtime_ref,
-        );
-        if (existingIndex >= 0) {
-          nextState.runtime_preflights[existingIndex] = normalizedRecord;
-        } else {
-          nextState.runtime_preflights.push(normalizedRecord);
-        }
-
-        persistState({
-          state: nextState,
-          entityKind: 'runtime_preflight',
-          entityId: normalizedRecord.runtime_ref,
-          summary: `Persisted runtime preflight ${normalizedRecord.runtime_ref}.`,
-          details: normalizedRecord,
+          persistState({
+            state: nextState,
+            entityKind: 'runtime_preflight',
+            entityId: normalizedRecord.runtime_ref,
+            summary: `Persisted runtime preflight ${normalizedRecord.runtime_ref}.`,
+            details: normalizedRecord,
+            stateLockHeld: true,
+          });
+          return normalizedRecord;
         });
-        snapshot = {
-          ...snapshot,
-          state: nextState,
-        };
-        ensuredRecords.push(normalizedRecord);
+        ensuredRecords.push(ensuredRecord);
       }
 
       return sortRepositoryCollectionByKey(ensuredRecords, 'runtime_ref');
@@ -593,7 +657,6 @@ export function createStateRepository({
     } = {}) {
       ensureBootstrapped();
       const timestamp = resolveNow(now);
-      const snapshot = readSnapshot();
       const repoKnowledgeSnapshot = materializeRepoKnowledge({
         repoRoot,
         projectId,
@@ -603,33 +666,36 @@ export function createStateRepository({
         recorded_at: timestamp,
         snapshot: repoKnowledgeSnapshot,
       });
-      const existingRecord = (snapshot.state.repo_knowledge ?? []).find(
-        (record) => record?.project_id === normalizedRecord.project_id,
-      );
+      return withFileLockSync(stateWriteLockPath, () => {
+        const snapshot = readSnapshot({ stateLockHeld: true });
+        const existingRecord = (snapshot.state.repo_knowledge ?? []).find(
+          (record) => record?.project_id === normalizedRecord.project_id,
+        );
+        if (existingRecord?.replay_key === normalizedRecord.replay_key) {
+          return existingRecord;
+        }
 
-      if (existingRecord?.replay_key === normalizedRecord.replay_key) {
-        return existingRecord;
-      }
+        const nextState = cloneJsonValue(snapshot.state);
+        const existingIndex = nextState.repo_knowledge.findIndex(
+          (record) => record?.project_id === normalizedRecord.project_id,
+        );
+        if (existingIndex >= 0) {
+          nextState.repo_knowledge[existingIndex] = normalizedRecord;
+        } else {
+          nextState.repo_knowledge.push(normalizedRecord);
+        }
 
-      const nextState = cloneJsonValue(snapshot.state);
-      const existingIndex = nextState.repo_knowledge.findIndex(
-        (record) => record?.project_id === normalizedRecord.project_id,
-      );
-      if (existingIndex >= 0) {
-        nextState.repo_knowledge[existingIndex] = normalizedRecord;
-      } else {
-        nextState.repo_knowledge.push(normalizedRecord);
-      }
+        persistState({
+          state: nextState,
+          entityKind: 'repo_knowledge',
+          entityId: normalizedRecord.project_id,
+          summary: `Persisted repo knowledge ${normalizedRecord.project_id}.`,
+          details: normalizedRecord,
+          stateLockHeld: true,
+        });
 
-      persistState({
-        state: nextState,
-        entityKind: 'repo_knowledge',
-        entityId: normalizedRecord.project_id,
-        summary: `Persisted repo knowledge ${normalizedRecord.project_id}.`,
-        details: normalizedRecord,
+        return normalizedRecord;
       });
-
-      return normalizedRecord;
     },
 
     persistEvalScorecardArtifact({

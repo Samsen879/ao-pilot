@@ -82,7 +82,8 @@ function materializeVersion10({ shadow = [controllerLease()], canonical = null, 
   ]) {
     if (fs.existsSync(migrationEvidencePath)) fs.unlinkSync(migrationEvidencePath);
   }
-  const priorAudit = readAuditEntries(paths.auditPath).filter((entry) => entry.entity_id !== 'v11');
+  const priorAudit = readAuditEntries(paths.auditPath)
+    .filter((entry) => Number(entry?.details?.migration_version) <= 10);
   fs.writeFileSync(paths.auditPath, `${priorAudit.map((entry) => JSON.stringify(entry)).join('\n')}\n`, 'utf8');
   return { repoRoot, paths };
 }
@@ -428,6 +429,34 @@ describe('ao state migrations', () => {
     expect(fs.readFileSync(paths.auditPath)).toEqual(firstBytes.audit);
   });
 
+  it('recreates missing v12 audit evidence and rejects malformed replay evidence', () => {
+    const repoRoot = createTempRepo();
+    bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW });
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    const withoutV12 = readAuditEntries(paths.auditPath)
+      .filter((entry) => entry.audit_id !== 'migration-12');
+    fs.writeFileSync(
+      paths.auditPath,
+      `${withoutV12.map((entry) => JSON.stringify(entry)).join('\n')}\n`,
+      'utf8',
+    );
+
+    expect(bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
+      .toMatchObject({ bootstrapped: true, migrated: false });
+    expect(readAuditEntries(paths.auditPath).filter((entry) => entry.audit_id === 'migration-12'))
+      .toHaveLength(1);
+
+    const malformed = readAuditEntries(paths.auditPath);
+    malformed.find((entry) => entry.audit_id === 'migration-12').details.migration_key = 'forged';
+    fs.writeFileSync(
+      paths.auditPath,
+      `${malformed.map((entry) => JSON.stringify(entry)).join('\n')}\n`,
+      'utf8',
+    );
+    expect(() => bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
+      .toThrow('Malformed control-plane task-relations migration audit evidence');
+  });
+
   it.each([
     { relation_kind: 'parent_of' },
     [{ relation_kind: 'parent_of' }],
@@ -512,11 +541,12 @@ describe('ao state migrations', () => {
 
     expect(readJson(paths.controllerLeasesPath)).toEqual(createControllerLeaseAuthority(canonical));
     expect(readJson(paths.statePath)).not.toHaveProperty('controller_leases');
-    expect(readAuditEntries(paths.auditPath).at(-1).details).toMatchObject({
+    expect(readAuditEntries(paths.auditPath).find((entry) => entry.entity_id === 'v11').details)
+      .toMatchObject({
       authority_source: 'legacy_canonical_array_migration',
       controller_lease_count: 1,
       state_shadow_removed: true,
-    });
+      });
   });
 
   it('fails closed without migration evidence and leaves every persistent file untouched', () => {
@@ -725,7 +755,7 @@ try {
     expect(readJson(paths.statePath).controller_leases).toEqual([liveLease]);
   });
 
-  it('uses the bounded audit checkpoint on the steady-state bootstrap path', () => {
+  it('uses the bounded lease checkpoint and recreates missing v12 audit evidence', () => {
     const repoRoot = createTempRepo();
     bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW });
     const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
@@ -733,7 +763,12 @@ try {
 
     expect(bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
       .toMatchObject({ bootstrapped: true, migrated: false });
-    expect(fs.existsSync(paths.auditPath)).toBe(false);
+    expect(readAuditEntries(paths.auditPath)).toEqual([
+      expect.objectContaining({
+        audit_id: 'migration-12',
+        details: expect.objectContaining({ migration_key: '0012_task_relations_v1alpha1' }),
+      }),
+    ]);
   });
 
   it('fails closed if a legacy writer revives the forbidden shadow after migration', () => {

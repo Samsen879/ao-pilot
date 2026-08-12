@@ -452,6 +452,7 @@ export function resolveControlPlanePaths({
       `.${normalizedProjectId}.bootstrap.lock`,
     ),
     stateWriteLockPath: path.join(stateRoot, 'state.json.lock'),
+    stateMutationJournalPath: path.join(stateRoot, 'state-mutation-journal.json'),
     auditPath: path.join(stateRoot, 'audit-log.jsonl'),
     evalRoot: path.join(stateRoot, 'eval'),
     evalScorecardRoot: path.join(stateRoot, 'eval', 'scorecards'),
@@ -704,6 +705,33 @@ function buildControllerLeaseMigrationAuditDetails(receipt) {
   };
 }
 
+function resolveAppliedMigration(schema, migration) {
+  const applied = (schema?.applied_migrations ?? []).find(
+    (entry) => Number(entry?.version) === migration.version,
+  );
+  if (applied?.key !== migration.key || typeof applied?.applied_at !== 'string') {
+    throw new Error(`Missing or malformed applied migration evidence for ${migration.key}`);
+  }
+  return applied;
+}
+
+function assertTaskRelationsMigrationAuditEntry(entry, { projectId, recordedAt }) {
+  if (
+    entry?.audit_id !== `migration-${CONTROL_PLANE_TASK_RELATIONS_MIGRATION.version}`
+    || entry.project_id !== projectId
+    || entry.recorded_at !== recordedAt
+    || entry.entity_kind !== 'schema'
+    || entry.entity_id !== `v${CONTROL_PLANE_TASK_RELATIONS_MIGRATION.version}`
+    || entry.operation !== 'migrate'
+    || entry.actor !== 'bootstrap'
+    || entry.summary !== 'Applied control-plane task-relations migration.'
+    || entry.details?.migration_key !== CONTROL_PLANE_TASK_RELATIONS_MIGRATION.key
+    || entry.details?.migration_version !== CONTROL_PLANE_TASK_RELATIONS_MIGRATION.version
+  ) {
+    throw new Error('Malformed control-plane task-relations migration audit evidence');
+  }
+}
+
 function ensureMigrationAuditEntry({ paths, projectId, migration, recordedAt, details = {} }) {
   const auditId = `migration-${migration.version}`;
   const existing = readControlPlaneAuditEntries({ auditPath: paths.auditPath })
@@ -713,6 +741,9 @@ function ensureMigrationAuditEntry({ paths, projectId, migration, recordedAt, de
       if (existing.details?.migration_receipt_digest !== details.migration_receipt_digest) {
         throw new Error('Controller lease migration audit receipt digest mismatch');
       }
+    }
+    if (migration.version === CONTROL_PLANE_TASK_RELATIONS_MIGRATION.version) {
+      assertTaskRelationsMigrationAuditEntry(existing, { projectId, recordedAt });
     }
     return existing;
   }
@@ -772,13 +803,25 @@ export function bootstrapControlPlaneState({
     if (receipt == null) throw new Error('Missing controller lease authority migration receipt');
     const checkpoint = readMigrationAuditCheckpoint(paths, projectId, receipt);
     if (checkpoint?.status === 'complete') {
-      return {
-        bootstrapped: true,
-        migrated: false,
-        state_root: paths.stateRoot,
-        schema: initialSchema,
-        state: initialState,
-      };
+      const taskMigration = resolveAppliedMigration(
+        initialSchema,
+        CONTROL_PLANE_TASK_RELATIONS_MIGRATION,
+      );
+      const taskAudit = readControlPlaneAuditEntries({ auditPath: paths.auditPath })
+        .find((entry) => entry.audit_id === `migration-${CONTROL_PLANE_TASK_RELATIONS_MIGRATION.version}`);
+      if (taskAudit != null) {
+        assertTaskRelationsMigrationAuditEntry(taskAudit, {
+          projectId,
+          recordedAt: taskMigration.applied_at,
+        });
+        return {
+          bootstrapped: true,
+          migrated: false,
+          state_root: paths.stateRoot,
+          schema: initialSchema,
+          state: initialState,
+        };
+      }
     }
   }
 
@@ -835,6 +878,16 @@ export function bootstrapControlPlaneState({
           createMigrationAuditCheckpoint({ projectId, receipt, status: 'complete' }),
         );
       }
+      const taskMigration = resolveAppliedMigration(
+        existingSchema,
+        CONTROL_PLANE_TASK_RELATIONS_MIGRATION,
+      );
+      ensureMigrationAuditEntry({
+        paths,
+        projectId,
+        migration: CONTROL_PLANE_TASK_RELATIONS_MIGRATION,
+        recordedAt: taskMigration.applied_at,
+      });
       return {
         bootstrapped: true,
         migrated: false,

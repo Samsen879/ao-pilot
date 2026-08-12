@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 export const TASK_RELATION_SCHEMA_VERSION = 'ao.task-relation.v1alpha1';
 export const TASK_RELATION_FORMAT = 'ao_task_relation';
 export const TASK_RELATION_KINDS = Object.freeze(['parent_of', 'depends_on']);
+const RFC3339_DATE_TIME = /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
 
 function normalizeRequiredString(value, fieldName) {
   if (typeof value !== 'string' || value.trim() === '') {
@@ -13,7 +14,19 @@ function normalizeRequiredString(value, fieldName) {
 
 function normalizeIsoTimestamp(value, fieldName) {
   const normalized = normalizeRequiredString(value, fieldName);
-  if (Number.isNaN(new Date(normalized).getTime())) {
+  const dateParts = RFC3339_DATE_TIME.test(normalized)
+    ? /^(\d{4})-(\d{2})-(\d{2})/.exec(normalized)
+    : null;
+  const calendarDate = dateParts == null
+    ? null
+    : new Date(Date.UTC(Number(dateParts[1]), Number(dateParts[2]) - 1, Number(dateParts[3])));
+  if (
+    dateParts == null
+    || calendarDate.getUTCFullYear() !== Number(dateParts[1])
+    || calendarDate.getUTCMonth() !== Number(dateParts[2]) - 1
+    || calendarDate.getUTCDate() !== Number(dateParts[3])
+    || Number.isNaN(new Date(normalized).getTime())
+  ) {
     throw new Error(`Invalid ${fieldName}`);
   }
   return normalized;

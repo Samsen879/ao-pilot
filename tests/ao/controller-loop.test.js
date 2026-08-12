@@ -149,7 +149,7 @@ describe('ao controller loop', () => {
     fs.unlinkSync(paths.controllerLeaseMigrationReceiptPath);
     const auditEntries = fs.readFileSync(paths.auditPath, 'utf8').trim().split('\n')
       .map((line) => JSON.parse(line))
-      .filter((entry) => entry.entity_id !== 'v11');
+      .filter((entry) => Number(entry?.details?.migration_version) <= 10);
     fs.writeFileSync(paths.auditPath, `${auditEntries.map((entry) => JSON.stringify(entry)).join('\n')}\n`, 'utf8');
 
     await expect(runControllerLoop({

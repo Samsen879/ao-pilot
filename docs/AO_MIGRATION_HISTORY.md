@@ -17,6 +17,13 @@ The repository exposes create/upsert, read, filtered list, and delete operations
 each mutation records a `task_relation` audit entry. Task metadata is never
 read as graph authority.
 
+Steady-state bootstrap validates the `migration-12` audit identity, version,
+key, and applied timestamp, recreating only missing evidence and rejecting
+contradictory evidence. Ordinary state writers and relation writers share the
+full `state.json.lock` read-modify-write boundary. A durable mutation journal
+recovers an interrupted state/audit pair before any snapshot is returned, so a
+persisted relation cannot remain without its matching audit entry.
+
 ## P0 runtime portability correction
 
 The independently installable package baseline did not establish operational

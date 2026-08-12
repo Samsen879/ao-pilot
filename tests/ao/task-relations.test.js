@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,6 +8,7 @@ import { afterEach, describe, expect, it } from '@jest/globals';
 
 import { createManagedTask } from '../../scripts/ao/lib/state-contracts.js';
 import { createStateRepository } from '../../scripts/ao/lib/state-repository.js';
+import { withFileLock, writeJsonFileAtomic } from '../../scripts/ao/lib/state-storage.js';
 import {
   TASK_RELATION_FORMAT,
   TASK_RELATION_SCHEMA_VERSION,
@@ -48,6 +51,10 @@ function relation(relationKind, sourceTaskId, targetTaskId, updatedAt = NOW) {
     created_at: NOW,
     updated_at: updatedAt,
   };
+}
+
+function digestJson(value) {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
 afterEach(() => {
@@ -104,6 +111,18 @@ describe('task relation contract', () => {
       ...relation('depends_on', 'task-a', 'task-b'),
       metadata: { parent_task_id: 'task-c' },
     })).toThrow('metadata is prohibited');
+    expect(() => createTaskRelation({
+      ...relation('depends_on', 'task-a', 'task-b'),
+      created_at: '2026-08-10',
+    })).toThrow('Invalid created_at');
+    expect(() => createTaskRelation({
+      ...relation('depends_on', 'task-a', 'task-b'),
+      updated_at: '1',
+    })).toThrow('Invalid updated_at');
+    expect(() => createTaskRelation({
+      ...relation('depends_on', 'task-a', 'task-b'),
+      updated_at: '2026-02-31T08:00:00.000Z',
+    })).toThrow('Invalid updated_at');
   });
 });
 
@@ -170,6 +189,57 @@ describe('task relation repository', () => {
     expect(repository.listAuditEntries()).toHaveLength(beforeCycleAuditCount);
   });
 
+  it('serializes generic state upserts with relation graph mutations', async () => {
+    const repository = createRepository();
+    repository.upsertManagedTask(managedTask('task-a'));
+    repository.upsertManagedTask(managedTask('task-b'));
+    const snapshot = repository.getSnapshot();
+    const record = createTaskRelation(relation('depends_on', 'task-a', 'task-b'));
+    let childResult;
+
+    await withFileLock(snapshot.paths.stateWriteLockPath, async () => {
+      const child = spawn(process.execPath, [
+        '--input-type=module',
+        '--eval',
+        `import { createManagedTask } from ${JSON.stringify(new URL('../../scripts/ao/lib/state-contracts.js', import.meta.url).href)};
+import { createStateRepository } from ${JSON.stringify(new URL('../../scripts/ao/lib/state-repository.js', import.meta.url).href)};
+process.stdout.write('ready\\n');
+try {
+  createStateRepository({ repoRoot: process.argv[1], projectId: 'task-relations-test', clock: () => ${JSON.stringify(NOW)} })
+    .upsertManagedTask(createManagedTask({ task_id: 'task-c', title: 'Task task-c', status: 'active', created_at: ${JSON.stringify(NOW)}, updated_at: ${JSON.stringify(NOW)}, metadata: {} }));
+} catch (error) {
+  process.stderr.write(String(error.stack ?? error));
+  process.exitCode = 2;
+}`,
+        snapshot.paths.repoRoot,
+      ], { stdio: ['ignore', 'pipe', 'pipe'] });
+      childResult = new Promise((resolve) => {
+        let stdout = '';
+        let stderr = '';
+        child.stdout.on('data', (chunk) => { stdout += chunk; });
+        child.stderr.on('data', (chunk) => { stderr += chunk; });
+        child.on('close', (code) => resolve({ code, stdout, stderr }));
+      });
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Child writer did not start')), 1000);
+        child.stdout.on('data', (chunk) => {
+          if (String(chunk).includes('ready')) {
+            clearTimeout(timeout);
+            setTimeout(resolve, 100);
+          }
+        });
+      });
+      const state = JSON.parse(fs.readFileSync(snapshot.paths.statePath, 'utf8'));
+      state.task_relations.push(record);
+      writeJsonFileAtomic(snapshot.paths.statePath, state);
+    });
+
+    await expect(childResult).resolves.toMatchObject({ code: 0, stderr: '' });
+    expect(repository.getTaskRelation(record.relation_id)).toEqual(record);
+    expect(repository.getSnapshot().state.managed_tasks.map((task) => task.task_id))
+      .toEqual(expect.arrayContaining(['task-a', 'task-b', 'task-c']));
+  });
+
   it('does not treat relation-shaped managed-task metadata as graph authority', () => {
     const repository = createRepository();
     repository.upsertManagedTask(managedTask('task-a', {
@@ -193,4 +263,64 @@ describe('task relation repository', () => {
 
     expect(() => repository.getSnapshot()).toThrow('canonical edge identity');
   });
+
+  it('fails closed when a v12 state omits the durable relation collection', () => {
+    const repository = createRepository();
+    repository.upsertManagedTask(managedTask('task-a'));
+    const paths = repository.getSnapshot().paths;
+    const state = JSON.parse(fs.readFileSync(paths.statePath, 'utf8'));
+    delete state.task_relations;
+    fs.writeFileSync(paths.statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+
+    expect(() => repository.getSnapshot()).toThrow('Invalid durable task_relations collection');
+  });
+
+  it.each(['before-state-write', 'after-state-write'])(
+    'recovers a journaled relation mutation %s without losing its audit',
+    (crashPoint) => {
+      const repository = createRepository();
+      repository.upsertManagedTask(managedTask('task-a'));
+      repository.upsertManagedTask(managedTask('task-b'));
+      const snapshot = repository.getSnapshot();
+      const priorState = JSON.parse(fs.readFileSync(snapshot.paths.statePath, 'utf8'));
+      const record = createTaskRelation(relation('depends_on', 'task-a', 'task-b'));
+      const nextState = structuredClone(priorState);
+      nextState.task_relations.push(record);
+      nextState.updated_at = NOW;
+      const auditEntry = {
+        schema_version: 'ao.control-plane.audit.v1alpha1',
+        format: 'ao_control_plane_audit_entry',
+        audit_id: `audit-recovery-${crashPoint}`,
+        project_id: 'task-relations-test',
+        recorded_at: NOW,
+        entity_kind: 'task_relation',
+        entity_id: record.relation_id,
+        operation: 'upsert',
+        actor: 'state_repository',
+        summary: `Persisted task relation ${record.relation_id}.`,
+        details: record,
+      };
+      fs.writeFileSync(snapshot.paths.stateMutationJournalPath, `${JSON.stringify({
+        schema_version: 'ao.state-mutation-journal.v1',
+        project_id: 'task-relations-test',
+        prior_state_digest: digestJson(priorState),
+        next_state_digest: digestJson(nextState),
+        next_state: nextState,
+        audit_entry: auditEntry,
+      }, null, 2)}\n`, 'utf8');
+      if (crashPoint === 'after-state-write') {
+        fs.writeFileSync(snapshot.paths.statePath, `${JSON.stringify(nextState, null, 2)}\n`, 'utf8');
+      }
+
+      const recovered = createStateRepository({
+        repoRoot: snapshot.paths.repoRoot,
+        projectId: 'task-relations-test',
+        clock: () => NOW,
+      });
+      expect(recovered.getTaskRelation(record.relation_id)).toEqual(record);
+      expect(recovered.listAuditEntries().filter((entry) => entry.audit_id === auditEntry.audit_id))
+        .toEqual([auditEntry]);
+      expect(fs.existsSync(snapshot.paths.stateMutationJournalPath)).toBe(false);
+    },
+  );
 });
