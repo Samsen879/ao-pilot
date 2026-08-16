@@ -1,6 +1,7 @@
 import { createRuntimePreflightSnapshot } from './runtime-contracts.js';
 import { createRepoKnowledgeSnapshot } from './repo-knowledge.js';
 import { createTaskSpecSnapshot } from './task-spec.js';
+import { assertManagedTaskMetadataAllowed } from './managed-task-metadata-policy.js';
 import {
   CONTROLLER_RUN_MEASUREMENT_FORMAT,
   CONTROLLER_RUN_MEASUREMENT_SCHEMA_VERSION,
@@ -388,8 +389,13 @@ export function createManagedTask({
   updated_at,
   metadata = {},
 } = {}) {
+  const normalizedTaskId = normalizeRequiredString(task_id, 'task_id');
+  assertManagedTaskMetadataAllowed(metadata, {
+    taskId: normalizedTaskId,
+    issueNumber: issue_number,
+  });
   return {
-    task_id: normalizeRequiredString(task_id, 'task_id'),
+    task_id: normalizedTaskId,
     issue_number: normalizePositiveInteger(issue_number, 'issue_number', { nullable: true }),
     title: normalizeRequiredString(title, 'title'),
     branch_name: normalizeOptionalString(branch_name),

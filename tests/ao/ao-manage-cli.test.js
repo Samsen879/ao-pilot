@@ -4,11 +4,13 @@ import path from 'node:path';
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 const mockRunManageCommand = jest.fn();
+const mockRunManagedTaskMetadataScan = jest.fn();
 const tempDirs = [];
 
 jest.unstable_mockModule('../../scripts/ao/lib/manage-runner.js', () => ({
   DEFAULT_PROJECT_ID: 'my-project',
   runManageCommand: mockRunManageCommand,
+  runManagedTaskMetadataScan: mockRunManagedTaskMetadataScan,
 }));
 
 const { runCli } = await import('../../scripts/ao-manage.js');
@@ -24,6 +26,15 @@ describe('ao manage cli', () => {
       },
       prBinding: null,
       ownershipLease: null,
+    });
+    mockRunManagedTaskMetadataScan.mockReset();
+    mockRunManagedTaskMetadataScan.mockReturnValue({
+      command: 'scan-metadata',
+      status: 'pass',
+      source_artifact: '.ao/state/my-project/state.json',
+      scanned_task_count: 0,
+      finding_count: 0,
+      findings: [],
     });
     process.env.AO_SESSION_NAME = 'worker-50';
     process.env.AO_SESSION_ID = 'worker-50';
@@ -107,6 +118,35 @@ describe('ao manage cli', () => {
       ownerSessionId: 'worker-57',
       cwd: process.cwd(),
     }));
+  });
+
+  it('runs the historical metadata scan without requiring a task identity', async () => {
+    const stdout = [];
+    mockRunManagedTaskMetadataScan.mockReturnValue({
+      command: 'scan-metadata',
+      status: 'blocked',
+      source_artifact: '.ao/state/my-project/state.json',
+      scanned_task_count: 1,
+      finding_count: 1,
+      findings: [{
+        task_id: 'legacy-task',
+        offending_key: 'workstream_id',
+        disposition: 'unsupported',
+        target: { migration_destination: 'unsupported until a Workstream contract exists' },
+      }],
+    });
+
+    const result = await runCli(['scan-metadata', '--json'], {
+      writeStdout: (text) => stdout.push(text),
+      writeStderr: () => {},
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(mockRunManagedTaskMetadataScan).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'my-project',
+    }));
+    expect(mockRunManageCommand).not.toHaveBeenCalled();
+    expect(JSON.parse(stdout.join(''))).toMatchObject({ status: 'blocked', finding_count: 1 });
   });
 
   it('renders continuity posture in the human summary', async () => {

@@ -2,13 +2,23 @@ import { createCheckpointStore } from './checkpoint-store.js';
 import { buildTaskContinuityFromSnapshot } from './continuity.js';
 import { createHandoffProtocol } from './handoff-protocol.js';
 import { normalizeIssueIntake } from './issue-intake.js';
+import { scanManagedTaskMetadata } from './managed-task-metadata-policy.js';
 import { deriveReviewPosture } from './review-contracts.js';
 import {
   buildManagedTaskExecutionAttemptMetric,
   completeManagedTaskExecutionAttemptMetric,
 } from './run-metrics.js';
 import { createStateRepository } from './state-repository.js';
-import { createTaskSpecRecord } from './state-contracts.js';
+import {
+  CONTROL_PLANE_LATEST_VERSION,
+  CONTROL_PLANE_STATE_SCHEMA_VERSION,
+  createTaskSpecRecord,
+} from './state-contracts.js';
+import {
+  readControlPlaneSchema,
+  readControlPlaneState,
+  resolveControlPlanePaths,
+} from './state-migrations.js';
 import {
   buildOwnershipLeaseId,
   buildPrBindingId,
@@ -19,6 +29,45 @@ import {
 } from './transition-engine.js';
 
 export const DEFAULT_PROJECT_ID = 'my-project';
+
+export function runManagedTaskMetadataScan({
+  repoRoot,
+  projectId = DEFAULT_PROJECT_ID,
+} = {}) {
+  const paths = resolveControlPlanePaths({ repoRoot, projectId });
+  const schema = readControlPlaneSchema({ schemaPath: paths.schemaPath });
+  const state = readControlPlaneState({ statePath: paths.statePath });
+  if (schema == null || state == null) {
+    throw new Error('Missing historical managed-task metadata scan evidence: schema.json and state.json are both required');
+  }
+  if (schema.project_id !== projectId || state.project_id !== projectId) {
+    throw new Error('Historical managed-task metadata scan project evidence does not match the requested project');
+  }
+  if (state.schema_version !== CONTROL_PLANE_STATE_SCHEMA_VERSION) {
+    throw new Error(`Unsupported historical managed-task metadata state schema: ${String(state.schema_version)}`);
+  }
+  const currentVersion = Number(schema.current_version);
+  if (!Number.isInteger(currentVersion) || currentVersion < 0) {
+    throw new Error(`Invalid control-plane version evidence for metadata scan: ${String(schema.current_version)}`);
+  }
+  if (currentVersion > CONTROL_PLANE_LATEST_VERSION) {
+    throw new Error(`Unsupported future control-plane version for metadata scan: ${String(schema.current_version)}`);
+  }
+  const sourceArtifact = pathRelativePortable(repoRoot, paths.statePath);
+  return {
+    command: 'scan-metadata',
+    ...scanManagedTaskMetadata({
+      managedTasks: state.managed_tasks,
+      sourceArtifact,
+    }),
+  };
+}
+
+function pathRelativePortable(repoRoot, filePath) {
+  const prefix = `${String(repoRoot).replaceAll('\\', '/').replace(/\/$/, '')}/`;
+  const normalized = String(filePath).replaceAll('\\', '/');
+  return normalized.startsWith(prefix) ? normalized.slice(prefix.length) : normalized;
+}
 
 function resolveNow(now) {
   if (typeof now === 'function') return resolveNow(now());

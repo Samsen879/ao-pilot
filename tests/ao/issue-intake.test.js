@@ -75,4 +75,33 @@ describe('issue intake', () => {
       expect.objectContaining({ code: 'task_spec_invalid_human_gates' }),
     ]));
   });
+
+  it('does not promote metadata-shaped issue sections into TaskSpec authority', () => {
+    const result = normalizeIssueIntake({
+      issueNumber: 28,
+      title: 'Reserved metadata boundary',
+      body: [
+        readFixture('valid.md'),
+        '',
+        '## Metadata',
+        'workstream_id: shadow-workstream',
+        'parent_task_id: shadow-parent',
+      ].join('\n'),
+      sourceKind: 'github_issue',
+    });
+
+    expect(result.task_spec_snapshot.valid).toBe(true);
+    expect(result.task_spec_snapshot.spec).toEqual({
+      problem_type: 'issue_delivery',
+      acceptance_contract: [
+        'fixture-backed tests exist',
+        'doctor or reconcile surfaces invalid state',
+      ],
+      runtime_ref: 'runtime.github_local',
+      policy_ref: 'policy.operator_gated',
+      human_gates: ['operator_enroll', 'human_review_before_merge'],
+    });
+    expect(JSON.stringify(result)).not.toContain('shadow-workstream');
+    expect(JSON.stringify(result)).not.toContain('shadow-parent');
+  });
 });
