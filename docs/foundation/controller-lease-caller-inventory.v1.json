@@ -139,6 +139,6 @@
       { "id": "file-name", "pattern": "controller-leases\\.json" }
     ],
     "expected_match_count": 60,
-    "expected_digest": "e6332e14dc8ef4b03937ccdc7365bee6114bc9cbfdc18d295029259509232692"
+    "expected_digest": "a792929b2953ed5e438030550e67051e6ed9272631150272c4804acc733358c7"
   }
 }

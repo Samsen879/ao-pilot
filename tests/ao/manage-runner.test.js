@@ -8,7 +8,10 @@ import { createCheckpointStore } from '../../scripts/ao/lib/checkpoint-store.js'
 import { createHandoffProtocol } from '../../scripts/ao/lib/handoff-protocol.js';
 import { createReviewProtocol } from '../../scripts/ao/lib/review-protocol.js';
 import { resolveControlPlanePaths } from '../../scripts/ao/lib/state-migrations.js';
-import { runManageCommand } from '../../scripts/ao/lib/manage-runner.js';
+import {
+  runManageCommand,
+  runManagedTaskMetadataScan,
+} from '../../scripts/ao/lib/manage-runner.js';
 import { createStateRepository } from '../../scripts/ao/lib/state-repository.js';
 
 const PROJECT_ID = 'my-project';
@@ -36,6 +39,104 @@ afterEach(() => {
 });
 
 describe('ao manage runner', () => {
+  it('fails closed when historical scan evidence is missing', () => {
+    const repoRoot = createTempRepo();
+
+    expect(() => runManagedTaskMetadataScan({ repoRoot, projectId: PROJECT_ID }))
+      .toThrow('schema.json and state.json are both required');
+  });
+
+  it.each([
+    ['schema_version', 'ao.control-plane.schema.v2', 'schema envelope version'],
+    ['format', 'ao_control_plane_schema_future', 'schema envelope format'],
+  ])('fails closed on unsupported schema envelope %s evidence', (field, value, expectedError) => {
+    const repoRoot = createTempRepo();
+    const repository = createStateRepository({ repoRoot, projectId: PROJECT_ID });
+    repository.upsertManagedTask({
+      task_id: 'schema-envelope-evidence',
+      title: 'Schema envelope evidence',
+      status: 'active',
+      created_at: '2026-03-29T06:00:00.000Z',
+      updated_at: '2026-03-29T06:00:00.000Z',
+    });
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    const schema = JSON.parse(fs.readFileSync(paths.schemaPath, 'utf8'));
+    schema[field] = value;
+    fs.writeFileSync(paths.schemaPath, `${JSON.stringify(schema, null, 2)}\n`, 'utf8');
+
+    expect(() => runManagedTaskMetadataScan({ repoRoot, projectId: PROJECT_ID }))
+      .toThrow(expectedError);
+  });
+
+  it('fails closed on an unsupported state envelope format', () => {
+    const repoRoot = createTempRepo();
+    const repository = createStateRepository({ repoRoot, projectId: PROJECT_ID });
+    repository.upsertManagedTask({
+      task_id: 'state-envelope-evidence',
+      title: 'State envelope evidence',
+      status: 'active',
+      created_at: '2026-03-29T06:00:00.000Z',
+      updated_at: '2026-03-29T06:00:00.000Z',
+    });
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    const state = JSON.parse(fs.readFileSync(paths.statePath, 'utf8'));
+    state.format = 'ao_control_plane_state_future';
+    fs.writeFileSync(paths.statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+
+    expect(() => runManagedTaskMetadataScan({ repoRoot, projectId: PROJECT_ID }))
+      .toThrow('state envelope format');
+  });
+
+  it('scans historical metadata deterministically without promoting or deleting it', () => {
+    const repoRoot = createTempRepo();
+    const repository = createStateRepository({ repoRoot, projectId: PROJECT_ID });
+    repository.upsertManagedTask({
+      task_id: 'compatible-task',
+      title: 'Compatible metadata',
+      status: 'active',
+      created_at: '2026-03-29T06:00:00.000Z',
+      updated_at: '2026-03-29T06:00:00.000Z',
+      metadata: { note: 'preserve' },
+    });
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    const state = readState(repoRoot);
+    state.managed_tasks.push({
+      task_id: 'historical-task',
+      issue_number: 28,
+      title: 'Historical shadow metadata',
+      branch_name: null,
+      worktree_path: null,
+      status: 'paused',
+      created_at: '2026-03-29T06:00:00.000Z',
+      updated_at: '2026-03-29T06:00:00.000Z',
+      metadata: { parent_task_id: 'issue-9', note: 'do not delete' },
+    });
+    fs.writeFileSync(paths.statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    const before = fs.readFileSync(paths.statePath, 'utf8');
+
+    const first = runManagedTaskMetadataScan({ repoRoot, projectId: PROJECT_ID });
+    const second = runManagedTaskMetadataScan({ repoRoot, projectId: PROJECT_ID });
+    const relative = runManagedTaskMetadataScan({
+      repoRoot: path.relative(process.cwd(), repoRoot),
+      projectId: PROJECT_ID,
+    });
+
+    expect(second).toEqual(first);
+    expect(relative).toEqual(first);
+    expect(first).toMatchObject({
+      command: 'scan-metadata',
+      status: 'blocked',
+      source_artifact: '.ao-control-plane/my-project/state.json',
+      scanned_task_count: 2,
+      finding_count: 1,
+      findings: [expect.objectContaining({
+        task_id: 'historical-task',
+        offending_key: 'parent_task_id',
+      })],
+    });
+    expect(fs.readFileSync(paths.statePath, 'utf8')).toBe(before);
+  });
+
   it('enrolls a managed task with durable PR, branch, worktree, and ownership bindings', async () => {
     const repoRoot = createTempRepo();
 

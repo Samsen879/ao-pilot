@@ -91,6 +91,14 @@ describe('ao-pilot public library API', () => {
     expect(contracts.INTERVENTION_JUDGMENT_SCHEMA_VERSION).toBe('ao.intervention-judgment.v1');
     expect(contracts.TASK_RELATION_SCHEMA_VERSION).toBe('ao.task-relation.v1alpha1');
     expect(contracts.createTaskRelation).toEqual(expect.any(Function));
+    expect(contracts.RESERVED_MANAGED_TASK_METADATA_REGISTRY_VERSION).toBe(
+      'ao.reserved-managed-task-metadata.v1',
+    );
+    expect(contracts.RESERVED_MANAGED_TASK_METADATA_KEYS.parent_task_id).toMatchObject({
+      target_contract: 'ao.task-relation.v1alpha1',
+      support: 'available',
+    });
+    expect(contracts.scanManagedTaskMetadata).toEqual(expect.any(Function));
     expect(contracts.createRetryRequiredDecision).toEqual(expect.any(Function));
     expect(contracts.interventionJudgmentContracts.INTERVENTION_JUDGMENTS)
       .toMatchObject({ RETRY_REQUIRED: 'retry_required' });

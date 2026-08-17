@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_PROJECT_ID,
   runManageCommand,
+  runManagedTaskMetadataScan,
 } from './ao/lib/manage-runner.js';
 import { findRepoRoot } from './ao/lib/repo-root.js';
 
@@ -103,14 +104,16 @@ function parseArgs(argv) {
     };
   }
 
-  if (!['enroll', 'adopt', 'resume', 'unmanage', 'retire'].includes(options.command)) {
+  if (!['enroll', 'adopt', 'resume', 'unmanage', 'retire', 'scan-metadata'].includes(options.command)) {
     return {
       ok: false,
       error: `Unsupported command: ${options.command ?? 'none'}`,
     };
   }
 
-  if (options.taskId == null && (!Number.isInteger(options.issueNumber) || options.issueNumber <= 0)) {
+  if (options.command !== 'scan-metadata'
+    && options.taskId == null
+    && (!Number.isInteger(options.issueNumber) || options.issueNumber <= 0)) {
     return {
       ok: false,
       error: 'Invalid value for --issue',
@@ -147,6 +150,7 @@ function renderHelp() {
     '  resume      Re-activate work from the latest valid checkpoint',
     '  unmanage    Pause active management while preserving bindings',
     '  retire      Retire the managed task and release active bindings',
+    '  scan-metadata  Scan historical managed tasks for reserved metadata keys',
     '',
     'Options:',
     '  --project <project_id>      AO project id. Default: my-project',
@@ -166,6 +170,21 @@ function renderHelp() {
 }
 
 function renderHumanSummary(result) {
+  if (result.command === 'scan-metadata') {
+    const lines = [
+      `command: ${result.command}`,
+      `status: ${result.status}`,
+      `source_artifact: ${result.source_artifact}`,
+      `scanned_tasks: ${result.scanned_task_count}`,
+      `findings: ${result.finding_count}`,
+    ];
+    for (const finding of result.findings) {
+      lines.push(
+        `${finding.task_id}: ${finding.offending_key} (${finding.disposition}) -> ${finding.target.migration_destination}`,
+      );
+    }
+    return lines.join('\n');
+  }
   return [
     `command: ${result.command}`,
     `task: ${result.task.task_id} status=${result.task.status}`,
@@ -215,7 +234,12 @@ export async function runCli(argv, io = createDefaultIo(), {
       options.taskSpecBody = fs.readFileSync(path.resolve(options.taskSpecFile), 'utf8');
     }
 
-    const result = await runManageCommand({
+    const result = options.command === 'scan-metadata'
+      ? runManagedTaskMetadataScan({
+          repoRoot,
+          projectId: options.projectId,
+        })
+      : await runManageCommand({
       repoRoot,
       cwd,
       projectId: options.projectId,
@@ -239,7 +263,7 @@ export async function runCli(argv, io = createDefaultIo(), {
     }
 
     return {
-      exitCode: 0,
+      exitCode: result.status === 'blocked' ? 2 : 0,
       result,
     };
   } catch (error) {

@@ -240,15 +240,12 @@ try {
       .toEqual(expect.arrayContaining(['task-a', 'task-b', 'task-c']));
   });
 
-  it('does not treat relation-shaped managed-task metadata as graph authority', () => {
-    const repository = createRepository();
-    repository.upsertManagedTask(managedTask('task-a', {
+  it('rejects relation-shaped managed-task metadata instead of treating it as graph authority', () => {
+    expect(() => managedTask('task-a', {
       parent_task_id: 'missing-parent',
       depends_on: ['missing-dependency'],
       task_relations: [{ relation_kind: 'parent_of' }],
-    }));
-
-    expect(repository.listTaskRelations()).toEqual([]);
+    })).toThrow(/Reserved managed-task metadata is prohibited.*parent_task_id.*task_relations/);
   });
 
   it('fails closed when durable relation evidence is tampered after a valid write', () => {

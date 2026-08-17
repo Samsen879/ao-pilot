@@ -1,6 +1,7 @@
 import { createRuntimePreflightSnapshot } from './runtime-contracts.js';
 import { createRepoKnowledgeSnapshot } from './repo-knowledge.js';
 import { createTaskSpecSnapshot } from './task-spec.js';
+import { assertManagedTaskMetadataAllowed } from './managed-task-metadata-policy.js';
 import {
   CONTROLLER_RUN_MEASUREMENT_FORMAT,
   CONTROLLER_RUN_MEASUREMENT_SCHEMA_VERSION,
@@ -154,7 +155,11 @@ function normalizeMetadata(value = {}) {
     throw new Error('Invalid metadata');
   }
 
-  return cloneJsonValue(value);
+  const normalized = cloneJsonValue(value);
+  if (!isPlainObject(normalized)) {
+    throw new Error('Invalid metadata');
+  }
+  return normalized;
 }
 
 function normalizeNullableNumber(value, fieldName) {
@@ -388,8 +393,14 @@ export function createManagedTask({
   updated_at,
   metadata = {},
 } = {}) {
+  const normalizedTaskId = normalizeRequiredString(task_id, 'task_id');
+  const normalizedMetadata = normalizeMetadata(metadata);
+  assertManagedTaskMetadataAllowed(normalizedMetadata, {
+    taskId: normalizedTaskId,
+    issueNumber: issue_number,
+  });
   return {
-    task_id: normalizeRequiredString(task_id, 'task_id'),
+    task_id: normalizedTaskId,
     issue_number: normalizePositiveInteger(issue_number, 'issue_number', { nullable: true }),
     title: normalizeRequiredString(title, 'title'),
     branch_name: normalizeOptionalString(branch_name),
@@ -397,7 +408,7 @@ export function createManagedTask({
     status: normalizeEnum(status, 'status', MANAGED_TASK_STATUSES),
     created_at: normalizeIsoTimestamp(created_at, 'created_at'),
     updated_at: normalizeIsoTimestamp(updated_at, 'updated_at'),
-    metadata: normalizeMetadata(metadata),
+    metadata: normalizedMetadata,
   };
 }
 

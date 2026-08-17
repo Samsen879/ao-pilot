@@ -474,6 +474,20 @@ Manages task lifecycle records.
 ao-pilot manage <command> [options]
 ```
 
+Audit historical managed-task metadata without changing it:
+
+```bash
+ao-pilot manage scan-metadata --project my-project --json
+```
+
+The scan exits with status `2` when it finds a reserved metadata key. Each
+finding identifies the task, source state artifact, offending key, target
+first-class contract, and migration destination. Keys whose first-class
+contract does not exist yet (including Workstream and path claims) are
+reported as explicitly unsupported. New managed-task writes reject reserved
+keys; unrelated free-form metadata remains compatible. The scan never migrates
+or deletes historical metadata.
+
 Supported commands include:
 
 ```text
@@ -482,6 +496,7 @@ adopt
 resume
 unmanage
 retire
+scan-metadata
 ```
 
 Example:

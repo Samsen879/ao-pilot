@@ -127,7 +127,7 @@ describe('controller lease authority design audit', () => {
       caller_count: 15,
       caller_metadata_digest: '9a33c814e330606fb9022b399c5feed85b4d37b4886aa24f7c125e5bce141859',
       source_match_count: 60,
-      source_digest: 'e6332e14dc8ef4b03937ccdc7365bee6114bc9cbfdc18d295029259509232692',
+      source_digest: 'a792929b2953ed5e438030550e67051e6ed9272631150272c4804acc733358c7',
     });
     expect(scanControllerLeaseSources(inventory, repositoryRoot).matches).toHaveLength(60);
   });

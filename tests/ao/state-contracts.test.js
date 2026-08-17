@@ -563,6 +563,48 @@ describe('ao state contracts', () => {
     });
   });
 
+  it('rejects reserved managed-task metadata writes while preserving unrelated metadata', () => {
+    const fields = {
+      task_id: 'task-metadata-policy',
+      title: 'Metadata policy boundary',
+      status: 'active',
+      created_at: NOW,
+      updated_at: NOW,
+    };
+
+    expect(createManagedTask({
+      ...fields,
+      metadata: { note: 'compatible', task_risk: 'low' },
+    }).metadata).toEqual({ note: 'compatible', task_risk: 'low' });
+    expect(() => createManagedTask({
+      ...fields,
+      metadata: { parent_task_id: 'shadow-parent' },
+    })).toThrow(/parent_task_id.*state\.task_relations/);
+    expect(() => createManagedTask({
+      ...fields,
+      metadata: { depends_on: ['issue-24'] },
+    })).toThrow(/depends_on.*state\.task_relations/);
+    expect(() => createManagedTask({
+      ...fields,
+      metadata: { workstream_id: 'shadow-workstream' },
+    })).toThrow(/workstream_id.*unsupported until a versioned Workstream contract/i);
+  });
+
+  it('validates reserved keys on the canonical serialized metadata shape', () => {
+    expect(() => createManagedTask({
+      task_id: 'task-custom-metadata-serialization',
+      title: 'Canonical metadata policy boundary',
+      status: 'active',
+      created_at: NOW,
+      updated_at: NOW,
+      metadata: {
+        toJSON() {
+          return { workstream_id: 'shadow-workstream' };
+        },
+      },
+    })).toThrow(/workstream_id.*unsupported until a versioned Workstream contract/i);
+  });
+
   it('creates empty schema, state, and audit envelopes for repo-local bootstrap', () => {
     expect(createControlPlaneSchema({
       project_id: 'my-project',
