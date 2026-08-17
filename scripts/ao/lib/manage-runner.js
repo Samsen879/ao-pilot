@@ -11,6 +11,8 @@ import {
 import { createStateRepository } from './state-repository.js';
 import {
   CONTROL_PLANE_LATEST_VERSION,
+  CONTROL_PLANE_SCHEMA_FORMAT,
+  CONTROL_PLANE_SCHEMA_VERSION,
   CONTROL_PLANE_STATE_SCHEMA_VERSION,
   createTaskSpecRecord,
 } from './state-contracts.js';
@@ -43,6 +45,12 @@ export function runManagedTaskMetadataScan({
   if (schema.project_id !== projectId || state.project_id !== projectId) {
     throw new Error('Historical managed-task metadata scan project evidence does not match the requested project');
   }
+  if (schema.schema_version !== CONTROL_PLANE_SCHEMA_VERSION) {
+    throw new Error(`Unsupported historical managed-task metadata schema envelope version: ${String(schema.schema_version)}`);
+  }
+  if (schema.format !== CONTROL_PLANE_SCHEMA_FORMAT) {
+    throw new Error(`Unsupported historical managed-task metadata schema envelope format: ${String(schema.format)}`);
+  }
   if (state.schema_version !== CONTROL_PLANE_STATE_SCHEMA_VERSION) {
     throw new Error(`Unsupported historical managed-task metadata state schema: ${String(state.schema_version)}`);
   }
@@ -53,7 +61,7 @@ export function runManagedTaskMetadataScan({
   if (currentVersion > CONTROL_PLANE_LATEST_VERSION) {
     throw new Error(`Unsupported future control-plane version for metadata scan: ${String(schema.current_version)}`);
   }
-  const sourceArtifact = pathRelativePortable(repoRoot, paths.statePath);
+  const sourceArtifact = pathRelativePortable(paths.repoRoot, paths.statePath);
   return {
     command: 'scan-metadata',
     ...scanManagedTaskMetadata({

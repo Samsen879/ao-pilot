@@ -17,6 +17,7 @@ describe('reserved managed-task metadata policy', () => {
         metadata: {
           workstream_id: 'data-governance',
           parent_task_id: 'issue-9',
+          depends_on: ['issue-24'],
           completion_record: { status: 'passed' },
           path_claims: ['scripts/ao/**'],
           unrelated_note: 'preserved',
@@ -26,7 +27,7 @@ describe('reserved managed-task metadata policy', () => {
     });
 
     expect(findings.map((finding) => finding.offending_key)).toEqual([
-      'completion_record', 'parent_task_id', 'path_claims', 'workstream_id',
+      'completion_record', 'depends_on', 'parent_task_id', 'path_claims', 'workstream_id',
     ]);
     expect(findings).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -40,6 +41,15 @@ describe('reserved managed-task metadata policy', () => {
         target: expect.objectContaining({
           contract: 'ao.task-relation.v1alpha1',
           migration_destination: 'state.task_relations (relation_kind=parent_of)',
+          support: 'available',
+        }),
+      }),
+      expect.objectContaining({
+        offending_key: 'depends_on',
+        disposition: 'invalid',
+        target: expect.objectContaining({
+          contract: 'ao.task-relation.v1alpha1',
+          migration_destination: 'state.task_relations (relation_kind=depends_on)',
           support: 'available',
         }),
       }),

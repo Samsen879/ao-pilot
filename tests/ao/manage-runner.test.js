@@ -46,6 +46,28 @@ describe('ao manage runner', () => {
       .toThrow('schema.json and state.json are both required');
   });
 
+  it.each([
+    ['schema_version', 'ao.control-plane.schema.v2', 'schema envelope version'],
+    ['format', 'ao_control_plane_schema_future', 'schema envelope format'],
+  ])('fails closed on unsupported schema envelope %s evidence', (field, value, expectedError) => {
+    const repoRoot = createTempRepo();
+    const repository = createStateRepository({ repoRoot, projectId: PROJECT_ID });
+    repository.upsertManagedTask({
+      task_id: 'schema-envelope-evidence',
+      title: 'Schema envelope evidence',
+      status: 'active',
+      created_at: '2026-03-29T06:00:00.000Z',
+      updated_at: '2026-03-29T06:00:00.000Z',
+    });
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    const schema = JSON.parse(fs.readFileSync(paths.schemaPath, 'utf8'));
+    schema[field] = value;
+    fs.writeFileSync(paths.schemaPath, `${JSON.stringify(schema, null, 2)}\n`, 'utf8');
+
+    expect(() => runManagedTaskMetadataScan({ repoRoot, projectId: PROJECT_ID }))
+      .toThrow(expectedError);
+  });
+
   it('scans historical metadata deterministically without promoting or deleting it', () => {
     const repoRoot = createTempRepo();
     const repository = createStateRepository({ repoRoot, projectId: PROJECT_ID });
@@ -75,8 +97,13 @@ describe('ao manage runner', () => {
 
     const first = runManagedTaskMetadataScan({ repoRoot, projectId: PROJECT_ID });
     const second = runManagedTaskMetadataScan({ repoRoot, projectId: PROJECT_ID });
+    const relative = runManagedTaskMetadataScan({
+      repoRoot: path.relative(process.cwd(), repoRoot),
+      projectId: PROJECT_ID,
+    });
 
     expect(second).toEqual(first);
+    expect(relative).toEqual(first);
     expect(first).toMatchObject({
       command: 'scan-metadata',
       status: 'blocked',

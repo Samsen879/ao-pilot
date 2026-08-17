@@ -155,7 +155,11 @@ function normalizeMetadata(value = {}) {
     throw new Error('Invalid metadata');
   }
 
-  return cloneJsonValue(value);
+  const normalized = cloneJsonValue(value);
+  if (!isPlainObject(normalized)) {
+    throw new Error('Invalid metadata');
+  }
+  return normalized;
 }
 
 function normalizeNullableNumber(value, fieldName) {
@@ -390,7 +394,8 @@ export function createManagedTask({
   metadata = {},
 } = {}) {
   const normalizedTaskId = normalizeRequiredString(task_id, 'task_id');
-  assertManagedTaskMetadataAllowed(metadata, {
+  const normalizedMetadata = normalizeMetadata(metadata);
+  assertManagedTaskMetadataAllowed(normalizedMetadata, {
     taskId: normalizedTaskId,
     issueNumber: issue_number,
   });
@@ -403,7 +408,7 @@ export function createManagedTask({
     status: normalizeEnum(status, 'status', MANAGED_TASK_STATUSES),
     created_at: normalizeIsoTimestamp(created_at, 'created_at'),
     updated_at: normalizeIsoTimestamp(updated_at, 'updated_at'),
-    metadata: normalizeMetadata(metadata),
+    metadata: normalizedMetadata,
   };
 }
 

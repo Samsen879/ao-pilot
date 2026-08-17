@@ -25,6 +25,12 @@ const REGISTRY_ENTRIES = [
     support: 'available',
   },
   {
+    key: 'depends_on',
+    target_contract: 'ao.task-relation.v1alpha1',
+    migration_destination: 'state.task_relations (relation_kind=depends_on)',
+    support: 'available',
+  },
+  {
     key: 'completion_record',
     target_contract: 'ao.child-completion.v1alpha1',
     migration_destination: 'versioned Completion Record artifact',
