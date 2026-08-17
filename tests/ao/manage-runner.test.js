@@ -68,6 +68,25 @@ describe('ao manage runner', () => {
       .toThrow(expectedError);
   });
 
+  it('fails closed on an unsupported state envelope format', () => {
+    const repoRoot = createTempRepo();
+    const repository = createStateRepository({ repoRoot, projectId: PROJECT_ID });
+    repository.upsertManagedTask({
+      task_id: 'state-envelope-evidence',
+      title: 'State envelope evidence',
+      status: 'active',
+      created_at: '2026-03-29T06:00:00.000Z',
+      updated_at: '2026-03-29T06:00:00.000Z',
+    });
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    const state = JSON.parse(fs.readFileSync(paths.statePath, 'utf8'));
+    state.format = 'ao_control_plane_state_future';
+    fs.writeFileSync(paths.statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+
+    expect(() => runManagedTaskMetadataScan({ repoRoot, projectId: PROJECT_ID }))
+      .toThrow('state envelope format');
+  });
+
   it('scans historical metadata deterministically without promoting or deleting it', () => {
     const repoRoot = createTempRepo();
     const repository = createStateRepository({ repoRoot, projectId: PROJECT_ID });

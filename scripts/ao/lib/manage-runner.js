@@ -13,6 +13,7 @@ import {
   CONTROL_PLANE_LATEST_VERSION,
   CONTROL_PLANE_SCHEMA_FORMAT,
   CONTROL_PLANE_SCHEMA_VERSION,
+  CONTROL_PLANE_STATE_FORMAT,
   CONTROL_PLANE_STATE_SCHEMA_VERSION,
   createTaskSpecRecord,
 } from './state-contracts.js';
@@ -53,6 +54,9 @@ export function runManagedTaskMetadataScan({
   }
   if (state.schema_version !== CONTROL_PLANE_STATE_SCHEMA_VERSION) {
     throw new Error(`Unsupported historical managed-task metadata state schema: ${String(state.schema_version)}`);
+  }
+  if (state.format !== CONTROL_PLANE_STATE_FORMAT) {
+    throw new Error(`Unsupported historical managed-task metadata state envelope format: ${String(state.format)}`);
   }
   const currentVersion = Number(schema.current_version);
   if (!Number.isInteger(currentVersion) || currentVersion < 0) {
