@@ -15,6 +15,7 @@ const FIXTURE_PATH = path.resolve(
   'tests/ao/fixtures/completion-record/positive/review-passed.json',
 );
 const NOW = '2026-08-31T00:58:00.000Z';
+const MERGE_REF = `github:snapshot/pull/79@sha256:${'4'.repeat(64)}`;
 const tempDirs = [];
 
 function createTempRepo() {
@@ -57,6 +58,38 @@ function createRepository(repoRoot = createTempRepo()) {
     clock: () => NOW,
     auditIdGenerator: createIdGenerator('audit'),
   });
+}
+
+function integratedEvidence() {
+  return {
+    providerBinding: {
+      provider: 'github',
+      repository_id: 1001,
+      slug: 'Samsen879/ao-pilot',
+      pr_number: 79,
+      base_ref: 'main',
+      base_sha: '1'.repeat(40),
+    },
+    providerMergeObservation: {
+      schema_version: 'ao.github-merge-observation.v1',
+      provider: 'github',
+      source_ok: true,
+      source_error: null,
+      observed_at: '2026-08-31T00:59:00.000Z',
+      repository: { repository_id: 1001, slug: 'Samsen879/ao-pilot' },
+      pull_request: {
+        number: 79,
+        state: 'MERGED',
+        base_ref: 'main',
+        base_sha: '1'.repeat(40),
+        head_sha: '2'.repeat(40),
+        merge_commit_sha: '3'.repeat(40),
+        merged_at: '2026-08-31T00:58:30.000Z',
+        url: 'https://github.com/Samsen879/ao-pilot/pull/79',
+      },
+      evidence_refs: [MERGE_REF],
+    },
+  };
 }
 
 afterEach(() => {
@@ -111,8 +144,8 @@ describe('durable Completion Record repository API', () => {
       ...first,
       delivery_status: 'integrated',
       merge_sha: '3'.repeat(40),
-      merge_observation_ref: `github:snapshot/pull/26@sha256:${'4'.repeat(64)}`,
-    });
+      merge_observation_ref: MERGE_REF,
+    }, integratedEvidence());
 
     expect(integrated.delivery_status).toBe('integrated');
     expect(repository.listAuditEntries().at(-1)).toMatchObject({
@@ -121,9 +154,6 @@ describe('durable Completion Record repository API', () => {
     });
     const regenerated = {
       ...integrated,
-      delivery_status: 'review_passed',
-      merge_sha: undefined,
-      merge_observation_ref: undefined,
       generator_ref: 'ao-pilot/completion-recorder@1.0.1#fedcba9876543210',
       artifact: {
         ...integrated.artifact,
@@ -132,17 +162,46 @@ describe('durable Completion Record repository API', () => {
       },
       prior_artifact: integrated.artifact,
     };
-    delete regenerated.merge_sha;
-    delete regenerated.merge_observation_ref;
-    expect(repository.updateCompletionRecord(regenerated)).toEqual(regenerated);
+    expect(repository.updateCompletionRecord(regenerated, integratedEvidence())).toEqual(regenerated);
+
+    const backwards = { ...regenerated, delivery_status: 'review_passed' };
+    delete backwards.merge_sha;
+    delete backwards.merge_observation_ref;
+    expect(() => repository.updateCompletionRecord(backwards)).toThrow(expect.objectContaining({
+      code: 'DELIVERY_STATUS_TRANSITION_REJECTED',
+      findings: expect.arrayContaining([
+        expect.objectContaining({ code: 'delivery_transition_invalid' }),
+      ]),
+    }));
 
     const missingPredecessor = { ...regenerated, artifact: {
       ...regenerated.artifact,
       content_sha256: '6'.repeat(64),
     } };
     delete missingPredecessor.prior_artifact;
-    expect(() => repository.updateCompletionRecord(missingPredecessor))
+    expect(() => repository.updateCompletionRecord(missingPredecessor, integratedEvidence()))
       .toThrow(/requires prior_artifact matching the durable artifact/i);
+  });
+
+  it('fails closed on local-only integration evidence with structured findings', () => {
+    const repository = createRepository();
+    addChild(repository, 'child-1');
+    const first = repository.createCompletionRecord(recordFor('child-1'));
+    const localOnly = {
+      ...first,
+      delivery_status: 'integrated',
+      merge_sha: '3'.repeat(40),
+      merge_observation_ref: MERGE_REF,
+    };
+
+    expect(() => repository.updateCompletionRecord(localOnly)).toThrow(expect.objectContaining({
+      code: 'DELIVERY_STATUS_TRANSITION_REJECTED',
+      findings: expect.arrayContaining([
+        expect.objectContaining({ code: 'delivery_provider_observation_missing' }),
+      ]),
+    }));
+    expect(repository.getCompletionRecordForChild('child-1').delivery_status)
+      .toBe('review_passed');
   });
 
   it('serializes and queries records deterministically across insertion order', () => {

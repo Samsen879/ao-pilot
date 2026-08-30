@@ -363,3 +363,56 @@ Resolution update at 2026-08-31T01:26:00+08:00: the corrected ESM-configured foc
 - Status: Mechanical evidence rebind in progress; no runtime or controller authority semantics changed.
 
 Resolution update at 2026-08-31T01:28:38+08:00: the finding correction now validates the complete current v12/v13 applied-migration and audit-receipt set before any repair, rejects duplicate receipts independent of their order, and validates the v12 predecessor schema receipt before a v13 write. The focused finding pack passed 2 suites / 43 tests, the full AO suite passed 102 suites / 936 tests, acceptance passed 7/7, smoke and public-package verification passed, trajectory/false-success/Completion Record/controller-lease gates passed, and dependency audit reported zero vulnerabilities. The controller-lease inventory remained 61 matches and passed with rebound digest `06368399118b1e80d71d0b3877e8c30d4ef9a4b3d9935a9fc6415ef6d052ac4e`; E-MVP1-034 and E-MVP1-038 are resolved. The required `npm run lint` invocation still stops on the pre-existing missing-script gap classified in E-MVP1-008.
+
+## E-MVP1-039
+
+- Timestamp: 2026-08-31T01:42:26+08:00
+- Issue: One read-only repository-inspection invocation used a shortened, nonexistent AO worktree path.
+- Impact: The process could not start, so the invocation produced no inspection evidence.
+- Evidence: Command creation returned `No such file or directory` before `rg` or `sed` launched; the governed worktree and provider state were unchanged.
+- Action: Continue from the exact AO-created worktree path and use only the corrected readback.
+- Status: Contained operational path error; corrected readback pending.
+
+Resolution update at 2026-08-31T01:42:35+08:00: the corrected exact-worktree readback completed successfully. E-MVP1-039 is resolved.
+
+## E-MVP1-040
+
+- Timestamp: 2026-08-31T01:44:51+08:00
+- Issue: The first issue #29 focused test invocation could not start Jest because the isolated Worker worktree had no `node_modules` installation.
+- Impact: Syntax and diff checks passed, but the invocation produced no test result and no candidate claim is permitted from it.
+- Evidence: Node reported `MODULE_NOT_FOUND` for the worktree-local `node_modules/.bin/jest` before Jest launched.
+- Action: Restore dependencies exactly from the admitted `package-lock.json` with `npm ci`, then rerun the unchanged focused command.
+- Status: Remediation in progress; repository source and durable control-plane state were not changed by the failed invocation.
+
+Resolution update at 2026-08-31T01:46:31+08:00: `npm ci` restored 292 lockfile-defined packages and reported zero vulnerabilities. The corrected focused and integration pack then passed 7 suites / 72 tests, including delivery lifecycle, provider HEAD/merge observation, abandoned retry custody, documentation projection, deterministic replay, state repository, task graph, doctor/state fallback, and public export coverage. E-MVP1-040 is resolved.
+
+## E-MVP1-041
+
+- Timestamp: 2026-08-31T01:48:10+08:00
+- Issue: The first full issue #29 AO test run reached the controller-lease authority audit and rejected its stale deterministic source-inventory digest after scoped Completion Record repository integration shifted source anchors.
+- Impact: The full R2 suite is not yet green; the focused delivery/status pack remains green.
+- Evidence: The verifier expected `06368399118b1e80d71d0b3877e8c30d4ef9a4b3d9935a9fc6415ef6d052ac4e` and computed `5692e2091e6fda77c9e517291ad4ee2098c656c53148bb095f51397884e864d7`.
+- Action: Rebind only the deterministic inventory digest and mechanically dependent receipt evidence, run the dedicated authority verifier, then rerun the full suite.
+- Status: Mechanical evidence rebind in progress; no runtime or controller-lease semantics changed.
+
+## E-MVP1-042
+
+- Timestamp: 2026-08-31T01:48:51+08:00
+- Issue: Read-only OR draft inspection found that the initial issue #29 task-graph bridge inferred terminal state from persisted `delivery_status` even though authoritative provider merge evidence and explicit abandonment reason existed only in ephemeral write arguments.
+- Impact: After restart or replay, state/doctor could have converted unavailable evidence into terminal truth without revalidation.
+- Evidence: The draft `terminalEvidenceFromControlPlaneState` preferred raw Completion Record status over managed-task evidence, while the admitted transition context was not part of the durable Completion Record schema.
+- Action: Remove Completion Record-derived task-graph terminal inference and revert state/doctor graph wiring; keep the bounded pure projection and write-time validation without adding an unplanned persistence subsystem.
+- Status: Contained before commit, push, PR, or candidate claim; focused replay pending.
+
+Resolution update at 2026-08-31T01:50:02+08:00: Completion Record-derived task-graph terminal inference and all state/doctor graph wiring were removed. The corrected focused pack passed 7 suites / 73 tests, the fresh full AO suite passed 103 suites / 952 tests, and the public documentation now explicitly limits transition/documentation results to the complete supplied evidence. E-MVP1-042 is resolved without a persistence expansion.
+
+## E-MVP1-043
+
+- Timestamp: 2026-08-31T01:52:37+08:00
+- Issue: A later fail-closed transition-evidence shape correction shifted the same deterministic `state-repository.js` source anchors after the interim E-MVP1-041 inventory rebind.
+- Impact: The dedicated controller-lease authority audit rejected the interim digest; final verification cannot use that interim result.
+- Evidence: The verifier expected `5692e2091e6fda77c9e517291ad4ee2098c656c53148bb095f51397884e864d7` and computed `05763e8eb978eb861499242063d69354bfafe6885a449d66297b9ebe622a07b1` with the source match count unchanged at 61.
+- Action: Rebind the deterministic inventory and exact assertion to the final scoped source bytes, then rerun dedicated and full verification without further inventoried-source edits.
+- Status: Mechanical final evidence rebind in progress; no runtime or controller-lease semantics changed.
+
+Resolution update at 2026-08-31T01:54:01+08:00: the final controller-lease authority inventory passed with 61 matches and digest `05763e8eb978eb861499242063d69354bfafe6885a449d66297b9ebe622a07b1`. The focused delivery/repository pack passed 4 suites / 45 tests, deterministic delivery replay passed 15/15 in an independent invocation, the full AO suite passed 103 suites / 952 tests, acceptance passed 7/7, smoke and public-package verification passed with 279 package entries, trajectory/false-success/Completion Record/controller-lease safety gates passed, and dependency audit reported zero vulnerabilities. E-MVP1-041 and E-MVP1-043 are resolved. The repository still has no `lint` script, as previously classified in E-MVP1-008; the required invocation was made and stopped only on that pre-existing package-script absence.
