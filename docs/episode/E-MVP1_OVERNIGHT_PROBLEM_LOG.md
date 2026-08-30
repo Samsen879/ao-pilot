@@ -305,3 +305,12 @@ Resolution update at 2026-08-31T01:02:59+08:00: additive v13 expectations and de
 - Status: Mechanical generated-evidence repair in progress.
 
 Resolution update at 2026-08-31T01:12:59+08:00: the final controller-lease source inventory passed with 61 matches and digest `be5bcedd2d3ce99fc62d9ae6cb1baa9bca7b40f41de36150c5d39b8ed3ad9c54`; the focused pack passed 9 suites / 129 tests, the full AO suite passed 102 suites / 931 tests, public package verification passed with 278 entries, acceptance passed 7/7, smoke passed, deterministic evidence verifiers passed, and dependency audit reported zero vulnerabilities. E-MVP1-026, E-MVP1-027, E-MVP1-028, and E-MVP1-032 are resolved for pre-candidate evidence. E-MVP1-029 remains an intentional clean-candidate sequencing hold for exact-head/tree Phase 0 verification.
+
+## E-MVP1-033
+
+- Timestamp: 2026-08-31T01:14:33+08:00
+- Issue: The first provider PR #92 readback command supplied a nonexistent shortened worktree path to the command runner.
+- Impact: The process did not start, so that invocation produced no provider-state evidence.
+- Evidence: Command creation returned `No such file or directory` before `gh` launched; PR #92 and the governed worktree were unchanged.
+- Action: Append this log-only correction before candidate review, commit it with the required identity, rebind clean exact-head/tree evidence, push to the same principal PR, and rerun the readback from the exact AO-created worktree path.
+- Status: Contained operational error; deterministic correction in progress.
