@@ -314,3 +314,52 @@ Resolution update at 2026-08-31T01:12:59+08:00: the final controller-lease sourc
 - Evidence: Command creation returned `No such file or directory` before `gh` launched; PR #92 and the governed worktree were unchanged.
 - Action: Append this log-only correction before candidate review, commit it with the required identity, rebind clean exact-head/tree evidence, push to the same principal PR, and rerun the readback from the exact AO-created worktree path.
 - Status: Contained operational error; deterministic correction in progress.
+
+## E-MVP1-034
+
+- Timestamp: 2026-08-31T01:21:36+08:00
+- Issue: The single candidate review on semantic commit `2d3b8b502d8203f6d478d76f8fd64efd5e76b1ab` reported three P2 migration-evidence findings: repair ordering could mutate before rejecting malformed v13 evidence; duplicate v13 audit receipts were not rejected; and v13 migration did not validate the predecessor v12 schema receipt before writing.
+- Impact: PR #92 is not merge-ready until all three findings have focused regressions and finding-scoped corrections. No P0/P1 finding was reported.
+- Evidence: Review `5061438502` created inline finding comments `3890024545`, `3890024548`, and `3890024551` against the exact reviewed semantic candidate.
+- Action: Validate the complete existing v12/v13 receipt set before any repair or migration write, require exactly one matching v13 audit entry, preserve failing bytes unchanged, and add one regression per finding; use finding verification without requesting a second full candidate review.
+- Status: Finding-scoped repair in progress.
+
+## E-MVP1-035
+
+- Timestamp: 2026-08-31T01:21:36+08:00
+- Issue: The review-handler skill's first read-only helper invocation used `python`, but this Worker environment exposes only `/usr/bin/python3`.
+- Impact: The helper did not start and returned no thread inventory; GitHub authentication remained valid and no provider or repository state changed.
+- Evidence: The shell returned `python: command not found`; `command -v python3` returned `/usr/bin/python3`.
+- Action: Rerun the unchanged helper with `python3` and use only that output as thread evidence.
+- Status: Contained tooling alias mismatch; corrected read-only rerun pending.
+
+## E-MVP1-036
+
+- Timestamp: 2026-08-31T01:22:31+08:00
+- Issue: At approximately 2026-08-31T01:20:00+08:00, one OR review-polling invocation used a malformed read-only GraphQL query.
+- Impact: That invocation produced no provider readback; the already running candidate review was not duplicated or otherwise changed.
+- Evidence: GitHub rejected the query at parse time with `Expected NAME, actual: (none) at [1, 366]` before executing it.
+- Action: Return to the previously validated read-only query shape and preserve the existing single candidate-review run.
+- Status: Contained before provider execution; no repository, product, credential, or provider mutation occurred.
+
+## E-MVP1-037
+
+- Timestamp: 2026-08-31T01:25:00+08:00
+- Issue: The first finding-verification focused test invocation launched bare `npx jest` without the repository's required Node ESM VM-modules flag.
+- Impact: Jest rejected both selected ESM test suites during parsing, before collecting or executing any test.
+- Evidence: Both suites stopped at their first `import` statement with `Cannot use import statement outside a module`; no product or provider state changed.
+- Action: Rerun the same two focused suites through the repository-configured `node --experimental-vm-modules node_modules/.bin/jest` launcher and use only that result as finding evidence.
+- Status: Contained command-shape error; corrected focused rerun pending.
+
+Resolution update at 2026-08-31T01:26:00+08:00: the corrected ESM-configured focused run passed both selected suites and all 43 tests, including the new atomic rejection, duplicate-order, and v12 predecessor regressions. E-MVP1-037 is resolved.
+
+## E-MVP1-038
+
+- Timestamp: 2026-08-31T01:26:00+08:00
+- Issue: The first post-finding controller-lease authority audit rejected its stale deterministic source-inventory digest after the scoped migration preflight edits shifted source matches.
+- Impact: The dedicated authority audit is not green until its mechanical source inventory is rebound; the finding-focused tests remain green.
+- Evidence: The verifier expected `be5bcedd2d3ce99fc62d9ae6cb1baa9bca7b40f41de36150c5d39b8ed3ad9c54` and computed `06368399118b1e80d71d0b3877e8c30d4ef9a4b3d9935a9fc6415ef6d052ac4e`.
+- Action: Update only the deterministic inventory digest and its exact test assertion, rerun the authority audit, then continue full applicable verification.
+- Status: Mechanical evidence rebind in progress; no runtime or controller authority semantics changed.
+
+Resolution update at 2026-08-31T01:28:38+08:00: the finding correction now validates the complete current v12/v13 applied-migration and audit-receipt set before any repair, rejects duplicate receipts independent of their order, and validates the v12 predecessor schema receipt before a v13 write. The focused finding pack passed 2 suites / 43 tests, the full AO suite passed 102 suites / 936 tests, acceptance passed 7/7, smoke and public-package verification passed, trajectory/false-success/Completion Record/controller-lease gates passed, and dependency audit reported zero vulnerabilities. The controller-lease inventory remained 61 matches and passed with rebound digest `06368399118b1e80d71d0b3877e8c30d4ef9a4b3d9935a9fc6415ef6d052ac4e`; E-MVP1-034 and E-MVP1-038 are resolved. The required `npm run lint` invocation still stops on the pre-existing missing-script gap classified in E-MVP1-008.

@@ -651,6 +651,113 @@ describe('ao state migrations', () => {
       .toThrow('Malformed control-plane Completion Record migration audit evidence');
   });
 
+  it('rejects malformed v13 evidence before repairing a missing v12 audit receipt', () => {
+    const repoRoot = createTempRepo();
+    bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW });
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    const audit = readAuditEntries(paths.auditPath)
+      .filter((entry) => entry.audit_id !== 'migration-12');
+    audit.find((entry) => entry.audit_id === 'migration-13').details.migration_key = 'forged';
+    fs.writeFileSync(
+      paths.auditPath,
+      `${audit.map((entry) => JSON.stringify(entry)).join('\n')}\n`,
+      'utf8',
+    );
+    const before = {
+      schema: fs.readFileSync(paths.schemaPath),
+      state: fs.readFileSync(paths.statePath),
+      audit: fs.readFileSync(paths.auditPath),
+      checkpoint: fs.readFileSync(paths.controllerLeaseMigrationAuditCheckpointPath),
+    };
+
+    expect(() => bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
+      .toThrow('Malformed control-plane Completion Record migration audit evidence');
+    expect(fs.readFileSync(paths.schemaPath)).toEqual(before.schema);
+    expect(fs.readFileSync(paths.statePath)).toEqual(before.state);
+    expect(fs.readFileSync(paths.auditPath)).toEqual(before.audit);
+    expect(fs.readFileSync(paths.controllerLeaseMigrationAuditCheckpointPath))
+      .toEqual(before.checkpoint);
+    expect(readAuditEntries(paths.auditPath).filter((entry) => entry.audit_id === 'migration-12'))
+      .toHaveLength(0);
+  });
+
+  it.each(['valid-first', 'contradictory-first'])(
+    'rejects duplicate v13 audit receipts independent of order: %s',
+    (order) => {
+      const repoRoot = createTempRepo();
+      bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW });
+      const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+      const audit = readAuditEntries(paths.auditPath);
+      const valid = audit.find((entry) => entry.audit_id === 'migration-13');
+      const contradictory = structuredClone(valid);
+      contradictory.details.migration_key = 'forged';
+      const withoutV13 = audit.filter((entry) => entry.audit_id !== 'migration-13');
+      const duplicates = order === 'valid-first'
+        ? [...withoutV13, valid, contradictory]
+        : [...withoutV13, contradictory, valid];
+      fs.writeFileSync(
+        paths.auditPath,
+        `${duplicates.map((entry) => JSON.stringify(entry)).join('\n')}\n`,
+        'utf8',
+      );
+      const before = {
+        schema: fs.readFileSync(paths.schemaPath),
+        state: fs.readFileSync(paths.statePath),
+        audit: fs.readFileSync(paths.auditPath),
+        checkpoint: fs.readFileSync(paths.controllerLeaseMigrationAuditCheckpointPath),
+      };
+
+      expect(() => bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
+        .toThrow('Malformed control-plane Completion Record migration audit evidence');
+      expect(fs.readFileSync(paths.schemaPath)).toEqual(before.schema);
+      expect(fs.readFileSync(paths.statePath)).toEqual(before.state);
+      expect(fs.readFileSync(paths.auditPath)).toEqual(before.audit);
+      expect(fs.readFileSync(paths.controllerLeaseMigrationAuditCheckpointPath))
+        .toEqual(before.checkpoint);
+    },
+  );
+
+  it.each(['missing', 'malformed'])(
+    'rejects %s v12 predecessor schema receipt before writing v13',
+    (variant) => {
+      const repoRoot = createTempRepo();
+      bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW });
+      const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+      const schema = readJson(paths.schemaPath);
+      schema.current_version = 12;
+      schema.latest_version = 12;
+      schema.applied_migrations = schema.applied_migrations.filter((entry) => entry.version <= 12);
+      if (variant === 'missing') {
+        schema.applied_migrations = schema.applied_migrations
+          .filter((entry) => entry.version !== 12);
+      } else {
+        schema.applied_migrations.find((entry) => entry.version === 12).key = 'forged';
+      }
+      fs.writeFileSync(paths.schemaPath, `${JSON.stringify(schema, null, 2)}\n`, 'utf8');
+      const state = readJson(paths.statePath);
+      delete state.completion_records;
+      fs.writeFileSync(paths.statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+      const priorAudit = readAuditEntries(paths.auditPath)
+        .filter((entry) => entry.audit_id !== 'migration-13');
+      fs.writeFileSync(
+        paths.auditPath,
+        `${priorAudit.map((entry) => JSON.stringify(entry)).join('\n')}\n`,
+        'utf8',
+      );
+      const before = {
+        schema: fs.readFileSync(paths.schemaPath),
+        state: fs.readFileSync(paths.statePath),
+        audit: fs.readFileSync(paths.auditPath),
+      };
+
+      expect(() => bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
+        .toThrow('Missing or malformed applied migration evidence for 0012_task_relations_v1alpha1');
+      expect(fs.readFileSync(paths.schemaPath)).toEqual(before.schema);
+      expect(fs.readFileSync(paths.statePath)).toEqual(before.state);
+      expect(fs.readFileSync(paths.auditPath)).toEqual(before.audit);
+    },
+  );
+
   it('migrates a legacy state shadow once with explicit schema and audit receipts', () => {
     const { repoRoot, paths } = materializeVersion10();
 
