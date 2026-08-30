@@ -108,6 +108,7 @@ describe('ao-pilot public library API', () => {
     expect(engines.evaluatePolicyDecision).toEqual(expect.any(Function));
     expect(engines.executeAssistActions).toEqual(expect.any(Function));
     expect(engines.runControllerLoop).toEqual(expect.any(Function));
+    expect(engines.inspectTaskGraph).toEqual(expect.any(Function));
     expect(protocols.createHandoffProtocol).toEqual(expect.any(Function));
     expect(protocols.createReviewProtocol).toEqual(expect.any(Function));
     expect(protocols.evaluateOrMergePreflight).toEqual(expect.any(Function));

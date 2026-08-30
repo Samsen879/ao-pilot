@@ -13,6 +13,10 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 
 import { createStateRepository } from './state-repository.js';
+import {
+  inspectTaskGraph,
+  terminalEvidenceFromManagedTasks,
+} from './task-graph.js';
 
 export const DEFAULT_PROJECT_ID = 'my-project';
 export const AO_STATE_SCHEMA_VERSION = 'ao.state.v1alpha1';
@@ -327,6 +331,11 @@ export async function loadAoStateReport({
     repoInventory,
     now,
   });
+  const taskGraph = inspectTaskGraph({
+    tasks: snapshot.state.managed_tasks,
+    relations: snapshot.state.task_relations,
+    terminalEvidence: terminalEvidenceFromManagedTasks(snapshot.state.managed_tasks),
+  });
 
   return {
     schema_version: AO_STATE_SCHEMA_VERSION,
@@ -339,6 +348,8 @@ export async function loadAoStateReport({
     state: snapshot.state,
     summary: {
       managed_task_count: snapshot.state.managed_tasks.length,
+      task_graph_healthy: taskGraph.healthy,
+      task_graph_finding_count: taskGraph.findings.length,
       pr_binding_count: snapshot.state.pr_bindings.length,
       active_ownership_lease_count: snapshot.state.ownership_leases.filter((lease) => lease.status === 'active').length,
       active_controller_lease_count: snapshot.state.controller_leases.filter((lease) => lease.status === 'active').length,
@@ -385,6 +396,7 @@ export async function loadAoStateReport({
       },
       inspections: taskInspections,
     },
+    task_graph: taskGraph,
     debt: debtReport,
     actions: {
       recent: recentActions,
