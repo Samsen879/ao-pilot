@@ -395,6 +395,8 @@ Resolution update at 2026-08-31T01:46:31+08:00: `npm ci` restored 292 lockfile-d
 - Action: Rebind only the deterministic inventory digest and mechanically dependent receipt evidence, run the dedicated authority verifier, then rerun the full suite.
 - Status: Mechanical evidence rebind in progress; no runtime or controller-lease semantics changed.
 
+Resolution update at 2026-08-31T02:06:04+08:00: all three E-MVP1-046 findings are corrected and mapped to exact regressions: integration binds the durable reviewed HEAD, provider merge authority requires every published schema key, and abandoned identity updates retain every prior custody item unchanged. The focused finding pack passed 4 suites / 51 tests, independent deterministic replay passed 20/20, full AO passed 103 suites / 958 tests, acceptance passed 7/7, smoke and public package verification passed with 279 entries, trajectory/false-success/Completion Record/controller-lease gates passed, and dependency audit reported zero vulnerabilities. The controller inventory passed with 61 matches and final digest `825880b4f2765e947b1b17105a5ca422f2028addaa5969ebd2b3089cf6e5b638`. E-MVP1-046 and E-MVP1-047 are resolved for `finding_verification`; the pre-existing missing `lint` script remains E-MVP1-008.
+
 ## E-MVP1-042
 
 - Timestamp: 2026-08-31T01:48:51+08:00
