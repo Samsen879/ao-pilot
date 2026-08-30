@@ -90,6 +90,11 @@ export const CONTROL_PLANE_TASK_RELATIONS_MIGRATION = {
   key: '0012_task_relations_v1alpha1',
 };
 
+export const CONTROL_PLANE_COMPLETION_RECORDS_MIGRATION = {
+  version: 13,
+  key: '0013_completion_records_v1alpha1',
+};
+
 const CONTROL_PLANE_MIGRATIONS = [
   CONTROL_PLANE_BOOTSTRAP_MIGRATION,
   CONTROL_PLANE_TASK_SPEC_MIGRATION,
@@ -103,6 +108,7 @@ const CONTROL_PLANE_MIGRATIONS = [
   CONTROL_PLANE_REVIEW_GATE_MIGRATION,
   CONTROL_PLANE_CONTROLLER_LEASE_AUTHORITY_MIGRATION,
   CONTROL_PLANE_TASK_RELATIONS_MIGRATION,
+  CONTROL_PLANE_COMPLETION_RECORDS_MIGRATION,
 ];
 
 function resolveNow(now) {
@@ -164,6 +170,7 @@ function buildBootstrapState({
     'credential_provenances',
     'task_specs',
     'task_relations',
+    'completion_records',
     'runtime_preflights',
     'repo_knowledge',
     'review_records',
@@ -341,6 +348,28 @@ function applyMigration({
     return nextState;
   }
 
+  if (migration.version === CONTROL_PLANE_COMPLETION_RECORDS_MIGRATION.version) {
+    if (!Array.isArray(state?.task_relations)) {
+      throw new Error('Pre-v13 state is missing authoritative task_relations evidence');
+    }
+    if (
+      Object.hasOwn(state ?? {}, 'completion_records')
+      && (!Array.isArray(state.completion_records) || state.completion_records.length > 0)
+    ) {
+      throw new Error(
+        'Pre-v13 completion_records evidence is not authoritative and cannot be migrated',
+      );
+    }
+    const nextState = buildBootstrapState({
+      projectId,
+      now,
+      existingState: state,
+    });
+    removeControllerLeaseShadow(nextState);
+    nextState.completion_records = [];
+    return nextState;
+  }
+
   throw new Error(`Unsupported migration version ${migration.version}`);
 }
 
@@ -420,6 +449,12 @@ function buildAuditSummary(migration) {
     return {
       operation: 'migrate',
       summary: 'Applied control-plane task-relations migration.',
+    };
+  }
+  if (migration.version === CONTROL_PLANE_COMPLETION_RECORDS_MIGRATION.version) {
+    return {
+      operation: 'migrate',
+      summary: 'Applied control-plane Completion Record migration.',
     };
   }
 
@@ -740,15 +775,49 @@ function assertTaskRelationsMigrationAuditEntry(entry, { projectId, recordedAt }
   }
 }
 
+function assertCompletionRecordsMigrationAuditEntry(entry, { projectId, recordedAt }) {
+  let normalizedEntry;
+  try {
+    normalizedEntry = createControlPlaneAuditEntry(entry);
+  } catch {
+    throw new Error('Malformed control-plane Completion Record migration audit evidence');
+  }
+  if (
+    JSON.stringify(normalizedEntry) !== JSON.stringify(entry)
+    || entry?.audit_id !== `migration-${CONTROL_PLANE_COMPLETION_RECORDS_MIGRATION.version}`
+    || entry.project_id !== projectId
+    || entry.recorded_at !== recordedAt
+    || entry.entity_kind !== 'schema'
+    || entry.entity_id !== `v${CONTROL_PLANE_COMPLETION_RECORDS_MIGRATION.version}`
+    || entry.operation !== 'migrate'
+    || entry.actor !== 'bootstrap'
+    || entry.summary !== 'Applied control-plane Completion Record migration.'
+    || entry.details?.migration_key !== CONTROL_PLANE_COMPLETION_RECORDS_MIGRATION.key
+    || entry.details?.migration_version !== CONTROL_PLANE_COMPLETION_RECORDS_MIGRATION.version
+  ) {
+    throw new Error('Malformed control-plane Completion Record migration audit evidence');
+  }
+}
+
 function resolveMigrationAppliedAt({ paths, projectId, migration, fallback }) {
-  if (migration.version !== CONTROL_PLANE_TASK_RELATIONS_MIGRATION.version) return fallback;
+  if (![
+    CONTROL_PLANE_TASK_RELATIONS_MIGRATION.version,
+    CONTROL_PLANE_COMPLETION_RECORDS_MIGRATION.version,
+  ].includes(migration.version)) return fallback;
   const existing = readControlPlaneAuditEntries({ auditPath: paths.auditPath })
     .find((entry) => entry.audit_id === `migration-${migration.version}`);
   if (existing == null) return fallback;
-  assertTaskRelationsMigrationAuditEntry(existing, {
-    projectId,
-    recordedAt: existing.recorded_at,
-  });
+  if (migration.version === CONTROL_PLANE_TASK_RELATIONS_MIGRATION.version) {
+    assertTaskRelationsMigrationAuditEntry(existing, {
+      projectId,
+      recordedAt: existing.recorded_at,
+    });
+  } else {
+    assertCompletionRecordsMigrationAuditEntry(existing, {
+      projectId,
+      recordedAt: existing.recorded_at,
+    });
+  }
   return existing.recorded_at;
 }
 
@@ -764,6 +833,9 @@ function ensureMigrationAuditEntry({ paths, projectId, migration, recordedAt, de
     }
     if (migration.version === CONTROL_PLANE_TASK_RELATIONS_MIGRATION.version) {
       assertTaskRelationsMigrationAuditEntry(existing, { projectId, recordedAt });
+    }
+    if (migration.version === CONTROL_PLANE_COMPLETION_RECORDS_MIGRATION.version) {
+      assertCompletionRecordsMigrationAuditEntry(existing, { projectId, recordedAt });
     }
     return existing;
   }
@@ -829,10 +901,20 @@ export function bootstrapControlPlaneState({
       );
       const taskAudit = readControlPlaneAuditEntries({ auditPath: paths.auditPath })
         .find((entry) => entry.audit_id === `migration-${CONTROL_PLANE_TASK_RELATIONS_MIGRATION.version}`);
-      if (taskAudit != null) {
+      const completionMigration = resolveAppliedMigration(
+        initialSchema,
+        CONTROL_PLANE_COMPLETION_RECORDS_MIGRATION,
+      );
+      const completionAudit = readControlPlaneAuditEntries({ auditPath: paths.auditPath })
+        .find((entry) => entry.audit_id === `migration-${CONTROL_PLANE_COMPLETION_RECORDS_MIGRATION.version}`);
+      if (taskAudit != null && completionAudit != null) {
         assertTaskRelationsMigrationAuditEntry(taskAudit, {
           projectId,
           recordedAt: taskMigration.applied_at,
+        });
+        assertCompletionRecordsMigrationAuditEntry(completionAudit, {
+          projectId,
+          recordedAt: completionMigration.applied_at,
         });
         return {
           bootstrapped: true,
@@ -907,6 +989,16 @@ export function bootstrapControlPlaneState({
         projectId,
         migration: CONTROL_PLANE_TASK_RELATIONS_MIGRATION,
         recordedAt: taskMigration.applied_at,
+      });
+      const completionMigration = resolveAppliedMigration(
+        existingSchema,
+        CONTROL_PLANE_COMPLETION_RECORDS_MIGRATION,
+      );
+      ensureMigrationAuditEntry({
+        paths,
+        projectId,
+        migration: CONTROL_PLANE_COMPLETION_RECORDS_MIGRATION,
+        recordedAt: completionMigration.applied_at,
       });
       return {
         bootstrapped: true,

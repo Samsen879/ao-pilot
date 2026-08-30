@@ -23,6 +23,7 @@ import {
   createTaskSpecRecord,
 } from '../state-contracts.js';
 import { createTaskRelation } from '../task-relations.js';
+import { normalizeCompletionRecord } from '../completion-record-contracts.js';
 
 function persistedSummary(label, identityKey) {
   return (record) => `Persisted ${label} ${record?.[identityKey]}.`;
@@ -138,6 +139,14 @@ const COLLECTION_DESCRIPTORS = [
     methodName: null,
     normalize: createTaskRelation,
     summary: persistedSummary('task relation', 'relation_id'),
+  },
+  {
+    collectionKey: 'completion_records',
+    identityKey: 'record_id',
+    entityKind: 'completion_record',
+    methodName: null,
+    normalize: normalizeCompletionRecord,
+    summary: persistedSummary('Completion Record', 'record_id'),
   },
   {
     collectionKey: 'runtime_preflights',

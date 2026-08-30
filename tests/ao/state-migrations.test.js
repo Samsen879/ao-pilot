@@ -132,8 +132,8 @@ describe('ao state migrations', () => {
 
     expect(readJson(paths.schemaPath)).toMatchObject({
       project_id: PROJECT_ID,
-      current_version: 12,
-      latest_version: 12,
+      current_version: 13,
+      latest_version: 13,
       applied_migrations: [
         {
           version: 1,
@@ -195,6 +195,11 @@ describe('ao state migrations', () => {
           key: '0012_task_relations_v1alpha1',
           applied_at: FIXED_NOW,
         },
+        {
+          version: 13,
+          key: '0013_completion_records_v1alpha1',
+          applied_at: FIXED_NOW,
+        },
       ],
     });
     expect(readJson(paths.statePath)).toMatchObject({
@@ -204,6 +209,7 @@ describe('ao state migrations', () => {
       credential_provenances: [],
       task_specs: [],
       task_relations: [],
+      completion_records: [],
       runtime_preflights: [],
       repo_knowledge: [],
       review_records: [],
@@ -307,6 +313,16 @@ describe('ao state migrations', () => {
           migration_version: 12,
         }),
       }),
+      expect.objectContaining({
+        entity_kind: 'schema',
+        entity_id: 'v13',
+        operation: 'migrate',
+        summary: 'Applied control-plane Completion Record migration.',
+        details: expect.objectContaining({
+          migration_key: '0013_completion_records_v1alpha1',
+          migration_version: 13,
+        }),
+      }),
     ]);
     expect(readJson(paths.controllerLeasesPath)).toEqual(createControllerLeaseAuthority([]));
     expect(readJson(paths.statePath)).not.toHaveProperty('controller_leases');
@@ -348,7 +364,7 @@ describe('ao state migrations', () => {
       migrated: false,
     });
     expect(readJson(paths.schemaPath).updated_at).toBe(FIXED_NOW);
-    expect(readAuditEntries(paths.auditPath)).toHaveLength(12);
+    expect(readAuditEntries(paths.auditPath)).toHaveLength(13);
   });
 
   it('replays the v12 task-relations migration without promoting metadata', () => {
@@ -403,14 +419,16 @@ describe('ao state migrations', () => {
     expect(first).toMatchObject({ bootstrapped: true, migrated: true });
     expect(second).toMatchObject({ bootstrapped: true, migrated: false });
     expect(readJson(paths.schemaPath)).toMatchObject({
-      current_version: 12,
-      latest_version: 12,
+      current_version: 13,
+      latest_version: 13,
       applied_migrations: expect.arrayContaining([
         expect.objectContaining({ version: 12, key: '0012_task_relations_v1alpha1' }),
+        expect.objectContaining({ version: 13, key: '0013_completion_records_v1alpha1' }),
       ]),
     });
     expect(readJson(paths.statePath)).toMatchObject({
       task_relations: [],
+      completion_records: [],
       managed_tasks: [expect.objectContaining({
         task_id: 'task-with-legacy-metadata',
         metadata: {
@@ -488,7 +506,7 @@ describe('ao state migrations', () => {
       projectId: PROJECT_ID,
       now: '2026-08-12T02:30:00.000Z',
     })).toMatchObject({ bootstrapped: true, migrated: true });
-    expect(readJson(paths.schemaPath).applied_migrations.at(-1)).toEqual({
+    expect(readJson(paths.schemaPath).applied_migrations.find((entry) => entry.version === 12)).toEqual({
       version: 12,
       key: '0012_task_relations_v1alpha1',
       applied_at: firstAppliedAt,
@@ -522,6 +540,117 @@ describe('ao state migrations', () => {
     expect(readJson(paths.statePath).task_relations).toEqual(taskRelations);
   });
 
+  it('replays the additive v13 Completion Record migration deterministically', () => {
+    const repoRoot = createTempRepo();
+    bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW });
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    const schema = readJson(paths.schemaPath);
+    schema.current_version = 12;
+    schema.latest_version = 12;
+    schema.applied_migrations = schema.applied_migrations.filter((entry) => entry.version <= 12);
+    fs.writeFileSync(paths.schemaPath, `${JSON.stringify(schema, null, 2)}\n`, 'utf8');
+    const state = readJson(paths.statePath);
+    delete state.completion_records;
+    fs.writeFileSync(paths.statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    const priorAudit = readAuditEntries(paths.auditPath)
+      .filter((entry) => entry.audit_id !== 'migration-13');
+    fs.writeFileSync(
+      paths.auditPath,
+      `${priorAudit.map((entry) => JSON.stringify(entry)).join('\n')}\n`,
+      'utf8',
+    );
+
+    const first = bootstrapControlPlaneState({
+      repoRoot,
+      projectId: PROJECT_ID,
+      now: '2026-08-31T01:01:00.000Z',
+    });
+    const firstBytes = {
+      schema: fs.readFileSync(paths.schemaPath),
+      state: fs.readFileSync(paths.statePath),
+      audit: fs.readFileSync(paths.auditPath),
+    };
+    const second = bootstrapControlPlaneState({
+      repoRoot,
+      projectId: PROJECT_ID,
+      now: '2026-08-31T01:02:00.000Z',
+    });
+
+    expect(first).toMatchObject({ bootstrapped: true, migrated: true });
+    expect(second).toMatchObject({ bootstrapped: true, migrated: false });
+    expect(readJson(paths.schemaPath)).toMatchObject({
+      current_version: 13,
+      latest_version: 13,
+      applied_migrations: expect.arrayContaining([
+        expect.objectContaining({ version: 13, key: '0013_completion_records_v1alpha1' }),
+      ]),
+    });
+    expect(readJson(paths.statePath).completion_records).toEqual([]);
+    expect(readAuditEntries(paths.auditPath).filter((entry) => entry.audit_id === 'migration-13'))
+      .toEqual([expect.objectContaining({
+        summary: 'Applied control-plane Completion Record migration.',
+      })]);
+    expect(fs.readFileSync(paths.schemaPath)).toEqual(firstBytes.schema);
+    expect(fs.readFileSync(paths.statePath)).toEqual(firstBytes.state);
+    expect(fs.readFileSync(paths.auditPath)).toEqual(firstBytes.audit);
+  });
+
+  it.each([
+    { forged: { record_id: 'child-completion:forged' } },
+    { forged: [{ record_id: 'child-completion:forged' }] },
+  ])('fails closed on unauthenticated pre-v13 Completion Record evidence %#', ({ forged }) => {
+    const repoRoot = createTempRepo();
+    bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW });
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    const schema = readJson(paths.schemaPath);
+    schema.current_version = 12;
+    schema.latest_version = 12;
+    schema.applied_migrations = schema.applied_migrations.filter((entry) => entry.version <= 12);
+    fs.writeFileSync(paths.schemaPath, `${JSON.stringify(schema, null, 2)}\n`, 'utf8');
+    const state = readJson(paths.statePath);
+    state.completion_records = forged;
+    fs.writeFileSync(paths.statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    const before = {
+      schema: fs.readFileSync(paths.schemaPath),
+      state: fs.readFileSync(paths.statePath),
+      audit: fs.readFileSync(paths.auditPath),
+    };
+
+    expect(() => bootstrapControlPlaneState({
+      repoRoot,
+      projectId: PROJECT_ID,
+      now: '2026-08-31T01:01:00.000Z',
+    })).toThrow('Pre-v13 completion_records evidence is not authoritative and cannot be migrated');
+    expect(fs.readFileSync(paths.schemaPath)).toEqual(before.schema);
+    expect(fs.readFileSync(paths.statePath)).toEqual(before.state);
+    expect(fs.readFileSync(paths.auditPath)).toEqual(before.audit);
+  });
+
+  it('recreates missing v13 audit evidence and rejects malformed replay evidence', () => {
+    const repoRoot = createTempRepo();
+    bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW });
+    const paths = resolveControlPlanePaths({ repoRoot, projectId: PROJECT_ID });
+    const withoutV13 = readAuditEntries(paths.auditPath)
+      .filter((entry) => entry.audit_id !== 'migration-13');
+    fs.writeFileSync(
+      paths.auditPath,
+      `${withoutV13.map((entry) => JSON.stringify(entry)).join('\n')}\n`,
+      'utf8',
+    );
+
+    expect(bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
+      .toMatchObject({ bootstrapped: true, migrated: false });
+    const malformed = readAuditEntries(paths.auditPath);
+    malformed.find((entry) => entry.audit_id === 'migration-13').details.migration_key = 'forged';
+    fs.writeFileSync(
+      paths.auditPath,
+      `${malformed.map((entry) => JSON.stringify(entry)).join('\n')}\n`,
+      'utf8',
+    );
+    expect(() => bootstrapControlPlaneState({ repoRoot, projectId: PROJECT_ID, now: FIXED_NOW }))
+      .toThrow('Malformed control-plane Completion Record migration audit evidence');
+  });
+
   it('migrates a legacy state shadow once with explicit schema and audit receipts', () => {
     const { repoRoot, paths } = materializeVersion10();
 
@@ -546,7 +675,7 @@ describe('ao state migrations', () => {
     expect(second).toMatchObject({ bootstrapped: true, migrated: false });
     expect(readJson(paths.statePath)).not.toHaveProperty('controller_leases');
     expect(readJson(paths.controllerLeasesPath)).toEqual(createControllerLeaseAuthority([controllerLease()]));
-    expect(readJson(paths.schemaPath).applied_migrations.at(-1)).toMatchObject({
+    expect(readJson(paths.schemaPath).applied_migrations.find((entry) => entry.version === 12)).toMatchObject({
       version: 12,
       key: '0012_task_relations_v1alpha1',
     });
@@ -808,6 +937,10 @@ try {
         audit_id: 'migration-12',
         details: expect.objectContaining({ migration_key: '0012_task_relations_v1alpha1' }),
       }),
+      expect.objectContaining({
+        audit_id: 'migration-13',
+        details: expect.objectContaining({ migration_key: '0013_completion_records_v1alpha1' }),
+      }),
     ]);
   });
 
@@ -927,7 +1060,7 @@ try {
       migrated: true,
     });
     expect(readJson(paths.schemaPath)).toMatchObject({
-      current_version: 12,
+      current_version: 13,
       applied_migrations: [
         {
           version: 1,
@@ -977,6 +1110,10 @@ try {
           version: 12,
           key: '0012_task_relations_v1alpha1',
         },
+        {
+          version: 13,
+          key: '0013_completion_records_v1alpha1',
+        },
       ],
     });
     expect(readJson(paths.statePath)).toMatchObject({
@@ -1003,6 +1140,7 @@ try {
         },
       ],
       task_relations: [],
+      completion_records: [],
     });
   });
 });

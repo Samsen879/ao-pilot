@@ -261,7 +261,7 @@ try {
     expect(() => repository.getSnapshot()).toThrow('canonical edge identity');
   });
 
-  it('fails closed when a v12 state omits the durable relation collection', () => {
+  it('fails closed when a current state omits the durable relation collection', () => {
     const repository = createRepository();
     repository.upsertManagedTask(managedTask('task-a'));
     const paths = repository.getSnapshot().paths;

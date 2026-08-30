@@ -158,7 +158,7 @@ describe('ao controller loop', () => {
       now: '2026-03-29T06:41:00.000Z',
       stopSignal: { aborted: true },
     })).resolves.toMatchObject({ mode: 'observe', pass_count: 0 });
-    expect(JSON.parse(fs.readFileSync(paths.schemaPath, 'utf8')).current_version).toBe(12);
+    expect(JSON.parse(fs.readFileSync(paths.schemaPath, 'utf8')).current_version).toBe(13);
     expect(JSON.parse(fs.readFileSync(paths.statePath, 'utf8'))).not.toHaveProperty('controller_leases');
   });
 

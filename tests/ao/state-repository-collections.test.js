@@ -21,6 +21,7 @@ const EXPECTED_COLLECTIONS = [
   ['credential_provenances', 'provenance_id', 'credential_provenance', 'upsertCredentialProvenance', false],
   ['task_specs', 'task_id', 'task_spec', 'upsertTaskSpec', false],
   ['task_relations', 'relation_id', 'task_relation', null, false],
+  ['completion_records', 'record_id', 'completion_record', null, false],
   ['runtime_preflights', 'runtime_ref', 'runtime_preflight', 'upsertRuntimePreflight', false],
   ['repo_knowledge', 'project_id', 'repo_knowledge', 'upsertRepoKnowledge', false],
   ['review_records', 'review_id', 'review_record', 'upsertReviewRecord', false],

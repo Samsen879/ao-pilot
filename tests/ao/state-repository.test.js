@@ -163,7 +163,7 @@ describe('ao state repository', () => {
     fs.writeFileSync(paths.auditPath, `${auditEntries.map((entry) => JSON.stringify(entry)).join('\n')}\n`, 'utf8');
 
     const snapshot = repository.getSnapshot();
-    expect(snapshot.schema.current_version).toBe(12);
+    expect(snapshot.schema.current_version).toBe(13);
     expect(snapshot.state.controller_leases).toEqual([]);
     expect(JSON.parse(fs.readFileSync(paths.statePath, 'utf8'))).not.toHaveProperty('controller_leases');
     expect(JSON.parse(fs.readFileSync(paths.controllerLeasesPath, 'utf8'))).toEqual(
@@ -359,6 +359,7 @@ describe('ao state repository', () => {
         'schema:migrate:v10',
         'schema:migrate:v11',
         'schema:migrate:v12',
+        'schema:migrate:v13',
         'managed_task:upsert:task-1',
       'pr_binding:upsert:binding-1',
       'ownership_lease:upsert:ownership-1',
