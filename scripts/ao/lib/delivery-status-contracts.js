@@ -77,6 +77,14 @@ function normalizeStatus(value) {
   return DELIVERY_STATUSES.includes(value) ? value : null;
 }
 
+function hasExactKeys(value, expectedKeys) {
+  return value != null
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && JSON.stringify(Object.keys(value).sort(compareStrings))
+      === JSON.stringify([...expectedKeys].sort(compareStrings));
+}
+
 function normalizeUnresolvedItems(items, findings) {
   if (!Array.isArray(items)) {
     findings.push(finding('delivery_abandoned_custody_missing', {
@@ -131,6 +139,18 @@ function validateProviderMerge({
   mergeSha,
   mergeObservationRef,
 }, findings) {
+  if (!hasExactKeys(providerMergeObservation, [
+    'evidence_refs', 'observed_at', 'provider', 'pull_request', 'repository',
+    'schema_version', 'source_error', 'source_ok',
+  ]) || !hasExactKeys(providerMergeObservation?.repository, ['repository_id', 'slug'])
+    || !hasExactKeys(providerMergeObservation?.pull_request, [
+      'base_ref', 'base_sha', 'head_sha', 'merge_commit_sha', 'merged_at',
+      'number', 'state', 'url',
+    ])) {
+    findings.push(finding('delivery_provider_observation_shape_invalid', {
+      fields: ['provider_merge_observation'],
+    }));
+  }
   const normalized = normalizeGitHubMergeObservation(providerMergeObservation);
   for (const code of normalized.reason_codes) {
     findings.push(finding(`delivery_${code}`, { fields: ['provider_merge_observation'] }));
@@ -269,6 +289,7 @@ export function evaluateDeliveryStatusTransition({
   prNumber = null,
   baseSha = null,
   headSha = null,
+  previousHeadSha = null,
   mergeSha = null,
   reviewRefs = [],
   mergeObservationRef = null,
@@ -308,6 +329,11 @@ export function evaluateDeliveryStatusTransition({
     reviewEvidenceRefs = validateReviewEvidence({ headSha, reviewRefs }, findings);
   }
   if (targetStatus === 'integrated') {
+    if (fromStatus === 'review_passed' && previousHeadSha !== headSha) {
+      findings.push(finding('delivery_reviewed_head_drift', {
+        fields: ['head_sha', 'previous_head_sha'],
+      }));
+    }
     if (!GIT_SHA.test(mergeSha ?? '') || typeof mergeObservationRef !== 'string'
       || mergeObservationRef.trim() === '' || /\s/.test(mergeObservationRef)) {
       findings.push(finding('delivery_provider_merge_evidence_missing', {
@@ -345,6 +371,19 @@ export function evaluateDeliveryStatusTransition({
     findings.push(finding('delivery_abandoned_custody_missing', {
       fields: ['previous_unresolved_items'],
     }));
+  }
+  if (fromStatus === 'abandoned' && targetStatus === 'abandoned') {
+    const nextCustodyById = new Map(unresolvedCustody.map((item) => [item.id, item]));
+    const discardedIds = previousUnresolvedCustody.filter((item) => (
+      canonicalDeliveryStatusJson(nextCustodyById.get(item.id))
+        !== canonicalDeliveryStatusJson(item)
+    )).map((item) => item.id);
+    if (discardedIds.length > 0) {
+      findings.push(finding('delivery_abandoned_custody_not_retained', {
+        fields: ['unresolved_items'],
+        details: discardedIds.map((id) => `discarded_id=${id}`),
+      }));
+    }
   }
   const sortedFindings = sortFindings(findings);
   const accepted = sortedFindings.length === 0;

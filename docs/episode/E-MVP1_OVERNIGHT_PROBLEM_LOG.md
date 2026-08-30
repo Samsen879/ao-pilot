@@ -436,3 +436,21 @@ Resolution update at 2026-08-31T01:54:01+08:00: the final controller-lease autho
 - Status: Finding-scoped correction in progress before PR creation or candidate review.
 
 Resolution update at 2026-08-31T01:55:57+08:00: `worker_terminal` is absent from the public projection; empty or malformed predecessor custody now produces explicit structured missing-custody findings and an empty retained-custody projection. The affected focused pack passed 4 suites / 47 tests, independent deterministic replay passed 17/17, public package verification passed with 279 entries, and the controller-lease authority audit remained stable at 61 matches and digest `05763e8eb978eb861499242063d69354bfafe6885a449d66297b9ebe622a07b1`. E-MVP1-044 and E-MVP1-045 are resolved before PR creation or candidate review.
+
+## E-MVP1-046
+
+- Timestamp: 2026-08-31T02:03:06+08:00
+- Issue: The single exact-candidate review on `adffbbc2e9213806b9b84e38ee3bc8aec4f9c220` reported one P1 and two P2 fail-closed findings: integration did not compare the durable reviewed HEAD, provider observations could omit required versioned fields, and abandoned self-updates could replace prior unresolved custody.
+- Impact: PR #93 is not merge-ready until all three findings have exact regressions and finding-scoped corrections. No P0 finding was reported.
+- Evidence: Review `PRR_kwDOSDQELs8AAAABLbC8yA` created inline comments `3890119357`, `3890119359`, and `3890119362` against exact candidate `adffbbc2e9213806b9b84e38ee3bc8aec4f9c220`.
+- Action: Bind integration to the predecessor reviewed HEAD, require the exact published GitHub observation shape, preserve all prior abandoned custody on identity updates, and add one focused regression per finding without requesting another candidate review.
+- Status: Finding-verification correction in progress on the same principal PR.
+
+## E-MVP1-047
+
+- Timestamp: 2026-08-31T02:04:23+08:00
+- Issue: The first post-review authority audit rejected its stale deterministic source digest after the predecessor-reviewed-HEAD binding added one line to `state-repository.js`.
+- Impact: Finding-focused semantics pass, but deterministic authority verification is not green until its mechanical source inventory is rebound.
+- Evidence: The verifier expected `05763e8eb978eb861499242063d69354bfafe6885a449d66297b9ebe622a07b1` and computed `825880b4f2765e947b1b17105a5ca422f2028addaa5969ebd2b3089cf6e5b638`; source match count remains 61.
+- Action: Rebind only the inventory digest and exact test assertion, then rerun the dedicated audit and full applicable verification.
+- Status: Mechanical evidence rebind in progress; no runtime or controller-lease semantics changed.

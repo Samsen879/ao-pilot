@@ -584,6 +584,7 @@ export function createStateRepository({
       prNumber: normalizedRecord.pr_number ?? null,
       baseSha: normalizedRecord.base_sha ?? null,
       headSha: normalizedRecord.head_sha ?? null,
+      previousHeadSha: existingRecord?.head_sha ?? null,
       mergeSha: normalizedRecord.merge_sha ?? null,
       reviewRefs: normalizedRecord.review_refs ?? [],
       mergeObservationRef: normalizedRecord.merge_observation_ref ?? null,

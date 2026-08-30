@@ -204,6 +204,26 @@ describe('durable Completion Record repository API', () => {
       .toBe('review_passed');
   });
 
+  it('rejects integration at a provider HEAD different from the durable reviewed HEAD', () => {
+    const repository = createRepository();
+    addChild(repository, 'child-1');
+    const first = repository.createCompletionRecord(recordFor('child-1'));
+    const changedHead = '8'.repeat(40);
+    const evidence = integratedEvidence();
+    evidence.providerMergeObservation.pull_request.head_sha = changedHead;
+    const unreviewedHead = {
+      ...first,
+      delivery_status: 'integrated',
+      head_sha: changedHead,
+      merge_sha: '3'.repeat(40),
+      merge_observation_ref: MERGE_REF,
+    };
+
+    expect(() => repository.updateCompletionRecord(unreviewedHead, evidence))
+      .toThrow(/delivery_reviewed_head_drift/);
+    expect(repository.getCompletionRecordForChild('child-1').head_sha).toBe('2'.repeat(40));
+  });
+
   it('serializes and queries records deterministically across insertion order', () => {
     const first = createRepository();
     const second = createRepository();

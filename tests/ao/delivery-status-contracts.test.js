@@ -73,6 +73,7 @@ function integrated(overrides = {}) {
     prNumber: 79,
     baseSha: BASE_SHA,
     headSha: HEAD_SHA,
+    previousHeadSha: HEAD_SHA,
     mergeSha: MERGE_SHA,
     reviewRefs: ['github:pull/79/reviews/1'],
     mergeObservationRef: MERGE_REF,
@@ -142,6 +143,16 @@ describe('delivery status transition and documentation projections', () => {
     expect(localOnly.provider_integrated).toBe(false);
   });
 
+  it('rejects integration when the provider HEAD differs from the previously reviewed HEAD', () => {
+    const changedHead = '8'.repeat(40);
+    const result = integrated({
+      headSha: changedHead,
+      providerMergeObservation: mergeObservation({ pull_request: { head_sha: changedHead } }),
+    });
+    expect(result.accepted).toBe(false);
+    expect(findingCodes(result)).toContain('delivery_reviewed_head_drift');
+  });
+
   it.each([
     ['repository identity', { repository: { repository_id: 2002 } }, 'delivery_provider_repository_mismatch'],
     ['pull request identity', { pull_request: { number: 80 } }, 'delivery_provider_pull_request_mismatch'],
@@ -155,6 +166,14 @@ describe('delivery status transition and documentation projections', () => {
     const result = integrated({ providerMergeObservation: mergeObservation(overrides) });
     expect(result.accepted).toBe(false);
     expect(findingCodes(result)).toContain(code);
+  });
+
+  it('rejects a versioned provider observation with a missing required field', () => {
+    const observation = mergeObservation();
+    delete observation.source_error;
+    const result = integrated({ providerMergeObservation: observation });
+    expect(result.accepted).toBe(false);
+    expect(findingCodes(result)).toContain('delivery_provider_observation_shape_invalid');
   });
 
   it('returns structured findings for unsupported transition inputs', () => {
@@ -230,6 +249,42 @@ describe('delivery status transition and documentation projections', () => {
     ]));
     expect(retry.delivery_status).toBe('abandoned');
     expect(retry.retained_unresolved_custody).toEqual([]);
+  });
+
+  it('requires an abandoned self-update to retain every prior custody item unchanged', () => {
+    const priorCustody = [{
+      id: 'provider-retry',
+      summary: 'Provider execution remains unresolved.',
+      evidence_refs: ['github:actions/runs/123'],
+    }];
+    const replacement = evaluateDeliveryStatusTransition({
+      previousStatus: 'abandoned',
+      requestedStatus: 'abandoned',
+      abandonmentReason: 'Still abandoned.',
+      previousUnresolvedItems: priorCustody,
+      unresolvedItems: [{
+        id: 'different-work',
+        summary: 'A different item.',
+        evidence_refs: ['github:issues/29'],
+      }],
+    });
+    expect(replacement.accepted).toBe(false);
+    expect(findingCodes(replacement)).toContain('delivery_abandoned_custody_not_retained');
+    expect(replacement.retained_unresolved_custody).toEqual(priorCustody);
+
+    const retained = evaluateDeliveryStatusTransition({
+      previousStatus: 'abandoned',
+      requestedStatus: 'abandoned',
+      abandonmentReason: 'Still abandoned.',
+      previousUnresolvedItems: priorCustody,
+      unresolvedItems: [...priorCustody, {
+        id: 'new-work',
+        summary: 'Additional unresolved work.',
+        evidence_refs: ['github:issues/129'],
+      }],
+    });
+    expect(retained.accepted).toBe(true);
+    expect(retained.abandonment.unresolved_custody).toHaveLength(2);
   });
 
   it('projects documentation eligibility separately from produced evidence', () => {
