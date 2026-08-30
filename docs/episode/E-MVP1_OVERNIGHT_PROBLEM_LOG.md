@@ -144,3 +144,12 @@ Resolution update at 2026-08-30T23:59:54+08:00: the dedicated controller-lease a
 - Status: Assurance reclassified to semantic-delta review; implementation remains authorized within #25/R2.
 
 Resolution update at 2026-08-31T00:27:43+08:00: all six E-MVP1-013 findings are implemented and mapped to exact regressions; the focused gate passed 10 suites/89 tests, the full AO suite passed 101 suites/916 tests, acceptance passed 7 tests, smoke and package verification passed, dependency audit reported zero vulnerabilities, and the controller-lease audit passed 60 matches with digest `25cf38e91369eb003f05788eb37f9b7916d1e77baa7b91f05793140e1da0835d`. E-MVP1-014 is resolved. Final clearance remains pending `semantic_delta_review` for `86b9052..final` under E-MVP1-015.
+
+## E-MVP1-016
+
+- Timestamp: 2026-08-31T00:30:18+08:00
+- Issue: Shell interpolation stripped backtick-delimited identifiers from several finding-verification reply bodies while publishing six PR thread replies.
+- Impact: The initial replies were incomplete evidence narratives, although their thread identities, repair commit, code, and tests were unchanged.
+- Evidence: Reply IDs `3889905787`, `3889905789`, `3889905792`, and `3889905800` contained visible gaps where identifiers had been interpolated; the other two replies were complete.
+- Action: Edit all six reply comments in place using shell-safe plain text, read them back, and only then resolve the original review threads.
+- Status: Remote evidence repair in progress; no product or test change required.
