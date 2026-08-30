@@ -14,6 +14,9 @@ describe('ao state report', () => {
       },
       summary: {
         managed_task_count: 1,
+        task_graph_available: true,
+        task_graph_healthy: true,
+        task_graph_finding_count: 0,
         pr_binding_count: 1,
         active_ownership_lease_count: 1,
         active_controller_lease_count: 1,
@@ -47,6 +50,9 @@ describe('ao state report', () => {
           holder_id: 'ao-controller-main',
         },
       ],
+      task_graph: {
+        result_fingerprint: 'abc123',
+      },
       continuity: {
         summary: {
           posture_counts: {
@@ -173,6 +179,7 @@ describe('ao state report', () => {
     });
 
     expect(summary).toContain('continuity: active_owner=0, restore_ready=1, handoff_pending=0, handoff_granted=1, orphaned=0, ambiguous=0, retired=0');
+    expect(summary).toContain('task_graph: healthy (findings=0, fingerprint=abc123)');
     expect(summary).toContain('continuity_tasks: issue-110=restore_ready->restore_existing_worker, issue-117=handoff_granted->handoff_to_successor');
     expect(summary).toContain('reviews: open=0, claimed=1, passed=0, changes_required=0, escalated=0, freeze_active=1');
     expect(summary).toContain('review_tasks: issue-125=review_pending@abc123 reviewer=worker-125-review freeze=active reason=independent_review_active');

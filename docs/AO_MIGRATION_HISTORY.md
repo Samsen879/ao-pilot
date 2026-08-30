@@ -1,5 +1,22 @@
 # AO Migration History
 
+## Deterministic task graph queries
+
+`inspectTaskGraph` validates the existing `task_relations` collection and
+returns a stable `ao.task-graph-result.v1alpha1` projection. The result includes
+canonical ordered traversal, direct dependency readiness, child terminality,
+all-children terminality, structured blocking findings, and a SHA-256 result
+fingerprint. Record ordering does not affect any result field.
+
+Cycles, missing endpoints, malformed or unsupported relation records,
+mixed-version edges, and missing or contradictory terminal evidence fail
+closed. Terminal evidence is explicit; GitHub labels are not an accepted
+source. `ao state` includes the full projection and fingerprint, while doctor
+maps graph-health findings to control-plane blockers. An unbootstrapped graph
+is reported as unavailable rather than healthy. Diagnostic reads inspect raw
+relation evidence without weakening the strict validation used by ordinary
+repository reads and mutations.
+
 ## Control-plane v12 task relations
 
 Migration `0012_task_relations_v1alpha1` adds the durable `task_relations`

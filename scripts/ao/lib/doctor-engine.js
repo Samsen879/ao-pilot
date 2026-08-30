@@ -8,6 +8,10 @@ import { createHandoffProtocol } from './handoff-protocol.js';
 import { RUNTIME_PREFLIGHT_SCHEMA_VERSION } from './runtime-contracts.js';
 import { CONTROL_PLANE_LATEST_VERSION } from './state-contracts.js';
 import { TASK_SPEC_SCHEMA_VERSION } from './task-spec.js';
+import {
+  inspectTaskGraph,
+  terminalEvidenceFromManagedTasks,
+} from './task-graph.js';
 
 const RECONCILIATION_FINDING_SOURCE_AREAS = {
   no_orchestrator_session: 'ao',
@@ -369,6 +373,32 @@ function buildRuntimePreflightFindings({ controlPlaneSnapshot, projectId }) {
   return findings;
 }
 
+function buildTaskGraphFindings({ controlPlaneSnapshot, projectId }) {
+  if (!controlPlaneSnapshot?.bootstrapped) return [];
+  const managedTasks = controlPlaneSnapshot?.state?.managed_tasks ?? [];
+  const graph = controlPlaneSnapshot.task_graph_inspection ?? inspectTaskGraph({
+    tasks: managedTasks,
+    relations: controlPlaneSnapshot?.state?.task_relations,
+    terminalEvidence: terminalEvidenceFromManagedTasks(managedTasks),
+  });
+  return graph.findings.map((graphFinding) => createDoctorFinding({
+    code: graphFinding.code,
+    severity: graphFinding.severity,
+    origin: 'doctor',
+    source_area: 'task_graph',
+    subject_type: graphFinding.task_ids.length === 1 ? 'task' : 'project',
+    subject_id: graphFinding.task_ids.length === 1 ? graphFinding.task_ids[0] : projectId,
+    summary: 'Durable task graph health check failed closed.',
+    details: [
+      ...graphFinding.task_ids.map((taskId) => `task_id: ${taskId}`),
+      ...graphFinding.relation_ids.map((relationId) => `relation_id: ${relationId}`),
+      ...graphFinding.details,
+    ],
+    evidence_refs: [],
+    suggestion_ids: ['human_review'],
+  }));
+}
+
 function buildHandoffFindings({ controlPlaneSnapshot, projectId }) {
   if (!controlPlaneSnapshot?.bootstrapped) return [];
 
@@ -645,6 +675,10 @@ function buildDoctorOnlyFindings({
       projectId,
     }),
     ...buildRuntimePreflightFindings({
+      controlPlaneSnapshot,
+      projectId,
+    }),
+    ...buildTaskGraphFindings({
       controlPlaneSnapshot,
       projectId,
     }),

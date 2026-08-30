@@ -72,6 +72,9 @@ describe('ao state runner', () => {
       bootstrapped: false,
       summary: {
         managed_task_count: 0,
+        task_graph_available: false,
+        task_graph_healthy: null,
+        task_graph_finding_count: 0,
         pr_binding_count: 0,
         active_ownership_lease_count: 0,
         active_controller_lease_count: 0,
@@ -83,6 +86,7 @@ describe('ao state runner', () => {
         execution_attempt_metric_count: 0,
         audit_entry_count: 0,
       },
+      task_graph: null,
     });
     expect(fs.existsSync(path.join(repoRoot, '.ao-control-plane'))).toBe(false);
   });
