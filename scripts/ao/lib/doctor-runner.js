@@ -16,6 +16,7 @@ export { DEFAULT_PROJECT_ID };
 function loadControlPlaneSnapshot({
   projectId,
   cwd,
+  diagnosticOnly = false,
 } = {}) {
   const repoRoot = findRepoRoot(cwd);
   if (!repoRoot) return null;
@@ -25,7 +26,10 @@ function loadControlPlaneSnapshot({
     projectId,
   });
   const diagnosticSnapshot = repository.getDiagnosticSnapshot();
-  if (diagnosticSnapshot.task_graph_inspection?.structurally_healthy === false) {
+  if (
+    diagnosticOnly
+    || diagnosticSnapshot.task_graph_inspection?.structurally_healthy === false
+  ) {
     return diagnosticSnapshot;
   }
   repository.ensureRuntimePreflights({
@@ -43,6 +47,31 @@ export async function runDoctor({
   const scope = prNumber != null
     ? createDoctorPrScope({ projectId, prNumber })
     : createDoctorProjectScope({ projectId });
+
+  const diagnosticSnapshot = loadControlPlaneSnapshot({
+    projectId,
+    cwd,
+    diagnosticOnly: true,
+  });
+  if (diagnosticSnapshot?.task_graph_inspection?.structurally_healthy === false) {
+    const localState = await loadDoctorLocalState({ cwd });
+    const reconciliationReport = null;
+    const report = buildDoctorReport({
+      scope,
+      reconciliationReport,
+      localState,
+      controlPlaneSnapshot: diagnosticSnapshot,
+      runtimeStore: env.AO_PILOT_RUNTIME_STORE ?? null,
+    });
+
+    return {
+      scope,
+      reconciliationReport,
+      localState,
+      controlPlaneSnapshot: diagnosticSnapshot,
+      report,
+    };
+  }
 
   const { report: reconciliationReport } = await runReconciliation({
     projectId,

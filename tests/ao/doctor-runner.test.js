@@ -213,7 +213,7 @@ describe('doctor runner', () => {
         findings: [{ code: 'task_graph_relation_malformed', severity: 'blocker' }],
       },
     };
-    mockRunReconciliation.mockResolvedValue({ report: { top_status: 'warning', findings: [] } });
+    mockRunReconciliation.mockRejectedValue(new Error('strict reconciliation read must not run'));
     mockLoadDoctorLocalState.mockResolvedValue({ cwd: '/home/user/my-project' });
     mockBuildDoctorReport.mockReturnValue({
       top_status: 'blocked',
@@ -226,10 +226,12 @@ describe('doctor runner', () => {
       cwd: '/home/user/my-project',
     });
 
+    expect(mockRunReconciliation).not.toHaveBeenCalled();
     expect(mockEnsureRuntimePreflights).not.toHaveBeenCalled();
     expect(mockBuildDoctorReport).toHaveBeenCalledWith(expect.objectContaining({
       controlPlaneSnapshot: currentControlPlaneSnapshot,
     }));
     expect(result.report.top_status).toBe('blocked');
+    expect(result.reconciliationReport).toBeNull();
   });
 });

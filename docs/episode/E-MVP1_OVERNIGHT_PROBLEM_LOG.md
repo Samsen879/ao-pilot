@@ -153,3 +153,32 @@ Resolution update at 2026-08-31T00:27:43+08:00: all six E-MVP1-013 findings are 
 - Evidence: Reply IDs `3889905787`, `3889905789`, `3889905792`, and `3889905800` contained visible gaps where identifiers had been interpolated; the other two replies were complete.
 - Action: Edit all six reply comments in place using shell-safe plain text, read them back, and only then resolve the original review threads.
 - Status: Remote evidence repair in progress; no product or test change required.
+
+## E-MVP1-017
+
+- Timestamp: 2026-08-31T00:38:42+08:00
+- Issue: Semantic-delta review finding `3889922064` showed that `runDoctor` awaited strict reconciliation before reading the raw control-plane graph diagnostic.
+- Impact: Malformed persisted `task_relations` could throw from reconciliation's strict snapshot path instead of producing the required structured doctor blocker.
+- Evidence: Review finding `3889922064` was submitted against exact HEAD `843ef0a997ea5ffc56d150d86bbc83e6e653f15f`; `doctor-runner.js` invoked `runReconciliation` before `loadControlPlaneSnapshot`, while reconciliation handoff inspection reaches strict repository reads.
+- Action: Read the diagnostic snapshot first, return the blocked doctor report before reconciliation when graph structure is unhealthy, and add an ordering regression whose reconciliation mock throws if invoked.
+- Status: Finding-scoped correction in progress within the already reviewed `doctor-runner.js` semantic path; no new semantic file required.
+
+## E-MVP1-018
+
+- Timestamp: 2026-08-31T00:39:53+08:00
+- Issue: The first expanded focused-gate invocation used a nonexistent shortened worktree path.
+- Impact: The process could not start, so that invocation produced no verification result.
+- Evidence: The command runner returned `No such file or directory` before launching Git or Jest; the governed worktree remained unchanged.
+- Action: Reissue the identical focused gate from the exact AO-created worktree path and treat only that rerun as evidence.
+- Status: Contained operational error; verification rerun pending.
+
+Resolution update at 2026-08-31T00:41:23+08:00: finding `3889922064` is corrected without changing reconciliation or any new semantic file. The ordering regression passed with reconciliation configured to throw if called; the focused gate passed 8 discovered suites/72 tests, full AO tests passed 101 suites/917 tests, acceptance passed 7/7, smoke and package verification passed, dependency audit reported zero vulnerabilities, controller-lease verification passed 60 matches with digest `25cf38e91369eb003f05788eb37f9b7916d1e77baa7b91f05793140e1da0835d`, and deterministic task-graph replay passed 15/15 twice. E-MVP1-017 and E-MVP1-018 are resolved. The repository still has no lint script, as separately classified in E-MVP1-008.
+
+## E-MVP1-019
+
+- Timestamp: 2026-08-31T00:42:09+08:00
+- Issue: The first repair-commit push was rejected by GitHub email-privacy protection because the new unpublished commit again inherited the repository's private author and committer email.
+- Impact: Repair commit `d6f2053a986ee69ec3016b498021fbe23dcca2a9` was not published; PR #91 remained at `843ef0a997ea5ffc56d150d86bbc83e6e653f15f`.
+- Evidence: GitHub returned `GH007`; local identity readback showed `guoqiyang25@gmail.com`, and remote branch readback remained exactly `843ef0a997ea5ffc56d150d86bbc83e6e653f15f`.
+- Action: Append this record, amend the still-unpublished single repair commit to authenticated noreply identity `172257175+Samsen879@users.noreply.github.com`, verify its tree, and retry the push once with the existing command-scoped credential helper.
+- Status: Contained before remote publication; identity-corrected retry in progress.
