@@ -416,3 +416,23 @@ Resolution update at 2026-08-31T01:50:02+08:00: Completion Record-derived task-g
 - Status: Mechanical final evidence rebind in progress; no runtime or controller-lease semantics changed.
 
 Resolution update at 2026-08-31T01:54:01+08:00: the final controller-lease authority inventory passed with 61 matches and digest `05763e8eb978eb861499242063d69354bfafe6885a449d66297b9ebe622a07b1`. The focused delivery/repository pack passed 4 suites / 45 tests, deterministic delivery replay passed 15/15 in an independent invocation, the full AO suite passed 103 suites / 952 tests, acceptance passed 7/7, smoke and public-package verification passed with 279 package entries, trajectory/false-success/Completion Record/controller-lease safety gates passed, and dependency audit reported zero vulnerabilities. E-MVP1-041 and E-MVP1-043 are resolved. The repository still has no `lint` script, as previously classified in E-MVP1-008; the required invocation was made and stopped only on that pre-existing package-script absence.
+
+## E-MVP1-044
+
+- Timestamp: 2026-08-31T01:54:49+08:00
+- Issue: OR's pre-PR semantic check found that the draft projection field `worker_terminal` became true for every accepted delivery transition, even though Worker completion is not review PASS evidence.
+- Impact: The public projection name could falsely imply a Worker-derived lifecycle claim and weaken the admitted evidence boundary.
+- Evidence: `evaluateDeliveryStatusTransition` emitted `worker_terminal: accepted`; the review-passed positive test asserted the field despite no Worker evidence being part of the contract input.
+- Action: Remove the field entirely, add missing/malformed prior-custody retry negatives that retain no false custody, and rerun focused deterministic verification before opening the principal PR.
+- Status: Contained before PR creation or candidate review; correction verification pending.
+
+## E-MVP1-045
+
+- Timestamp: 2026-08-31T01:55:24+08:00
+- Issue: The first E-MVP1-044 focused run showed that abandoned retries with empty prior custody were rejected only by the transition matrix, while malformed prior custody emitted `delivery_abandoned_custody_invalid` without the explicit missing-custody finding.
+- Impact: No retry was accepted and no false custody was projected, but structured diagnostics did not fully distinguish unavailable valid predecessor custody.
+- Evidence: Both focused invocations failed the two new negative assertions; received codes were `delivery_transition_invalid` for empty custody and `delivery_abandoned_custody_invalid` plus `delivery_transition_invalid` for malformed custody.
+- Action: Emit `delivery_abandoned_custody_missing` whenever an abandoned predecessor has zero valid retained custody, preserving malformed-item findings and the empty retained-custody projection.
+- Status: Finding-scoped correction in progress before PR creation or candidate review.
+
+Resolution update at 2026-08-31T01:55:57+08:00: `worker_terminal` is absent from the public projection; empty or malformed predecessor custody now produces explicit structured missing-custody findings and an empty retained-custody projection. The affected focused pack passed 4 suites / 47 tests, independent deterministic replay passed 17/17, public package verification passed with 279 entries, and the controller-lease authority audit remained stable at 61 matches and digest `05763e8eb978eb861499242063d69354bfafe6885a449d66297b9ebe622a07b1`. E-MVP1-044 and E-MVP1-045 are resolved before PR creation or candidate review.

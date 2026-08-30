@@ -100,8 +100,8 @@ describe('delivery status transition and documentation projections', () => {
       accepted: true,
       delivery_status: 'review_passed',
       provider_integrated: false,
-      worker_terminal: true,
     });
+    expect(reviewed).not.toHaveProperty('worker_terminal');
     expect(reviewed.documentation).toMatchObject({
       eligible: true,
       documentation_status: 'documentation_pending',
@@ -210,6 +210,26 @@ describe('delivery status transition and documentation projections', () => {
     expect(findingCodes(retry)).toContain('delivery_transition_invalid');
     expect(retry.delivery_status).toBe('abandoned');
     expect(retry.retained_unresolved_custody).toEqual(priorCustody);
+  });
+
+  it.each([
+    ['missing', []],
+    ['malformed', [{ id: 'provider-retry', summary: '', evidence_refs: [] }]],
+  ])('fails closed on abandoned retry with %s prior custody and claims no retained custody', (
+    _label,
+    previousUnresolvedItems,
+  ) => {
+    const retry = reviewPassed({
+      previousStatus: 'abandoned',
+      previousUnresolvedItems,
+    });
+    expect(retry.accepted).toBe(false);
+    expect(findingCodes(retry)).toEqual(expect.arrayContaining([
+      'delivery_transition_invalid',
+      'delivery_abandoned_custody_missing',
+    ]));
+    expect(retry.delivery_status).toBe('abandoned');
+    expect(retry.retained_unresolved_custody).toEqual([]);
   });
 
   it('projects documentation eligibility separately from produced evidence', () => {

@@ -341,6 +341,11 @@ export function evaluateDeliveryStatusTransition({
   const previousUnresolvedCustody = fromStatus === 'abandoned'
     ? normalizeUnresolvedItems(previousUnresolvedItems, findings)
     : [];
+  if (fromStatus === 'abandoned' && previousUnresolvedCustody.length === 0) {
+    findings.push(finding('delivery_abandoned_custody_missing', {
+      fields: ['previous_unresolved_items'],
+    }));
+  }
   const sortedFindings = sortFindings(findings);
   const accepted = sortedFindings.length === 0;
   const documentation = projectDocumentationTrigger({
@@ -353,7 +358,6 @@ export function evaluateDeliveryStatusTransition({
     from_status: fromStatus,
     requested_status: targetStatus,
     delivery_status: accepted ? targetStatus : fromStatus,
-    worker_terminal: accepted,
     provider_integrated: accepted && targetStatus === 'integrated',
     review_evidence_refs: reviewEvidenceRefs,
     provider_merge_binding: accepted && targetStatus === 'integrated' ? {
