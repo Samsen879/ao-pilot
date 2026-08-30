@@ -29,6 +29,10 @@ import {
   createTaskRelation,
   TASK_RELATION_KINDS,
 } from './task-relations.js';
+import {
+  inspectTaskGraph,
+  terminalEvidenceFromManagedTasks,
+} from './task-graph.js';
 import { appendControlPlaneAuditEntry, readControlPlaneAuditEntries } from './state-audit.js';
 import {
   bootstrapControlPlaneState,
@@ -210,7 +214,7 @@ export function createStateRepository({
     else withFileLockSync(stateWriteLockPath, recover);
   }
 
-  function readSnapshot({ stateLockHeld = false } = {}) {
+  function readSnapshot({ stateLockHeld = false, diagnosticTaskGraph = false } = {}) {
     recoverPendingStateMutation({ stateLockHeld });
     const schema = readControlPlaneSchema({ schemaPath: paths.schemaPath });
     const state = readControlPlaneState({ statePath: paths.statePath });
@@ -244,11 +248,23 @@ export function createStateRepository({
 
     if (Number(schema.current_version ?? 0) < CONTROL_PLANE_LATEST_VERSION) {
       bootstrapControlPlaneState({ repoRoot, projectId, now: clock });
-      return readSnapshot();
+      return readSnapshot({ diagnosticTaskGraph });
     }
 
     const isolatedControllerLeases = readControllerLeaseRecords();
-    const normalizedTaskRelations = normalizeStoredTaskRelations(state);
+    const taskGraphInspection = inspectTaskGraph({
+      tasks: state.managed_tasks,
+      relations: state.task_relations,
+      terminalEvidence: terminalEvidenceFromManagedTasks(state.managed_tasks),
+    });
+    let normalizedTaskRelations;
+    try {
+      normalizedTaskRelations = normalizeStoredTaskRelations(state);
+    } catch (error) {
+      if (!diagnosticTaskGraph) throw error;
+      normalizedTaskRelations = [];
+      state.task_relations = [];
+    }
     const nextState = sortRepositoryStateCollections(cloneJsonValue(state), {
       controllerLeases: isolatedControllerLeases,
     });
@@ -261,6 +277,7 @@ export function createStateRepository({
       bootstrapped: true,
       schema,
       state: nextState,
+      ...(diagnosticTaskGraph ? { task_graph_inspection: taskGraphInspection } : {}),
       paths,
     };
   }
@@ -480,6 +497,10 @@ export function createStateRepository({
   return {
     getSnapshot() {
       return readSnapshot();
+    },
+
+    getDiagnosticSnapshot() {
+      return readSnapshot({ diagnosticTaskGraph: true });
     },
 
     appendAuditEntry({

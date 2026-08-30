@@ -28,7 +28,7 @@ const STRUCTURAL_FINDING_CODES = new Set([
 ]);
 
 function compareStrings(left, right) {
-  return String(left).localeCompare(String(right));
+  return Buffer.compare(Buffer.from(String(left), 'utf8'), Buffer.from(String(right), 'utf8'));
 }
 
 function canonicalJson(value) {
@@ -174,13 +174,19 @@ function buildTopology(taskIds, relations, findings) {
   }
 
   if (orderedTaskIds.length !== taskIds.length) {
-    const cycleTaskIds = findCycleTaskIds(taskIds, outgoing);
+    const cycleComponents = findCycleComponents(taskIds, outgoing);
+    const cycleTaskIds = cycleComponents.flat().sort(compareStrings);
+    const cycleComponentByTaskId = new Map(cycleComponents.flatMap((component, index) => (
+      component.map((taskId) => [taskId, index])
+    )));
     const cycleTaskIdSet = new Set(cycleTaskIds);
     findings.push(finding('task_graph_cycle', {
       taskIds: cycleTaskIds,
       relationIds: relations.filter((relation) => (
         cycleTaskIdSet.has(relation.source_task_id)
         && cycleTaskIdSet.has(relation.target_task_id)
+        && cycleComponentByTaskId.get(relation.source_task_id)
+          === cycleComponentByTaskId.get(relation.target_task_id)
       )).map((relation) => relation.relation_id),
     }));
     return [];
@@ -188,45 +194,61 @@ function buildTopology(taskIds, relations, findings) {
   return orderedTaskIds;
 }
 
-function findCycleTaskIds(taskIds, outgoing) {
-  let nextIndex = 0;
-  const indexes = new Map();
-  const lowLinks = new Map();
-  const stack = [];
-  const onStack = new Set();
-  const cycleTaskIds = new Set();
+function findCycleComponents(taskIds, outgoing) {
+  const visited = new Set();
+  const finishOrder = [];
+  for (const rootTaskId of taskIds) {
+    if (visited.has(rootTaskId)) continue;
+    visited.add(rootTaskId);
+    const stack = [{
+      taskId: rootTaskId,
+      nextTargetIndex: 0,
+      targets: [...outgoing.get(rootTaskId)].sort(compareStrings),
+    }];
+    while (stack.length) {
+      const frame = stack.at(-1);
+      if (frame.nextTargetIndex < frame.targets.length) {
+        const targetTaskId = frame.targets[frame.nextTargetIndex];
+        frame.nextTargetIndex += 1;
+        if (visited.has(targetTaskId)) continue;
+        visited.add(targetTaskId);
+        stack.push({
+          taskId: targetTaskId,
+          nextTargetIndex: 0,
+          targets: [...outgoing.get(targetTaskId)].sort(compareStrings),
+        });
+        continue;
+      }
+      finishOrder.push(frame.taskId);
+      stack.pop();
+    }
+  }
 
-  function visit(taskId) {
-    indexes.set(taskId, nextIndex);
-    lowLinks.set(taskId, nextIndex);
-    nextIndex += 1;
-    stack.push(taskId);
-    onStack.add(taskId);
+  const incoming = new Map(taskIds.map((taskId) => [taskId, []]));
+  for (const [sourceTaskId, targets] of outgoing.entries()) {
+    for (const targetTaskId of targets) incoming.get(targetTaskId).push(sourceTaskId);
+  }
+  for (const sources of incoming.values()) sources.sort(compareStrings);
 
-    for (const targetTaskId of [...outgoing.get(taskId)].sort(compareStrings)) {
-      if (!indexes.has(targetTaskId)) {
-        visit(targetTaskId);
-        lowLinks.set(taskId, Math.min(lowLinks.get(taskId), lowLinks.get(targetTaskId)));
-      } else if (onStack.has(targetTaskId)) {
-        lowLinks.set(taskId, Math.min(lowLinks.get(taskId), indexes.get(targetTaskId)));
+  const assigned = new Set();
+  const cycleComponents = [];
+  for (const rootTaskId of [...finishOrder].reverse()) {
+    if (assigned.has(rootTaskId)) continue;
+    const component = [];
+    const pending = [rootTaskId];
+    assigned.add(rootTaskId);
+    while (pending.length) {
+      const taskId = pending.pop();
+      component.push(taskId);
+      for (const sourceTaskId of [...incoming.get(taskId)].reverse()) {
+        if (assigned.has(sourceTaskId)) continue;
+        assigned.add(sourceTaskId);
+        pending.push(sourceTaskId);
       }
     }
-
-    if (lowLinks.get(taskId) !== indexes.get(taskId)) return;
-    const component = [];
-    while (stack.length) {
-      const member = stack.pop();
-      onStack.delete(member);
-      component.push(member);
-      if (member === taskId) break;
-    }
-    if (component.length > 1) component.forEach((member) => cycleTaskIds.add(member));
+    if (component.length > 1) cycleComponents.push(component.sort(compareStrings));
   }
-
-  for (const taskId of taskIds) {
-    if (!indexes.has(taskId)) visit(taskId);
-  }
-  return [...cycleTaskIds].sort(compareStrings);
+  return cycleComponents.sort((left, right) => compareStrings(left[0], right[0]));
 }
 
 function normalizeTerminalEvidence(terminalEvidence, knownTaskIds, findings) {
@@ -314,16 +336,23 @@ export function inspectTaskGraph({
   const terminalByTaskId = normalizeTerminalEvidence(terminalEvidence, knownTaskIds, findings);
   const sortedFindings = sortFindings(findings);
   const structurallyHealthy = !sortedFindings.some((item) => STRUCTURAL_FINDING_CODES.has(item.code));
+  const dependencyTaskIdsByTaskId = new Map(taskIds.map((taskId) => [taskId, []]));
+  const childTaskIdsByTaskId = new Map(taskIds.map((taskId) => [taskId, []]));
+  for (const relation of normalizedRelations) {
+    if (relation.relation_kind === 'depends_on') {
+      dependencyTaskIdsByTaskId.get(relation.source_task_id).push(relation.target_task_id);
+    } else if (relation.relation_kind === 'parent_of') {
+      childTaskIdsByTaskId.get(relation.source_task_id).push(relation.target_task_id);
+    }
+  }
+  for (const taskId of taskIds) {
+    dependencyTaskIdsByTaskId.get(taskId).sort(compareStrings);
+    childTaskIdsByTaskId.get(taskId).sort(compareStrings);
+  }
 
   const taskResults = taskIds.map((taskId) => {
-    const dependencyTaskIds = normalizedRelations
-      .filter((relation) => relation.relation_kind === 'depends_on' && relation.source_task_id === taskId)
-      .map((relation) => relation.target_task_id)
-      .sort(compareStrings);
-    const childTaskIds = normalizedRelations
-      .filter((relation) => relation.relation_kind === 'parent_of' && relation.source_task_id === taskId)
-      .map((relation) => relation.target_task_id)
-      .sort(compareStrings);
+    const dependencyTaskIds = dependencyTaskIdsByTaskId.get(taskId);
+    const childTaskIds = childTaskIdsByTaskId.get(taskId);
     const missingDependencyEvidence = dependencyTaskIds.filter((id) => !terminalByTaskId.has(id));
     const nonterminalDependencyTaskIds = dependencyTaskIds.filter(
       (id) => terminalByTaskId.get(id) === false,

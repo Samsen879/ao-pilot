@@ -376,7 +376,7 @@ function buildRuntimePreflightFindings({ controlPlaneSnapshot, projectId }) {
 function buildTaskGraphFindings({ controlPlaneSnapshot, projectId }) {
   if (!controlPlaneSnapshot?.bootstrapped) return [];
   const managedTasks = controlPlaneSnapshot?.state?.managed_tasks ?? [];
-  const graph = inspectTaskGraph({
+  const graph = controlPlaneSnapshot.task_graph_inspection ?? inspectTaskGraph({
     tasks: managedTasks,
     relations: controlPlaneSnapshot?.state?.task_relations,
     terminalEvidence: terminalEvidenceFromManagedTasks(managedTasks),

@@ -122,7 +122,7 @@ export function renderAoStateHumanSummary(report) {
     `state_root: ${report.state_root}`,
     `schema_version: ${report.schema.current_version} of ${report.schema.latest_version}`,
     `managed_tasks: ${report.summary.managed_task_count}`,
-    `task_graph: ${report.summary.task_graph_healthy === true ? 'healthy' : 'blocked'} (findings=${report.summary.task_graph_finding_count ?? 0}, fingerprint=${report.task_graph?.result_fingerprint ?? 'none'})`,
+    `task_graph: ${report.summary.task_graph_available === false ? 'unavailable' : report.summary.task_graph_healthy === true ? 'healthy' : 'blocked'} (findings=${report.summary.task_graph_finding_count ?? 0}, fingerprint=${report.task_graph?.result_fingerprint ?? 'none'})`,
     `pr_bindings: ${report.summary.pr_binding_count}`,
     `active_ownership_leases: ${report.summary.active_ownership_lease_count}`,
     `active_controller_leases: ${report.summary.active_controller_lease_count}`,

@@ -14,6 +14,7 @@ describe('ao state report', () => {
       },
       summary: {
         managed_task_count: 1,
+        task_graph_available: true,
         task_graph_healthy: true,
         task_graph_finding_count: 0,
         pr_binding_count: 1,

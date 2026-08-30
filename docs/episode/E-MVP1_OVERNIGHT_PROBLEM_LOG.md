@@ -115,3 +115,32 @@ Resolution update at 2026-08-30T23:59:54+08:00: the dedicated controller-lease a
 - Evidence: GitHub returned `GH007`; local commit `1d0a2bd72c24af9f4ca83d46f38b4290e4022b37` used `guoqiyang25@gmail.com`, and remote readback still found no `feat/issue-25-task-graph` branch.
 - Action: Amend the unpublished commit identity to the authenticated account's GitHub noreply address `172257175+Samsen879@users.noreply.github.com`, verify content tree and remote absence, then retry with the command-scoped credential helper.
 - Status: Contained before remote publication; one identity-corrected retry authorized.
+
+## E-MVP1-013
+
+- Timestamp: 2026-08-31T00:18:42+08:00
+- Issue: The exact-head candidate review on PR #91 returned six P2 findings: locale-equivalent identifiers could destabilize ordering; state/doctor diagnostics could throw before graph findings; recursive cycle detection could exhaust the stack; a bridge between cycles could be reported as a cycle edge; per-task relation scans were superlinear; and an unbootstrapped virtual graph was reported healthy.
+- Impact: PR #91 is not merge-ready until the six finding-scoped corrections and verification are complete.
+- Evidence: Review `chatgpt-codex-connector` was submitted against exact candidate `86b905262c3bcf675eb15e040d0df75db2c0650b`; inline finding IDs are `3889856222`, `3889856225`, `3889856229`, `3889856231`, `3889856233`, and `3889856236`. No P0/P1 finding was reported.
+- Action: Apply a bounded `finding_verification` delta: total bytewise ordering, diagnostic snapshots over raw relation evidence, iterative component detection with exact cycle edges, indexed projections, and unavailable unbootstrapped health; add exact regressions for each.
+- Status: Finding-scoped repair in progress; no second full review requested.
+
+## E-MVP1-014
+
+- Timestamp: 2026-08-31T00:22:40+08:00
+- Issue: The first finding-repair controller-lease verifier run stopped on an inventoried source-anchor mismatch after the diagnostic snapshot refactor changed the canonical state-sort expression.
+- Impact: Generated-evidence verification is not yet green; no finding-verification claim is permitted.
+- Evidence: `verify:controller-lease-audit` reported that anchor `const nextState = sortRepositoryStateCollections(cloneJsonValue(state), {` no longer occurred exactly once in `state-repository.js`.
+- Action: Preserve the frozen semantic anchor by making generic collection sorting tolerate malformed non-array evidence, restore the canonical snapshot expression, then rerun and refresh only the deterministic scan digest if line movement requires it.
+- Status: Mechanical generated-evidence repair in progress.
+
+## E-MVP1-015
+
+- Timestamp: 2026-08-31T00:23:03+08:00
+- Issue: Correcting finding `3889856225` adds semantic changes in `scripts/ao/lib/state-repository.js` and `scripts/ao/lib/doctor-runner.js`, which were not part of the original candidate review's semantic file set.
+- Impact: Finding verification alone cannot clear final R2 assurance even though the correction remains within admitted #25 diagnostic scope.
+- Evidence: The diagnostic path must read raw corrupt relation evidence before ordinary repository validation and runtime-preflight mutation; this requires the two additional semantic files.
+- Action: Complete all six corrections and gates, publish the exact changed-file and semantic-delta inventory for `86b9052..final`, then request `semantic_delta_review` for that delta. Do not request a second full candidate review.
+- Status: Assurance reclassified to semantic-delta review; implementation remains authorized within #25/R2.
+
+Resolution update at 2026-08-31T00:27:43+08:00: all six E-MVP1-013 findings are implemented and mapped to exact regressions; the focused gate passed 10 suites/89 tests, the full AO suite passed 101 suites/916 tests, acceptance passed 7 tests, smoke and package verification passed, dependency audit reported zero vulnerabilities, and the controller-lease audit passed 60 matches with digest `25cf38e91369eb003f05788eb37f9b7916d1e77baa7b91f05793140e1da0835d`. E-MVP1-014 is resolved. Final clearance remains pending `semantic_delta_review` for `86b9052..final` under E-MVP1-015.

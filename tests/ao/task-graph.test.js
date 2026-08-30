@@ -9,6 +9,7 @@ import { createDoctorLocalState, createDoctorProjectScope } from '../../scripts/
 import { createManagedTask } from '../../scripts/ao/lib/state-contracts.js';
 import { createStateRepository } from '../../scripts/ao/lib/state-repository.js';
 import { loadAoStateReport } from '../../scripts/ao/lib/state-runner.js';
+import { createTaskRelation } from '../../scripts/ao/lib/task-relations.js';
 import {
   TASK_GRAPH_RESULT_FORMAT,
   TASK_GRAPH_RESULT_SCHEMA_VERSION,
@@ -223,6 +224,83 @@ describe('task graph engine', () => {
 
     expect(replay).toEqual(first);
   });
+
+  it('uses bytewise total ordering for locale-equivalent identifiers', () => {
+    const composed = '\u00e9';
+    const decomposed = 'e\u0301';
+    const first = inspectTaskGraph({
+      tasks: [composed, decomposed],
+      terminalEvidence: [evidence(composed, false), evidence(decomposed, false)],
+    });
+    const replay = inspectTaskGraph({
+      tasks: [decomposed, composed],
+      terminalEvidence: [evidence(decomposed, false), evidence(composed, false)],
+    });
+
+    expect(first.ordered_task_ids).toEqual([decomposed, composed]);
+    expect(replay).toEqual(first);
+  });
+
+  it('handles large cycles iteratively without exhausting the call stack', () => {
+    const taskIds = Array.from({ length: 6000 }, (_, index) => `task-${String(index).padStart(5, '0')}`);
+    const relations = taskIds.map((taskId, index) => relation(
+      'parent_of',
+      taskId,
+      taskIds[(index + 1) % taskIds.length],
+    ));
+    const result = inspectTaskGraph({
+      tasks: taskIds,
+      relations,
+      terminalEvidence: taskIds.map((taskId) => evidence(taskId, false)),
+    });
+
+    expect(result.findings).toContainEqual(expect.objectContaining({
+      code: 'task_graph_cycle',
+      task_ids: taskIds,
+    }));
+  });
+
+  it('projects a large valid graph through pre-indexed adjacency lists', () => {
+    const taskIds = Array.from({ length: 10000 }, (_, index) => `task-${String(index).padStart(5, '0')}`);
+    const relations = taskIds.slice(0, -1).map((taskId, index) => relation(
+      'parent_of',
+      taskId,
+      taskIds[index + 1],
+    ));
+    const result = inspectTaskGraph({
+      tasks: taskIds,
+      relations,
+      terminalEvidence: taskIds.map((taskId) => evidence(taskId, false)),
+    });
+
+    expect(result.healthy).toBe(true);
+    expect(result.tasks).toHaveLength(taskIds.length);
+    expect(result.tasks[5000]).toMatchObject({
+      task_id: 'task-05000',
+      child_task_ids: ['task-05001'],
+    });
+  });
+
+  it('reports only intra-component cycle edges when cycles have a one-way bridge', () => {
+    const relations = [
+      relation('parent_of', 'a', 'b'),
+      relation('parent_of', 'b', 'a'),
+      relation('parent_of', 'b', 'c'),
+      relation('parent_of', 'c', 'd'),
+      relation('parent_of', 'd', 'c'),
+    ];
+    const result = inspectTaskGraph({
+      tasks: ['a', 'b', 'c', 'd'],
+      relations,
+      terminalEvidence: ['a', 'b', 'c', 'd'].map((taskId) => evidence(taskId, false)),
+    });
+    const cycleFinding = result.findings.find((entry) => entry.code === 'task_graph_cycle');
+    const bridgeRelationId = createTaskRelation(relations[2]).relation_id;
+
+    expect(cycleFinding.task_ids).toEqual(['a', 'b', 'c', 'd']);
+    expect(cycleFinding.relation_ids).toHaveLength(4);
+    expect(cycleFinding.relation_ids).not.toContain(bridgeRelationId);
+  });
 });
 
 describe('task graph control-plane integration', () => {
@@ -290,6 +368,37 @@ describe('task graph control-plane integration', () => {
       code: 'task_graph_missing_node',
       severity: 'blocker',
       source_area: 'task_graph',
+    }));
+  });
+
+  it('reports corrupted durable relation evidence instead of throwing before diagnosis', async () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-task-graph-corrupt-'));
+    tempDirs.push(repoRoot);
+    const repository = createStateRepository({
+      repoRoot,
+      projectId: 'task-graph-corrupt',
+      clock: () => NOW,
+    });
+    repository.upsertManagedTask(task('parent'));
+    repository.upsertManagedTask(task('child'));
+    repository.createTaskRelation(relation('parent_of', 'parent', 'child'));
+    const paths = repository.getSnapshot().paths;
+    const state = JSON.parse(fs.readFileSync(paths.statePath, 'utf8'));
+    state.task_relations[0].target_task_id = 'missing';
+    fs.writeFileSync(paths.statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+
+    expect(() => repository.getSnapshot()).toThrow('canonical edge identity');
+    const report = await loadAoStateReport({
+      repoRoot,
+      projectId: 'task-graph-corrupt',
+      now: NOW,
+    });
+    expect(report.summary).toMatchObject({
+      task_graph_available: true,
+      task_graph_healthy: false,
+    });
+    expect(report.task_graph.findings).toContainEqual(expect.objectContaining({
+      code: 'task_graph_relation_malformed',
     }));
   });
 

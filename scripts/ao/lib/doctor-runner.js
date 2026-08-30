@@ -24,10 +24,14 @@ function loadControlPlaneSnapshot({
     repoRoot,
     projectId,
   });
+  const diagnosticSnapshot = repository.getDiagnosticSnapshot();
+  if (diagnosticSnapshot.task_graph_inspection?.structurally_healthy === false) {
+    return diagnosticSnapshot;
+  }
   repository.ensureRuntimePreflights({
     cwd,
   });
-  return repository.getSnapshot();
+  return repository.getDiagnosticSnapshot();
 }
 
 export async function runDoctor({

@@ -12,7 +12,10 @@ Cycles, missing endpoints, malformed or unsupported relation records,
 mixed-version edges, and missing or contradictory terminal evidence fail
 closed. Terminal evidence is explicit; GitHub labels are not an accepted
 source. `ao state` includes the full projection and fingerprint, while doctor
-maps graph-health findings to control-plane blockers.
+maps graph-health findings to control-plane blockers. An unbootstrapped graph
+is reported as unavailable rather than healthy. Diagnostic reads inspect raw
+relation evidence without weakening the strict validation used by ordinary
+repository reads and mutations.
 
 ## Control-plane v12 task relations
 
