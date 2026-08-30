@@ -21,6 +21,10 @@ import {
   completionRecordId,
   normalizeCompletionRecord,
 } from './completion-record-contracts.js';
+import {
+  DeliveryStatusTransitionError,
+  evaluateDeliveryStatusTransition,
+} from './delivery-status-contracts.js';
 import { materializeRepoKnowledge } from './repo-knowledge.js';
 import { runRuntimeBootstrapPreflight } from './runtime-preflight.js';
 import {
@@ -545,7 +549,15 @@ export function createStateRepository({
     });
   }
 
-  function validateCompletionRecordWrite(record, snapshot, { operation }) {
+  function validateCompletionRecordWrite(record, snapshot, {
+    operation,
+    transitionEvidence = {},
+  }) {
+    const evidenceContext = transitionEvidence != null
+      && typeof transitionEvidence === 'object'
+      && !Array.isArray(transitionEvidence)
+      ? transitionEvidence
+      : { invalidTransitionEvidence: true };
     const normalizedRecord = normalizeCompletionRecord(record);
     const existingRecord = snapshot.state.completion_records.find(
       (entry) => entry.record_id === normalizedRecord.record_id,
@@ -561,12 +573,33 @@ export function createStateRepository({
       if (existingRecord) {
         throw new Error(`Completion Record already exists: ${normalizedRecord.record_id}`);
       }
-      return normalizedRecord;
-    }
-
-    if (!existingRecord) {
+    } else if (!existingRecord) {
       throw new Error(`Completion Record does not exist: ${normalizedRecord.record_id}`);
     }
+
+    const transition = evaluateDeliveryStatusTransition({
+      ...evidenceContext,
+      previousStatus: existingRecord?.delivery_status ?? null,
+      requestedStatus: normalizedRecord.delivery_status,
+      prNumber: normalizedRecord.pr_number ?? null,
+      baseSha: normalizedRecord.base_sha ?? null,
+      headSha: normalizedRecord.head_sha ?? null,
+      previousHeadSha: existingRecord?.head_sha ?? null,
+      mergeSha: normalizedRecord.merge_sha ?? null,
+      reviewRefs: normalizedRecord.review_refs ?? [],
+      mergeObservationRef: normalizedRecord.merge_observation_ref ?? null,
+      unresolvedItems: normalizedRecord.unresolved_items,
+      previousUnresolvedItems: existingRecord?.unresolved_items ?? [],
+      abandonmentReason: evidenceContext.abandonmentReason ?? null,
+      providerBinding: evidenceContext.providerBinding ?? null,
+      providerMergeObservation: evidenceContext.providerMergeObservation ?? null,
+      documentationEvidenceRefs: evidenceContext.documentationEvidenceRefs ?? [],
+    });
+    if (!transition.accepted) {
+      throw new DeliveryStatusTransitionError(transition);
+    }
+    if (operation === 'create') return { record: normalizedRecord, transition };
+
     const generationChanged = [
       'generator_ref',
       'generation_inputs',
@@ -585,14 +618,17 @@ export function createStateRepository({
     ) {
       throw new Error('Completion Record prior_artifact can change only during regeneration');
     }
-    return normalizedRecord;
+    return { record: normalizedRecord, transition };
   }
 
-  function writeCompletionRecord(record, { operation }) {
+  function writeCompletionRecord(record, { operation, transitionEvidence = {} }) {
     ensureBootstrapped();
     return withFileLockSync(stateWriteLockPath, () => {
       const snapshot = readSnapshot({ stateLockHeld: true });
-      const normalizedRecord = validateCompletionRecordWrite(record, snapshot, { operation });
+      const { record: normalizedRecord } = validateCompletionRecordWrite(record, snapshot, {
+        operation,
+        transitionEvidence,
+      });
       const nextState = cloneJsonValue(snapshot.state);
       upsertRepositoryCollectionRecord({
         state: nextState,
@@ -658,12 +694,12 @@ export function createStateRepository({
 
     ...collectionUpsertMethods,
 
-    createCompletionRecord(record) {
-      return writeCompletionRecord(record, { operation: 'create' });
+    createCompletionRecord(record, transitionEvidence = {}) {
+      return writeCompletionRecord(record, { operation: 'create', transitionEvidence });
     },
 
-    updateCompletionRecord(record) {
-      return writeCompletionRecord(record, { operation: 'update' });
+    updateCompletionRecord(record, transitionEvidence = {}) {
+      return writeCompletionRecord(record, { operation: 'update', transitionEvidence });
     },
 
     getCompletionRecord(recordId) {

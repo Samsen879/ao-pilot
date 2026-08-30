@@ -19,5 +19,8 @@
   "unresolved_items": [],
   "parent_task_refs": ["program-7", "lane-8"],
   "issue_number": 15,
+  "pr_number": 79,
+  "base_sha": "1111111111111111111111111111111111111111",
+  "head_sha": "2222222222222222222222222222222222222222",
   "review_refs": ["github:pull/79/reviews/1"]
 }

@@ -99,6 +99,8 @@ describe('ao-pilot public library API', () => {
       support: 'available',
     });
     expect(contracts.scanManagedTaskMetadata).toEqual(expect.any(Function));
+    expect(contracts.evaluateDeliveryStatusTransition).toEqual(expect.any(Function));
+    expect(contracts.projectDocumentationTrigger).toEqual(expect.any(Function));
     expect(contracts.createRetryRequiredDecision).toEqual(expect.any(Function));
     expect(contracts.interventionJudgmentContracts.INTERVENTION_JUDGMENTS)
       .toMatchObject({ RETRY_REQUIRED: 'retry_required' });

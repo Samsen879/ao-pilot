@@ -261,6 +261,20 @@ Current-to-target mapping：
 | `doctor_ambiguous` | `human_gate` | `escalation_required` | pause affected scope |
 | `releaseStatus === ambiguous` | `human_gate` | `escalation_required` | pause affected scope |
 
+#### Terminal delivery and documentation trigger contract
+
+The deterministic delivery contract uses exactly three statuses:
+
+- `review_passed` records evidence-bound review completion at an exact HEAD; it is not provider integration.
+- `integrated` requires an authoritative GitHub merge observation bound to repository identity, PR number, base SHA, observed HEAD, merge SHA, and the record's merge-observation reference. Local Git state, Worker completion, and review PASS cannot substitute for that observation.
+- `abandoned` requires an explicit terminal reason plus evidence-bound unresolved-item custody. It cannot transition to `review_passed` or `integrated`; retry must remain separate work with the prior custody visible.
+
+The explicit transition map is `none -> review_passed|integrated|abandoned`, `review_passed -> review_passed|integrated|abandoned`, and identity-only transitions from `integrated` or `abandoned`. Invalid transitions return stable structured blocker findings and preserve the prior status.
+
+Every accepted delivery status is eligible to trigger Completion Record documentation. Eligibility alone projects `documentation_pending` and `produced: false`; only explicit documentation evidence projects `documented` and `produced: true`. The projection does not generate documentation, infer provider effects, or authorize merge.
+
+These transition and documentation results are valid only for the complete evidence supplied to that projection. Raw persisted `delivery_status` does not reproduce ephemeral provider observations or abandonment reasons and therefore is not, by itself, terminal evidence for task-graph, state, or doctor readback.
+
 ### 4.3 P0-C: Controller lease single authority — separate safety repair
 
 P0-C 与 P0-A/P0-B/P0-D 并行，使用独立 safety PR；它不阻塞 Track A 的 read-only inventory、schema derivation 或 deterministic backfill。它必须在 Track B shared-state rollout 或任何 shared-project concurrency work 之前完成。
