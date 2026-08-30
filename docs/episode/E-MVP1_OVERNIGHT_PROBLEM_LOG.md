@@ -182,3 +182,184 @@ Resolution update at 2026-08-31T00:41:23+08:00: finding `3889922064` is correcte
 - Evidence: GitHub returned `GH007`; local identity readback showed `guoqiyang25@gmail.com`, and remote branch readback remained exactly `843ef0a997ea5ffc56d150d86bbc83e6e653f15f`.
 - Action: Append this record, amend the still-unpublished single repair commit to authenticated noreply identity `172257175+Samsen879@users.noreply.github.com`, verify its tree, and retry the push once with the existing command-scoped credential helper.
 - Status: Contained before remote publication; identity-corrected retry in progress.
+
+## E-MVP1-020
+
+- Timestamp: 2026-08-31T00:55:12+08:00
+- Issue: The initial issue #26 Worker spawn request was rejected with `PROMPT_TOO_LONG`.
+- Impact: No Worker runtime, session, branch, worktree, lease, or other managed resource was created by the rejected request.
+- Evidence: Runtime request `DESKTOP-ULILLCA/IYpohDIWwn-000079` returned `PROMPT_TOO_LONG`; the exact event timestamp was not established before this append-only recording.
+- Action: Preserve the rejection as admission evidence and continue only through the single subsequently admitted Worker resource.
+- Status: Contained before resource creation; no delivery impact.
+
+## E-MVP1-021
+
+- Timestamp: 2026-08-31T00:55:12+08:00
+- Issue: The first OR-to-Worker `ao send` attempt used rejected positional syntax instead of the required named flags.
+- Impact: That invocation delivered no message; the Worker and repository were unchanged.
+- Evidence: The AO CLI rejected the invocation before delivery and required `--session` and `--message`; the exact event timestamp and rejected command bytes were not established before this append-only recording.
+- Action: Use only the accepted named-flag syntax for the correction.
+- Status: Contained operational rejection; no delivery impact.
+
+## E-MVP1-022
+
+- Timestamp: 2026-08-31T00:55:12+08:00
+- Issue: A second OR-to-Worker `ao send` attempt again used rejected positional syntax before OR corrected the invocation.
+- Impact: That invocation delivered no message; the Worker and repository were unchanged.
+- Evidence: The AO CLI again rejected the invocation before delivery and required `--session` and `--message`; the exact event timestamp and rejected command bytes were not established before this append-only recording.
+- Action: OR corrected the command to the required named-flag form and delivered the governing scope without modifying repository state through either rejected attempt.
+- Status: Resolved operationally; no delivery impact.
+
+## E-MVP1-023
+
+- Timestamp: 2026-08-31T00:58:46+08:00
+- Issue: The first issue #26 repository draft added a rule forbidding updates away from `integrated` or `abandoned`, which would create new delivery-transition and terminality semantics outside the admitted persistence scope.
+- Impact: If retained, the draft would expand into #29 delivery behavior despite #26 being limited to storage of the pre-existing `delivery_status` contract.
+- Evidence: OR's read-only diff check identified the new conditional in `validateCompletionRecordWrite` before any commit, push, PR, or candidate claim.
+- Action: Remove the transition rule and its regression assertion; keep only existing contract normalization, child identity, duplicate rejection, mutation audit, and the authorized generation/prior-artifact update invariant.
+- Status: Contained before publication; no out-of-scope transition behavior remains.
+
+## E-MVP1-024
+
+- Timestamp: 2026-08-31T00:59:36+08:00
+- Issue: The first issue #26 focused test invocation could not start Jest because the isolated Worker worktree had no `node_modules` installation.
+- Impact: Node syntax checks passed, but that invocation produced no test result and no candidate claim is permitted from it.
+- Evidence: Node reported `MODULE_NOT_FOUND` for the worktree-local `node_modules/.bin/jest` before Jest launched.
+- Action: Restore dependencies exactly from the admitted `package-lock.json` with `npm ci`, then rerun the unchanged focused command.
+- Status: Remediation in progress; repository source and persistent control-plane state were not changed by the failed invocation.
+
+Resolution update at 2026-08-31T01:00:10+08:00: `npm ci` restored 292 lockfile-defined packages and reported zero vulnerabilities. The unchanged focused command then ran 7 suites / 92 tests: 6 suites / 85 tests passed, including all new Completion Record repository tests; 7 migration assertions still expected v12 as the terminal schema or exactly 12 audit receipts. E-MVP1-024 is resolved.
+
+## E-MVP1-025
+
+- Timestamp: 2026-08-31T01:00:10+08:00
+- Issue: The first executable focused gate found seven stale migration-test expectations after the additive v13 Completion Record migration.
+- Impact: Focused verification is not yet green; no candidate claim is permitted.
+- Evidence: `state-migrations.test.js` expected schema version 12, migration 12 as the last applied migration, or an exact 12-entry audit log; runtime results correctly included version 13 and `migration-13` while the other six focused suites passed.
+- Action: Update only the affected additive-migration expectations and add explicit v12-to-v13 replay, rejected pre-v13 evidence, and malformed v13 receipt tests before rerunning the gate.
+- Status: Bounded test-fixture remediation in progress.
+
+Resolution update at 2026-08-31T01:02:59+08:00: additive v13 expectations and dedicated migration cases were added; the expanded focused pack passed 9 suites / 129 tests, including deterministic v12-to-v13 replay, rejected unauthenticated pre-v13 evidence, malformed migration-audit rejection, mixed Completion Record versions, and current-schema missing/contradictory evidence. E-MVP1-025 is resolved.
+
+## E-MVP1-026
+
+- Timestamp: 2026-08-31T01:03:46+08:00
+- Issue: The first full issue #26 `npm test` run passed 99 of 102 suites but found four deterministic expectations still bound to the v12 state shape.
+- Impact: Full R2 verification is not green and no candidate claim is permitted.
+- Evidence: 927 of 931 tests passed. `state-runner.test.js` expected 15 rather than 16 audit entries; the controller-lease source inventory expected 60 rather than 61 matches after the additive migration source; and the controller-lease safety receipt retained the prior run and receipt digests even though its mixed-version fixture now correctly projects schema version 13.
+- Action: Update only the exact audit-count expectation and mechanically derived controller-lease inventory/receipt evidence, run both dedicated verifiers, then rerun the full suite.
+- Status: Mechanical generated-evidence repair in progress.
+
+## E-MVP1-027
+
+- Timestamp: 2026-08-31T01:05:42+08:00
+- Issue: After the dedicated controller-lease expectations passed, the next full suite correctly rejected the Phase 0 manifest's stale digest for the mechanically updated single-authority report.
+- Impact: Three Phase 0 evidence tests failed closed; full R2 verification remains pending.
+- Evidence: 101 of 102 suites and 928 of 931 tests passed. All three remaining failures reported `Artifact digest mismatch: lease_report` before accepting or replaying the frozen Phase 0 bundle.
+- Action: Rebind the Phase 0 manifest to the exact updated lease-report bytes, regenerate its deterministic replay receipt, run the dedicated verifier, and rerun the full suite.
+- Status: Mechanical transitive evidence repair in progress.
+
+## E-MVP1-028
+
+- Timestamp: 2026-08-31T01:06:35+08:00
+- Issue: The first dedicated Phase 0 verification attempt used the nonexistent shortened package-script name `verify:phase-zero` instead of the manifest-defined `verify:phase-zero-exit`.
+- Impact: npm rejected the command before the verifier launched, so it produced no verification result.
+- Evidence: npm returned `Missing script: "verify:phase-zero"` and suggested `verify:phase-zero-exit`; no repository or provider state changed.
+- Action: Rerun the identical exact-head/tree-bound verification through `npm run verify:phase-zero-exit` and treat only that result as evidence.
+- Status: Contained command error; corrected rerun pending.
+
+## E-MVP1-029
+
+- Timestamp: 2026-08-31T01:07:00+08:00
+- Issue: The correctly named Phase 0 verifier reached its clean-worktree gate and rejected the expected pre-candidate dirty state.
+- Impact: Exact-head/tree Phase 0 verification cannot be claimed until the issue #26 candidate is committed and the worktree is clean.
+- Evidence: `verify:phase-zero-exit` stopped with `Evidence worktree must be clean` before producing a receipt; this worktree contains only the uncommitted admitted issue #26 delta.
+- Action: Run the underlying Phase 0 replay tests now, then rerun the exact-head/tree verifier against the clean final candidate commit and tree.
+- Status: Expected sequencing hold; final verification deferred until the candidate commit.
+
+## E-MVP1-030
+
+- Timestamp: 2026-08-31T01:08:14+08:00
+- Issue: The first `verify:fresh-clone` run selected the AO session's `/home/samsen/.ao/bin/git` wrapper, then its intentionally reduced safe-tool `PATH` omitted the wrapper's `/usr/bin/env bash` interpreter.
+- Impact: The isolated clone command exited 127 before cloning, so no fresh-clone result can be claimed from that invocation.
+- Evidence: The verifier reported `/usr/bin/env: 'bash': No such file or directory`; host inspection confirmed bash at `/usr/bin/bash`, while the inherited first `git` is a Bash wrapper and the verifier's safe path contains `git` but not `bash`.
+- Action: Preserve repository and runtime scope; rerun the unchanged verifier with command-scoped `PATH` preferring the host `/usr/bin/git`, which is directly executable, and report only that isolated rerun as evidence.
+- Status: Environment-path remediation pending; no product or lock change authorized.
+
+## E-MVP1-031
+
+- Timestamp: 2026-08-31T01:08:41+08:00
+- Issue: The issue #26 pre-candidate gate set unnecessarily invoked runtime lock/bootstrap/lifecycle and fresh-clone checks even though the admitted diff does not touch runtime, portability, bootstrap, lifecycle, or fresh-machine surfaces.
+- Impact: The runtime outputs are incidental and provide no required issue #26 assurance; pursuing the fresh-clone environment failure would expand scope.
+- Evidence: OR's immediate read-only boundary correction reiterated the explicit runtime/lock/bootstrap/fresh-machine exclusions. The failed fresh-clone invocation created no clone and changed no product, runtime, lock, provider, or credential state.
+- Action: Stop the fresh-clone investigation, do not rerun it or alter PATH/runtime files, and continue only applicable shared-contract, migration, full AO, deterministic evidence, and public-package gates.
+- Status: Scope corrected; E-MVP1-030 is closed without rerun and its failed invocation is not release evidence.
+
+## E-MVP1-032
+
+- Timestamp: 2026-08-31T01:10:05+08:00
+- Issue: Removing a final unnecessary three-line Completion Record creation restriction preserved all focused behavior but shifted the deterministic controller-lease source-inventory line bindings.
+- Impact: The focused pack passed 9 suites / 129 tests, but the following full-suite run stopped on the stale inventory digest before package verification ran.
+- Evidence: The source match count remained 61; only the expected digest changed from `c2d22152efadb5236c5ae913944a6c47964ca97d0d96a7500886cafb54aca50d` to `be5bcedd2d3ce99fc62d9ae6cb1baa9bca7b40f41de36150c5d39b8ed3ad9c54` after line movement in `state-repository.js`.
+- Action: Rebind only the deterministic inventory digest and its exact test assertion, run the dedicated audit, then rerun the full suite and package verification.
+- Status: Mechanical generated-evidence repair in progress.
+
+Resolution update at 2026-08-31T01:12:59+08:00: the final controller-lease source inventory passed with 61 matches and digest `be5bcedd2d3ce99fc62d9ae6cb1baa9bca7b40f41de36150c5d39b8ed3ad9c54`; the focused pack passed 9 suites / 129 tests, the full AO suite passed 102 suites / 931 tests, public package verification passed with 278 entries, acceptance passed 7/7, smoke passed, deterministic evidence verifiers passed, and dependency audit reported zero vulnerabilities. E-MVP1-026, E-MVP1-027, E-MVP1-028, and E-MVP1-032 are resolved for pre-candidate evidence. E-MVP1-029 remains an intentional clean-candidate sequencing hold for exact-head/tree Phase 0 verification.
+
+## E-MVP1-033
+
+- Timestamp: 2026-08-31T01:14:33+08:00
+- Issue: The first provider PR #92 readback command supplied a nonexistent shortened worktree path to the command runner.
+- Impact: The process did not start, so that invocation produced no provider-state evidence.
+- Evidence: Command creation returned `No such file or directory` before `gh` launched; PR #92 and the governed worktree were unchanged.
+- Action: Append this log-only correction before candidate review, commit it with the required identity, rebind clean exact-head/tree evidence, push to the same principal PR, and rerun the readback from the exact AO-created worktree path.
+- Status: Contained operational error; deterministic correction in progress.
+
+## E-MVP1-034
+
+- Timestamp: 2026-08-31T01:21:36+08:00
+- Issue: The single candidate review on semantic commit `2d3b8b502d8203f6d478d76f8fd64efd5e76b1ab` reported three P2 migration-evidence findings: repair ordering could mutate before rejecting malformed v13 evidence; duplicate v13 audit receipts were not rejected; and v13 migration did not validate the predecessor v12 schema receipt before writing.
+- Impact: PR #92 is not merge-ready until all three findings have focused regressions and finding-scoped corrections. No P0/P1 finding was reported.
+- Evidence: Review `5061438502` created inline finding comments `3890024545`, `3890024548`, and `3890024551` against the exact reviewed semantic candidate.
+- Action: Validate the complete existing v12/v13 receipt set before any repair or migration write, require exactly one matching v13 audit entry, preserve failing bytes unchanged, and add one regression per finding; use finding verification without requesting a second full candidate review.
+- Status: Finding-scoped repair in progress.
+
+## E-MVP1-035
+
+- Timestamp: 2026-08-31T01:21:36+08:00
+- Issue: The review-handler skill's first read-only helper invocation used `python`, but this Worker environment exposes only `/usr/bin/python3`.
+- Impact: The helper did not start and returned no thread inventory; GitHub authentication remained valid and no provider or repository state changed.
+- Evidence: The shell returned `python: command not found`; `command -v python3` returned `/usr/bin/python3`.
+- Action: Rerun the unchanged helper with `python3` and use only that output as thread evidence.
+- Status: Contained tooling alias mismatch; corrected read-only rerun pending.
+
+## E-MVP1-036
+
+- Timestamp: 2026-08-31T01:22:31+08:00
+- Issue: At approximately 2026-08-31T01:20:00+08:00, one OR review-polling invocation used a malformed read-only GraphQL query.
+- Impact: That invocation produced no provider readback; the already running candidate review was not duplicated or otherwise changed.
+- Evidence: GitHub rejected the query at parse time with `Expected NAME, actual: (none) at [1, 366]` before executing it.
+- Action: Return to the previously validated read-only query shape and preserve the existing single candidate-review run.
+- Status: Contained before provider execution; no repository, product, credential, or provider mutation occurred.
+
+## E-MVP1-037
+
+- Timestamp: 2026-08-31T01:25:00+08:00
+- Issue: The first finding-verification focused test invocation launched bare `npx jest` without the repository's required Node ESM VM-modules flag.
+- Impact: Jest rejected both selected ESM test suites during parsing, before collecting or executing any test.
+- Evidence: Both suites stopped at their first `import` statement with `Cannot use import statement outside a module`; no product or provider state changed.
+- Action: Rerun the same two focused suites through the repository-configured `node --experimental-vm-modules node_modules/.bin/jest` launcher and use only that result as finding evidence.
+- Status: Contained command-shape error; corrected focused rerun pending.
+
+Resolution update at 2026-08-31T01:26:00+08:00: the corrected ESM-configured focused run passed both selected suites and all 43 tests, including the new atomic rejection, duplicate-order, and v12 predecessor regressions. E-MVP1-037 is resolved.
+
+## E-MVP1-038
+
+- Timestamp: 2026-08-31T01:26:00+08:00
+- Issue: The first post-finding controller-lease authority audit rejected its stale deterministic source-inventory digest after the scoped migration preflight edits shifted source matches.
+- Impact: The dedicated authority audit is not green until its mechanical source inventory is rebound; the finding-focused tests remain green.
+- Evidence: The verifier expected `be5bcedd2d3ce99fc62d9ae6cb1baa9bca7b40f41de36150c5d39b8ed3ad9c54` and computed `06368399118b1e80d71d0b3877e8c30d4ef9a4b3d9935a9fc6415ef6d052ac4e`.
+- Action: Update only the deterministic inventory digest and its exact test assertion, rerun the authority audit, then continue full applicable verification.
+- Status: Mechanical evidence rebind in progress; no runtime or controller authority semantics changed.
+
+Resolution update at 2026-08-31T01:28:38+08:00: the finding correction now validates the complete current v12/v13 applied-migration and audit-receipt set before any repair, rejects duplicate receipts independent of their order, and validates the v12 predecessor schema receipt before a v13 write. The focused finding pack passed 2 suites / 43 tests, the full AO suite passed 102 suites / 936 tests, acceptance passed 7/7, smoke and public-package verification passed, trajectory/false-success/Completion Record/controller-lease gates passed, and dependency audit reported zero vulnerabilities. The controller-lease inventory remained 61 matches and passed with rebound digest `06368399118b1e80d71d0b3877e8c30d4ef9a4b3d9935a9fc6415ef6d052ac4e`; E-MVP1-034 and E-MVP1-038 are resolved. The required `npm run lint` invocation still stops on the pre-existing missing-script gap classified in E-MVP1-008.

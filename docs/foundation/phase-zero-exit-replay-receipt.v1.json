@@ -1,14 +1,14 @@
 {
   "schema_version": "ao.phase-zero-exit-replay-receipt.v1",
   "status": "passed",
-  "manifest_digest": "d95cc26b8ceaf5d591a1dde73ee531d499df0d020bacbe33138d4950503e73ea",
-  "evidence_bundle_digest": "5823267d793bcc05f3a66d769ca03996a8d866bfbfe453ead7b390b0affa096f",
+  "manifest_digest": "29f1f0090a534438d21797f150610fbe02bd0a9d82b140e5bd73e5520887ce2a",
+  "evidence_bundle_digest": "852a478fcf146c523176018d8cb0ea0d33c3654388b654fa84124974e79afc32",
   "scenario_count": 4,
   "replay_count": 2,
-  "stable_run_digest": "9cecb899631e531348b37f4fe497718322bd0ff4bbe65799d6b972048b135607",
+  "stable_run_digest": "e20cc87833a01c707577988b734c580dd064c16b2098afec97595722e0943f72",
   "run_digests": [
-    "9cecb899631e531348b37f4fe497718322bd0ff4bbe65799d6b972048b135607",
-    "9cecb899631e531348b37f4fe497718322bd0ff4bbe65799d6b972048b135607"
+    "e20cc87833a01c707577988b734c580dd064c16b2098afec97595722e0943f72",
+    "e20cc87833a01c707577988b734c580dd064c16b2098afec97595722e0943f72"
   ],
   "behavior_coverage": [
     "success",
@@ -16,5 +16,5 @@
     "missing_evidence",
     "replay"
   ],
-  "receipt_digest": "2273f43eba62ac76653fdcf0d68b4b189c80273d9c2eec0baca936289ddd3648"
+  "receipt_digest": "b75a036b2b7a752cc8cba704870ad0a6b18c70fa6a0939eb45e7c85a8b7a429e"
 }

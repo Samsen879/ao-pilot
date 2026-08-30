@@ -15,6 +15,12 @@ import {
   createControllerLeaseAuthority,
   readControllerLeaseAuthorityFile,
 } from './controller-lease-authority.js';
+import {
+  COMPLETION_DELIVERY_STATUSES,
+  COMPLETION_RECORD_SCHEMA_VERSION,
+  completionRecordId,
+  normalizeCompletionRecord,
+} from './completion-record-contracts.js';
 import { materializeRepoKnowledge } from './repo-knowledge.js';
 import { runRuntimeBootstrapPreflight } from './runtime-preflight.js';
 import {
@@ -120,6 +126,13 @@ function normalizeRelationId(value) {
 const TASK_RELATION_COLLECTION = STATE_REPOSITORY_COLLECTIONS.find(
   (descriptor) => descriptor.collectionKey === 'task_relations',
 );
+const COMPLETION_RECORD_COLLECTION = STATE_REPOSITORY_COLLECTIONS.find(
+  (descriptor) => descriptor.collectionKey === 'completion_records',
+);
+
+function compareCanonicalStrings(left, right) {
+  return Buffer.compare(Buffer.from(String(left), 'utf8'), Buffer.from(String(right), 'utf8'));
+}
 
 function normalizeStoredTaskRelations(state) {
   if (!Array.isArray(state?.task_relations)) {
@@ -142,6 +155,42 @@ function normalizeStoredTaskRelations(state) {
     relationIds.add(normalizedRelation.relation_id);
   }
   return normalizedRelations;
+}
+
+function normalizeStoredCompletionRecords(state) {
+  if (!Array.isArray(state?.completion_records)) {
+    throw new Error('Missing or malformed durable completion_records collection');
+  }
+  const observedVersions = [...new Set(state.completion_records.map((record) => {
+    if (typeof record?.schema_version !== 'string' || record.schema_version.trim() === '') {
+      throw new Error('Missing Completion Record schema_version');
+    }
+    return record.schema_version;
+  }))];
+  if (observedVersions.length > 1) {
+    throw new Error('Mixed Completion Record schema versions are unsupported');
+  }
+  if (observedVersions.some((version) => version !== COMPLETION_RECORD_SCHEMA_VERSION)) {
+    throw new Error(`Unsupported Completion Record schema: ${observedVersions[0]}`);
+  }
+
+  const normalizedRecords = state.completion_records.map(normalizeCompletionRecord);
+  const recordIds = new Set();
+  const childTaskIds = new Set();
+  const managedTaskIds = new Set((state.managed_tasks ?? []).map((task) => task?.task_id));
+  for (const record of normalizedRecords) {
+    if (recordIds.has(record.record_id) || childTaskIds.has(record.child_task_id)) {
+      throw new Error(`Duplicate durable Completion Record identity ${record.record_id}`);
+    }
+    recordIds.add(record.record_id);
+    childTaskIds.add(record.child_task_id);
+    if (!managedTaskIds.has(record.child_task_id)) {
+      throw new Error(`Durable Completion Record references unknown managed child ${record.child_task_id}`);
+    }
+  }
+  return normalizedRecords.sort((left, right) => (
+    compareCanonicalStrings(left.record_id, right.record_id)
+  ));
 }
 
 export function createStateRepository({
@@ -265,6 +314,7 @@ export function createStateRepository({
       normalizedTaskRelations = [];
       state.task_relations = [];
     }
+    const normalizedCompletionRecords = normalizeStoredCompletionRecords(state);
     const nextState = sortRepositoryStateCollections(cloneJsonValue(state), {
       controllerLeases: isolatedControllerLeases,
     });
@@ -272,6 +322,7 @@ export function createStateRepository({
       normalizedTaskRelations,
       'relation_id',
     );
+    nextState.completion_records = normalizedCompletionRecords;
 
     return {
       bootstrapped: true,
@@ -494,6 +545,74 @@ export function createStateRepository({
     });
   }
 
+  function validateCompletionRecordWrite(record, snapshot, { operation }) {
+    const normalizedRecord = normalizeCompletionRecord(record);
+    const existingRecord = snapshot.state.completion_records.find(
+      (entry) => entry.record_id === normalizedRecord.record_id,
+    );
+    const knownChild = snapshot.state.managed_tasks.some(
+      (task) => task.task_id === normalizedRecord.child_task_id,
+    );
+    if (!knownChild) {
+      throw new Error(`Completion Record references unknown managed child ${normalizedRecord.child_task_id}`);
+    }
+
+    if (operation === 'create') {
+      if (existingRecord) {
+        throw new Error(`Completion Record already exists: ${normalizedRecord.record_id}`);
+      }
+      return normalizedRecord;
+    }
+
+    if (!existingRecord) {
+      throw new Error(`Completion Record does not exist: ${normalizedRecord.record_id}`);
+    }
+    const generationChanged = [
+      'generator_ref',
+      'generation_inputs',
+      'generation_inputs_digest',
+      'artifact',
+    ].some((field) => (
+      JSON.stringify(existingRecord[field]) !== JSON.stringify(normalizedRecord[field])
+    ));
+    if (generationChanged) {
+      if (JSON.stringify(normalizedRecord.prior_artifact) !== JSON.stringify(existingRecord.artifact)) {
+        throw new Error('Regenerated Completion Record requires prior_artifact matching the durable artifact');
+      }
+    } else if (
+      JSON.stringify(normalizedRecord.prior_artifact ?? null)
+      !== JSON.stringify(existingRecord.prior_artifact ?? null)
+    ) {
+      throw new Error('Completion Record prior_artifact can change only during regeneration');
+    }
+    return normalizedRecord;
+  }
+
+  function writeCompletionRecord(record, { operation }) {
+    ensureBootstrapped();
+    return withFileLockSync(stateWriteLockPath, () => {
+      const snapshot = readSnapshot({ stateLockHeld: true });
+      const normalizedRecord = validateCompletionRecordWrite(record, snapshot, { operation });
+      const nextState = cloneJsonValue(snapshot.state);
+      upsertRepositoryCollectionRecord({
+        state: nextState,
+        descriptor: COMPLETION_RECORD_COLLECTION,
+        record: normalizedRecord,
+      });
+      nextState.completion_records = normalizeStoredCompletionRecords(nextState);
+      persistState({
+        state: nextState,
+        entityKind: 'completion_record',
+        entityId: normalizedRecord.record_id,
+        operation,
+        summary: `${operation === 'create' ? 'Created' : 'Updated'} Completion Record ${normalizedRecord.record_id}.`,
+        details: normalizedRecord,
+        stateLockHeld: true,
+      });
+      return normalizedRecord;
+    });
+  }
+
   return {
     getSnapshot() {
       return readSnapshot();
@@ -538,6 +657,52 @@ export function createStateRepository({
     },
 
     ...collectionUpsertMethods,
+
+    createCompletionRecord(record) {
+      return writeCompletionRecord(record, { operation: 'create' });
+    },
+
+    updateCompletionRecord(record) {
+      return writeCompletionRecord(record, { operation: 'update' });
+    },
+
+    getCompletionRecord(recordId) {
+      if (typeof recordId !== 'string' || recordId.trim() !== recordId || recordId === '') {
+        throw new Error('Invalid Completion Record identity');
+      }
+      return readSnapshot().state.completion_records.find(
+        (record) => record.record_id === recordId,
+      ) ?? null;
+    },
+
+    getCompletionRecordForChild(childTaskId) {
+      const recordId = completionRecordId(childTaskId);
+      return readSnapshot().state.completion_records.find(
+        (record) => record.record_id === recordId,
+      ) ?? null;
+    },
+
+    queryCompletionRecords({
+      childTaskId = null,
+      deliveryStatus = null,
+      generatorRef = null,
+    } = {}) {
+      const recordId = childTaskId == null ? null : completionRecordId(childTaskId);
+      if (deliveryStatus != null && !COMPLETION_DELIVERY_STATUSES.includes(deliveryStatus)) {
+        throw new Error('Invalid Completion Record delivery status query');
+      }
+      if (
+        generatorRef != null
+        && (typeof generatorRef !== 'string' || generatorRef.trim() !== generatorRef || generatorRef === '')
+      ) {
+        throw new Error('Invalid Completion Record generator_ref query');
+      }
+      return readSnapshot().state.completion_records.filter((record) => (
+        (recordId == null || record.record_id === recordId)
+        && (deliveryStatus == null || record.delivery_status === deliveryStatus)
+        && (generatorRef == null || record.generator_ref === generatorRef)
+      ));
+    },
 
     createTaskRelation(record) {
       return writeTaskRelation(record, { requireAbsent: true });

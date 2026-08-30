@@ -267,7 +267,7 @@
   },
   "artifacts": {
     "trajectory_report": { "path": "docs/foundation/trajectory-truthfulness-report.v1.json", "sha256": "b1293a6c2c870b469f9b183ec117ea75c5045970383815364906621563412620" },
-    "lease_report": { "path": "docs/foundation/controller-lease-single-authority-report.v1.json", "sha256": "da69007f58947336a2c3b05d4311248bf49ecf5cc6c7e9e70e17e1102a7bc82b" },
+    "lease_report": { "path": "docs/foundation/controller-lease-single-authority-report.v1.json", "sha256": "1ea4e04bbad389118edc29bf4b8c8a288afa4fa636d30d6e978d222ac6593c01" },
     "boundary_freeze": { "path": "docs/foundation/judgment-or-effect-contract-freeze.v1.json", "sha256": "42047afe1c82bd6ae6f48c4ba1a83b0eb1555ad34c041db18970c7a1fa58ce2a" },
     "risk_register": { "path": "docs/foundation/phase-zero-remaining-risk-register.v1.json", "sha256": "cc8da0924568456241b05271ca715d6a05bf9e5b27d1f4ab32794ed509cb8796" },
     "fixture_pack": { "path": "tests/ao/fixtures/phase-zero-exit/pack.v1.json", "sha256": "28a4b29a9b8c9a4d30077c2fd5f821aa2ed4b3d98a5acc8b5e55599b3c46df7c" }
