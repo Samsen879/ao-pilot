@@ -29,16 +29,35 @@ The committed characterization pack freezes all four distinctions.
 ## Exhaustive caller inventory
 
 The machine-readable inventory is
-[`controller-lease-caller-inventory.v1.json`](controller-lease-caller-inventory.v1.json).
+[`controller-lease-authority-sites.v2.json`](controller-lease-authority-sites.v2.json).
 Its verifier scans every JavaScript file under `scripts/ao/lib` for the file
 path, state property, atomic API, and upsert API selectors. It also requires a
-unique source anchor for every semantic caller below. Any added, removed, or
-changed or relocated source occurrence fails the deterministic digest gate;
-each digest tuple includes its line position. The complete authority-design
-object and the complete governed-base/caller metadata are pinned as well, so
-no individual policy, role, symbol, anchor, or admitted base can weaken
-silently. The scan also matches every `persistState` definition and call,
-closing the generic shadow-writer path.
+unique normalized semantic binding set for every authority site below. The
+complete authority design, stable site identities, roles, bindings, scan
+boundary, selector patterns, and selector-level occurrence counts are pinned
+in one semantic manifest. The scan also matches every `persistState`
+definition and call, closing the generic shadow-writer path.
+
+Issue #94 migrated the accepted v1 inventory to this v2 representation. The
+v1 digest included file paths, line numbers, and trimmed source lines for all
+61 selector matches. That detected drift, but it also forced evidence rebinding
+after unrelated line movement. V2 separates the evidence layers:
+
+- stable authority evidence contains site IDs, roles, whitespace-normalized
+  semantic bindings, and selector counts;
+- file paths and line numbers are emitted only as failure diagnostics;
+- the semantic manifest digest is frozen in the verifier, so a legitimate
+  authority change requires an explicit manifest and verifier update;
+- missing or duplicated bindings identify the exact stable binding ID, while
+  added or removed unregistered paths identify the selector and observed
+  locations.
+
+This keeps formatting and source relocation out of the normalized evidence
+without weakening exhaustive coverage. Stable explicit site IDs plus
+normalized bindings were selected over a path/line manifest, which preserves
+the original brittleness; over selector counts alone, which cannot detect a
+bypassed check that retains the same tokens; and over AST/symbol extraction,
+which would add a general static-analysis dependency for a bounded invariant.
 
 | Boundary | Reads | Writes | Fallback/projection consequence |
 | --- | --- | --- | --- |
@@ -159,10 +178,15 @@ restored, remain failed closed and escalate rather than synthesize a shadow.
 
 ## Verification contract
 
-- `npm run verify:controller-lease-audit` pins the complete static scan.
+- `npm run verify:controller-lease-audit` is the canonical generation and
+  verification path. It emits deterministic normalized v2 evidence while
+  excluding diagnostic locations from its authority digest.
 - `tests/ao/controller-lease-authority-audit.test.js` covers deterministic
-  inventory success/failure plus success, invalid-record failure, missing,
-  syntactically/semantically malformed, mixed-version, and replay behavior.
+  inventory success/failure; formatting and relocation stability;
+  missing/extra/duplicate/mutated/bypassed authority negatives; v1 migration;
+  deterministic replay; and success, invalid-record failure, missing,
+  syntactically/semantically malformed, mixed-version, and projection replay
+  behavior.
 - Existing targeted repository, migration, controller-loop, state-runner, and
   collection tests remain the regression boundary.
 - Full `npm test` and package verification must remain green.

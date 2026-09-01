@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from '@jest/globals';
 
 import {
+  generateControllerLeaseAuthorityEvidence,
   loadControllerLeaseInventory,
   scanControllerLeaseSources,
   validateControllerLeaseInventory,
@@ -25,7 +26,7 @@ import { writeJsonFileAtomic } from '../../scripts/ao/lib/state-storage.js';
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const inventory = loadControllerLeaseInventory(path.join(
   repositoryRoot,
-  'docs/foundation/controller-lease-caller-inventory.v1.json',
+  'docs/foundation/controller-lease-authority-sites.v2.json',
 ));
 const fixturePack = JSON.parse(fs.readFileSync(path.join(
   repositoryRoot,
@@ -117,67 +118,168 @@ function materializeFixture(entry) {
   };
 }
 
+function materializeSourceRoot() {
+  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-controller-lease-source-'));
+  tempDirs.push(repoRoot);
+  const copiedLib = path.join(repoRoot, 'scripts/ao/lib');
+  fs.mkdirSync(path.dirname(copiedLib), { recursive: true });
+  fs.cpSync(path.join(repositoryRoot, 'scripts/ao/lib'), copiedLib, { recursive: true });
+  return repoRoot;
+}
+
+function replaceSource(repoRoot, relativePath, before, after) {
+  const sourcePath = path.join(repoRoot, relativePath);
+  const source = fs.readFileSync(sourcePath, 'utf8');
+  expect(source).toContain(before);
+  fs.writeFileSync(sourcePath, source.replace(before, after), 'utf8');
+}
+
 afterEach(() => {
   while (tempDirs.length) fs.rmSync(tempDirs.pop(), { recursive: true, force: true });
 });
 
 describe('controller lease authority design audit', () => {
-  it('pins an exhaustive deterministic source scan and every semantic caller anchor', () => {
-    expect(validateControllerLeaseInventory(inventory, repositoryRoot)).toEqual({
-      caller_count: 15,
-      caller_metadata_digest: '9a33c814e330606fb9022b399c5feed85b4d37b4886aa24f7c125e5bce141859',
-      source_match_count: 61,
-      source_digest: '825880b4f2765e947b1b17105a5ca422f2028addaa5969ebd2b3089cf6e5b638',
+  it('pins deterministic semantic authority evidence and exhaustive selector coverage', () => {
+    expect(validateControllerLeaseInventory(inventory, repositoryRoot)).toMatchObject({
+      schema_version: 'ao.controller-lease-authority-evidence.v2',
+      semantic_manifest_digest: 'c9760e15ce1feda28032c2113f43d148a2e6425e1730c358ccaa48085106f9f4',
+      authority_site_count: 17,
+      binding_count: 31,
+      selector_counts: {
+        'atomic-api': 5,
+        'file-name': 3,
+        'isolated-path': 12,
+        'persist-state-api': 7,
+        'state-property': 25,
+        'upsert-api': 9,
+      },
+      selector_evidence_digest: '6c12b0dad1dedf22e5a2582a34d1f9b413b2133dd9a7ac48c2d13ee510833c7e',
+      authority_evidence_digest: '1c0e44afb13666c6572cf1718726290d7de86b75fb81feb80c1dee72e48ba2a6',
     });
-    expect(scanControllerLeaseSources(inventory, repositoryRoot).matches).toHaveLength(61);
+    expect(scanControllerLeaseSources(inventory, repositoryRoot).match_count).toBe(61);
   });
 
-  it('rejects a newly added uninventoried generic state shadow writer', () => {
-    const mutatedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-controller-lease-source-mutation-'));
-    tempDirs.push(mutatedRoot);
-    const copiedLib = path.join(mutatedRoot, 'scripts/ao/lib');
-    fs.mkdirSync(path.dirname(copiedLib), { recursive: true });
-    fs.cpSync(path.join(repositoryRoot, 'scripts/ao/lib'), copiedLib, { recursive: true });
+  it('is stable under formatting-only changes', () => {
+    const mutatedRoot = materializeSourceRoot();
+    replaceSource(
+      mutatedRoot,
+      'scripts/ao/lib/state-repository.js',
+      'delete nextState.controller_leases;',
+      'delete nextState\n      /* formatting-only */ .controller_leases;',
+    );
+    expect(validateControllerLeaseInventory(inventory, mutatedRoot))
+      .toEqual(validateControllerLeaseInventory(inventory, repositoryRoot));
+  });
+
+  it('is stable when unrelated source is relocated', () => {
+    const mutatedRoot = materializeSourceRoot();
+    const from = path.join(mutatedRoot, 'scripts/ao/lib/scorecard.js');
+    const to = path.join(mutatedRoot, 'scripts/ao/lib/relocated/scorecard.js');
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    fs.renameSync(from, to);
+    expect(validateControllerLeaseInventory(inventory, mutatedRoot))
+      .toEqual(validateControllerLeaseInventory(inventory, repositoryRoot));
+  });
+
+  it('is stable when a protected authority site is relocated with its bindings', () => {
+    const mutatedRoot = materializeSourceRoot();
+    const from = path.join(mutatedRoot, 'scripts/ao/lib/state-report.js');
+    const to = path.join(mutatedRoot, 'scripts/ao/lib/relocated/state-report.js');
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    fs.renameSync(from, to);
+    expect(validateControllerLeaseInventory(inventory, mutatedRoot))
+      .toEqual(validateControllerLeaseInventory(inventory, repositoryRoot));
+  });
+
+  it('reports the exact missing authority site identity', () => {
+    const mutatedRoot = materializeSourceRoot();
+    replaceSource(
+      mutatedRoot,
+      'scripts/ao/lib/state-report.js',
+      'active_controller_leases: ${report.summary.active_controller_lease_count}',
+      'active_controller_count: ${report.summary.active_controller_lease_count}',
+    );
+    expect(() => validateControllerLeaseInventory(inventory, mutatedRoot))
+      .toThrow('Controller lease authority site text-report.derived-count failed');
+  });
+
+  it('rejects a newly added unregistered authority path with selector locations', () => {
+    const mutatedRoot = materializeSourceRoot();
     fs.appendFileSync(
-      path.join(copiedLib, 'state-repository.js'),
+      path.join(mutatedRoot, 'scripts/ao/lib/state-repository.js'),
       '\nfunction uninventoriedShadowWriter() { persistState({ state: {} }); }\n',
       'utf8',
     );
 
     expect(() => validateControllerLeaseInventory(inventory, mutatedRoot))
-      .toThrow('source match count drifted');
+      .toThrow('Controller lease selector persist-state-api coverage drifted');
   });
 
-  it('fails the audit when authority, source evidence, or caller evidence drifts', () => {
+  it('rejects a duplicated authority binding with its stable identity', () => {
+    const mutatedRoot = materializeSourceRoot();
+    fs.appendFileSync(
+      path.join(mutatedRoot, 'scripts/ao/lib/state-report.js'),
+      '\nconst duplicateLeaseCount = `active_controller_leases: ${report.summary.active_controller_lease_count}`;\n',
+      'utf8',
+    );
+    expect(() => validateControllerLeaseInventory(inventory, mutatedRoot))
+      .toThrow('Controller lease authority binding text-report.derived-count#1 failed');
+  });
+
+  it('rejects semantic authority manifest mutation explicitly', () => {
+    const semanticDrift = structuredClone(inventory);
+    semanticDrift.authority_sites.find((site) => site.id === 'state-report.runtime-summary')
+      .roles.push('fallback');
+    expect(() => validateControllerLeaseInventory(semanticDrift, repositoryRoot))
+      .toThrow('must not retain a fallback or state shadow writer');
+  });
+
+  it('rejects a bypassed authority check even when selector counts remain unchanged', () => {
+    const mutatedRoot = materializeSourceRoot();
+    replaceSource(
+      mutatedRoot,
+      'scripts/ao/lib/state-repository.js',
+      'delete nextState.controller_leases;',
+      'void nextState.controller_leases;',
+    );
+    expect(() => validateControllerLeaseInventory(inventory, mutatedRoot))
+      .toThrow('Controller lease authority site repository.ordinary-state-shadow-stripper failed');
+  });
+
+  it('replays byte-identical normalized authority evidence deterministically', () => {
+    const first = validateControllerLeaseInventory(inventory, repositoryRoot);
+    const second = validateControllerLeaseInventory(inventory, repositoryRoot);
+    expect(JSON.stringify(second)).toBe(JSON.stringify(first));
+    const generated = generateControllerLeaseAuthorityEvidence(inventory, repositoryRoot);
+    expect(generated.authority_evidence_digest).toBe(first.authority_evidence_digest);
+  });
+
+  it('records migration from the accepted v1 whole-source inventory', () => {
+    expect(inventory.migrated_from).toEqual({
+      schema_version: 'ao.controller-lease-caller-inventory.v1',
+      accepted_match_count: 61,
+      accepted_source_digest: '825880b4f2765e947b1b17105a5ca422f2028addaa5969ebd2b3089cf6e5b638',
+      accepted_caller_metadata_digest: '9a33c814e330606fb9022b399c5feed85b4d37b4886aa24f7c125e5bce141859',
+    });
+    expect(Object.values(inventory.source_scan.expected_selector_counts)
+      .reduce((total, count) => total + count, 0)).toBe(inventory.migrated_from.accepted_match_count);
+  });
+
+  it('fails closed when frozen authority or semantic manifest evidence drifts', () => {
     const shadowAuthority = structuredClone(inventory);
     shadowAuthority.authority_design.state_shadow_recovery_authority = true;
     expect(() => validateControllerLeaseInventory(shadowAuthority, repositoryRoot))
       .toThrow('prohibit state.json shadow recovery authority');
-
-    const sourceDrift = structuredClone(inventory);
-    sourceDrift.source_scan.expected_digest = '0'.repeat(64);
-    expect(() => validateControllerLeaseInventory(sourceDrift, repositoryRoot))
-      .toThrow('source inventory drifted');
 
     const projectionDrift = structuredClone(inventory);
     projectionDrift.authority_design.missing_authority_policy = 'fall back to state.json';
     expect(() => validateControllerLeaseInventory(projectionDrift, repositoryRoot))
       .toThrow('complete frozen controller lease authority design has drifted');
 
-    const missingAnchor = structuredClone(inventory);
-    missingAnchor.callers[0].anchors = ['not present in the governed source'];
-    expect(() => validateControllerLeaseInventory(missingAnchor, repositoryRoot))
-      .toThrow('caller or governed-base metadata has drifted');
-
-    const callerMetadataDrift = structuredClone(inventory);
-    callerMetadataDrift.callers[0].symbol = 'misclassifiedSymbol';
-    expect(() => validateControllerLeaseInventory(callerMetadataDrift, repositoryRoot))
-      .toThrow('caller or governed-base metadata has drifted');
-
-    const governedBaseDrift = structuredClone(inventory);
-    governedBaseDrift.governed_base.tree = '0'.repeat(40);
-    expect(() => validateControllerLeaseInventory(governedBaseDrift, repositoryRoot))
-      .toThrow('caller or governed-base metadata has drifted');
+    const selectorDrift = structuredClone(inventory);
+    selectorDrift.source_scan.expected_selector_counts['state-property'] -= 1;
+    expect(() => validateControllerLeaseInventory(selectorDrift, repositoryRoot))
+      .toThrow('frozen controller lease semantic manifest has drifted');
   });
 
   it('covers success, failure, missing, malformed, mixed-version, and replay fixtures', () => {

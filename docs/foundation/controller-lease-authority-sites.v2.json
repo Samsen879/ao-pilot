@@ -1,11 +1,23 @@
 {
-  "schema_version": "ao.controller-lease-caller-inventory.v1",
-  "inventory_version": "2026-08-12.4",
+  "schema_version": "ao.controller-lease-authority-sites.v2",
+  "inventory_version": "2026-09-01.1",
+  "migrated_from": {
+    "schema_version": "ao.controller-lease-caller-inventory.v1",
+    "accepted_match_count": 61,
+    "accepted_source_digest": "825880b4f2765e947b1b17105a5ca422f2028addaa5969ebd2b3089cf6e5b638",
+    "accepted_caller_metadata_digest": "9a33c814e330606fb9022b399c5feed85b4d37b4886aa24f7c125e5bce141859"
+  },
   "governed_base": {
     "commit": "17f1527b87f8666ccd331ff316296ca1bb05ba89",
     "tree": "b9137f59109c3171b6bf1090b1717135d061f26e",
     "issue": 17,
     "admission_comment": 5230906657
+  },
+  "hardening_admission": {
+    "commit": "ba3a94099c2052bec7388c6b7c76bfa2162fa7d8",
+    "tree": "0cbec4d423b12eb7b6569b2af3c98803e52b021c",
+    "issue": 94,
+    "admission_comment": 5496115126
   },
   "authority_design": {
     "canonical_persistent_authority": "controller-leases.json",
@@ -16,7 +28,7 @@
     "malformed_authority_policy": "fail_closed",
     "mixed_version_policy": "validate and migrate the canonical file; never select the state.json shadow by freshness"
   },
-  "callers": [
+  "authority_sites": [
     {
       "id": "path.controller-lease-file",
       "path": "scripts/ao/lib/state-migrations.js",
@@ -32,11 +44,25 @@
       "anchors": ["controller_leases: []"]
     },
     {
+      "id": "migration.state-shadow-stripper",
+      "path": "scripts/ao/lib/state-migrations.js",
+      "symbol": "removeControllerLeaseShadow",
+      "roles": ["shadow-stripper"],
+      "anchors": ["function removeControllerLeaseShadow(state) {", "delete nextState.controller_leases;"]
+    },
+    {
       "id": "migration.explicit-authority-transition",
       "path": "scripts/ao/lib/state-migrations.js",
-      "symbol": "prepareControllerLeaseAuthorityMigration/bootstrapControlPlaneState",
-      "roles": ["migration-reader", "migration-writer", "shadow-stripper", "lock"],
-      "anchors": ["function prepareControllerLeaseAuthorityMigration({", "delete nextState.controller_leases;", "withFileLockSync(controllerLeaseLockPath", "writeJsonFileAtomic(paths.controllerLeasesPath, controllerLeaseAuthorityMigration.envelope)"]
+      "symbol": "prepareControllerLeaseAuthorityMigration",
+      "roles": ["migration-reader", "format", "fail-closed"],
+      "anchors": ["function prepareControllerLeaseAuthorityMigration({"]
+    },
+    {
+      "id": "migration.atomic-authority-install",
+      "path": "scripts/ao/lib/state-migrations.js",
+      "symbol": "bootstrapControlPlaneState",
+      "roles": ["migration-writer", "lock"],
+      "anchors": ["export function bootstrapControlPlaneState({", "withFileLockSync(controllerLeaseLockPath", "writeJsonFileAtomic(paths.controllerLeasesPath, controllerLeaseAuthorityMigration.envelope)"]
     },
     {
       "id": "authority.versioned-envelope",
@@ -138,7 +164,13 @@
       { "id": "persist-state-api", "pattern": "\\bpersistState\\b" },
       { "id": "file-name", "pattern": "controller-leases\\.json" }
     ],
-    "expected_match_count": 61,
-    "expected_digest": "825880b4f2765e947b1b17105a5ca422f2028addaa5969ebd2b3089cf6e5b638"
+    "expected_selector_counts": {
+      "atomic-api": 5,
+      "file-name": 3,
+      "isolated-path": 12,
+      "persist-state-api": 7,
+      "state-property": 25,
+      "upsert-api": 9
+    }
   }
 }
