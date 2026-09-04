@@ -29,16 +29,50 @@ The committed characterization pack freezes all four distinctions.
 ## Exhaustive caller inventory
 
 The machine-readable inventory is
-[`controller-lease-caller-inventory.v1.json`](controller-lease-caller-inventory.v1.json).
+[`controller-lease-authority-sites.v2.json`](controller-lease-authority-sites.v2.json).
 Its verifier scans every JavaScript file under `scripts/ao/lib` for the file
 path, state property, atomic API, and upsert API selectors. It also requires a
-unique source anchor for every semantic caller below. Any added, removed, or
-changed or relocated source occurrence fails the deterministic digest gate;
-each digest tuple includes its line position. The complete authority-design
-object and the complete governed-base/caller metadata are pinned as well, so
-no individual policy, role, symbol, anchor, or admitted base can weaken
-silently. The scan also matches every `persistState` definition and call,
-closing the generic shadow-writer path.
+unique normalized semantic binding set for every authority site below. The
+complete authority design, admission/migration provenance, stable site
+identities, roles, bindings, scan boundary, selector patterns, and all
+selector-usage semantics are pinned in one semantic manifest. Every selector
+occurrence must be covered exactly once by a registered whitespace/comment-
+normalized semantic usage. Normalization retains whitespace inside string and
+template literal text while normalizing formatting inside `${...}` expressions,
+and retains every ECMAScript line terminator after restricted productions such
+as `return`, so automatic-semicolon-insertion changes remain visible. Protected
+controller, repository read/write/mutation, shadow-stripper, synchronous
+upsert, and migration transition operations are also pinned as complete
+normalized semantic regions rather than selector-local prefixes. The scan
+also matches every `persistState`
+definition and call, closing the generic shadow-writer path, and includes the
+production phase-zero evidence module rather than treating it as exempt.
+
+Issue #94 migrated the accepted v1 inventory to this v2 representation. The
+v1 digest included file paths, line numbers, and trimmed source lines for all
+61 selector matches. That detected drift, but it also forced evidence rebinding
+after unrelated line movement. V2 separates the evidence layers:
+
+- stable authority evidence contains site IDs, roles, whitespace-normalized
+  authority bindings, plus stable IDs and counts for the 63 registered semantic
+  selector usages;
+- file paths and line numbers are emitted only as failure diagnostics;
+- inventory version, accepted v1 migration evidence, governed base, and #94
+  admission provenance are frozen as canonical evidence; site path and symbol
+  hints remain diagnostic-only so whole-site relocation stays stable;
+- the semantic manifest digest is frozen in the verifier, so a legitimate
+  authority change requires an explicit manifest and verifier update;
+- missing or duplicated bindings identify the exact stable binding ID, while
+  added or removed unregistered paths identify the selector and observed
+  locations.
+
+This keeps formatting, unrelated edits, and source relocation out of the
+normalized evidence without weakening exhaustive coverage. Stable explicit
+site and semantic-usage IDs plus normalized bindings were selected over a
+path/line manifest, which preserves the original brittleness; over selector
+counts alone, which cannot detect a bypassed check that retains the same
+tokens; and over AST/symbol extraction, which would add a general
+static-analysis dependency for a bounded invariant.
 
 | Boundary | Reads | Writes | Fallback/projection consequence |
 | --- | --- | --- | --- |
@@ -63,6 +97,21 @@ No other production JavaScript occurrence is present at the governed base.
 Tests are consumers, not runtime authorities; the new fixtures isolate the
 authority-selection behavior, while existing repository/controller-loop tests
 cover lock serialization and lease lifecycle operations.
+
+The v2 audit binds 11 normalized semantic regions covering canonical envelope
+validation, collection isolation, migration/bootstrap installation, repository
+reads and writes, and controller acquire/renew/release operations. Normalization
+removes formatting trivia while retaining JavaScript token boundaries,
+restricted-production line terminators, and template-literal contents. Full
+source discovery uses parser-provided lexical tokens and comment ranges, so
+documentation-only mentions do not create evidence churn and regex/division
+ambiguity cannot hide or invent executable occurrences. Comment masking retains
+the parser's UTF-16 offsets even when astral characters precede a range. Explicit
+escaped identifiers and statically computed authority property names are rejected
+as noncanonical aliases. The bounded static evaluator covers string concatenation,
+ordinary untagged templates, and literal-boolean conditionals; custom tagged
+templates and runtime-dynamic names are not interpreted as static strings. Explicit
+operation boundaries keep unrelated declarations outside the protected regions.
 
 ## Frozen canonical-authority design
 
@@ -159,10 +208,16 @@ restored, remain failed closed and escalate rather than synthesize a shadow.
 
 ## Verification contract
 
-- `npm run verify:controller-lease-audit` pins the complete static scan.
+- `npm run verify:controller-lease-audit` is the canonical generation and
+  verification path. It emits deterministic normalized v2 evidence while
+  excluding diagnostic locations from its authority digest.
 - `tests/ao/controller-lease-authority-audit.test.js` covers deterministic
-  inventory success/failure plus success, invalid-record failure, missing,
-  syntactically/semantically malformed, mixed-version, and replay behavior.
+  inventory success/failure; formatting and relocation stability;
+  missing/extra/duplicate/mutated/bypassed authority negatives; exact semantic
+  usage coverage (including phase-zero evidence); frozen provenance; v1
+  migration; deterministic replay; and success, invalid-record failure, missing,
+  syntactically/semantically malformed, mixed-version, and projection replay
+  behavior.
 - Existing targeted repository, migration, controller-loop, state-runner, and
   collection tests remain the regression boundary.
 - Full `npm test` and package verification must remain green.
