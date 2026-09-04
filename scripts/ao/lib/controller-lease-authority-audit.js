@@ -240,8 +240,15 @@ function normalizedOffsetForSourceOffset(source, parsed, sourceOffset) {
 
 function staticStringValue(node) {
   if (node?.type === 'StringLiteral') return node.value;
-  if (node?.type === 'TemplateLiteral' && node.expressions.length === 0) {
-    return node.quasis[0]?.value?.cooked ?? null;
+  if (node?.type === 'TemplateLiteral') {
+    let value = node.quasis[0]?.value?.cooked ?? '';
+    for (const [index, expression] of node.expressions.entries()) {
+      const expressionValue = staticStringValue(expression);
+      if (expressionValue == null) return null;
+      value += expressionValue;
+      value += node.quasis[index + 1]?.value?.cooked ?? '';
+    }
+    return value;
   }
   if (node?.type === 'BinaryExpression' && node.operator === '+') {
     const left = staticStringValue(node.left);
@@ -251,14 +258,14 @@ function staticStringValue(node) {
   return null;
 }
 
-function findNoncanonicalSemanticSelectors(source, parsed, selectors) {
+function findNoncanonicalSemanticSelectors(source, parsed, selectors, selectorSource) {
   const selectorsByValue = new Map(Object.entries(SEMANTIC_SELECTOR_VALUES)
     .map(([id, value]) => [value, selectors.find((selector) => selector.id === id)]));
   const findings = new Map();
   const record = (value, node) => {
     const selector = selectorsByValue.get(value);
     if (selector == null || !Number.isInteger(node?.start) || !Number.isInteger(node?.end)) return;
-    const raw = source.slice(node.start, node.end);
+    const raw = selectorSource.slice(node.start, node.end);
     if (new RegExp(selector.pattern).test(raw)) return;
     findings.set(`${selector.id}\0${node.start}`, { selector: selector.id, offset: node.start });
   };
@@ -266,7 +273,7 @@ function findNoncanonicalSemanticSelectors(source, parsed, selectors) {
     if (node == null || typeof node !== 'object') return;
     if (node.type === 'Identifier') record(node.name, node);
     if (node.type === 'StringLiteral') record(node.value, node);
-    if (node.type === 'TemplateLiteral' && node.expressions.length === 0) {
+    if (node.type === 'TemplateLiteral') {
       record(staticStringValue(node), node);
     }
     if (node.type === 'BinaryExpression' && node.operator === '+') {
@@ -294,12 +301,18 @@ function sourceDocuments(inventory, repositoryRoot) {
       if ((inventory.source_scan.exclude_paths ?? []).includes(relativePath)) continue;
       const source = fs.readFileSync(filePath, 'utf8');
       const parsed = parseLexicalSource(source);
+      const selectorSource = maskComments(source, parsed);
       documents.push({
         path: relativePath,
         source,
         parsed,
-        noncanonical_selectors: findNoncanonicalSemanticSelectors(source, parsed, inventory.source_scan.selectors),
-        selector_source: maskComments(source, parsed),
+        noncanonical_selectors: findNoncanonicalSemanticSelectors(
+          source,
+          parsed,
+          inventory.source_scan.selectors,
+          selectorSource,
+        ),
+        selector_source: selectorSource,
         normalized_source: normalizeParsedSemanticSource(source, parsed),
       });
     }
