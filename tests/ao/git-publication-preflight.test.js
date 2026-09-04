@@ -22,6 +22,7 @@ function result(status, stdout = '', stderr = '') {
 
 function fixtureRunner(fixture) {
   const calls = [];
+  let headRead = 0;
   return {
     calls,
     run(command, args, options = {}) {
@@ -31,9 +32,11 @@ function fixtureRunner(fixture) {
         return result(0, `${(fixture.remote_urls ?? [fixture.remote_url]).join('\n')}\n`);
       }
       if (invocation === 'git config --get user.name') return result(0, `${fixture.name}\n`);
-      if (invocation === 'git config --get user.email') return result(0, `${fixture.email}\n`);
-      if (args[0] === 'rev-list') return result(0, `${HEAD}\n${BASE}\n`);
-      if (args[0] === 'log') {
+      if (invocation === 'git config --get user.email') {
+        return fixture.config_email_missing ? result(1) : result(0, `${fixture.email}\n`);
+      }
+      if (args.includes('rev-list')) return result(0, `${HEAD}\n${BASE}\n`);
+      if (args.includes('log')) {
         const outgoingEmail = fixture.outgoing_email ?? fixture.email;
         return result(0, `${HEAD}\x1f${fixture.name}\x1f${outgoingEmail}\x1f${fixture.name}\x1f${outgoingEmail}\n`);
       }
@@ -81,7 +84,11 @@ function fixtureRunner(fixture) {
       if (command === 'git' && args.includes('ls-remote')) {
         return fixture.refs_unreadable ? result(1, '', 'denied') : result(0, `${BASE}\trefs/heads/main\n`);
       }
-      if (invocation === 'git rev-parse HEAD') return result(0, `${HEAD}\n`);
+      if (invocation === 'git rev-parse HEAD') {
+        const oid = fixture.head_sequence?.[headRead] ?? HEAD;
+        headRead += 1;
+        return result(0, `${oid}\n`);
+      }
       if (command === 'git' && args.includes('push') && args.includes('--dry-run')) {
         return fixture.dry_run_fails ? result(1, '', 'denied') : result(0, 'Done\n');
       }
@@ -127,7 +134,7 @@ describe('diagnostic Git publication preflight', () => {
     for (const call of runner.calls.filter(({ args }) => args.includes('push'))) {
       expect(call.args).toContain('--dry-run');
       expect(call.args).toContain(fixture.remote_url);
-      expect(call.args.some((arg) => arg.startsWith('HEAD:refs/heads/__ao_publication_preflight__/'))).toBe(true);
+      expect(call.args).toContain(`${HEAD}:refs/heads/__ao_publication_preflight__/${HEAD}`);
     }
     const serialized = JSON.stringify(receipt);
     expect(serialized).not.toContain(fixture.email);
@@ -311,11 +318,14 @@ describe('diagnostic Git publication preflight', () => {
     const fixture = fixturePack.fixtures[0];
     const { runner } = runFixture(fixture);
     const refs = runner.calls.find(({ args }) => args.includes('ls-remote'));
-    const revList = runner.calls.find(({ args }) => args[0] === 'rev-list');
-    const log = runner.calls.find(({ args }) => args[0] === 'log');
+    const revList = runner.calls.find(({ args }) => args.includes('rev-list'));
+    const log = runner.calls.find(({ args }) => args.includes('log'));
     expect(refs.args).toContain(fixture.remote_url);
     expect(log.args).toEqual(expect.arrayContaining(['--not', BASE]));
     expect(log.args.some((arg) => arg.startsWith('--remotes='))).toBe(false);
+    expect(revList.args[0]).toBe('--no-replace-objects');
+    expect(log.args[0]).toBe('--no-replace-objects');
+    expect(log.args).toContain(HEAD);
     expect(revList.options.maxBuffer).toBe(64 * 1024 * 1024);
     expect(log.options.maxBuffer).toBe(64 * 1024 * 1024);
   });
@@ -330,11 +340,13 @@ describe('diagnostic Git publication preflight', () => {
     const auth = runner.calls.find(({ command }) => command === 'sh');
     expect(auth.args[1]).toContain('-i /fixture/key');
     expect(auth.args[1]).toContain('StrictHostKeyChecking=yes');
+    expect(auth.args[1]).toContain('UpdateHostKeys=no');
     expect(auth.args[1].indexOf('StrictHostKeyChecking=yes')).toBeLessThan(auth.args[1].indexOf('-i /fixture/key'));
     expect(auth.options.env).toMatchObject({ GIT_ASKPASS: '', SSH_ASKPASS: '' });
     const remoteReads = runner.calls.filter(({ args }) => args.includes('ls-remote') || args.includes('push'));
     expect(remoteReads.every(({ options }) => options.env.GIT_SSH_COMMAND.includes('-i /fixture/key'))).toBe(true);
     expect(remoteReads.every(({ options }) => options.env.GIT_SSH_COMMAND.includes('StrictHostKeyChecking=yes'))).toBe(true);
+    expect(remoteReads.every(({ options }) => options.env.GIT_SSH_COMMAND.includes('UpdateHostKeys=no'))).toBe(true);
   });
 
   it('gives the environment SSH command precedence over repository configuration', () => {
@@ -381,5 +393,69 @@ describe('diagnostic Git publication preflight', () => {
     expect(receipt.findings.map(({ code }) => code)).toContain('ssh_host_key_policy_ambiguous');
     expect(runner.calls.some(({ command }) => command === 'sh')).toBe(false);
     expect(JSON.stringify(receipt)).not.toContain('BatchMode=no');
+  });
+
+  it('honors GIT_SSH when higher-precedence SSH controls are absent', () => {
+    const fixture = {
+      ...fixturePack.fixtures.find(({ id }) => id === 'ssh_publication'),
+      env: { GIT_SSH: '/usr/bin/ssh' },
+    };
+    const { receipt, runner } = runFixture(fixture);
+    expect(receipt.status).toBe('passed');
+    const auth = runner.calls.find(({ command }) => command === 'sh');
+    expect(auth.args[1]).toContain('/usr/bin/ssh');
+  });
+
+  it('fails closed when configured SSH enables automatic host-key updates', () => {
+    const fixture = {
+      ...fixturePack.fixtures.find(({ id }) => id === 'ssh_publication'),
+      ssh_command: 'ssh -oUpdateHostKeys=yes',
+    };
+    const { receipt, runner } = runFixture(fixture);
+    expect(receipt.findings.map(({ code }) => code)).toContain('ssh_host_key_policy_ambiguous');
+    expect(runner.calls.some(({ command }) => command === 'sh')).toBe(false);
+    expect(JSON.stringify(receipt)).not.toContain('UpdateHostKeys=yes');
+  });
+
+  it('redacts a mismatched canonical publication repository', () => {
+    const fixture = fixturePack.fixtures.find(({ id }) => id === 'repository_mismatch');
+    const { receipt } = runFixture(fixture);
+    expect(receipt.checks.remote.repository).toBeNull();
+    expect(receipt.findings.find(({ code }) => code === 'publication_repository_mismatch').evidence)
+      .toEqual({ remote_name: 'origin', value_redacted: true });
+    expect(JSON.stringify(receipt)).not.toContain('different-repository');
+  });
+
+  it('uses EMAIL after an absent role-specific and configured email', () => {
+    const fixture = {
+      ...fixturePack.fixtures[0],
+      config_email_missing: true,
+      env: { EMAIL: fixturePack.fixtures[0].email },
+    };
+    const { receipt } = runFixture(fixture);
+    expect(receipt.status).toBe('passed');
+    expect(receipt.checks.configured_identity.author.email.privacy_compatible).toBe(true);
+    expect(receipt.checks.configured_identity.committer.email.privacy_compatible).toBe(true);
+  });
+
+  it('pins one candidate OID and blocks HEAD drift before probing', () => {
+    const moved = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const fixture = { ...fixturePack.fixtures[0], head_sequence: [HEAD, moved] };
+    const { receipt, runner } = runFixture(fixture);
+    expect(receipt.findings.map(({ code }) => code)).toContain('candidate_head_drift');
+    expect(runner.calls.some(({ args }) => args.includes('push'))).toBe(false);
+    const log = runner.calls.find(({ args }) => args.includes('log'));
+    expect(log.args).toContain(HEAD);
+    expect(log.args).not.toContain(moved);
+  });
+
+  it('blocks when HEAD drifts during the pinned-OID dry-run', () => {
+    const moved = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const fixture = { ...fixturePack.fixtures[0], head_sequence: [HEAD, HEAD, moved] };
+    const { receipt, runner } = runFixture(fixture);
+    expect(receipt.findings.map(({ code }) => code)).toContain('candidate_head_drift');
+    expect(receipt.checks.remote_probe.status).toBe('blocked');
+    const probe = runner.calls.find(({ args }) => args.includes('push'));
+    expect(probe.args).toContain(`${HEAD}:refs/heads/__ao_publication_preflight__/${HEAD}`);
   });
 });

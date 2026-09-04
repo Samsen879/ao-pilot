@@ -136,7 +136,8 @@ function configValue(runner, cwd, key) {
 function configuredIdentity({ runner, cwd, env, principal, role }) {
   const prefix = role === 'author' ? 'GIT_AUTHOR' : 'GIT_COMMITTER';
   const name = env[`${prefix}_NAME`] ?? configValue(runner, cwd, 'user.name');
-  const email = env[`${prefix}_EMAIL`] ?? configValue(runner, cwd, 'user.email');
+  const configuredEmail = configValue(runner, cwd, 'user.email');
+  const email = env[`${prefix}_EMAIL`] ?? (configuredEmail || env.EMAIL || '');
   return {
     name_present: cleanLine(name) !== '',
     email: classifyEmail(email, principal),
@@ -209,8 +210,8 @@ function parseCredentialOutput(output) {
   return { username: values.username, password: values.password };
 }
 
-function outgoingCommitIdentities(runner, cwd, publicationTips, principal) {
-  const localResult = run(runner, 'git', ['rev-list', '--all'], cwd, {
+function outgoingCommitIdentities(runner, cwd, publicationTips, principal, candidateHead) {
+  const localResult = run(runner, 'git', ['--no-replace-objects', 'rev-list', '--all'], cwd, {
     maxBuffer: 64 * 1024 * 1024,
   });
   if (!successful(localResult)) return null;
@@ -219,7 +220,7 @@ function outgoingCommitIdentities(runner, cwd, publicationTips, principal) {
   ));
   const exclusions = [...new Set(publicationTips)].filter((oid) => localOids.has(oid));
   const result = run(runner, 'git', [
-    'log', '--format=%H%x1f%an%x1f%ae%x1f%cn%x1f%ce', 'HEAD',
+    '--no-replace-objects', 'log', '--format=%H%x1f%an%x1f%ae%x1f%cn%x1f%ce', candidateHead,
     ...(exclusions.length ? ['--not', ...exclusions] : []),
   ], cwd, { maxBuffer: 64 * 1024 * 1024 });
   if (!successful(result)) return null;
@@ -280,7 +281,11 @@ function shellQuote(value) {
 function hardenedSshCommand(sshCommand) {
   const [executable, ...args] = sshCommand.trim().split(/\s+/);
   return [
-    executable, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', ...args,
+    executable,
+    '-o', 'BatchMode=yes',
+    '-o', 'StrictHostKeyChecking=yes',
+    '-o', 'UpdateHostKeys=no',
+    ...args,
   ].join(' ');
 }
 
@@ -290,6 +295,7 @@ function sshCommandCanBeHardened(sshCommand) {
     value === ''
     || /StrictHostKeyChecking/i.test(value)
     || /BatchMode/i.test(value)
+    || /UpdateHostKeys/i.test(value)
     || /[\\'"`$;&|<>(){}[\]*?!#\r\n]/.test(value)
   ) return false;
   const tokens = value.split(/\s+/);
@@ -318,7 +324,8 @@ function sshPrincipal(runner, cwd, sshCommand) {
   const hardened = hardenedSshCommand(sshCommand);
   const result = sshCommand === 'ssh'
     ? run(runner, 'ssh', [
-        '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-T', 'git@github.com',
+        '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes',
+        '-o', 'UpdateHostKeys=no', '-T', 'git@github.com',
       ], cwd, { env: nonInteractiveEnv() })
     : run(runner, 'sh', [
         '-c', `${hardened} -T "$1"`, 'ao-publication-ssh', 'git@github.com',
@@ -390,6 +397,12 @@ export function runGitPublicationPreflight({
   }
 
   const findings = [];
+  const initialHeadResult = run(runner, 'git', ['rev-parse', 'HEAD'], cwd);
+  const candidateHead = successful(initialHeadResult) ? cleanLine(initialHeadResult.stdout) : '';
+  const candidateHeadVerified = OID_PATTERN.test(candidateHead);
+  if (!candidateHeadVerified) {
+    findings.push(finding('candidate_head_unverified', 'The candidate HEAD could not be verified.'));
+  }
   const remoteResult = run(runner, 'git', ['remote', 'get-url', '--push', '--all', remote], cwd);
   const pushUrls = successful(remoteResult)
     ? String(remoteResult.stdout ?? '').split(/\r?\n/).map((value) => value.trim()).filter(Boolean)
@@ -408,7 +421,7 @@ export function runGitPublicationPreflight({
   } else if (!repositoryMatches) {
     findings.push(finding('publication_repository_mismatch', 'The publication remote does not match the admitted repository.', {
       remote_name: remote,
-      observed_repository: parsedRemote.repository,
+      value_redacted: true,
     }));
   }
 
@@ -448,7 +461,7 @@ export function runGitPublicationPreflight({
     }));
   }
 
-  const prerequisitesVerified = repositoryMatches
+  const prerequisitesVerified = repositoryMatches && candidateHeadVerified
     && author.name_present && author.email.privacy_compatible
     && committer.name_present && committer.email.privacy_compatible
     && helpersVerified;
@@ -458,8 +471,11 @@ export function runGitPublicationPreflight({
   let publicationCredentialVerified = false;
   let overrideApplied = false;
   let credential = null;
+  const configuredSshCommand = parsedRemote?.transport === 'ssh'
+    ? configValue(runner, cwd, 'core.sshCommand')
+    : '';
   const sshCommand = parsedRemote?.transport === 'ssh'
-    ? (env.GIT_SSH_COMMAND ?? configValue(runner, cwd, 'core.sshCommand')) || 'ssh'
+    ? (env.GIT_SSH_COMMAND ?? (configuredSshCommand || env.GIT_SSH || 'ssh'))
     : 'ssh';
   const sshHostKeyPolicySafe = parsedRemote?.transport !== 'ssh'
     || sshCommandCanBeHardened(sshCommand);
@@ -538,7 +554,9 @@ export function runGitPublicationPreflight({
     if (tips == null) {
       findings.push(finding('publication_refs_unreadable', 'The publication repository refs could not be read safely.'));
     } else {
-      outgoing = outgoingCommitIdentities(runner, cwd, tips, expectedPrincipal);
+      outgoing = outgoingCommitIdentities(
+        runner, cwd, tips, expectedPrincipal, candidateHead,
+      );
       if (outgoing == null) {
         findings.push(finding('outgoing_commit_identity_unreadable', 'Outgoing commit identities could not be inspected.'));
       } else if (!outgoing.verified) {
@@ -569,10 +587,9 @@ export function runGitPublicationPreflight({
     remote_mutation: false,
   };
   if (eligibleForProbe) {
-    const headResult = run(runner, 'git', ['rev-parse', 'HEAD'], cwd);
-    const headOid = successful(headResult) ? cleanLine(headResult.stdout) : '';
-    if (!OID_PATTERN.test(headOid)) {
-      findings.push(finding('candidate_head_unverified', 'The candidate HEAD could not be verified.'));
+    const preProbeHead = cleanLine(run(runner, 'git', ['rev-parse', 'HEAD'], cwd).stdout);
+    if (preProbeHead !== candidateHead) {
+      findings.push(finding('candidate_head_drift', 'The candidate HEAD changed during the publication preflight.'));
     } else {
       const isolatedHelperArgs = parsedRemote.transport === 'https'
         ? isolatedHttpsHelperArgs()
@@ -589,13 +606,15 @@ export function runGitPublicationPreflight({
         '-c', `core.hooksPath=${os.devNull}`,
         ...isolatedHelperArgs,
         'push', '--dry-run', '--porcelain', pushUrl,
-        `HEAD:refs/heads/__ao_publication_preflight__/${headOid}`,
+        `${candidateHead}:refs/heads/__ao_publication_preflight__/${candidateHead}`,
       ], cwd, { env: probeEnv });
       const probePassed = successful(probeResult);
+      const postProbeHead = cleanLine(run(runner, 'git', ['rev-parse', 'HEAD'], cwd).stdout);
+      const headStable = postProbeHead === candidateHead;
       repositoryPermissionVerified ||= parsedRemote.transport === 'ssh' && probePassed;
       probe = {
         attempted: true,
-        status: probePassed ? 'passed' : 'blocked',
+        status: probePassed && headStable ? 'passed' : 'blocked',
         kind: 'git_push_dry_run',
         push_url_targeted: true,
         write_permission_verified: probePassed && repositoryPermissionVerified,
@@ -603,6 +622,7 @@ export function runGitPublicationPreflight({
         remote_mutation: false,
       };
       if (!probePassed) findings.push(finding('publication_dry_run_failed', 'The non-interactive dry-run publication probe failed.'));
+      if (!headStable) findings.push(finding('candidate_head_drift', 'The candidate HEAD changed during the publication preflight.'));
     }
   }
 
@@ -624,7 +644,7 @@ export function runGitPublicationPreflight({
     checks: {
       remote: {
         verified: repositoryMatches,
-        repository: parsedRemote?.repository ?? null,
+        repository: repositoryMatches ? parsedRemote.repository : null,
         transport: parsedRemote?.transport ?? null,
         push_url_count: pushUrls.length,
         push_url_redacted: true,

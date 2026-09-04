@@ -34,10 +34,10 @@ function passingRunner() {
       if (invocation === 'git config --get user.email') {
         return { status: 0, stdout: '123+Samsen879@users.noreply.github.com\n' };
       }
-      if (args[0] === 'rev-list') {
+      if (args.includes('rev-list')) {
         return { status: 0, stdout: '0918e609978553d944f6a6c4798c54691ae90775\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' };
       }
-      if (args[0] === 'log') {
+      if (args.includes('log')) {
         return { status: 0, stdout: '0918e609978553d944f6a6c4798c54691ae90775\u001fWorker\u001f123+Samsen879@users.noreply.github.com\u001fWorker\u001f123+Samsen879@users.noreply.github.com\n' };
       }
       if (invocation === 'git --exec-path') {
