@@ -65,7 +65,7 @@
       "symbol": "bootstrapControlPlaneState",
       "roles": ["migration-writer", "lock"],
       "anchors": ["export function bootstrapControlPlaneState({", "withFileLockSync(controllerLeaseLockPath", "writeJsonFileAtomic(paths.controllerLeasesPath, controllerLeaseAuthorityMigration.envelope)"],
-      "semantic_regions": [{ "id": "migration.atomic-authority-install.operation", "start": "export function bootstrapControlPlaneState({", "end": null, "expected_digest": "daa6abc6b6360c5fb3dc3f0c769373c0c3ee588c581ee46a5cb552a6c44f83a1" }]
+      "semantic_regions": [{ "id": "migration.atomic-authority-install.operation", "start": "export function bootstrapControlPlaneState({", "end": "export const CONTROLLER_LEASE_AUTHORITY_BOOTSTRAP_BOUNDARY = true;", "expected_digest": "daa6abc6b6360c5fb3dc3f0c769373c0c3ee588c581ee46a5cb552a6c44f83a1" }]
     },
     {
       "id": "authority.versioned-envelope",

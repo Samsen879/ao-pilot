@@ -104,7 +104,9 @@ reads and writes, and controller acquire/renew/release operations. Normalization
 removes formatting trivia while retaining JavaScript token boundaries,
 restricted-production line terminators, and template-literal contents. Selector
 discovery masks comments so documentation-only mentions do not create evidence
-churn, while executable occurrences remain exhaustively registered.
+churn, while regex literals (including template-expression regexes) cannot hide
+later executable occurrences. Explicit operation boundaries keep unrelated
+declarations outside the protected semantic regions.
 
 ## Frozen canonical-authority design
 

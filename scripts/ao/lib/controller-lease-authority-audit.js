@@ -11,7 +11,7 @@ const FROZEN_AUTHORITY_DESIGN = Object.freeze({
   malformed_authority_policy: 'fail_closed',
   mixed_version_policy: 'validate and migrate the canonical file; never select the state.json shadow by freshness',
 });
-const FROZEN_SEMANTIC_MANIFEST_DIGEST = '7718c0b4b80077db6028e41dba2a8272187a4d839b4c8269518f871b65963ba6';
+const FROZEN_SEMANTIC_MANIFEST_DIGEST = 'b6744c90f594a8ae94912757251a0f6cc788cf6985aa1b14eeb5267216c50101';
 
 function compareStrings(left, right) {
   return Buffer.compare(Buffer.from(String(left), 'utf8'), Buffer.from(String(right), 'utf8'));
@@ -41,6 +41,37 @@ function listSourceFiles(root, extensions) {
   }
   visit(root);
   return files.sort(compareStrings);
+}
+
+function regexLiteralEnd(source, start, semanticPrefix) {
+  const prefix = semanticPrefix.trimEnd();
+  const previousCharacter = prefix.at(-1) ?? '';
+  const previousWord = prefix.match(/[A-Za-z_$][A-Za-z0-9_$]*$/)?.[0] ?? '';
+  const canStartRegex = prefix === ''
+    || /[([{,:;=!?&|+\-*%^~<>]/.test(previousCharacter)
+    || ['await', 'case', 'delete', 'do', 'else', 'in', 'instanceof', 'of', 'return', 'throw', 'typeof', 'void', 'yield'].includes(previousWord);
+  if (!canStartRegex || source[start] !== '/' || ['/', '*'].includes(source[start + 1])) return null;
+
+  let escaped = false;
+  let inCharacterClass = false;
+  for (let index = start + 1; index < source.length; index += 1) {
+    const character = source[index];
+    if (/\r|\n|\u2028|\u2029/.test(character)) return null;
+    if (escaped) {
+      escaped = false;
+    } else if (character === '\\') {
+      escaped = true;
+    } else if (character === '[') {
+      inCharacterClass = true;
+    } else if (character === ']') {
+      inCharacterClass = false;
+    } else if (character === '/' && !inCharacterClass) {
+      let end = index;
+      while (/[A-Za-z]/.test(source[end + 1] ?? '')) end += 1;
+      return end;
+    }
+  }
+  return null;
 }
 
 export function normalizeSemanticSource(source) {
@@ -92,6 +123,7 @@ export function normalizeSemanticSource(source) {
       }
       continue;
     }
+    const regexEnd = character === '/' ? regexLiteralEnd(source, index, normalized) : null;
     if (character === '/' && source[index + 1] === '/') {
       index += 2;
       while (index < source.length && !/[\r\n\u2028\u2029]/.test(source[index])) index += 1;
@@ -107,6 +139,9 @@ export function normalizeSemanticSource(source) {
       if (!(hasLineTerminator && appendRestrictedLineTerminator())) {
         appendRequiredTokenSeparator(index + 1);
       }
+    } else if (regexEnd != null) {
+      normalized += source.slice(index, regexEnd + 1);
+      index = regexEnd;
     } else if (character === "'" || character === '"' || character === '`') {
       quote = character;
       normalized += character;
@@ -174,6 +209,12 @@ function maskComments(source) {
         index += 1;
       }
     } else {
+      const regexEnd = character === '/' ? regexLiteralEnd(source, index, masked) : null;
+      if (regexEnd != null) {
+        masked += source.slice(index, regexEnd + 1);
+        index = regexEnd;
+        continue;
+      }
       masked += character;
       if (character === "'" || character === '"' || character === '`') quote = character;
     }

@@ -142,7 +142,7 @@ describe('controller lease authority design audit', () => {
   it('pins deterministic semantic authority evidence and exhaustive selector coverage', () => {
     expect(validateControllerLeaseInventory(inventory, repositoryRoot)).toMatchObject({
       schema_version: 'ao.controller-lease-authority-evidence.v2',
-      semantic_manifest_digest: '7718c0b4b80077db6028e41dba2a8272187a4d839b4c8269518f871b65963ba6',
+      semantic_manifest_digest: 'b6744c90f594a8ae94912757251a0f6cc788cf6985aa1b14eeb5267216c50101',
       authority_site_count: 17,
       binding_count: 31,
       semantic_region_count: 11,
@@ -156,7 +156,7 @@ describe('controller lease authority design audit', () => {
       },
       semantic_usage_count: 63,
       selector_evidence_digest: '848df3d628412753ee57faa78d6b5517df85840ac7c6b2fb5f7b49a176b92dec',
-      authority_evidence_digest: '14585c666f2f11560f9a5b385322b25c69eb5862ea2d45cdcbb064d143b6f4e9',
+      authority_evidence_digest: 'f7b319a7044932eca2e8a0eff25a954c0d97241fd0008f018e7b32e5b72af4e8',
     });
     expect(scanControllerLeaseSources(inventory, repositoryRoot).match_count).toBe(63);
   });
@@ -200,6 +200,32 @@ describe('controller lease authority design audit', () => {
     fs.appendFileSync(
       path.join(mutatedRoot, 'scripts/ao/lib/scorecard.js'),
       '\n// controller_leases persistState upsertControllerLease mutateControllerLeasesAtomically controller-leases.json\n',
+      'utf8',
+    );
+    expect(validateControllerLeaseInventory(inventory, mutatedRoot))
+      .toEqual(validateControllerLeaseInventory(inventory, repositoryRoot));
+  });
+
+  it.each([
+    'const regexMask = /[/*]/;',
+    'const regexMask = /[//]/;',
+    'const regexMask = `${/[/*]/}`;',
+  ])('does not let a valid regex literal hide later authority usage: %s', (regexDeclaration) => {
+    const mutatedRoot = materializeSourceRoot();
+    fs.appendFileSync(
+      path.join(mutatedRoot, 'scripts/ao/lib/phase-zero-exit-evidence.js'),
+      `\n${regexDeclaration}\nexport function hiddenLeaseMutation(repository) { return repository.mutateControllerLeasesAtomically({}); }\n`,
+      'utf8',
+    );
+    expect(() => validateControllerLeaseInventory(inventory, mutatedRoot))
+      .toThrow('Controller lease semantic usage atomic-api.03 drifted');
+  });
+
+  it('is stable when an unrelated declaration follows the bootstrap boundary', () => {
+    const mutatedRoot = materializeSourceRoot();
+    fs.appendFileSync(
+      path.join(mutatedRoot, 'scripts/ao/lib/state-migrations.js'),
+      '\nexport function unrelatedMigrationDiagnostic() { return true; }\n',
       'utf8',
     );
     expect(validateControllerLeaseInventory(inventory, mutatedRoot))
