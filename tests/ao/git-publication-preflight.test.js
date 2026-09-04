@@ -354,4 +354,15 @@ describe('diagnostic Git publication preflight', () => {
     expect(runner.calls.some(({ command }) => command === 'sh')).toBe(false);
     expect(JSON.stringify(receipt)).not.toContain('StrictHostKeyChecking=no');
   });
+
+  it('fails closed on a shell-obfuscated SSH host-key policy', () => {
+    const fixture = {
+      ...fixturePack.fixtures.find(({ id }) => id === 'ssh_publication'),
+      ssh_command: "ssh -o StrictHostKeyCheck'ing=no'",
+    };
+    const { receipt, runner } = runFixture(fixture);
+    expect(receipt.findings.map(({ code }) => code)).toContain('ssh_host_key_policy_ambiguous');
+    expect(runner.calls.some(({ command, args }) => command === 'sh' && args[0] === '-c')).toBe(false);
+    expect(JSON.stringify(receipt)).not.toContain('StrictHostKeyCheck');
+  });
 });

@@ -281,8 +281,33 @@ function hardenedSshCommand(sshCommand) {
   return `${sshCommand} -o BatchMode=yes -o StrictHostKeyChecking=yes`;
 }
 
-function hasExplicitSshHostKeyPolicy(sshCommand) {
-  return /StrictHostKeyChecking/i.test(sshCommand);
+function sshCommandCanBeHardened(sshCommand) {
+  const value = sshCommand.trim();
+  if (
+    value === ''
+    || /StrictHostKeyChecking/i.test(value)
+    || /[\\'"`$;&|<>(){}[\]*?!#\r\n]/.test(value)
+  ) return false;
+  const tokens = value.split(/\s+/);
+  if (!['ssh', '/usr/bin/ssh', '/bin/ssh'].includes(tokens.shift())) return false;
+  const optionsWithValues = new Set([
+    'B', 'b', 'c', 'D', 'E', 'e', 'F', 'I', 'i', 'J', 'L', 'l', 'm', 'O', 'o',
+    'p', 'Q', 'R', 'S', 'W', 'w',
+  ]);
+  const flagOptions = /^[46AaCfGgKkMNnqsTtVvXxYy]+$/;
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (!token.startsWith('-') || token === '--') return false;
+    const option = token.slice(1, 2);
+    if (optionsWithValues.has(option)) {
+      if (token.length === 2 && (tokens[index += 1] == null || tokens[index].startsWith('-'))) {
+        return false;
+      }
+    } else if (!flagOptions.test(token.slice(1))) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function sshPrincipal(runner, cwd, sshCommand) {
@@ -433,7 +458,7 @@ export function runGitPublicationPreflight({
     ? (env.GIT_SSH_COMMAND ?? configValue(runner, cwd, 'core.sshCommand')) || 'ssh'
     : 'ssh';
   const sshHostKeyPolicySafe = parsedRemote?.transport !== 'ssh'
-    || !hasExplicitSshHostKeyPolicy(sshCommand);
+    || sshCommandCanBeHardened(sshCommand);
   if (!sshHostKeyPolicySafe) {
     findings.push(finding('ssh_host_key_policy_ambiguous', 'The configured SSH command sets its own host-key policy and cannot be safely hardened.', {
       value_redacted: true,
