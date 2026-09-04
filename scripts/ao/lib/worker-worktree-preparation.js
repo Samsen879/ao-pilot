@@ -96,6 +96,41 @@ function atomicWriteJson(filePath, value) {
   fs.renameSync(temporaryPath, filePath);
 }
 
+function ensureRepoLocalStateRoot(repoRoot, stateRoot) {
+  try {
+    const resolvedRepoRoot = fs.realpathSync(repoRoot);
+    const stateAncestors = [
+      path.join(repoRoot, '.ao-pilot'),
+      stateRoot,
+    ];
+    for (const ancestor of stateAncestors) {
+      let stat;
+      try {
+        stat = fs.lstatSync(ancestor);
+      } catch (error) {
+        if (error?.code === 'ENOENT') continue;
+        throw error;
+      }
+      if (stat.isSymbolicLink() || !stat.isDirectory()) return false;
+    }
+
+    fs.mkdirSync(stateRoot, { recursive: true });
+    for (const ancestor of stateAncestors) {
+      const stat = fs.lstatSync(ancestor);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) return false;
+    }
+
+    const resolvedStateRoot = fs.realpathSync(stateRoot);
+    const relativeStateRoot = path.relative(resolvedRepoRoot, resolvedStateRoot);
+    return relativeStateRoot !== ''
+      && relativeStateRoot !== '..'
+      && !relativeStateRoot.startsWith(`..${path.sep}`)
+      && !path.isAbsolute(relativeStateRoot);
+  } catch {
+    return false;
+  }
+}
+
 function lockfileIsClean(repoRoot, lockfilePath, processRunner) {
   const result = processRunner('git', [
     'diff', '--quiet', '--exit-code', 'HEAD', '--', lockfilePath,
@@ -203,6 +238,9 @@ export function prepareWorkerWorktree({
   const stateRoot = path.join(repoRoot, '.ao-pilot', 'worker-preparation');
   const receiptPath = path.join(stateRoot, 'receipt.json');
   const testRunnerPath = resolveTestRunnerExecutable(repoRoot);
+  if (!ensureRepoLocalStateRoot(repoRoot, stateRoot)) {
+    return failure('preparation_state_not_repo_local', evidence);
+  }
   const expectedReceipt = {
     schema_version: WORKER_PREPARATION_RECEIPT_SCHEMA,
     status: 'ready',
@@ -232,7 +270,7 @@ export function prepareWorkerWorktree({
 
   const npmrcPath = path.join(stateRoot, 'empty-npmrc');
   try {
-    fs.mkdirSync(stateRoot, { recursive: true });
+    fs.rmSync(receiptPath, { force: true });
     fs.writeFileSync(npmrcPath, '', { mode: 0o600 });
   } catch {
     return failure('preparation_state_unwritable', evidence);

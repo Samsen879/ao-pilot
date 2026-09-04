@@ -173,6 +173,39 @@ describe('Worker worktree preparation', () => {
     expect(calls.filter(({ command }) => command === 'npm' || command === 'npm.cmd')).toHaveLength(2);
   });
 
+  it('invalidates a ready receipt before reinstall so an interrupted retry cannot replay stale readiness', () => {
+    const root = fixture();
+    const calls = [];
+    const healthyRunner = successfulInstaller(root, calls);
+    prepareWorkerWorktree({ repoRoot: root, processRunner: healthyRunner });
+    let installAttempt = 1;
+    let failReplayProbe = true;
+    const processRunner = (command, args, options) => {
+      if (command === 'git') return spawnSync(command, args, options);
+      if (args[0] === '--version') {
+        if (failReplayProbe) {
+          failReplayProbe = false;
+          return { status: 1, signal: null };
+        }
+        return { status: 0, signal: null };
+      }
+      installAttempt += 1;
+      if (installAttempt === 2) return { status: 1, signal: null };
+      return healthyRunner(command, args, options);
+    };
+
+    expect(prepareWorkerWorktree({ repoRoot: root, processRunner })).toMatchObject({
+      status: 'setup_failed',
+      reason_code: 'dependency_install_failed',
+    });
+    expect(prepareWorkerWorktree({ repoRoot: root, processRunner })).toMatchObject({
+      status: 'ready',
+      install_performed: true,
+      receipt_replayed: false,
+    });
+    expect(installAttempt).toBe(3);
+  });
+
   it('accepts a Git-clean CRLF materialization while binding the committed blob digest', () => {
     const root = fixture();
     git(root, ['config', 'core.autocrlf', 'true']);
@@ -208,8 +241,30 @@ describe('Worker worktree preparation', () => {
     expect(JSON.parse(stdout)).toMatchObject({
       status: 'setup_failed',
       failure_class: 'setup',
-      reason_code: 'preparation_state_unwritable',
+      reason_code: 'preparation_state_not_repo_local',
     });
+  });
+
+  const symlinkTest = process.platform === 'win32' ? it.skip : it;
+  symlinkTest('rejects a symlinked preparation state root before writing outside the repository', () => {
+    const root = fixture();
+    const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-worker-preparation-outside-'));
+    fs.symlinkSync(outsideRoot, path.join(root, '.ao-pilot'));
+    expect(prepareWorkerWorktree({ repoRoot: root })).toMatchObject({
+      status: 'setup_failed',
+      failure_class: 'setup',
+      reason_code: 'preparation_state_not_repo_local',
+    });
+    expect(fs.readdirSync(outsideRoot)).toEqual([]);
+
+    const danglingRoot = fixture();
+    const absentTarget = path.join(outsideRoot, 'absent-target');
+    fs.symlinkSync(absentTarget, path.join(danglingRoot, '.ao-pilot'));
+    expect(prepareWorkerWorktree({ repoRoot: danglingRoot })).toMatchObject({
+      status: 'setup_failed',
+      reason_code: 'preparation_state_not_repo_local',
+    });
+    expect(fs.existsSync(absentTarget)).toBe(false);
   });
 
   it('rejects project npm configuration before install', () => {
