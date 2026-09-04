@@ -260,8 +260,12 @@ describe('controller lease authority design audit', () => {
   it.each([
     'repository.mutateControllerLeases\\u0041tomically({});',
     "repository['mutateController' + 'LeasesAtomically']({});",
+    "repository?.['mutateController' + 'LeasesAtomically']?.({});",
+    "const { ['mutateController' + 'LeasesAtomically']: mutate } = repository; mutate({});",
+    "const key = 'mutateController' + 'LeasesAtomically'; repository[key]({});",
     "state['controller_' + 'leases'] = [];",
     "const fileName = 'controller\\u002dleases.json';",
+    "const fileName = 'controller-' + 'leases.json';",
   ])('rejects noncanonical semantic selector aliases: %s', (statement) => {
     const mutatedRoot = materializeSourceRoot();
     fs.appendFileSync(

@@ -269,6 +269,9 @@ function findNoncanonicalSemanticSelectors(source, parsed, selectors) {
     if (node.type === 'TemplateLiteral' && node.expressions.length === 0) {
       record(staticStringValue(node), node);
     }
+    if (node.type === 'BinaryExpression' && node.operator === '+') {
+      record(staticStringValue(node), node);
+    }
     if (node.type === 'MemberExpression' && node.computed) {
       record(staticStringValue(node.property), node.property);
     }
