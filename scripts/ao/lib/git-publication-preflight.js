@@ -1,0 +1,683 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { LOCAL_COMMAND_RUNNER } from './providers/command-runner.js';
+
+export const GIT_PUBLICATION_PREFLIGHT_SCHEMA_VERSION = 'ao.git-publication-preflight.v1';
+export const GIT_PUBLICATION_PREFLIGHT_EXIT_CODES = Object.freeze({
+  passed: 0,
+  blocked: 2,
+  invalid_usage: 4,
+});
+export class GitPublicationPreflightUsageError extends Error {}
+
+const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const PRINCIPAL_PATTERN = /^[A-Za-z0-9-]+$/;
+const REMOTE_PATTERN = /^[A-Za-z0-9._-]+$/;
+const OID_PATTERN = /^[0-9a-f]{40}$/i;
+const READONLY_HELPER_PATH = fileURLToPath(new URL('../git-credential-readonly.js', import.meta.url));
+
+function cleanLine(value) {
+  return String(value ?? '').trim().split(/\r?\n/, 1)[0].trim();
+}
+
+function successful(result) {
+  return result?.status === 0 && result?.signal == null && result?.error == null;
+}
+
+function run(runner, command, args, cwd, options = {}) {
+  return runner.run(command, args, {
+    cwd,
+    ...options,
+    env: { ...(options.env ?? {}) },
+  });
+}
+
+function firstCommandToken(value) {
+  const match = value.trim().match(/^(?:"([^"]+)"|'([^']+)'|([^\s]+))/);
+  return match?.[1] ?? match?.[2] ?? match?.[3] ?? null;
+}
+
+function helperExecutable(helper) {
+  const trimmed = helper.trim();
+  if (trimmed === '') return null;
+  if (trimmed.startsWith('!')) return firstCommandToken(trimmed.slice(1));
+  const token = firstCommandToken(trimmed);
+  if (token == null) return null;
+  return token.includes('/') || token.includes('\\') ? token : `git-credential-${token}`;
+}
+
+export function resolveExecutableOnPath(executable, {
+  env = process.env,
+  access = fs.accessSync,
+  extraDirectories = [],
+} = {}) {
+  if (typeof executable !== 'string' || executable.trim() === '') return false;
+  const candidate = executable.trim();
+  const candidates = path.isAbsolute(candidate) || candidate.includes('/') || candidate.includes('\\')
+    ? [candidate]
+    : [
+        ...String(env.PATH ?? '').split(path.delimiter).filter(Boolean),
+        ...extraDirectories.filter(Boolean),
+      ].map((directory) => path.join(directory, candidate));
+  return candidates.some((resolved) => {
+    try {
+      access(resolved, fs.constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function inspectHelper(helper, resolveExecutable, gitExecPath, runner, cwd) {
+  const executable = helperExecutable(helper);
+  const compoundShellSnippet = helper.trim().startsWith('!')
+    && (/^[A-Za-z_][A-Za-z0-9_]*\(\)/.test(executable ?? '') || /[;{}]/.test(helper));
+  const shellSyntaxValid = compoundShellSnippet
+    && successful(run(runner, 'sh', ['-n', '-c', helper.trim().slice(1)], cwd));
+  return {
+    kind: compoundShellSnippet
+      ? 'shell_snippet'
+      : helper.trim().startsWith('!') ? 'shell_command' : 'git_credential_helper',
+    executable_shape: executable == null
+      ? 'missing'
+      : path.isAbsolute(executable) ? 'absolute_path' : 'path_lookup',
+    available: compoundShellSnippet
+      ? shellSyntaxValid
+      : executable != null && resolveExecutable(executable, { gitExecPath }),
+    validation: compoundShellSnippet
+      ? 'shell_syntax_and_credential_fill'
+      : 'executable_resolution',
+    value_redacted: true,
+  };
+}
+
+export function parseGitHubRepository(remoteUrl) {
+  const value = cleanLine(remoteUrl);
+  let match = value.match(/^https:\/\/github\.com\/([^/]+)\/([^/?#]+?)(?:\.git)?$/i);
+  if (match) {
+    const repository = `${match[1]}/${match[2]}`;
+    return REPOSITORY_PATTERN.test(repository) ? { repository, transport: 'https' } : null;
+  }
+  match = value.match(/^(?:ssh:\/\/)?git@github\.com[:/]([^/]+)\/([^/?#]+?)(?:\.git)?$/i);
+  if (match) {
+    const repository = `${match[1]}/${match[2]}`;
+    return REPOSITORY_PATTERN.test(repository) ? { repository, transport: 'ssh' } : null;
+  }
+  return null;
+}
+
+function classifyEmail(email, principal) {
+  const normalized = cleanLine(email).toLowerCase();
+  const login = principal.toLowerCase();
+  if (normalized === '') return { present: false, shape: 'missing', privacy_compatible: false };
+  if (!/^[^\s@]+@[^\s@]+$/.test(normalized)) {
+    return { present: true, shape: 'invalid', privacy_compatible: false };
+  }
+  const escapedLogin = login.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const compatible = normalized === `${login}@users.noreply.github.com`
+    || new RegExp(`^[0-9]+\\+${escapedLogin}@users\\.noreply\\.github\\.com$`, 'i')
+      .test(normalized);
+  return {
+    present: true,
+    shape: compatible ? 'github_noreply' : 'non_noreply',
+    privacy_compatible: compatible,
+  };
+}
+
+function configValue(runner, cwd, key) {
+  const result = run(runner, 'git', ['config', '--get', key], cwd);
+  return successful(result) ? cleanLine(result.stdout) : '';
+}
+
+function configuredIdentity({ runner, cwd, env, principal, role }) {
+  const prefix = role === 'author' ? 'GIT_AUTHOR' : 'GIT_COMMITTER';
+  const name = env[`${prefix}_NAME`] ?? configValue(runner, cwd, 'user.name');
+  const configuredEmail = configValue(runner, cwd, 'user.email');
+  const email = env[`${prefix}_EMAIL`] ?? (configuredEmail || env.EMAIL || '');
+  return {
+    name_present: cleanLine(name) !== '',
+    email: classifyEmail(email, principal),
+    values_redacted: true,
+  };
+}
+
+function finding(code, summary, evidence = {}) {
+  return { code, severity: 'blocker', summary, evidence };
+}
+
+function applyHelperResets(values) {
+  return values.reduce((effective, value) => {
+    const helper = value.trim();
+    if (helper === '') return [];
+    effective.push(helper);
+    return effective;
+  }, []);
+}
+
+function credentialContextMatches(context, pushUrl) {
+  let configured;
+  let target;
+  try {
+    configured = new URL(context);
+    target = new URL(pushUrl);
+  } catch {
+    return false;
+  }
+  if (
+    configured.protocol.toLowerCase() !== target.protocol.toLowerCase()
+      || configured.hostname.toLowerCase() !== target.hostname.toLowerCase()
+      || configured.port !== target.port
+      || (configured.username && configured.username !== target.username)
+  ) return false;
+  const configuredPath = configured.pathname.replace(/\/$/, '');
+  const targetPath = target.pathname.replace(/\/$/, '');
+  return configuredPath === '' || configuredPath === targetPath
+    || targetPath.startsWith(`${configuredPath}/`);
+}
+
+function readConfiguredHelpers(runner, cwd, pushUrl) {
+  const result = run(runner, 'git', [
+    'config', '--null', '--get-regexp', '^credential(\\..*)?\\.helper$',
+  ], cwd);
+  if (result?.status === 1 && result?.signal == null && result?.error == null) return [];
+  if (!successful(result)) return null;
+  const applicable = [];
+  for (const entry of String(result.stdout ?? '').split('\0').filter(Boolean)) {
+    const separator = entry.indexOf('\n');
+    if (separator < 0) return null;
+    const key = entry.slice(0, separator);
+    const value = entry.slice(separator + 1);
+    if (key === 'credential.helper') applicable.push(value);
+    else {
+      const context = key.slice('credential.'.length, -'.helper'.length);
+      if (credentialContextMatches(context, pushUrl)) applicable.push(value);
+    }
+  }
+  return applyHelperResets(applicable);
+}
+
+function parseCredentialOutput(output) {
+  const values = {};
+  for (const line of String(output ?? '').split(/\r?\n/)) {
+    const separator = line.indexOf('=');
+    if (separator > 0) values[line.slice(0, separator)] = line.slice(separator + 1);
+  }
+  if (cleanLine(values.username) === '' || cleanLine(values.password) === '') return null;
+  return { username: values.username, password: values.password };
+}
+
+function outgoingCommitIdentities(runner, cwd, publicationTips, principal, candidateHead) {
+  const localResult = run(runner, 'git', ['--no-replace-objects', 'rev-list', '--all'], cwd, {
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (!successful(localResult)) return null;
+  const localOids = new Set(String(localResult.stdout ?? '').split(/\r?\n/).filter(
+    (value) => OID_PATTERN.test(value),
+  ));
+  const exclusions = [...new Set(publicationTips)].filter((oid) => localOids.has(oid));
+  const result = run(runner, 'git', [
+    '--no-replace-objects', 'log', '--format=%H%x1f%an%x1f%ae%x1f%cn%x1f%ce', candidateHead,
+    ...(exclusions.length ? ['--not', ...exclusions] : []),
+  ], cwd, { maxBuffer: 64 * 1024 * 1024 });
+  if (!successful(result)) return null;
+  const records = String(result.stdout ?? '').split(/\r?\n/).filter(Boolean);
+  let authorIncompatible = 0;
+  let committerIncompatible = 0;
+  let malformed = 0;
+  for (const record of records) {
+    const [oid, authorName, authorEmail, committerName, committerEmail, ...extra] = record.split('\x1f');
+    if (!OID_PATTERN.test(oid ?? '') || !cleanLine(authorName) || !cleanLine(committerName) || extra.length) {
+      malformed += 1;
+      continue;
+    }
+    if (!classifyEmail(authorEmail, principal).privacy_compatible) authorIncompatible += 1;
+    if (!classifyEmail(committerEmail, principal).privacy_compatible) committerIncompatible += 1;
+  }
+  return {
+    verified: authorIncompatible === 0 && committerIncompatible === 0 && malformed === 0,
+    count: records.length,
+    author_incompatible_count: authorIncompatible,
+    committer_incompatible_count: committerIncompatible,
+    malformed_count: malformed,
+    values_redacted: true,
+  };
+}
+
+function validateInput({ expectedRepository, expectedPrincipal, workerPrincipal, remote }) {
+  if (!REPOSITORY_PATTERN.test(expectedRepository ?? '')) {
+    throw new GitPublicationPreflightUsageError('Expected repository must use owner/name form');
+  }
+  for (const [label, value] of [['Expected principal', expectedPrincipal], ['Worker principal', workerPrincipal]]) {
+    if (!PRINCIPAL_PATTERN.test(value ?? '')) {
+      throw new GitPublicationPreflightUsageError(`${label} is required and must be a GitHub login`);
+    }
+  }
+  if (!REMOTE_PATTERN.test(remote ?? '')) {
+    throw new GitPublicationPreflightUsageError('Remote name is invalid');
+  }
+}
+
+function helperArgs(helper) {
+  return helper == null ? [] : ['-c', 'credential.helper=', '-c', `credential.helper=${helper}`];
+}
+
+function parseJson(result) {
+  if (!successful(result)) return null;
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    return null;
+  }
+}
+
+function shellQuote(value) {
+  return `'${String(value).replaceAll("'", "'\\''")}'`;
+}
+
+function hardenedSshCommand(sshCommand) {
+  const [executable, ...args] = sshCommand.trim().split(/\s+/);
+  return [
+    executable,
+    '-o', 'BatchMode=yes',
+    '-o', 'StrictHostKeyChecking=yes',
+    '-o', 'UpdateHostKeys=no',
+    ...args,
+  ].join(' ');
+}
+
+function sshCommandCanBeHardened(sshCommand) {
+  const value = sshCommand.trim();
+  if (
+    value === ''
+    || /StrictHostKeyChecking/i.test(value)
+    || /BatchMode/i.test(value)
+    || /UpdateHostKeys/i.test(value)
+    || /[\\'"`$;&|<>(){}[\]*?!#\r\n]/.test(value)
+  ) return false;
+  const tokens = value.split(/\s+/);
+  if (!['ssh', '/usr/bin/ssh', '/bin/ssh'].includes(tokens.shift())) return false;
+  const optionsWithValues = new Set([
+    'B', 'b', 'c', 'D', 'E', 'e', 'F', 'I', 'i', 'J', 'L', 'l', 'm', 'O', 'o',
+    'p', 'Q', 'R', 'S', 'W', 'w',
+  ]);
+  const flagOptions = /^[46AaCfGgKkMNnqsTtVvXxYy]+$/;
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (!token.startsWith('-') || token === '--') return false;
+    const option = token.slice(1, 2);
+    if (optionsWithValues.has(option)) {
+      if (token.length === 2 && (tokens[index += 1] == null || tokens[index].startsWith('-'))) {
+        return false;
+      }
+    } else if (!flagOptions.test(token.slice(1))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function sshPrincipal(runner, cwd, sshCommand) {
+  const hardened = hardenedSshCommand(sshCommand);
+  const result = sshCommand === 'ssh'
+    ? run(runner, 'ssh', [
+        '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes',
+        '-o', 'UpdateHostKeys=no', '-T', 'git@github.com',
+      ], cwd, { env: nonInteractiveEnv() })
+    : run(runner, 'sh', [
+        '-c', `${hardened} -T "$1"`, 'ao-publication-ssh', 'git@github.com',
+      ], cwd, { env: nonInteractiveEnv() });
+  const match = `${result?.stdout ?? ''}\n${result?.stderr ?? ''}`
+    .match(/Hi ([A-Za-z0-9-]+)! You've successfully authenticated/i);
+  return match?.[1] ?? '';
+}
+
+function isolatedHttpsHelperArgs() {
+  const helper = `!${shellQuote(process.execPath)} ${shellQuote(READONLY_HELPER_PATH)}`;
+  return ['-c', 'credential.helper=', '-c', `credential.helper=${helper}`];
+}
+
+function nonInteractiveEnv(extra = {}) {
+  return {
+    GIT_TERMINAL_PROMPT: '0',
+    GCM_INTERACTIVE: 'Never',
+    GIT_ASKPASS: '',
+    SSH_ASKPASS: '',
+    SSH_ASKPASS_REQUIRE: 'never',
+    ...extra,
+  };
+}
+
+function publicationTips(runner, cwd, { pushUrl, transport, credential, sshCommand }) {
+  const https = transport === 'https';
+  const args = [
+    '-c', 'credential.interactive=never', '-c', 'core.askPass=',
+    ...(https ? isolatedHttpsHelperArgs() : []),
+    'ls-remote', pushUrl, 'refs/heads/*',
+  ];
+  const commandEnv = https
+    ? nonInteractiveEnv({
+        AO_GIT_PUBLICATION_CREDENTIAL_USERNAME: credential.username,
+        AO_GIT_PUBLICATION_CREDENTIAL_PASSWORD: credential.password,
+      })
+    : nonInteractiveEnv({ GIT_SSH_COMMAND: hardenedSshCommand(sshCommand) });
+  const result = run(runner, 'git', args, cwd, { env: commandEnv });
+  if (!successful(result)) return null;
+  const tips = [];
+  for (const line of String(result.stdout ?? '').split(/\r?\n/).filter(Boolean)) {
+    const [oid, ref, ...extra] = line.trim().split(/\s+/);
+    if (!OID_PATTERN.test(oid ?? '') || !ref?.startsWith('refs/heads/') || extra.length) return null;
+    tips.push(oid);
+  }
+  return tips;
+}
+
+export function runGitPublicationPreflight({
+  cwd = process.cwd(),
+  expectedRepository,
+  expectedPrincipal,
+  workerPrincipal,
+  remote = 'origin',
+  commandScopedCredentialHelper = null,
+  runner = LOCAL_COMMAND_RUNNER,
+  env = process.env,
+  now = () => new Date().toISOString(),
+  resolveExecutable,
+} = {}) {
+  validateInput({ expectedRepository, expectedPrincipal, workerPrincipal, remote });
+  if (commandScopedCredentialHelper != null && (
+    typeof commandScopedCredentialHelper !== 'string'
+      || commandScopedCredentialHelper.trim() === ''
+      || /[\r\n\0]/.test(commandScopedCredentialHelper)
+  )) {
+    throw new GitPublicationPreflightUsageError('Command-scoped credential helper is invalid');
+  }
+
+  const findings = [];
+  const initialHeadResult = run(runner, 'git', ['rev-parse', 'HEAD'], cwd);
+  const candidateHead = successful(initialHeadResult) ? cleanLine(initialHeadResult.stdout) : '';
+  const candidateHeadVerified = OID_PATTERN.test(candidateHead);
+  if (!candidateHeadVerified) {
+    findings.push(finding('candidate_head_unverified', 'The candidate HEAD could not be verified.'));
+  }
+  const remoteResult = run(runner, 'git', ['remote', 'get-url', '--push', '--all', remote], cwd);
+  const pushUrls = successful(remoteResult)
+    ? String(remoteResult.stdout ?? '').split(/\r?\n/).map((value) => value.trim()).filter(Boolean)
+    : [];
+  const pushUrl = pushUrls.length === 1 ? pushUrls[0] : '';
+  const parsedRemote = parseGitHubRepository(pushUrl);
+  const repositoryMatches = pushUrls.length === 1
+    && parsedRemote?.repository.toLowerCase() === expectedRepository.toLowerCase();
+  if (pushUrls.length > 1) {
+    findings.push(finding('multiple_publication_push_urls', 'Multiple push URLs are not safe for one bounded publication probe.', {
+      push_url_count: pushUrls.length,
+      values_redacted: true,
+    }));
+  } else if (parsedRemote == null) {
+    findings.push(finding('publication_remote_unverified', 'The publication remote is not a canonical GitHub transport.', { remote_name: remote }));
+  } else if (!repositoryMatches) {
+    findings.push(finding('publication_repository_mismatch', 'The publication remote does not match the admitted repository.', {
+      remote_name: remote,
+      value_redacted: true,
+    }));
+  }
+
+  const author = configuredIdentity({ runner, cwd, env, principal: expectedPrincipal, role: 'author' });
+  const committer = configuredIdentity({ runner, cwd, env, principal: expectedPrincipal, role: 'committer' });
+  for (const [role, identity] of [['author', author], ['committer', committer]]) {
+    if (!identity.name_present) findings.push(finding(`git_${role}_name_missing`, `The effective Git ${role} name is missing.`));
+    if (!identity.email.privacy_compatible) {
+      findings.push(finding(`git_${role}_email_privacy_incompatible`, `The effective Git ${role} email is not a GitHub noreply form for the admitted principal.`, {
+        email_shape: identity.email.shape,
+        value_redacted: true,
+      }));
+    }
+  }
+
+  const execPathResult = run(runner, 'git', ['--exec-path'], cwd);
+  const gitExecPath = successful(execPathResult) ? cleanLine(execPathResult.stdout) : '';
+  const executableResolver = resolveExecutable ?? ((executable) => resolveExecutableOnPath(executable, {
+    env,
+    extraDirectories: [gitExecPath],
+  }));
+  const helpersApplicable = parsedRemote?.transport === 'https';
+  const configuredHelpers = helpersApplicable ? readConfiguredHelpers(runner, cwd, pushUrl) : [];
+  const effectiveHelpers = commandScopedCredentialHelper == null ? configuredHelpers : [commandScopedCredentialHelper];
+  const helperEvidence = effectiveHelpers == null ? [] : effectiveHelpers.map(
+    (helper) => inspectHelper(helper, executableResolver, gitExecPath, runner, cwd),
+  );
+  const helpersVerified = !helpersApplicable || (
+    effectiveHelpers != null && helperEvidence.length > 0 && helperEvidence.every(({ available }) => available)
+  );
+  if (!helpersVerified) {
+    const code = effectiveHelpers == null
+      ? 'credential_helper_config_unreadable'
+      : helperEvidence.length === 0 ? 'credential_helper_missing' : 'credential_helper_executable_missing';
+    findings.push(finding(code, 'The effective credential-helper chain cannot be verified as executable.', {
+      helper_count: helperEvidence.length,
+    }));
+  }
+
+  const prerequisitesVerified = repositoryMatches && candidateHeadVerified
+    && author.name_present && author.email.privacy_compatible
+    && committer.name_present && committer.email.privacy_compatible
+    && helpersVerified;
+  let authenticatedPrincipal = '';
+  let authenticationSource = null;
+  let repositoryPermissionVerified = false;
+  let publicationCredentialVerified = false;
+  let overrideApplied = false;
+  let credential = null;
+  const configuredSshCommand = parsedRemote?.transport === 'ssh'
+    ? configValue(runner, cwd, 'core.sshCommand')
+    : '';
+  const sshCommand = parsedRemote?.transport === 'ssh'
+    ? (env.GIT_SSH_COMMAND ?? (configuredSshCommand || env.GIT_SSH || 'ssh'))
+    : 'ssh';
+  const sshHostKeyPolicySafe = parsedRemote?.transport !== 'ssh'
+    || sshCommandCanBeHardened(sshCommand);
+  if (!sshHostKeyPolicySafe) {
+    findings.push(finding('ssh_host_key_policy_ambiguous', 'The configured SSH command sets its own host-key policy and cannot be safely hardened.', {
+      value_redacted: true,
+    }));
+  }
+
+  if (prerequisitesVerified && sshHostKeyPolicySafe && parsedRemote.transport === 'https') {
+    overrideApplied = commandScopedCredentialHelper != null;
+    const credentialResult = run(runner, 'git', [
+      '-c', 'credential.interactive=never',
+      '-c', 'core.askPass=',
+      ...helperArgs(commandScopedCredentialHelper),
+      'credential', 'fill',
+    ], cwd, {
+      env: nonInteractiveEnv(),
+      input: `url=${pushUrl}\n\n`,
+    });
+    credential = successful(credentialResult) ? parseCredentialOutput(credentialResult.stdout) : null;
+    publicationCredentialVerified = credential != null;
+    if (!publicationCredentialVerified) {
+      findings.push(finding('publication_credential_unavailable', 'The publication credential could not be obtained non-interactively.'));
+    } else {
+      const authEnv = {
+        GH_HOST: 'github.com', GH_PROMPT_DISABLED: '1', GH_TOKEN: credential.password, GITHUB_TOKEN: '',
+      };
+      const authResult = run(runner, 'gh', ['api', 'user', '--jq', '.login'], cwd, { env: authEnv });
+      authenticatedPrincipal = successful(authResult) ? cleanLine(authResult.stdout) : '';
+      authenticationSource = 'publication_https_credential';
+      const permission = parseJson(run(runner, 'gh', [
+        'api', `repos/${expectedRepository}`, '--jq', '{repository: .full_name, push: .permissions.push}',
+      ], cwd, { env: authEnv }));
+      repositoryPermissionVerified = permission?.repository?.toLowerCase() === expectedRepository.toLowerCase()
+        && permission?.push === true;
+      if (!repositoryPermissionVerified) {
+        findings.push(finding('publication_write_permission_unverified', 'The publication credential does not establish push permission for the admitted repository.'));
+      }
+    }
+  } else if (prerequisitesVerified && sshHostKeyPolicySafe && parsedRemote.transport === 'ssh') {
+    authenticatedPrincipal = sshPrincipal(runner, cwd, sshCommand);
+    authenticationSource = 'publication_ssh_credential';
+    publicationCredentialVerified = PRINCIPAL_PATTERN.test(authenticatedPrincipal);
+    if (!publicationCredentialVerified) {
+      findings.push(finding('publication_ssh_identity_unverified', 'The GitHub principal for the SSH publication credential could not be verified.'));
+    }
+  }
+
+  const authenticationVerified = PRINCIPAL_PATTERN.test(authenticatedPrincipal);
+  if (prerequisitesVerified && !authenticationVerified) {
+    findings.push(finding('github_authentication_unavailable', 'The publication credential principal could not be verified non-interactively.'));
+  } else if (authenticationVerified && authenticatedPrincipal.toLowerCase() !== expectedPrincipal.toLowerCase()) {
+    findings.push(finding('github_principal_mismatch', 'The publication credential principal does not match the admitted principal.', {
+      observed_principal: authenticatedPrincipal,
+    }));
+  }
+  if (workerPrincipal.toLowerCase() !== expectedPrincipal.toLowerCase()) {
+    findings.push(finding('worker_principal_mismatch', 'The Worker and Orchestrator publication principals do not agree.', {
+      worker_principal: workerPrincipal,
+    }));
+  }
+
+  let outgoing = null;
+  const canInspectPublicationRange = prerequisitesVerified
+    && authenticationVerified
+    && authenticatedPrincipal.toLowerCase() === expectedPrincipal.toLowerCase()
+    && (parsedRemote.transport === 'ssh' || repositoryPermissionVerified);
+  if (canInspectPublicationRange) {
+    const tips = publicationTips(runner, cwd, {
+      pushUrl,
+      transport: parsedRemote.transport,
+      credential,
+      sshCommand,
+    });
+    if (tips == null) {
+      findings.push(finding('publication_refs_unreadable', 'The publication repository refs could not be read safely.'));
+    } else {
+      outgoing = outgoingCommitIdentities(
+        runner, cwd, tips, expectedPrincipal, candidateHead,
+      );
+      if (outgoing == null) {
+        findings.push(finding('outgoing_commit_identity_unreadable', 'Outgoing commit identities could not be inspected.'));
+      } else if (!outgoing.verified) {
+        findings.push(finding('outgoing_commit_identity_privacy_incompatible', 'At least one outgoing commit has an incompatible or malformed identity.', {
+          commit_count: outgoing.count,
+          author_incompatible_count: outgoing.author_incompatible_count,
+          committer_incompatible_count: outgoing.committer_incompatible_count,
+          malformed_count: outgoing.malformed_count,
+          values_redacted: true,
+        }));
+      }
+    }
+  }
+
+  const principalAgreement = authenticationVerified
+    && authenticatedPrincipal.toLowerCase() === expectedPrincipal.toLowerCase()
+    && workerPrincipal.toLowerCase() === expectedPrincipal.toLowerCase();
+  const eligibleForProbe = prerequisitesVerified && outgoing?.verified === true
+    && publicationCredentialVerified && principalAgreement
+    && (parsedRemote.transport === 'ssh' || repositoryPermissionVerified);
+  let probe = {
+    attempted: false,
+    status: 'skipped_blocked',
+    kind: 'git_push_dry_run',
+    push_url_targeted: false,
+    write_permission_verified: false,
+    credential_store_suppressed: false,
+    remote_mutation: false,
+  };
+  if (eligibleForProbe) {
+    const preProbeHead = cleanLine(run(runner, 'git', ['rev-parse', 'HEAD'], cwd).stdout);
+    if (preProbeHead !== candidateHead) {
+      findings.push(finding('candidate_head_drift', 'The candidate HEAD changed during the publication preflight.'));
+    } else {
+      const isolatedHelperArgs = parsedRemote.transport === 'https'
+        ? isolatedHttpsHelperArgs()
+        : [];
+      const probeEnv = parsedRemote.transport === 'https'
+        ? nonInteractiveEnv({
+            AO_GIT_PUBLICATION_CREDENTIAL_USERNAME: credential.username,
+            AO_GIT_PUBLICATION_CREDENTIAL_PASSWORD: credential.password,
+          })
+        : nonInteractiveEnv({ GIT_SSH_COMMAND: hardenedSshCommand(sshCommand) });
+      const probeResult = run(runner, 'git', [
+        '-c', 'credential.interactive=never',
+        '-c', 'core.askPass=',
+        '-c', `core.hooksPath=${os.devNull}`,
+        ...isolatedHelperArgs,
+        'push', '--dry-run', '--porcelain', pushUrl,
+        `${candidateHead}:refs/heads/__ao_publication_preflight__/${candidateHead}`,
+      ], cwd, { env: probeEnv });
+      const probePassed = successful(probeResult);
+      const postProbeHead = cleanLine(run(runner, 'git', ['rev-parse', 'HEAD'], cwd).stdout);
+      const headStable = postProbeHead === candidateHead;
+      repositoryPermissionVerified ||= parsedRemote.transport === 'ssh' && probePassed;
+      probe = {
+        attempted: true,
+        status: probePassed && headStable ? 'passed' : 'blocked',
+        kind: 'git_push_dry_run',
+        push_url_targeted: true,
+        write_permission_verified: probePassed && repositoryPermissionVerified,
+        credential_store_suppressed: parsedRemote.transport === 'https',
+        remote_mutation: false,
+      };
+      if (!probePassed) findings.push(finding('publication_dry_run_failed', 'The non-interactive dry-run publication probe failed.'));
+      if (!headStable) findings.push(finding('candidate_head_drift', 'The candidate HEAD changed during the publication preflight.'));
+    }
+  }
+
+  if (credential != null) {
+    credential.username = '';
+    credential.password = '';
+  }
+  const status = findings.length === 0 ? 'passed' : 'blocked';
+  return {
+    schema_version: GIT_PUBLICATION_PREFLIGHT_SCHEMA_VERSION,
+    generated_at: now(),
+    status,
+    risk: {
+      tier: 'R2',
+      boundary: 'diagnostic_git_publication_preflight',
+      forbidden_mutations: ['global_git_configuration', 'credential_provisioning', 'account_switching', 'remote_probe_mutation'],
+    },
+    scope: { expected_repository: expectedRepository, expected_principal: expectedPrincipal, worker_principal: workerPrincipal, remote_name: remote },
+    checks: {
+      remote: {
+        verified: repositoryMatches,
+        repository: repositoryMatches ? parsedRemote.repository : null,
+        transport: parsedRemote?.transport ?? null,
+        push_url_count: pushUrls.length,
+        push_url_redacted: true,
+      },
+      authentication: {
+        verified: authenticationVerified,
+        principal: authenticationVerified ? authenticatedPrincipal : null,
+        source: authenticationSource,
+        publication_credential_verified: publicationCredentialVerified,
+        secrets_observed_but_not_emitted: parsedRemote?.transport === 'https' && publicationCredentialVerified,
+      },
+      principal_agreement: { verified: principalAgreement },
+      repository_permission: { verified: repositoryPermissionVerified, push: repositoryPermissionVerified },
+      credential_helpers: {
+        applicable: helpersApplicable,
+        verified: helpersVerified,
+        source: !helpersApplicable ? 'not_applicable_ssh'
+          : commandScopedCredentialHelper == null ? 'effective_git_config' : 'command_scoped_override',
+        count: helperEvidence.length,
+        git_exec_path_considered: gitExecPath !== '',
+        helpers: helperEvidence,
+      },
+      configured_identity: { author, committer },
+      outgoing_commits: outgoing ?? { verified: false, count: null, values_redacted: true },
+      remote_probe: probe,
+    },
+    remediation: {
+      performed: overrideApplied,
+      performed_kind: overrideApplied ? 'command_scoped_credential_helper_override' : null,
+      allowed: ['command_scoped_credential_helper_override', 'repository_local_verified_github_noreply_identity'],
+      requires_explicit_task_authority: true,
+    },
+    redaction: { credential_values_emitted: false, email_values_emitted: false, subprocess_output_emitted: false },
+    findings,
+  };
+}

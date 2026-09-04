@@ -22,6 +22,7 @@ const CIE_CLI_EXPORTS = [
   'runManageCli',
   'runMetricsCli',
   'runOverrideCli',
+  'runPublicationPreflightCli',
   'runReconcileCli',
   'runReviewCli',
   'runStateCli',
@@ -115,6 +116,7 @@ describe('ao-pilot public library API', () => {
     expect(protocols.createReviewProtocol).toEqual(expect.any(Function));
     expect(protocols.evaluateOrMergePreflight).toEqual(expect.any(Function));
     expect(protocols.bindGitHubMergeOutcome).toEqual(expect.any(Function));
+    expect(protocols.runGitPublicationPreflight).toEqual(expect.any(Function));
     expect(providers.createLocalCommandRunner).toEqual(expect.any(Function));
     expect(providers.createBlockedNotificationWebhookTransport).toEqual(expect.any(Function));
     expect(providers.listRuntimeProviderContracts()).toEqual(expect.any(Array));
