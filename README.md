@@ -465,9 +465,14 @@ ao-pilot publication-preflight \
 
 The fail-closed R2 receipt verifies the effective credential-helper executable,
 authenticated GitHub principal, remote repository, redacted author and
-committer identity shape, and a non-interactive `git ls-remote ... HEAD` probe.
-An explicit `--credential-helper` applies only to that read-only probe by using
-command-scoped Git configuration; it never changes repository or global Git
+committer identity shape, every outgoing commit identity, and the actual
+publication credential and repository write permission. The remote check is a
+non-interactive `git push --dry-run` against the validated push URL. HTTPS
+credentials are replayed through a bundled read-only helper that ignores
+credential `store` and `erase`, and hooks are disabled for the probe.
+An explicit `--credential-helper` applies only to non-interactive credential
+acquisition through command-scoped Git configuration. The dry run uses the
+isolated no-store helper; neither phase changes repository or global Git
 configuration. A blocked receipt exits with status `2`, while invalid usage
 exits with status `4`.
 

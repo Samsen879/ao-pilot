@@ -121,6 +121,7 @@ export async function runCli(argv, io = createDefaultIo(), dependencies = {}) {
       const receiptPath = path.resolve(options.receiptOut);
       fs.mkdirSync(path.dirname(receiptPath), { recursive: true });
       fs.writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
+      fs.chmodSync(receiptPath, 0o600);
     } catch {
       io.writeStderr('The redacted publication receipt could not be written safely.\n');
       return { exitCode: GIT_PUBLICATION_PREFLIGHT_EXIT_CODES.invalid_usage, receipt: null };

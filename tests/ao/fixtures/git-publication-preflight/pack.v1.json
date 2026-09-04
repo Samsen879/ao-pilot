@@ -27,7 +27,7 @@
     },
     {
       "id": "wrong_executable_path",
-      "remote_url": "git@github.com:Samsen879/ao-pilot.git",
+      "remote_url": "https://github.com/Samsen879/ao-pilot.git",
       "authenticated_principal": "Samsen879",
       "helpers": ["/missing/bin/git-credential-broken"],
       "available_executables": [],
@@ -36,6 +36,18 @@
       "expected_status": "blocked",
       "expected_finding": "credential_helper_executable_missing",
       "probe_attempted": false
+    },
+    {
+      "id": "ssh_publication",
+      "remote_url": "git@github.com:Samsen879/ao-pilot.git",
+      "authenticated_principal": "Samsen879",
+      "helpers": [],
+      "available_executables": [],
+      "name": "Publication Worker",
+      "email": "Samsen879@users.noreply.github.com",
+      "expected_status": "passed",
+      "expected_finding": null,
+      "probe_attempted": true
     },
     {
       "id": "unauthenticated_github",

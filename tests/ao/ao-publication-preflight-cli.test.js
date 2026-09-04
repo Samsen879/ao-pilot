@@ -37,8 +37,29 @@ function passingRunner() {
       if (invocation === 'git config --get user.email') {
         return { status: 0, stdout: '123+Samsen879@users.noreply.github.com\n' };
       }
-      if (args.includes('ls-remote')) {
-        return { status: 0, stdout: 'ba3a94099c2052bec7388c6b7c76bfa2162fa7d8\tHEAD\n' };
+      if (args[0] === 'log') {
+        return { status: 0, stdout: '0918e609978553d944f6a6c4798c54691ae90775\u001fWorker\u001f123+Samsen879@users.noreply.github.com\u001fWorker\u001f123+Samsen879@users.noreply.github.com\n' };
+      }
+      if (invocation === 'git --exec-path') {
+        return { status: 0, stdout: '/git-core\n' };
+      }
+      if (invocation === 'git config --get-all credential.helper') {
+        return { status: 0, stdout: 'store\n' };
+      }
+      if (invocation === 'git config --get-urlmatch credential.helper https://github.com/Samsen879/ao-pilot') {
+        return { status: 1, stdout: '' };
+      }
+      if (command === 'git' && args.includes('credential') && args.includes('fill')) {
+        return { status: 0, stdout: 'username=worker\npassword=fixture-secret\n' };
+      }
+      if (command === 'gh' && args[1] === 'repos/Samsen879/ao-pilot') {
+        return { status: 0, stdout: '{"repository":"Samsen879/ao-pilot","push":true}\n' };
+      }
+      if (invocation === 'git rev-parse HEAD') {
+        return { status: 0, stdout: '0918e609978553d944f6a6c4798c54691ae90775\n' };
+      }
+      if (args.includes('push') && args.includes('--dry-run')) {
+        return { status: 0, stdout: 'Done\n' };
       }
       throw new Error(`Unexpected test invocation: ${invocation}`);
     },
@@ -70,6 +91,31 @@ describe('Git publication preflight CLI', () => {
       expect(JSON.parse(fs.readFileSync(receiptPath, 'utf8'))).toEqual(result.receipt);
       expect(fs.statSync(receiptPath).mode & 0o777).toBe(0o600);
       expect(output.stderr).toEqual([]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('repairs permissions when overwriting an existing receipt', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-publication-preflight-mode-'));
+    const receiptPath = path.join(root, 'receipt.json');
+    fs.writeFileSync(receiptPath, '{}\n', { mode: 0o644 });
+    const output = createIo();
+    try {
+      const result = await runCli([
+        '--expected-repository', 'Samsen879/ao-pilot',
+        '--expected-principal', 'Samsen879',
+        '--worker-principal', 'Samsen879',
+        '--receipt-out', receiptPath,
+        '--json',
+      ], output.io, {
+        cwd: root,
+        runner: passingRunner(),
+        env: {},
+        resolveExecutable: () => true,
+      });
+      expect(result.exitCode).toBe(0);
+      expect(fs.statSync(receiptPath).mode & 0o777).toBe(0o600);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
