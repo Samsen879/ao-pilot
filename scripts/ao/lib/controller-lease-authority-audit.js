@@ -13,6 +13,14 @@ const FROZEN_AUTHORITY_DESIGN = Object.freeze({
   mixed_version_policy: 'validate and migrate the canonical file; never select the state.json shadow by freshness',
 });
 const FROZEN_SEMANTIC_MANIFEST_DIGEST = 'b6744c90f594a8ae94912757251a0f6cc788cf6985aa1b14eeb5267216c50101';
+const SEMANTIC_SELECTOR_VALUES = Object.freeze({
+  'atomic-api': 'mutateControllerLeasesAtomically',
+  'file-name': 'controller-leases.json',
+  'isolated-path': 'controllerLeasesPath',
+  'persist-state-api': 'persistState',
+  'state-property': 'controller_leases',
+  'upsert-api': 'upsertControllerLease',
+});
 
 function compareStrings(left, right) {
   return Buffer.compare(Buffer.from(String(left), 'utf8'), Buffer.from(String(right), 'utf8'));
@@ -230,6 +238,50 @@ function normalizedOffsetForSourceOffset(source, parsed, sourceOffset) {
   return normalized.length;
 }
 
+function staticStringValue(node) {
+  if (node?.type === 'StringLiteral') return node.value;
+  if (node?.type === 'TemplateLiteral' && node.expressions.length === 0) {
+    return node.quasis[0]?.value?.cooked ?? null;
+  }
+  if (node?.type === 'BinaryExpression' && node.operator === '+') {
+    const left = staticStringValue(node.left);
+    const right = staticStringValue(node.right);
+    return left == null || right == null ? null : left + right;
+  }
+  return null;
+}
+
+function findNoncanonicalSemanticSelectors(source, parsed, selectors) {
+  const selectorsByValue = new Map(Object.entries(SEMANTIC_SELECTOR_VALUES)
+    .map(([id, value]) => [value, selectors.find((selector) => selector.id === id)]));
+  const findings = new Map();
+  const record = (value, node) => {
+    const selector = selectorsByValue.get(value);
+    if (selector == null || !Number.isInteger(node?.start) || !Number.isInteger(node?.end)) return;
+    const raw = source.slice(node.start, node.end);
+    if (new RegExp(selector.pattern).test(raw)) return;
+    findings.set(`${selector.id}\0${node.start}`, { selector: selector.id, offset: node.start });
+  };
+  const visit = (node) => {
+    if (node == null || typeof node !== 'object') return;
+    if (node.type === 'Identifier') record(node.name, node);
+    if (node.type === 'StringLiteral') record(node.value, node);
+    if (node.type === 'TemplateLiteral' && node.expressions.length === 0) {
+      record(staticStringValue(node), node);
+    }
+    if (node.type === 'MemberExpression' && node.computed) {
+      record(staticStringValue(node.property), node.property);
+    }
+    for (const [key, value] of Object.entries(node)) {
+      if (['comments', 'tokens', 'loc'].includes(key)) continue;
+      if (Array.isArray(value)) value.forEach(visit);
+      else if (value != null && typeof value === 'object' && typeof value.type === 'string') visit(value);
+    }
+  };
+  visit(parsed.program);
+  return [...findings.values()].sort((left, right) => left.offset - right.offset);
+}
+
 function sourceDocuments(inventory, repositoryRoot) {
   const documents = [];
   for (const sourceRoot of inventory.source_scan.roots) {
@@ -243,6 +295,7 @@ function sourceDocuments(inventory, repositoryRoot) {
         path: relativePath,
         source,
         parsed,
+        noncanonical_selectors: findNoncanonicalSemanticSelectors(source, parsed, inventory.source_scan.selectors),
         selector_source: maskComments(source, parsed),
         normalized_source: normalizeParsedSemanticSource(source, parsed),
       });
@@ -359,6 +412,12 @@ function validateSelectorSemanticUsages(
   repositoryRoot,
   documents = sourceDocuments(inventory, repositoryRoot),
 ) {
+  for (const document of documents) {
+    const [finding] = document.noncanonical_selectors;
+    if (finding != null) {
+      throw new Error(`Controller lease selector ${finding.selector} has noncanonical semantic usage at ${document.path}:${lineAtOffset(document.source, finding.offset)}`);
+    }
+  }
   const selectorsById = new Map(inventory.source_scan.selectors
     .map((selector) => [selector.id, selector]));
   const coverage = new Map();

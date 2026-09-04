@@ -107,8 +107,9 @@ source discovery uses parser-provided lexical tokens and comment ranges, so
 documentation-only mentions do not create evidence churn and regex/division
 ambiguity cannot hide or invent executable occurrences. Comment masking retains
 the parser's UTF-16 offsets even when astral characters precede a range. Explicit
-operation boundaries keep unrelated declarations outside the protected semantic
-regions.
+escaped identifiers and statically computed authority property names are rejected
+as noncanonical aliases. Explicit operation boundaries keep unrelated declarations
+outside the protected semantic regions.
 
 ## Frozen canonical-authority design
 
