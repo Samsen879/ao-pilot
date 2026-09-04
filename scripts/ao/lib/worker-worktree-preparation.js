@@ -17,6 +17,9 @@ const EXPECTED_CONTRACT = Object.freeze({
   install_command: ['npm', 'ci', '--ignore-scripts', '--no-audit', '--no-fund'],
   test_runner: 'node_modules/.bin/jest',
 });
+const INSTALL_TIMEOUT_MS = 10 * 60 * 1000;
+const PROBE_TIMEOUT_MS = 30 * 1000;
+const GIT_OUTPUT_BUFFER_BYTES = 32 * 1024 * 1024;
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -25,6 +28,7 @@ function sha256(value) {
 function runProcess(command, args, options = {}) {
   return spawnSync(command, args, {
     encoding: 'utf8',
+    maxBuffer: GIT_OUTPUT_BUFFER_BYTES,
     ...options,
   });
 }
@@ -33,6 +37,7 @@ function runGit(repoRoot, args, processRunner, { trim = true } = {}) {
   const result = processRunner('git', args, {
     cwd: repoRoot,
     env: minimalEnvironment(),
+    maxBuffer: GIT_OUTPUT_BUFFER_BYTES,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   if (result?.error || result?.status !== 0) return null;
@@ -91,6 +96,36 @@ function atomicWriteJson(filePath, value) {
   fs.renameSync(temporaryPath, filePath);
 }
 
+function lockfileIsClean(repoRoot, lockfilePath, processRunner) {
+  const result = processRunner('git', [
+    'diff', '--quiet', '--exit-code', 'HEAD', '--', lockfilePath,
+  ], {
+    cwd: repoRoot,
+    env: minimalEnvironment(),
+    maxBuffer: GIT_OUTPUT_BUFFER_BYTES,
+    stdio: 'ignore',
+  });
+  if (result?.error || !Number.isInteger(result?.status)) return null;
+  if (result.status === 0) return true;
+  if (result.status === 1) return false;
+  return null;
+}
+
+function probeTestRunner(repoRoot, testRunnerPath, processRunner) {
+  const result = processRunner(testRunnerPath, ['--version'], {
+    cwd: repoRoot,
+    env: minimalEnvironment(),
+    stdio: 'ignore',
+    timeout: PROBE_TIMEOUT_MS,
+  });
+  return !result?.error && result?.status === 0;
+}
+
+function resolveTestRunnerExecutable(repoRoot) {
+  const declaredPath = path.join(repoRoot, EXPECTED_CONTRACT.test_runner);
+  return process.platform === 'win32' ? `${declaredPath}.cmd` : declaredPath;
+}
+
 function baseEvidence(repoRoot, processRunner) {
   const commitSha = runGit(repoRoot, ['rev-parse', 'HEAD^{commit}'], processRunner);
   const treeSha = runGit(repoRoot, ['rev-parse', 'HEAD^{tree}'], processRunner);
@@ -134,10 +169,12 @@ export function prepareWorkerWorktree({
     return failure('committed_lockfile_missing', identity);
   }
 
-  const lockfileBytes = fs.readFileSync(lockfilePath);
   const trackedDigest = sha256(trackedLockfile);
-  const lockfileDigest = sha256(lockfileBytes);
-  if (trackedDigest !== lockfileDigest) {
+  const lockfileClean = lockfileIsClean(repoRoot, EXPECTED_CONTRACT.lockfile, processRunner);
+  if (lockfileClean == null) {
+    return failure('lockfile_status_unavailable', identity);
+  }
+  if (!lockfileClean) {
     return failure('committed_lockfile_changed', identity);
   }
 
@@ -145,7 +182,7 @@ export function prepareWorkerWorktree({
     ...identity,
     lockfile: {
       path: EXPECTED_CONTRACT.lockfile,
-      sha256: lockfileDigest,
+      sha256: trackedDigest,
     },
     setup_contract: {
       schema_version: EXPECTED_CONTRACT.schema_version,
@@ -165,7 +202,7 @@ export function prepareWorkerWorktree({
 
   const stateRoot = path.join(repoRoot, '.ao-pilot', 'worker-preparation');
   const receiptPath = path.join(stateRoot, 'receipt.json');
-  const testRunnerPath = path.join(repoRoot, EXPECTED_CONTRACT.test_runner);
+  const testRunnerPath = resolveTestRunnerExecutable(repoRoot);
   const expectedReceipt = {
     schema_version: WORKER_PREPARATION_RECEIPT_SCHEMA,
     status: 'ready',
@@ -181,7 +218,11 @@ export function prepareWorkerWorktree({
     },
   };
 
-  if (isFile(testRunnerPath) && JSON.stringify(readJson(receiptPath)) === JSON.stringify(expectedReceipt)) {
+  if (
+    isFile(testRunnerPath)
+    && JSON.stringify(readJson(receiptPath)) === JSON.stringify(expectedReceipt)
+    && probeTestRunner(repoRoot, testRunnerPath, processRunner)
+  ) {
     return {
       ...expectedReceipt,
       install_performed: false,
@@ -189,9 +230,13 @@ export function prepareWorkerWorktree({
     };
   }
 
-  fs.mkdirSync(stateRoot, { recursive: true });
   const npmrcPath = path.join(stateRoot, 'empty-npmrc');
-  fs.writeFileSync(npmrcPath, '', { mode: 0o600 });
+  try {
+    fs.mkdirSync(stateRoot, { recursive: true });
+    fs.writeFileSync(npmrcPath, '', { mode: 0o600 });
+  } catch {
+    return failure('preparation_state_unwritable', evidence);
+  }
   const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   const installResult = processRunner(npmCommand, EXPECTED_CONTRACT.install_command.slice(1), {
     cwd: repoRoot,
@@ -201,6 +246,7 @@ export function prepareWorkerWorktree({
       npm_config_userconfig: npmrcPath,
     }),
     stdio: 'ignore',
+    timeout: INSTALL_TIMEOUT_MS,
   });
 
   if (installResult?.error || installResult?.status !== 0) {
@@ -212,11 +258,21 @@ export function prepareWorkerWorktree({
       },
     };
   }
-  if (!isFile(testRunnerPath)) {
-    return failure('test_runner_missing_after_install', evidence);
+  if (!isFile(testRunnerPath) || !probeTestRunner(repoRoot, testRunnerPath, processRunner)) {
+    return {
+      ...failure('test_runner_unhealthy_after_install', evidence),
+      install_performed: true,
+    };
   }
 
-  atomicWriteJson(receiptPath, expectedReceipt);
+  try {
+    atomicWriteJson(receiptPath, expectedReceipt);
+  } catch {
+    return {
+      ...failure('preparation_receipt_write_failed', evidence),
+      install_performed: true,
+    };
+  }
   return {
     ...expectedReceipt,
     install_performed: true,

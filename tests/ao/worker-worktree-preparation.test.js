@@ -49,9 +49,11 @@ function successfulInstaller(root, calls) {
   return (command, args, options) => {
     if (command === 'git') return spawnSync(command, args, options);
     calls.push({ command, args, options });
-    const runner = path.join(root, 'node_modules', '.bin', 'jest');
-    fs.mkdirSync(path.dirname(runner), { recursive: true });
-    fs.writeFileSync(runner, 'fixture');
+    if (command === 'npm' || command === 'npm.cmd') {
+      const runner = path.join(root, 'node_modules', '.bin', 'jest');
+      fs.mkdirSync(path.dirname(runner), { recursive: true });
+      fs.writeFileSync(runner, 'fixture');
+    }
     return { status: 0, signal: null };
   };
 }
@@ -72,11 +74,11 @@ describe('Worker worktree preparation', () => {
       lockfile: { path: 'package-lock.json', sha256: expect.stringMatching(/^[0-9a-f]{64}$/) },
       test_runner: { path: 'node_modules/.bin/jest', ready: true },
     });
-    expect(calls).toHaveLength(1);
-    expect(calls[0].args).toEqual(['ci', '--ignore-scripts', '--no-audit', '--no-fund']);
-    expect(calls[0].options.stdio).toBe('ignore');
-    expect(calls[0].options.env).not.toHaveProperty('GITHUB_TOKEN');
-    expect(calls[0].options.env).not.toHaveProperty('NODE_AUTH_TOKEN');
+    const installCall = calls.find(({ command }) => command === 'npm' || command === 'npm.cmd');
+    expect(installCall.args).toEqual(['ci', '--ignore-scripts', '--no-audit', '--no-fund']);
+    expect(installCall.options).toMatchObject({ stdio: 'ignore', timeout: 600_000 });
+    expect(installCall.options.env).not.toHaveProperty('GITHUB_TOKEN');
+    expect(installCall.options.env).not.toHaveProperty('NODE_AUTH_TOKEN');
   });
 
   it('replays a matching receipt without reinstalling', () => {
@@ -90,7 +92,8 @@ describe('Worker worktree preparation', () => {
     expect(second).toMatchObject({ status: 'ready', install_performed: false, receipt_replayed: true });
     expect(second.repository).toEqual(first.repository);
     expect(second.lockfile).toEqual(first.lockfile);
-    expect(calls).toHaveLength(1);
+    expect(calls.filter(({ command }) => command === 'npm' || command === 'npm.cmd')).toHaveLength(1);
+    expect(calls.filter(({ args }) => args[0] === '--version')).toHaveLength(2);
   });
 
   it.each([
@@ -110,7 +113,7 @@ describe('Worker worktree preparation', () => {
     let attempt = 0;
     const processRunner = (command, args, options) => {
       if (command === 'git') return spawnSync(command, args, options);
-      attempt += 1;
+      if (command === 'npm' || command === 'npm.cmd') attempt += 1;
       if (attempt === 1) return { status: null, signal: 'SIGTERM' };
       const runner = path.join(root, 'node_modules', '.bin', 'jest');
       fs.mkdirSync(path.dirname(runner), { recursive: true });
@@ -131,7 +134,7 @@ describe('Worker worktree preparation', () => {
     expect(attempt).toBe(2);
   });
 
-  it('does not report readiness when npm succeeds without the declared test runner', () => {
+  it('does not report readiness when npm succeeds without a healthy declared test runner', () => {
     const root = fixture();
     const processRunner = (command, args, options) => (
       command === 'git'
@@ -142,7 +145,70 @@ describe('Worker worktree preparation', () => {
       status: 'setup_failed',
       ready: false,
       failure_class: 'setup',
-      reason_code: 'test_runner_missing_after_install',
+      reason_code: 'test_runner_unhealthy_after_install',
+      install_performed: true,
+    });
+  });
+
+  it('reinstalls when a matching receipt has an unhealthy runner', () => {
+    const root = fixture();
+    const calls = [];
+    const healthyRunner = successfulInstaller(root, calls);
+    prepareWorkerWorktree({ repoRoot: root, processRunner: healthyRunner });
+    let probeCount = 0;
+    const processRunner = (command, args, options) => {
+      if (command === 'git') return spawnSync(command, args, options);
+      if (args[0] === '--version') {
+        probeCount += 1;
+        return { status: probeCount === 1 ? 1 : 0, signal: null };
+      }
+      return healthyRunner(command, args, options);
+    };
+    expect(prepareWorkerWorktree({ repoRoot: root, processRunner })).toMatchObject({
+      status: 'ready',
+      install_performed: true,
+      receipt_replayed: false,
+    });
+    expect(probeCount).toBe(2);
+    expect(calls.filter(({ command }) => command === 'npm' || command === 'npm.cmd')).toHaveLength(2);
+  });
+
+  it('accepts a Git-clean CRLF materialization while binding the committed blob digest', () => {
+    const root = fixture();
+    git(root, ['config', 'core.autocrlf', 'true']);
+    const lockfilePath = path.join(root, 'package-lock.json');
+    fs.writeFileSync(lockfilePath, fs.readFileSync(lockfilePath, 'utf8').replaceAll('\n', '\r\n'));
+    const result = prepareWorkerWorktree({ repoRoot: root, processRunner: successfulInstaller(root, []) });
+    expect(result).toMatchObject({ status: 'ready', lockfile: { sha256: expect.stringMatching(/^[0-9a-f]{64}$/) } });
+  });
+
+  it('allocates a bounded Git output buffer large enough for common lockfiles', () => {
+    const root = fixture();
+    let observedMaxBuffer = 0;
+    const installer = successfulInstaller(root, []);
+    const processRunner = (command, args, options) => {
+      if (command === 'git' && args[0] === 'show') observedMaxBuffer = options.maxBuffer;
+      return command === 'git'
+        ? spawnSync(command, args, options)
+        : installer(command, args, options);
+    };
+    expect(prepareWorkerWorktree({ repoRoot: root, processRunner }).ready).toBe(true);
+    expect(observedMaxBuffer).toBe(32 * 1024 * 1024);
+  });
+
+  it('emits classified JSON when repository-local state cannot be written', () => {
+    const root = fixture();
+    fs.writeFileSync(path.join(root, '.ao-pilot'), 'not a directory');
+    let stdout = '';
+    const outcome = runCli(['--json'], {
+      writeStdout: (text) => { stdout += text; },
+      writeStderr: () => {},
+    }, { cwd: root });
+    expect(outcome.exitCode).toBe(WORKER_PREPARATION_EXIT_CODES.setupFailure);
+    expect(JSON.parse(stdout)).toMatchObject({
+      status: 'setup_failed',
+      failure_class: 'setup',
+      reason_code: 'preparation_state_unwritable',
     });
   });
 
