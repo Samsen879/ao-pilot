@@ -1206,3 +1206,5 @@ export function bootstrapControlPlaneState({
     retryMs: controllerLeaseLockRetryMs,
   });
 }
+
+export const CONTROLLER_LEASE_AUTHORITY_BOOTSTRAP_BOUNDARY = true;

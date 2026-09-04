@@ -16,6 +16,9 @@ describe('ao-pilot public product contract', () => {
     expect(packageJson.engines.node).toBe('^20.0.0 || >=22.0.0');
     expect(packageJson.bin['ao-pilot']).toBe('./bin/ao-pilot.js');
     expect(packageJson.scripts['ao:init']).toBe('node scripts/ao-init.js');
+    expect(packageJson.scripts['ao:publication-preflight']).toBe(
+      'node scripts/ao-publication-preflight.js',
+    );
     expect(packageJson.scripts.test).toContain('--runInBand');
     expect(packageJson.scripts['ao:test:acceptance']).toContain(
       'tests/ao/ao-lifecycle-acceptance.test.js',

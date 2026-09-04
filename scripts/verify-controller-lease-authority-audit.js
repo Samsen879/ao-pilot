@@ -10,7 +10,7 @@ import {
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const inventoryPath = path.join(
   repositoryRoot,
-  'docs/foundation/controller-lease-caller-inventory.v1.json',
+  'docs/foundation/controller-lease-authority-sites.v2.json',
 );
 
 try {

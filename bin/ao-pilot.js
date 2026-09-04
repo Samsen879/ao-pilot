@@ -23,6 +23,7 @@ const COMMAND_MODULES = {
   manage: '../scripts/ao-manage.js',
   metrics: '../scripts/ao-metrics.js',
   override: '../scripts/ao-override.js',
+  'publication-preflight': '../scripts/ao-publication-preflight.js',
   reconcile: '../scripts/ao-reconcile.js',
   review: '../scripts/ao-review.js',
   'runtime-path': '../scripts/ao-runtime.js',
@@ -35,7 +36,7 @@ const COMMAND_MODULES = {
 const RUNTIME_COMMANDS = new Set(['runtime-path', 'start', 'status', 'stop']);
 
 const PROJECT_SCOPED_COMMANDS = new Set(Object.keys(COMMAND_MODULES).filter(
-  (command) => command !== 'init',
+  (command) => !['init', 'publication-preflight'].includes(command),
 ));
 const PR_EXCLUSIVE_COMMANDS = new Set(['doctor', 'lifecycle', 'reconcile']);
 
@@ -65,6 +66,7 @@ function renderHelp() {
     '  review      Manage independent review records',
     '  state       Inspect durable state',
     '  override    Manage explicit operator overrides',
+    '  publication-preflight Diagnose Git publication identity and credentials',
     '  knowledge   Inspect repository knowledge',
     '  metrics     Inspect run metrics',
     '  eval        Run evaluation packs',
@@ -165,6 +167,9 @@ export async function runCli(argv, io = createDefaultIo(), {
       ? extracted.argv
       : [...extracted.argv, '--config', extracted.configPath];
     return commandModule.runCli(initArgs, io, { cwd });
+  }
+  if (command === 'publication-preflight') {
+    return commandModule.runCli(extracted.argv, io, { cwd });
   }
 
   let loadedConfig;
