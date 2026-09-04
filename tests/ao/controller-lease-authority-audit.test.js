@@ -235,6 +235,28 @@ describe('controller lease authority design audit', () => {
       .toEqual(validateControllerLeaseInventory(inventory, repositoryRoot));
   });
 
+  it('does not let astral text shift a comment mask over later authority usage', () => {
+    const mutatedRoot = materializeSourceRoot();
+    fs.appendFileSync(
+      path.join(mutatedRoot, 'scripts/ao/lib/phase-zero-exit-evidence.js'),
+      `\nconst unicodePad = '${'😀'.repeat(150)}';\n// ${'x'.repeat(300)}\nexport function hiddenLeaseMutation(repository) { const mutation = repository.mutateControllerLeasesAtomically; return mutation({}); }\n`,
+      'utf8',
+    );
+    expect(() => validateControllerLeaseInventory(inventory, mutatedRoot))
+      .toThrow('Controller lease selector atomic-api has unregistered semantic usage');
+  });
+
+  it('masks selector comments at UTF-16 offsets after astral text', () => {
+    const mutatedRoot = materializeSourceRoot();
+    fs.appendFileSync(
+      path.join(mutatedRoot, 'scripts/ao/lib/scorecard.js'),
+      `\nconst unicodePad = '${'😀'.repeat(150)}';\n// ${'controller_leases '.repeat(20)}\nexport const unicodeCommentDiagnostic = true;\n`,
+      'utf8',
+    );
+    expect(validateControllerLeaseInventory(inventory, mutatedRoot))
+      .toEqual(validateControllerLeaseInventory(inventory, repositoryRoot));
+  });
+
   it('is stable when an unrelated declaration follows the bootstrap boundary', () => {
     const mutatedRoot = materializeSourceRoot();
     fs.appendFileSync(

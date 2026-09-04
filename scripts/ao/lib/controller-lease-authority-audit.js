@@ -168,7 +168,7 @@ function parseLexicalSource(source) {
 }
 
 function maskComments(source, parsed = parseLexicalSource(source)) {
-  const characters = [...source];
+  const characters = source.split('');
   for (const comment of parsed.comments) {
     for (let index = comment.start; index < comment.end; index += 1) {
       if (!/[\r\n\u2028\u2029]/.test(characters[index])) characters[index] = ' ';
