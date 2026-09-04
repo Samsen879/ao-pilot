@@ -1,0 +1,102 @@
+{
+  "schema_version": "ao.git-publication-preflight-fixtures.v1",
+  "fixtures": [
+    {
+      "id": "passing_noreply_identity",
+      "remote_url": "https://github.com/Samsen879/ao-pilot.git",
+      "authenticated_principal": "Samsen879",
+      "helpers": ["store"],
+      "available_executables": ["git-credential-store"],
+      "name": "Publication Worker",
+      "email": "12345+Samsen879@users.noreply.github.com",
+      "expected_status": "passed",
+      "expected_finding": null,
+      "probe_attempted": true
+    },
+    {
+      "id": "missing_helper",
+      "remote_url": "https://github.com/Samsen879/ao-pilot.git",
+      "authenticated_principal": "Samsen879",
+      "helpers": [],
+      "available_executables": [],
+      "name": "Publication Worker",
+      "email": "Samsen879@users.noreply.github.com",
+      "expected_status": "blocked",
+      "expected_finding": "credential_helper_missing",
+      "probe_attempted": false
+    },
+    {
+      "id": "wrong_executable_path",
+      "remote_url": "git@github.com:Samsen879/ao-pilot.git",
+      "authenticated_principal": "Samsen879",
+      "helpers": ["/missing/bin/git-credential-broken"],
+      "available_executables": [],
+      "name": "Publication Worker",
+      "email": "Samsen879@users.noreply.github.com",
+      "expected_status": "blocked",
+      "expected_finding": "credential_helper_executable_missing",
+      "probe_attempted": false
+    },
+    {
+      "id": "unauthenticated_github",
+      "remote_url": "https://github.com/Samsen879/ao-pilot.git",
+      "authenticated_principal": null,
+      "helpers": ["store"],
+      "available_executables": ["git-credential-store"],
+      "name": "Publication Worker",
+      "email": "Samsen879@users.noreply.github.com",
+      "expected_status": "blocked",
+      "expected_finding": "github_authentication_unavailable",
+      "probe_attempted": false
+    },
+    {
+      "id": "privacy_protected_identity",
+      "remote_url": "https://github.com/Samsen879/ao-pilot.git",
+      "authenticated_principal": "Samsen879",
+      "helpers": ["store"],
+      "available_executables": ["git-credential-store"],
+      "name": "Publication Worker",
+      "email": "private-address@example.test",
+      "expected_status": "blocked",
+      "expected_finding": "git_author_email_privacy_incompatible",
+      "probe_attempted": false
+    },
+    {
+      "id": "principal_mismatch",
+      "remote_url": "https://github.com/Samsen879/ao-pilot.git",
+      "authenticated_principal": "different-user",
+      "helpers": ["store"],
+      "available_executables": ["git-credential-store"],
+      "name": "Publication Worker",
+      "email": "Samsen879@users.noreply.github.com",
+      "expected_status": "blocked",
+      "expected_finding": "github_principal_mismatch",
+      "probe_attempted": false
+    },
+    {
+      "id": "repository_mismatch",
+      "remote_url": "https://github.com/Samsen879/different-repository.git",
+      "authenticated_principal": "Samsen879",
+      "helpers": ["store"],
+      "available_executables": ["git-credential-store"],
+      "name": "Publication Worker",
+      "email": "Samsen879@users.noreply.github.com",
+      "expected_status": "blocked",
+      "expected_finding": "publication_repository_mismatch",
+      "probe_attempted": false
+    },
+    {
+      "id": "command_scoped_remediation",
+      "remote_url": "https://github.com/Samsen879/ao-pilot.git",
+      "authenticated_principal": "Samsen879",
+      "helpers": ["/missing/bin/configured-helper"],
+      "command_scoped_helper": "store",
+      "available_executables": ["git-credential-store"],
+      "name": "Publication Worker",
+      "email": "12345+Samsen879@users.noreply.github.com",
+      "expected_status": "passed",
+      "expected_finding": null,
+      "probe_attempted": true
+    }
+  ]
+}

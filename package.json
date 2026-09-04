@@ -70,6 +70,7 @@
     "ao:manage": "node scripts/ao-manage.js",
     "ao:metrics": "node scripts/ao-metrics.js",
     "ao:override": "node scripts/ao-override.js",
+    "ao:publication-preflight": "node scripts/ao-publication-preflight.js",
     "ao:reconcile": "node scripts/ao-reconcile.js",
     "ao:reconcile:strict": "node scripts/ao-reconcile.js --json --strict",
     "ao:reconcile:strict:pr": "node scripts/ao-reconcile.js --json --strict --pr",

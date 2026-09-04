@@ -115,6 +115,7 @@ This repository is currently an **experimental prototype**.
 What is reasonably implemented:
 
 - CLI tools for controller runs, task management, reconciliation, lifecycle checks, diagnostics, handoff, state inspection, overrides, and knowledge inspection.
+- A fail-closed Git publication preflight that emits redacted receipts and uses only a non-interactive read-only remote probe.
 - Persistent state contracts for tasks, ownership leases, controller leases, handoffs, checkpoints, review records, actions, overrides, and policy decisions.
 - A reconciliation model for comparing AO state with GitHub-facing PR / CI / review state.
 - Lifecycle and diagnostic checks for blocked, ambiguous, orphaned, stale, or review-dependent work.
@@ -448,6 +449,28 @@ work and to inspect the external runtime repository/version/commit/tree,
 integrity, binary path/digest, compatibility, PATH shadowing, and secret-free
 GitHub/Codex authentication availability.
 
+### `ao-publication-preflight`
+
+Diagnoses Git publication readiness without committing, pushing, changing Git
+configuration, switching accounts, or printing credential and email values.
+
+```bash
+ao-pilot publication-preflight \
+  --expected-repository owner/repository \
+  --expected-principal github-login \
+  --worker-principal github-login \
+  --receipt-out ./publication-preflight.json \
+  --json
+```
+
+The fail-closed R2 receipt verifies the effective credential-helper executable,
+authenticated GitHub principal, remote repository, redacted author and
+committer identity shape, and a non-interactive `git ls-remote ... HEAD` probe.
+An explicit `--credential-helper` applies only to that read-only probe by using
+command-scoped Git configuration; it never changes repository or global Git
+configuration. A blocked receipt exits with status `2`, while invalid usage
+exits with status `4`.
+
 ### `ao-lifecycle`
 
 Inspects lifecycle state and readiness.
@@ -709,6 +732,7 @@ scripts/
   ao-controller.js        Main controller loop CLI
   ao-reconcile.js         State reconciliation CLI
   ao-doctor.js            Diagnostics CLI
+  ao-publication-preflight.js Git publication diagnostics CLI
   ao-lifecycle.js         Lifecycle inspection CLI
   ao-manage.js            Task management CLI
   ao-handoff.js           Handoff CLI

@@ -105,6 +105,11 @@ describe('ao-pilot unified cli', () => {
       '42',
       '--json',
     ]);
+    expect(applyConfiguredProject(
+      'publication-preflight',
+      ['--expected-repository', 'owner/repository'],
+      'portable-project',
+    )).toEqual(['--expected-repository', 'owner/repository']);
   });
 
   it('applies portable eval configuration without overriding explicit CLI options', () => {
@@ -153,6 +158,22 @@ describe('ao-pilot unified cli', () => {
     expect(result.exitCode).toBe(0);
     expect(output.stdout.join('')).toContain('Durable holder identity');
     expect(output.stderr.join('')).toBe('');
+  });
+
+  it('exposes publication preflight help without requiring AO project config', async () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-pilot-preflight-help-'));
+    const output = createIo();
+    try {
+      const result = await runCli(['publication-preflight', '--help'], output.io, {
+        cwd: repoRoot,
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(output.stdout.join('')).toContain('--expected-repository');
+      expect(output.stderr.join('')).toBe('');
+    } finally {
+      fs.rmSync(repoRoot, { recursive: true, force: true });
+    }
   });
 
   it('recognizes npm-style bin symlinks as direct execution', () => {
