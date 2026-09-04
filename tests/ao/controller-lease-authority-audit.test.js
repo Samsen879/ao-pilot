@@ -142,9 +142,10 @@ describe('controller lease authority design audit', () => {
   it('pins deterministic semantic authority evidence and exhaustive selector coverage', () => {
     expect(validateControllerLeaseInventory(inventory, repositoryRoot)).toMatchObject({
       schema_version: 'ao.controller-lease-authority-evidence.v2',
-      semantic_manifest_digest: '6ed478e687f69b8d4342f709c81458ab9fecaeb77d51512d154890d2223558c2',
+      semantic_manifest_digest: 'ebd19f57fd1d88921107770233a56b4964358eb44befd796ac91210878302e80',
       authority_site_count: 17,
       binding_count: 31,
+      semantic_region_count: 1,
       selector_counts: {
         'atomic-api': 5,
         'file-name': 4,
@@ -155,7 +156,7 @@ describe('controller lease authority design audit', () => {
       },
       semantic_usage_count: 63,
       selector_evidence_digest: '848df3d628412753ee57faa78d6b5517df85840ac7c6b2fb5f7b49a176b92dec',
-      authority_evidence_digest: '93caa39129713d8657d31bb1856c2031ddebe814986256298741d63e8a36c54c',
+      authority_evidence_digest: '64eda17f1054c07bfab5adc702c05234c8ca7d313360e97ab3e2dbb21c93704c',
     });
     expect(scanControllerLeaseSources(inventory, repositoryRoot).match_count).toBe(63);
   });
@@ -167,6 +168,18 @@ describe('controller lease authority design audit', () => {
       'scripts/ao/lib/state-repository.js',
       'delete nextState.controller_leases;',
       'delete nextState\n      /* formatting-only */ .controller_leases;',
+    );
+    expect(validateControllerLeaseInventory(inventory, mutatedRoot))
+      .toEqual(validateControllerLeaseInventory(inventory, repositoryRoot));
+  });
+
+  it('is stable under formatting inside template expressions', () => {
+    const mutatedRoot = materializeSourceRoot();
+    replaceSource(
+      mutatedRoot,
+      'scripts/ao/lib/state-repository.js',
+      '`${paths.controllerLeasesPath}.lock`',
+      '`${ paths.controllerLeasesPath }.lock`',
     );
     expect(validateControllerLeaseInventory(inventory, mutatedRoot))
       .toEqual(validateControllerLeaseInventory(inventory, repositoryRoot));
@@ -256,20 +269,35 @@ describe('controller lease authority design audit', () => {
       'return repository.mutateControllerLeasesAtomically && ({',
     );
     expect(() => validateControllerLeaseInventory(inventory, mutatedRoot))
-      .toThrow('Controller lease semantic usage atomic-api.03 drifted');
+      .toThrow('Controller lease semantic region controller.acquire-renew-release.operations drifted');
   });
 
-  it('preserves line terminators that change return semantics', () => {
+  it('rejects changes inside a protected controller authority operation', () => {
     const mutatedRoot = materializeSourceRoot();
     replaceSource(
       mutatedRoot,
-      'scripts/ao/lib/state-repository.js',
-      'return readControllerLeaseAuthorityFile(paths.controllerLeasesPath).records;',
-      'return\n    readControllerLeaseAuthorityFile(paths.controllerLeasesPath).records;',
+      'scripts/ao/lib/controller-loop.js',
+      'timeoutMs: lockTimeoutMs,',
+      'timeoutMs: 0,',
     );
     expect(() => validateControllerLeaseInventory(inventory, mutatedRoot))
-      .toThrow('Controller lease authority site repository.canonical-read-and-projection failed');
+      .toThrow('Controller lease semantic region controller.acquire-renew-release.operations drifted');
   });
+
+  it.each(['\n', '\u2028', '\u2029'])(
+    'preserves a %j line terminator that changes return semantics',
+    (lineTerminator) => {
+      const mutatedRoot = materializeSourceRoot();
+      replaceSource(
+        mutatedRoot,
+        'scripts/ao/lib/state-repository.js',
+        'return readControllerLeaseAuthorityFile(paths.controllerLeasesPath).records;',
+        `return${lineTerminator}readControllerLeaseAuthorityFile(paths.controllerLeasesPath).records;`,
+      );
+      expect(() => validateControllerLeaseInventory(inventory, mutatedRoot))
+        .toThrow('Controller lease authority site repository.canonical-read-and-projection failed');
+    },
+  );
 
   it('preserves semantic whitespace inside template literals', () => {
     const mutatedRoot = materializeSourceRoot();

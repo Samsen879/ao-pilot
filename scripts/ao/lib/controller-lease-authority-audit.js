@@ -11,7 +11,7 @@ const FROZEN_AUTHORITY_DESIGN = Object.freeze({
   malformed_authority_policy: 'fail_closed',
   mixed_version_policy: 'validate and migrate the canonical file; never select the state.json shadow by freshness',
 });
-const FROZEN_SEMANTIC_MANIFEST_DIGEST = '6ed478e687f69b8d4342f709c81458ab9fecaeb77d51512d154890d2223558c2';
+const FROZEN_SEMANTIC_MANIFEST_DIGEST = 'ebd19f57fd1d88921107770233a56b4964358eb44befd796ac91210878302e80';
 
 function compareStrings(left, right) {
   return Buffer.compare(Buffer.from(String(left), 'utf8'), Buffer.from(String(right), 'utf8'));
@@ -43,10 +43,11 @@ function listSourceFiles(root, extensions) {
   return files.sort(compareStrings);
 }
 
-function normalizeSemanticSource(source) {
+export function normalizeSemanticSource(source) {
   let normalized = '';
   let quote = null;
   let escaped = false;
+  const templateExpressionDepths = [];
   const appendRestrictedLineTerminator = () => {
     if (/(?:^|[^A-Za-z0-9_$.])(?:async|break|continue|return|throw|yield)$/.test(normalized)) {
       normalized += '\n';
@@ -58,12 +59,33 @@ function normalizeSemanticSource(source) {
       normalized += character;
       if (escaped) escaped = false;
       else if (character === '\\') escaped = true;
+      else if (quote === '`' && character === '$' && source[index + 1] === '{') {
+        normalized += '{';
+        index += 1;
+        quote = null;
+        templateExpressionDepths.push(1);
+      }
       else if (character === quote) quote = null;
+      continue;
+    }
+    if (templateExpressionDepths.length > 0 && character === '{') {
+      templateExpressionDepths[templateExpressionDepths.length - 1] += 1;
+      normalized += character;
+      continue;
+    }
+    if (templateExpressionDepths.length > 0 && character === '}') {
+      const top = templateExpressionDepths.length - 1;
+      templateExpressionDepths[top] -= 1;
+      normalized += character;
+      if (templateExpressionDepths[top] === 0) {
+        templateExpressionDepths.pop();
+        quote = '`';
+      }
       continue;
     }
     if (character === '/' && source[index + 1] === '/') {
       index += 2;
-      while (index < source.length && !/[\r\n]/.test(source[index])) index += 1;
+      while (index < source.length && !/[\r\n\u2028\u2029]/.test(source[index])) index += 1;
       appendRestrictedLineTerminator();
     } else if (character === '/' && source[index + 1] === '*') {
       const commentStart = index;
@@ -72,11 +94,13 @@ function normalizeSemanticSource(source) {
         index += 1;
       }
       index += 1;
-      if (/[\r\n]/.test(source.slice(commentStart, index + 1))) appendRestrictedLineTerminator();
+      if (/[\r\n\u2028\u2029]/.test(source.slice(commentStart, index + 1))) {
+        appendRestrictedLineTerminator();
+      }
     } else if (character === "'" || character === '"' || character === '`') {
       quote = character;
       normalized += character;
-    } else if (/[\r\n]/.test(character)) {
+    } else if (/[\r\n\u2028\u2029]/.test(character)) {
       appendRestrictedLineTerminator();
     } else if (!/\s/.test(character)) {
       normalized += character;
@@ -136,6 +160,12 @@ export function createControllerLeaseSemanticManifest(inventory) {
         id: `${site.id}#${index + 1}`,
         semantic_source: normalizeSemanticSource(anchor),
       })),
+      semantic_regions: (site.semantic_regions ?? []).map((region) => ({
+        id: region.id,
+        start: normalizeSemanticSource(region.start),
+        end: normalizeSemanticSource(region.end),
+        expected_digest: region.expected_digest,
+      })).sort((left, right) => compareStrings(left.id, right.id)),
     })).sort((left, right) => compareStrings(left.id, right.id)),
     source_coverage: {
       roots: [...inventory.source_scan.roots].sort(compareStrings),
@@ -301,9 +331,38 @@ function validateAuthoritySiteBindings(inventory, repositoryRoot) {
   return bindingEvidence.sort((left, right) => compareStrings(left.id, right.id));
 }
 
+function validateAuthoritySemanticRegions(inventory, repositoryRoot) {
+  const documents = sourceDocuments(inventory, repositoryRoot);
+  const regionEvidence = [];
+  for (const site of inventory.authority_sites) {
+    for (const region of site.semantic_regions ?? []) {
+      const start = normalizeSemanticSource(region.start);
+      const end = normalizeSemanticSource(region.end);
+      const candidates = documents.filter((document) => (
+        countLiteralOccurrences(document.normalized_source, start).length === 1
+        && countLiteralOccurrences(document.normalized_source, end).length === 1
+        && document.normalized_source.indexOf(start) < document.normalized_source.indexOf(end)
+      ));
+      if (candidates.length !== 1) {
+        throw new Error(`Controller lease semantic region ${region.id} must resolve to exactly one source`);
+      }
+      const [document] = candidates;
+      const startOffset = document.normalized_source.indexOf(start);
+      const endOffset = document.normalized_source.indexOf(end);
+      const digest = stableDigest(document.normalized_source.slice(startOffset, endOffset));
+      if (digest !== region.expected_digest) {
+        throw new Error(`Controller lease semantic region ${region.id} drifted: expected ${region.expected_digest}, got ${digest}`);
+      }
+      regionEvidence.push({ id: region.id, site_id: site.id, digest });
+    }
+  }
+  return regionEvidence.sort((left, right) => compareStrings(left.id, right.id));
+}
+
 export function generateControllerLeaseAuthorityEvidence(inventory, repositoryRoot) {
   const semanticManifest = createControllerLeaseSemanticManifest(inventory);
   const bindingEvidence = validateAuthoritySiteBindings(inventory, repositoryRoot);
+  const semanticRegionEvidence = validateAuthoritySemanticRegions(inventory, repositoryRoot);
   const semanticUsageEvidence = validateSelectorSemanticUsages(inventory, repositoryRoot);
   const scan = scanControllerLeaseSources(inventory, repositoryRoot);
   const evidence = {
@@ -312,6 +371,8 @@ export function generateControllerLeaseAuthorityEvidence(inventory, repositoryRo
     authority_site_count: inventory.authority_sites.length,
     binding_count: bindingEvidence.length,
     bindings: bindingEvidence,
+    semantic_region_count: semanticRegionEvidence.length,
+    semantic_regions: semanticRegionEvidence,
     selector_counts: scan.selector_counts,
     semantic_usage_count: semanticUsageEvidence.reduce((total, usage) => total + usage.count, 0),
     semantic_usages: semanticUsageEvidence,

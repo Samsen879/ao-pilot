@@ -118,7 +118,15 @@
       "path": "scripts/ao/lib/controller-loop.js",
       "symbol": "acquireControllerLeadership/renewControllerLeadership/releaseControllerLeadership",
       "roles": ["reader", "writer", "leadership"],
-      "anchors": ["async function acquireControllerLeadership", "async function renewControllerLeadership", "async function releaseControllerLeadership"]
+      "anchors": ["async function acquireControllerLeadership", "async function renewControllerLeadership", "async function releaseControllerLeadership"],
+      "semantic_regions": [
+        {
+          "id": "controller.acquire-renew-release.operations",
+          "start": "async function acquireControllerLeadership({",
+          "end": "function startControllerHeartbeat({",
+          "expected_digest": "9284d500a59a3105e07c2786524c217f87309999e4968ef770109b4004f3f653"
+        }
+      ]
     },
     {
       "id": "state-report.runtime-summary",

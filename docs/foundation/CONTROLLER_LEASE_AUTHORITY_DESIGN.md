@@ -38,9 +38,12 @@ identities, roles, bindings, scan boundary, selector patterns, and all
 selector-usage semantics are pinned in one semantic manifest. Every selector
 occurrence must be covered exactly once by a registered whitespace/comment-
 normalized semantic usage. Normalization retains whitespace inside string and
-template literals and line terminators after JavaScript restricted productions
-such as `return`, so automatic-semicolon-insertion changes remain visible. The
-scan also matches every `persistState`
+template literal text while normalizing formatting inside `${...}` expressions,
+and retains every ECMAScript line terminator after restricted productions such
+as `return`, so automatic-semicolon-insertion changes remain visible. Protected
+controller acquire/renew/release operations are also pinned as a complete
+normalized semantic region rather than selector-local prefixes. The scan also
+matches every `persistState`
 definition and call, closing the generic shadow-writer path, and includes the
 production phase-zero evidence module rather than treating it as exempt.
 
