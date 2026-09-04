@@ -169,6 +169,10 @@ describe('diagnostic Git publication preflight', () => {
     });
     expect(receipt.checks.authentication.source).toBe('publication_ssh_credential');
     expect(runner.calls.some(({ args }) => args.includes('credential.helper'))).toBe(false);
+    const identity = runner.calls.find(({ command }) => command === 'ssh');
+    expect(identity.options.env).toMatchObject({
+      GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '', SSH_ASKPASS_REQUIRE: 'never',
+    });
   });
 
   it('collects generic and URL-scoped helper chains with reset semantics', () => {
@@ -324,10 +328,12 @@ describe('diagnostic Git publication preflight', () => {
     const { receipt, runner } = runFixture(fixture);
     expect(receipt.status).toBe('passed');
     const auth = runner.calls.find(({ command }) => command === 'sh');
-    expect(auth.args[1]).toContain('ssh -i /fixture/key');
+    expect(auth.args[1]).toContain('-i /fixture/key');
     expect(auth.args[1]).toContain('StrictHostKeyChecking=yes');
+    expect(auth.args[1].indexOf('StrictHostKeyChecking=yes')).toBeLessThan(auth.args[1].indexOf('-i /fixture/key'));
+    expect(auth.options.env).toMatchObject({ GIT_ASKPASS: '', SSH_ASKPASS: '' });
     const remoteReads = runner.calls.filter(({ args }) => args.includes('ls-remote') || args.includes('push'));
-    expect(remoteReads.every(({ options }) => options.env.GIT_SSH_COMMAND.includes('ssh -i /fixture/key'))).toBe(true);
+    expect(remoteReads.every(({ options }) => options.env.GIT_SSH_COMMAND.includes('-i /fixture/key'))).toBe(true);
     expect(remoteReads.every(({ options }) => options.env.GIT_SSH_COMMAND.includes('StrictHostKeyChecking=yes'))).toBe(true);
   });
 
@@ -364,5 +370,16 @@ describe('diagnostic Git publication preflight', () => {
     expect(receipt.findings.map(({ code }) => code)).toContain('ssh_host_key_policy_ambiguous');
     expect(runner.calls.some(({ command, args }) => command === 'sh' && args[0] === '-c')).toBe(false);
     expect(JSON.stringify(receipt)).not.toContain('StrictHostKeyCheck');
+  });
+
+  it('fails closed when a configured SSH command disables batch mode', () => {
+    const fixture = {
+      ...fixturePack.fixtures.find(({ id }) => id === 'ssh_publication'),
+      ssh_command: 'ssh -oBatchMode=no',
+    };
+    const { receipt, runner } = runFixture(fixture);
+    expect(receipt.findings.map(({ code }) => code)).toContain('ssh_host_key_policy_ambiguous');
+    expect(runner.calls.some(({ command }) => command === 'sh')).toBe(false);
+    expect(JSON.stringify(receipt)).not.toContain('BatchMode=no');
   });
 });

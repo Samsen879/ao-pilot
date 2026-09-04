@@ -278,7 +278,10 @@ function shellQuote(value) {
 }
 
 function hardenedSshCommand(sshCommand) {
-  return `${sshCommand} -o BatchMode=yes -o StrictHostKeyChecking=yes`;
+  const [executable, ...args] = sshCommand.trim().split(/\s+/);
+  return [
+    executable, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', ...args,
+  ].join(' ');
 }
 
 function sshCommandCanBeHardened(sshCommand) {
@@ -286,6 +289,7 @@ function sshCommandCanBeHardened(sshCommand) {
   if (
     value === ''
     || /StrictHostKeyChecking/i.test(value)
+    || /BatchMode/i.test(value)
     || /[\\'"`$;&|<>(){}[\]*?!#\r\n]/.test(value)
   ) return false;
   const tokens = value.split(/\s+/);
@@ -315,10 +319,10 @@ function sshPrincipal(runner, cwd, sshCommand) {
   const result = sshCommand === 'ssh'
     ? run(runner, 'ssh', [
         '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-T', 'git@github.com',
-      ], cwd)
+      ], cwd, { env: nonInteractiveEnv() })
     : run(runner, 'sh', [
         '-c', `${hardened} -T "$1"`, 'ao-publication-ssh', 'git@github.com',
-      ], cwd);
+      ], cwd, { env: nonInteractiveEnv() });
   const match = `${result?.stdout ?? ''}\n${result?.stderr ?? ''}`
     .match(/Hi ([A-Za-z0-9-]+)! You've successfully authenticated/i);
   return match?.[1] ?? '';
