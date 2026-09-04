@@ -48,14 +48,16 @@
       "path": "scripts/ao/lib/state-migrations.js",
       "symbol": "removeControllerLeaseShadow",
       "roles": ["shadow-stripper"],
-      "anchors": ["function removeControllerLeaseShadow(state) {", "delete nextState.controller_leases;"]
+      "anchors": ["function removeControllerLeaseShadow(state) {", "delete nextState.controller_leases;"],
+      "semantic_regions": [{ "id": "migration.state-shadow-stripper.operation", "start": "function removeControllerLeaseShadow(state) {", "end": "function backfillTaskSpecs({", "expected_digest": "cfe073c27033e46cf6763ca020a61286af055646e7ba60162a002f6d912417b9" }]
     },
     {
       "id": "migration.explicit-authority-transition",
       "path": "scripts/ao/lib/state-migrations.js",
       "symbol": "prepareControllerLeaseAuthorityMigration",
       "roles": ["migration-reader", "format", "fail-closed"],
-      "anchors": ["function prepareControllerLeaseAuthorityMigration({"]
+      "anchors": ["function prepareControllerLeaseAuthorityMigration({"],
+      "semantic_regions": [{ "id": "migration.explicit-authority-transition.operation", "start": "function prepareControllerLeaseAuthorityMigration({", "end": "function validateCurrentControllerLeaseAuthority(paths) {", "expected_digest": "7c3a88ccd4c5b44050a6f4f8df21f151578e61d2b2b3307af73cd75412bcb60b" }]
     },
     {
       "id": "migration.atomic-authority-install",
@@ -83,35 +85,40 @@
       "path": "scripts/ao/lib/state-repository.js",
       "symbol": "readControllerLeaseRecords/readSnapshot",
       "roles": ["reader", "projection", "fail-closed"],
-      "anchors": ["return readControllerLeaseAuthorityFile(paths.controllerLeasesPath).records", "const nextState = sortRepositoryStateCollections(cloneJsonValue(state), {"]
+      "anchors": ["return readControllerLeaseAuthorityFile(paths.controllerLeasesPath).records", "const nextState = sortRepositoryStateCollections(cloneJsonValue(state), {"],
+      "semantic_regions": [{ "id": "repository.canonical-read-and-projection.operations", "start": "function readControllerLeaseRecords() {", "end": "function ensureBootstrapped() {", "expected_digest": "1ffb74ceedef34de9a10299bd3814079c95a5b56931ca99372de51b8f641785c" }]
     },
     {
       "id": "repository.canonical-write",
       "path": "scripts/ao/lib/state-repository.js",
       "symbol": "persistControllerLeases",
       "roles": ["writer"],
-      "anchors": ["createControllerLeaseAuthority(nextControllerLeases)"]
+      "anchors": ["createControllerLeaseAuthority(nextControllerLeases)"],
+      "semantic_regions": [{ "id": "repository.canonical-write.operation", "start": "function persistControllerLeases({", "end": "async function mutateControllerLeasesAtomically({", "expected_digest": "47b8957bdd5cbfdc75efa567060c6ddc70f4295a442674bc444d7c14e14d72e2" }]
     },
     {
       "id": "repository.ordinary-state-shadow-stripper",
       "path": "scripts/ao/lib/state-repository.js",
       "symbol": "persistState/upsertCollectionRecord/ensureRuntimePreflights/ensureRepoKnowledge",
       "roles": ["shadow-stripper"],
-      "anchors": ["function persistState({", "delete nextState.controller_leases;", "function upsertCollectionRecord({", "ensureRuntimePreflights({", "ensureRepoKnowledge({"]
+      "anchors": ["function persistState({", "delete nextState.controller_leases;", "function upsertCollectionRecord({", "ensureRuntimePreflights({", "ensureRepoKnowledge({"],
+      "semantic_regions": [{ "id": "repository.ordinary-state-shadow-stripper.operation", "start": "function persistState({", "end": "function persistControllerLeases({", "expected_digest": "faae5f67b3a5befda1bf7279a5659d3e606c2161b1b6722135974ea43982e0b4" }]
     },
     {
       "id": "repository.atomic-mutation",
       "path": "scripts/ao/lib/state-repository.js",
       "symbol": "mutateControllerLeasesAtomically",
       "roles": ["reader", "writer", "lock"],
-      "anchors": ["async function mutateControllerLeasesAtomically"]
+      "anchors": ["async function mutateControllerLeasesAtomically"],
+      "semantic_regions": [{ "id": "repository.atomic-mutation.operation", "start": "async function mutateControllerLeasesAtomically({", "end": "function upsertCollectionRecord({", "expected_digest": "63fde40b70a804a4c72eaaa4d6b1d54041343a3a40719c02063eebeb818ff783" }]
     },
     {
       "id": "repository.synchronous-upsert",
       "path": "scripts/ao/lib/state-repository.js",
       "symbol": "upsertControllerLease",
       "roles": ["reader", "writer", "lock"],
-      "anchors": ["upsertControllerLease(record) {"]
+      "anchors": ["upsertControllerLease(record) {"],
+      "semantic_regions": [{ "id": "repository.synchronous-upsert.operation", "start": "upsertControllerLease(record) {", "end": "mutateControllerLeasesAtomically,", "expected_digest": "afd83b10ec0286e594c29c9e3c051dbefc9569104d68ed111b990b22ff3cc07d" }]
     },
     {
       "id": "controller.acquire-renew-release",

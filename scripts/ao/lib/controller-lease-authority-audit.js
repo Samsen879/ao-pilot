@@ -11,7 +11,7 @@ const FROZEN_AUTHORITY_DESIGN = Object.freeze({
   malformed_authority_policy: 'fail_closed',
   mixed_version_policy: 'validate and migrate the canonical file; never select the state.json shadow by freshness',
 });
-const FROZEN_SEMANTIC_MANIFEST_DIGEST = 'ebd19f57fd1d88921107770233a56b4964358eb44befd796ac91210878302e80';
+const FROZEN_SEMANTIC_MANIFEST_DIGEST = '72bd6108562c37a75573ffe9e1576dc02e8cae3959cc52ba24bae3c6f82a275e';
 
 function compareStrings(left, right) {
   return Buffer.compare(Buffer.from(String(left), 'utf8'), Buffer.from(String(right), 'utf8'));
@@ -408,6 +408,14 @@ export function validateControllerLeaseInventory(inventory, repositoryRoot) {
   const semanticUsageIds = inventory.source_scan.semantic_usages.map((usage) => usage.id);
   if (new Set(semanticUsageIds).size !== semanticUsageIds.length) {
     throw new Error('Controller lease semantic usage ids must be unique');
+  }
+  const semanticRegions = inventory.authority_sites.flatMap((site) => site.semantic_regions ?? []);
+  const semanticRegionIds = semanticRegions.map((region) => region.id);
+  if (new Set(semanticRegionIds).size !== semanticRegionIds.length) {
+    throw new Error('Controller lease semantic region ids must be unique');
+  }
+  if (semanticRegions.some((region) => !/^[0-9a-f]{64}$/.test(region.expected_digest))) {
+    throw new Error('Controller lease semantic regions must declare SHA-256 digests');
   }
   if (inventory.authority_sites.some((site) => (
     site.roles.includes('fallback') || site.roles.includes('shadow-writer')

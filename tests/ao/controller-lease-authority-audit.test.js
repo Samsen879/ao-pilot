@@ -142,10 +142,10 @@ describe('controller lease authority design audit', () => {
   it('pins deterministic semantic authority evidence and exhaustive selector coverage', () => {
     expect(validateControllerLeaseInventory(inventory, repositoryRoot)).toMatchObject({
       schema_version: 'ao.controller-lease-authority-evidence.v2',
-      semantic_manifest_digest: 'ebd19f57fd1d88921107770233a56b4964358eb44befd796ac91210878302e80',
+      semantic_manifest_digest: '72bd6108562c37a75573ffe9e1576dc02e8cae3959cc52ba24bae3c6f82a275e',
       authority_site_count: 17,
       binding_count: 31,
-      semantic_region_count: 1,
+      semantic_region_count: 8,
       selector_counts: {
         'atomic-api': 5,
         'file-name': 4,
@@ -156,7 +156,7 @@ describe('controller lease authority design audit', () => {
       },
       semantic_usage_count: 63,
       selector_evidence_digest: '848df3d628412753ee57faa78d6b5517df85840ac7c6b2fb5f7b49a176b92dec',
-      authority_evidence_digest: '64eda17f1054c07bfab5adc702c05234c8ca7d313360e97ab3e2dbb21c93704c',
+      authority_evidence_digest: 'b7b17604eb592ef466196f3e31235edc4b3e3bb4d52bb8900957d81768fce012',
     });
     expect(scanControllerLeaseSources(inventory, repositoryRoot).match_count).toBe(63);
   });
@@ -258,6 +258,30 @@ describe('controller lease authority design audit', () => {
     );
     expect(() => validateControllerLeaseInventory(inventory, mutatedRoot))
       .toThrow('Controller lease authority site repository.ordinary-state-shadow-stripper failed');
+  });
+
+  it('rejects computed-property shadow reintroduction without selector tokens', () => {
+    const mutatedRoot = materializeSourceRoot();
+    replaceSource(
+      mutatedRoot,
+      'scripts/ao/lib/state-repository.js',
+      'delete nextState.controller_leases;',
+      'delete nextState.controller_leases;\n    nextState["controller_" + "leases"] = state["controller_" + "leases"];',
+    );
+    expect(() => validateControllerLeaseInventory(inventory, mutatedRoot))
+      .toThrow('Controller lease semantic region repository.ordinary-state-shadow-stripper.operation drifted');
+  });
+
+  it('rejects atomic lock option bypass without selector-count drift', () => {
+    const mutatedRoot = materializeSourceRoot();
+    replaceSource(
+      mutatedRoot,
+      'scripts/ao/lib/state-repository.js',
+      '      timeoutMs,\n      retryMs,',
+      '      timeoutMs: 0,\n      retryMs: 0,',
+    );
+    expect(() => validateControllerLeaseInventory(inventory, mutatedRoot))
+      .toThrow('Controller lease semantic region repository.atomic-mutation.operation drifted');
   });
 
   it('rejects changed selector usage semantics even when selector counts remain unchanged', () => {
