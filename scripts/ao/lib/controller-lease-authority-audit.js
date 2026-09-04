@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { parse } from '@babel/parser';
 
 const FROZEN_AUTHORITY_DESIGN = Object.freeze({
   canonical_persistent_authority: 'controller-leases.json',
@@ -159,67 +160,74 @@ export function normalizeSemanticSource(source) {
   return normalized;
 }
 
-function maskComments(source) {
-  let masked = '';
-  let quote = null;
-  let escaped = false;
-  const templateExpressionDepths = [];
-  for (let index = 0; index < source.length; index += 1) {
-    const character = source[index];
-    if (quote != null) {
-      masked += character;
-      if (escaped) escaped = false;
-      else if (character === '\\') escaped = true;
-      else if (quote === '`' && character === '$' && source[index + 1] === '{') {
-        masked += '{';
-        index += 1;
-        quote = null;
-        templateExpressionDepths.push(1);
-      } else if (character === quote) quote = null;
-      continue;
-    }
-    if (templateExpressionDepths.length > 0 && character === '{') {
-      templateExpressionDepths[templateExpressionDepths.length - 1] += 1;
-      masked += character;
-    } else if (templateExpressionDepths.length > 0 && character === '}') {
-      const top = templateExpressionDepths.length - 1;
-      templateExpressionDepths[top] -= 1;
-      masked += character;
-      if (templateExpressionDepths[top] === 0) {
-        templateExpressionDepths.pop();
-        quote = '`';
-      }
-    } else if (character === '/' && source[index + 1] === '/') {
-      masked += '  ';
-      index += 2;
-      while (index < source.length && !/[\r\n\u2028\u2029]/.test(source[index])) {
-        masked += ' ';
-        index += 1;
-      }
-      if (index < source.length) masked += source[index];
-    } else if (character === '/' && source[index + 1] === '*') {
-      masked += '  ';
-      index += 2;
-      while (index < source.length && !(source[index] === '*' && source[index + 1] === '/')) {
-        masked += /[\r\n\u2028\u2029]/.test(source[index]) ? source[index] : ' ';
-        index += 1;
-      }
-      if (index < source.length) {
-        masked += '  ';
-        index += 1;
-      }
-    } else {
-      const regexEnd = character === '/' ? regexLiteralEnd(source, index, masked) : null;
-      if (regexEnd != null) {
-        masked += source.slice(index, regexEnd + 1);
-        index = regexEnd;
-        continue;
-      }
-      masked += character;
-      if (character === "'" || character === '"' || character === '`') quote = character;
+function parseLexicalSource(source) {
+  return parse(source, {
+    sourceType: 'module',
+    tokens: true,
+  });
+}
+
+function maskComments(source, parsed = parseLexicalSource(source)) {
+  const characters = [...source];
+  for (const comment of parsed.comments) {
+    for (let index = comment.start; index < comment.end; index += 1) {
+      if (!/[\r\n\u2028\u2029]/.test(characters[index])) characters[index] = ' ';
     }
   }
-  return masked;
+  return characters.join('');
+}
+
+function normalizeParsedSemanticSource(source, parsed) {
+  const commentStarts = new Set(parsed.comments.map((comment) => comment.start));
+  let normalized = '';
+  let previousToken = null;
+  for (const token of parsed.tokens) {
+    if (token.type.label === 'eof' || commentStarts.has(token.start)) continue;
+    const raw = source.slice(token.start, token.end);
+    if (previousToken != null) {
+      const trivia = source.slice(previousToken.end, token.start);
+      const previousRaw = source.slice(previousToken.start, previousToken.end);
+      if (
+        /[\r\n\u2028\u2029]/.test(trivia)
+        && ['async', 'break', 'continue', 'return', 'throw', 'yield'].includes(previousRaw)
+      ) {
+        normalized += '\n';
+      } else if (/[A-Za-z0-9_$]/.test(normalized.at(-1) ?? '') && /^[A-Za-z0-9_$]/.test(raw)) {
+        normalized += ' ';
+      }
+    }
+    normalized += raw;
+    previousToken = token;
+  }
+  return normalized;
+}
+
+function normalizedOffsetForSourceOffset(source, parsed, sourceOffset) {
+  const commentStarts = new Set(parsed.comments.map((comment) => comment.start));
+  let normalized = '';
+  let previousToken = null;
+  for (const token of parsed.tokens) {
+    if (token.type.label === 'eof' || commentStarts.has(token.start)) continue;
+    const raw = source.slice(token.start, token.end);
+    if (previousToken != null) {
+      const trivia = source.slice(previousToken.end, token.start);
+      const previousRaw = source.slice(previousToken.start, previousToken.end);
+      if (
+        /[\r\n\u2028\u2029]/.test(trivia)
+        && ['async', 'break', 'continue', 'return', 'throw', 'yield'].includes(previousRaw)
+      ) {
+        normalized += '\n';
+      } else if (/[A-Za-z0-9_$]/.test(normalized.at(-1) ?? '') && /^[A-Za-z0-9_$]/.test(raw)) {
+        normalized += ' ';
+      }
+    }
+    if (sourceOffset >= token.start && sourceOffset < token.end) {
+      return normalized.length + sourceOffset - token.start;
+    }
+    normalized += raw;
+    previousToken = token;
+  }
+  return normalized.length;
 }
 
 function sourceDocuments(inventory, repositoryRoot) {
@@ -230,11 +238,13 @@ function sourceDocuments(inventory, repositoryRoot) {
       const relativePath = path.relative(repositoryRoot, filePath).split(path.sep).join('/');
       if ((inventory.source_scan.exclude_paths ?? []).includes(relativePath)) continue;
       const source = fs.readFileSync(filePath, 'utf8');
+      const parsed = parseLexicalSource(source);
       documents.push({
         path: relativePath,
         source,
-        selector_source: maskComments(source),
-        normalized_source: normalizeSemanticSource(source),
+        parsed,
+        selector_source: maskComments(source, parsed),
+        normalized_source: normalizeParsedSemanticSource(source, parsed),
       });
     }
   }
@@ -300,9 +310,12 @@ export function createControllerLeaseSemanticManifest(inventory) {
   };
 }
 
-export function scanControllerLeaseSources(inventory, repositoryRoot) {
+export function scanControllerLeaseSources(
+  inventory,
+  repositoryRoot,
+  documents = sourceDocuments(inventory, repositoryRoot),
+) {
   const matches = [];
-  const documents = sourceDocuments(inventory, repositoryRoot);
   for (const selector of inventory.source_scan.selectors) {
     const regex = new RegExp(selector.pattern, 'g');
     for (const document of documents) {
@@ -341,8 +354,11 @@ export function scanControllerLeaseSources(inventory, repositoryRoot) {
   };
 }
 
-function validateSelectorSemanticUsages(inventory, repositoryRoot) {
-  const documents = sourceDocuments(inventory, repositoryRoot);
+function validateSelectorSemanticUsages(
+  inventory,
+  repositoryRoot,
+  documents = sourceDocuments(inventory, repositoryRoot),
+) {
   const selectorsById = new Map(inventory.source_scan.selectors
     .map((selector) => [selector.id, selector]));
   const coverage = new Map();
@@ -364,9 +380,11 @@ function validateSelectorSemanticUsages(inventory, repositoryRoot) {
     if (selectorMatches.length !== 1) {
       throw new Error(`Controller lease semantic usage ${usage.id} must contain its selector exactly once`);
     }
-    const selectorOffsetInSemanticSource = normalizeSemanticSource(
-      usage.semantic_source.slice(0, selectorMatches[0].index),
-    ).length;
+    const normalizedSelector = normalizeSemanticSource(selectorMatches[0][0]);
+    const selectorOffsetInSemanticSource = semanticSource.indexOf(normalizedSelector);
+    if (selectorOffsetInSemanticSource === -1) {
+      throw new Error(`Controller lease semantic usage ${usage.id} cannot locate its normalized selector`);
+    }
 
     let observedCount = 0;
     for (const document of documents) {
@@ -392,7 +410,7 @@ function validateSelectorSemanticUsages(inventory, repositoryRoot) {
         if (match[0] === '') {
           throw new Error(`Controller lease selector must not match empty source: ${selector.id}`);
         }
-        const normalizedOffset = normalizeSemanticSource(document.source.slice(0, match.index)).length;
+        const normalizedOffset = normalizedOffsetForSourceOffset(document.source, document.parsed, match.index);
         const key = `${selector.id}\0${document.path}\0${normalizedOffset}`;
         const bindings = coverage.get(key) ?? [];
         if (bindings.length === 0) {
@@ -408,8 +426,11 @@ function validateSelectorSemanticUsages(inventory, repositoryRoot) {
   return usageEvidence.sort((left, right) => compareStrings(left.id, right.id));
 }
 
-function validateAuthoritySiteBindings(inventory, repositoryRoot) {
-  const documents = sourceDocuments(inventory, repositoryRoot);
+function validateAuthoritySiteBindings(
+  inventory,
+  repositoryRoot,
+  documents = sourceDocuments(inventory, repositoryRoot),
+) {
   const bindingEvidence = [];
   for (const site of inventory.authority_sites) {
     const semanticAnchors = site.anchors.map(normalizeSemanticSource);
@@ -445,8 +466,11 @@ function validateAuthoritySiteBindings(inventory, repositoryRoot) {
   return bindingEvidence.sort((left, right) => compareStrings(left.id, right.id));
 }
 
-function validateAuthoritySemanticRegions(inventory, repositoryRoot) {
-  const documents = sourceDocuments(inventory, repositoryRoot);
+function validateAuthoritySemanticRegions(
+  inventory,
+  repositoryRoot,
+  documents = sourceDocuments(inventory, repositoryRoot),
+) {
   const regionEvidence = [];
   for (const site of inventory.authority_sites) {
     for (const region of site.semantic_regions ?? []) {
@@ -476,11 +500,12 @@ function validateAuthoritySemanticRegions(inventory, repositoryRoot) {
 }
 
 export function generateControllerLeaseAuthorityEvidence(inventory, repositoryRoot) {
+  const documents = sourceDocuments(inventory, repositoryRoot);
   const semanticManifest = createControllerLeaseSemanticManifest(inventory);
-  const bindingEvidence = validateAuthoritySiteBindings(inventory, repositoryRoot);
-  const semanticRegionEvidence = validateAuthoritySemanticRegions(inventory, repositoryRoot);
-  const semanticUsageEvidence = validateSelectorSemanticUsages(inventory, repositoryRoot);
-  const scan = scanControllerLeaseSources(inventory, repositoryRoot);
+  const bindingEvidence = validateAuthoritySiteBindings(inventory, repositoryRoot, documents);
+  const semanticRegionEvidence = validateAuthoritySemanticRegions(inventory, repositoryRoot, documents);
+  const semanticUsageEvidence = validateSelectorSemanticUsages(inventory, repositoryRoot, documents);
+  const scan = scanControllerLeaseSources(inventory, repositoryRoot, documents);
   const evidence = {
     schema_version: 'ao.controller-lease-authority-evidence.v2',
     semantic_manifest_digest: stableDigest(semanticManifest),

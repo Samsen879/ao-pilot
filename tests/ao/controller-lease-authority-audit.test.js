@@ -210,6 +210,9 @@ describe('controller lease authority design audit', () => {
     'const regexMask = /[/*]/;',
     'const regexMask = /[//]/;',
     'const regexMask = `${/[/*]/}`;',
+    "if (true) /[/*]/.test('*');",
+    "while (false) /[/*]/.test('*');",
+    "if (true) {} /[/*]/.test('*');",
   ])('does not let a valid regex literal hide later authority usage: %s', (regexDeclaration) => {
     const mutatedRoot = materializeSourceRoot();
     fs.appendFileSync(
@@ -219,6 +222,17 @@ describe('controller lease authority design audit', () => {
     );
     expect(() => validateControllerLeaseInventory(inventory, mutatedRoot))
       .toThrow('Controller lease semantic usage atomic-api.03 drifted');
+  });
+
+  it('does not expose selector text in a comment after postfix division', () => {
+    const mutatedRoot = materializeSourceRoot();
+    fs.appendFileSync(
+      path.join(mutatedRoot, 'scripts/ao/lib/scorecard.js'),
+      '\nlet numerator = 4; const denominator = 2; numerator++ / denominator /* controller_leases */;\n',
+      'utf8',
+    );
+    expect(validateControllerLeaseInventory(inventory, mutatedRoot))
+      .toEqual(validateControllerLeaseInventory(inventory, repositoryRoot));
   });
 
   it('is stable when an unrelated declaration follows the bootstrap boundary', () => {
