@@ -90,10 +90,38 @@ function contractMatches(contract) {
 }
 
 function atomicWriteJson(filePath, value) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const temporaryPath = `${filePath}.${process.pid}.tmp`;
-  fs.writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(temporaryPath, filePath);
+  let descriptor = null;
+  let temporaryCreated = false;
+  try {
+    descriptor = fs.openSync(temporaryPath, 'wx', 0o600);
+    temporaryCreated = true;
+    fs.writeFileSync(descriptor, `${JSON.stringify(value, null, 2)}\n`);
+    fs.closeSync(descriptor);
+    descriptor = null;
+    fs.renameSync(temporaryPath, filePath);
+    temporaryCreated = false;
+  } finally {
+    if (descriptor != null) fs.closeSync(descriptor);
+    if (temporaryCreated) fs.rmSync(temporaryPath, { force: true });
+  }
+}
+
+function lstatIfPresent(filePath) {
+  try {
+    return fs.lstatSync(filePath);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+function pathIsWithin(parentPath, childPath) {
+  const relativePath = path.relative(parentPath, childPath);
+  return relativePath !== ''
+    && relativePath !== '..'
+    && !relativePath.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relativePath);
 }
 
 function ensureRepoLocalStateRoot(repoRoot, stateRoot) {
@@ -104,13 +132,8 @@ function ensureRepoLocalStateRoot(repoRoot, stateRoot) {
       stateRoot,
     ];
     for (const ancestor of stateAncestors) {
-      let stat;
-      try {
-        stat = fs.lstatSync(ancestor);
-      } catch (error) {
-        if (error?.code === 'ENOENT') continue;
-        throw error;
-      }
+      const stat = lstatIfPresent(ancestor);
+      if (stat == null) continue;
       if (stat.isSymbolicLink() || !stat.isDirectory()) return false;
     }
 
@@ -121,11 +144,44 @@ function ensureRepoLocalStateRoot(repoRoot, stateRoot) {
     }
 
     const resolvedStateRoot = fs.realpathSync(stateRoot);
-    const relativeStateRoot = path.relative(resolvedRepoRoot, resolvedStateRoot);
-    return relativeStateRoot !== ''
-      && relativeStateRoot !== '..'
-      && !relativeStateRoot.startsWith(`..${path.sep}`)
-      && !path.isAbsolute(relativeStateRoot);
+    return pathIsWithin(resolvedRepoRoot, resolvedStateRoot);
+  } catch {
+    return false;
+  }
+}
+
+function managedStatePathsAreSafe(stateRoot, { receiptPath, npmrcPath, cacheRoot }) {
+  try {
+    const resolvedStateRoot = fs.realpathSync(stateRoot);
+    for (const [filePath, expectedKind] of [
+      [receiptPath, 'file'],
+      [npmrcPath, 'file'],
+      [cacheRoot, 'directory'],
+    ]) {
+      const stat = lstatIfPresent(filePath);
+      if (stat == null) continue;
+      if (stat.isSymbolicLink()) return false;
+      if (expectedKind === 'file' && !stat.isFile()) return false;
+      if (expectedKind === 'directory' && !stat.isDirectory()) return false;
+      if (!pathIsWithin(resolvedStateRoot, fs.realpathSync(filePath))) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resetManagedInstallState(stateRoot, paths) {
+  const { receiptPath, npmrcPath, cacheRoot } = paths;
+  try {
+    if (!managedStatePathsAreSafe(stateRoot, paths)) return false;
+    fs.rmSync(receiptPath, { force: true });
+    fs.rmSync(npmrcPath, { force: true });
+    fs.rmSync(cacheRoot, { recursive: true, force: true });
+    fs.mkdirSync(cacheRoot, { recursive: false, mode: 0o700 });
+    const npmrcDescriptor = fs.openSync(npmrcPath, 'wx', 0o600);
+    fs.closeSync(npmrcDescriptor);
+    return managedStatePathsAreSafe(stateRoot, paths);
   } catch {
     return false;
   }
@@ -237,8 +293,14 @@ export function prepareWorkerWorktree({
 
   const stateRoot = path.join(repoRoot, '.ao-pilot', 'worker-preparation');
   const receiptPath = path.join(stateRoot, 'receipt.json');
+  const npmrcPath = path.join(stateRoot, 'empty-npmrc');
+  const cacheRoot = path.join(stateRoot, 'npm-cache');
+  const managedPaths = { receiptPath, npmrcPath, cacheRoot };
   const testRunnerPath = resolveTestRunnerExecutable(repoRoot);
-  if (!ensureRepoLocalStateRoot(repoRoot, stateRoot)) {
+  if (
+    !ensureRepoLocalStateRoot(repoRoot, stateRoot)
+    || !managedStatePathsAreSafe(stateRoot, managedPaths)
+  ) {
     return failure('preparation_state_not_repo_local', evidence);
   }
   const expectedReceipt = {
@@ -268,18 +330,14 @@ export function prepareWorkerWorktree({
     };
   }
 
-  const npmrcPath = path.join(stateRoot, 'empty-npmrc');
-  try {
-    fs.rmSync(receiptPath, { force: true });
-    fs.writeFileSync(npmrcPath, '', { mode: 0o600 });
-  } catch {
+  if (!resetManagedInstallState(stateRoot, managedPaths)) {
     return failure('preparation_state_unwritable', evidence);
   }
   const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   const installResult = processRunner(npmCommand, EXPECTED_CONTRACT.install_command.slice(1), {
     cwd: repoRoot,
     env: minimalEnvironment({
-      npm_config_cache: path.join(stateRoot, 'npm-cache'),
+      npm_config_cache: cacheRoot,
       npm_config_globalconfig: process.platform === 'win32' ? 'NUL' : '/dev/null',
       npm_config_userconfig: npmrcPath,
     }),

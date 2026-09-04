@@ -267,6 +267,50 @@ describe('Worker worktree preparation', () => {
     expect(fs.existsSync(absentTarget)).toBe(false);
   });
 
+  symlinkTest('rejects existing and dangling symlinks for every managed state leaf', () => {
+    for (const leafPath of ['receipt.json', 'empty-npmrc', 'npm-cache']) {
+      for (const dangling of [false, true]) {
+        const root = fixture();
+        const stateRoot = path.join(root, '.ao-pilot', 'worker-preparation');
+        fs.mkdirSync(stateRoot, { recursive: true });
+        const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-worker-leaf-outside-'));
+        const target = dangling
+          ? path.join(outsideRoot, 'absent')
+          : path.join(outsideRoot, leafPath === 'npm-cache' ? 'external-cache' : 'external-file');
+        if (!dangling) {
+          if (leafPath === 'npm-cache') fs.mkdirSync(target);
+          else fs.writeFileSync(target, 'must-remain');
+        }
+        fs.symlinkSync(target, path.join(stateRoot, leafPath));
+
+        expect(prepareWorkerWorktree({ repoRoot: root })).toMatchObject({
+          status: 'setup_failed',
+          reason_code: 'preparation_state_not_repo_local',
+        });
+        if (dangling) expect(fs.existsSync(target)).toBe(false);
+        else if (leafPath === 'npm-cache') expect(fs.readdirSync(target)).toEqual([]);
+        else expect(fs.readFileSync(target, 'utf8')).toBe('must-remain');
+      }
+    }
+  });
+
+  symlinkTest('does not follow a pre-existing atomic receipt temporary-file symlink', () => {
+    const root = fixture();
+    const stateRoot = path.join(root, '.ao-pilot', 'worker-preparation');
+    fs.mkdirSync(stateRoot, { recursive: true });
+    const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-worker-temp-outside-'));
+    const outsideFile = path.join(outsideRoot, 'external-file');
+    fs.writeFileSync(outsideFile, 'must-remain');
+    fs.symlinkSync(outsideFile, path.join(stateRoot, `receipt.json.${process.pid}.tmp`));
+
+    expect(prepareWorkerWorktree({ repoRoot: root, processRunner: successfulInstaller(root, []) })).toMatchObject({
+      status: 'setup_failed',
+      reason_code: 'preparation_receipt_write_failed',
+      install_performed: true,
+    });
+    expect(fs.readFileSync(outsideFile, 'utf8')).toBe('must-remain');
+  });
+
   it('rejects project npm configuration before install', () => {
     const root = fixture();
     fs.writeFileSync(path.join(root, '.npmrc'), 'fund=false');
