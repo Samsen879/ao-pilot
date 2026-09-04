@@ -255,6 +255,9 @@ function staticStringValue(node) {
     const right = staticStringValue(node.right);
     return left == null || right == null ? null : left + right;
   }
+  if (node?.type === 'ConditionalExpression' && node.test.type === 'BooleanLiteral') {
+    return staticStringValue(node.test.value ? node.consequent : node.alternate);
+  }
   return null;
 }
 
@@ -269,23 +272,26 @@ function findNoncanonicalSemanticSelectors(source, parsed, selectors, selectorSo
     if (new RegExp(selector.pattern).test(raw)) return;
     findings.set(`${selector.id}\0${node.start}`, { selector: selector.id, offset: node.start });
   };
-  const visit = (node) => {
+  const visit = (node, parent = null) => {
     if (node == null || typeof node !== 'object') return;
     if (node.type === 'Identifier') record(node.name, node);
     if (node.type === 'StringLiteral') record(node.value, node);
-    if (node.type === 'TemplateLiteral') {
+    if (node.type === 'TemplateLiteral' && parent?.type !== 'TaggedTemplateExpression') {
       record(staticStringValue(node), node);
     }
     if (node.type === 'BinaryExpression' && node.operator === '+') {
       record(staticStringValue(node), node);
     }
+    if (node.type === 'ConditionalExpression') record(staticStringValue(node), node);
     if (node.type === 'MemberExpression' && node.computed) {
       record(staticStringValue(node.property), node.property);
     }
     for (const [key, value] of Object.entries(node)) {
       if (['comments', 'tokens', 'loc'].includes(key)) continue;
-      if (Array.isArray(value)) value.forEach(visit);
-      else if (value != null && typeof value === 'object' && typeof value.type === 'string') visit(value);
+      if (Array.isArray(value)) value.forEach((child) => visit(child, node));
+      else if (value != null && typeof value === 'object' && typeof value.type === 'string') {
+        visit(value, node);
+      }
     }
   };
   visit(parsed.program);

@@ -108,8 +108,10 @@ documentation-only mentions do not create evidence churn and regex/division
 ambiguity cannot hide or invent executable occurrences. Comment masking retains
 the parser's UTF-16 offsets even when astral characters precede a range. Explicit
 escaped identifiers and statically computed authority property names are rejected
-as noncanonical aliases. Explicit operation boundaries keep unrelated declarations
-outside the protected semantic regions.
+as noncanonical aliases. The bounded static evaluator covers string concatenation,
+ordinary untagged templates, and literal-boolean conditionals; custom tagged
+templates and runtime-dynamic names are not interpreted as static strings. Explicit
+operation boundaries keep unrelated declarations outside the protected regions.
 
 ## Frozen canonical-authority design
 

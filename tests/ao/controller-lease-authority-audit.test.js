@@ -265,6 +265,7 @@ describe('controller lease authority design audit', () => {
     "const key = 'mutateController' + 'LeasesAtomically'; repository[key]({});",
     "repository[`mutateController${'LeasesAtomically'}`]({});",
     "const key = `mutateController${'LeasesAtomically'}`; repository[key]({});",
+    "repository[`mutateController${true ? 'LeasesAtomically' : 'unused'}`]({});",
     "repository['mutateController' /* mutateControllerLeasesAtomically */ + 'LeasesAtomically']({});",
     "state['controller_' + 'leases'] = [];",
     "const fileName = 'controller\\u002dleases.json';",
@@ -278,6 +279,17 @@ describe('controller lease authority design audit', () => {
     );
     expect(() => validateControllerLeaseInventory(inventory, mutatedRoot))
       .toThrow('has noncanonical semantic usage');
+  });
+
+  it('does not fold a custom tagged template as an ordinary static string', () => {
+    const mutatedRoot = materializeSourceRoot();
+    fs.appendFileSync(
+      path.join(mutatedRoot, 'scripts/ao/lib/scorecard.js'),
+      "\nfunction ignoreTemplate() { return 'unrelated'; }\nconst ignored = ignoreTemplate`mutateController${'LeasesAtomically'}`;\n",
+      'utf8',
+    );
+    expect(validateControllerLeaseInventory(inventory, mutatedRoot))
+      .toEqual(validateControllerLeaseInventory(inventory, repositoryRoot));
   });
 
   it('is stable when an unrelated declaration follows the bootstrap boundary', () => {
