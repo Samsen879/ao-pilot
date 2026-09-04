@@ -142,21 +142,22 @@ describe('controller lease authority design audit', () => {
   it('pins deterministic semantic authority evidence and exhaustive selector coverage', () => {
     expect(validateControllerLeaseInventory(inventory, repositoryRoot)).toMatchObject({
       schema_version: 'ao.controller-lease-authority-evidence.v2',
-      semantic_manifest_digest: 'c9760e15ce1feda28032c2113f43d148a2e6425e1730c358ccaa48085106f9f4',
+      semantic_manifest_digest: '6ed478e687f69b8d4342f709c81458ab9fecaeb77d51512d154890d2223558c2',
       authority_site_count: 17,
       binding_count: 31,
       selector_counts: {
         'atomic-api': 5,
-        'file-name': 3,
+        'file-name': 4,
         'isolated-path': 12,
         'persist-state-api': 7,
-        'state-property': 25,
+        'state-property': 26,
         'upsert-api': 9,
       },
-      selector_evidence_digest: '6c12b0dad1dedf22e5a2582a34d1f9b413b2133dd9a7ac48c2d13ee510833c7e',
-      authority_evidence_digest: '1c0e44afb13666c6572cf1718726290d7de86b75fb81feb80c1dee72e48ba2a6',
+      semantic_usage_count: 63,
+      selector_evidence_digest: '848df3d628412753ee57faa78d6b5517df85840ac7c6b2fb5f7b49a176b92dec',
+      authority_evidence_digest: '93caa39129713d8657d31bb1856c2031ddebe814986256298741d63e8a36c54c',
     });
-    expect(scanControllerLeaseSources(inventory, repositoryRoot).match_count).toBe(61);
+    expect(scanControllerLeaseSources(inventory, repositoryRoot).match_count).toBe(63);
   });
 
   it('is stable under formatting-only changes', () => {
@@ -212,7 +213,7 @@ describe('controller lease authority design audit', () => {
     );
 
     expect(() => validateControllerLeaseInventory(inventory, mutatedRoot))
-      .toThrow('Controller lease selector persist-state-api coverage drifted');
+      .toThrow('Controller lease selector persist-state-api has unregistered semantic usage');
   });
 
   it('rejects a duplicated authority binding with its stable identity', () => {
@@ -246,6 +247,53 @@ describe('controller lease authority design audit', () => {
       .toThrow('Controller lease authority site repository.ordinary-state-shadow-stripper failed');
   });
 
+  it('rejects changed selector usage semantics even when selector counts remain unchanged', () => {
+    const mutatedRoot = materializeSourceRoot();
+    replaceSource(
+      mutatedRoot,
+      'scripts/ao/lib/controller-loop.js',
+      'return repository.mutateControllerLeasesAtomically({',
+      'return repository.mutateControllerLeasesAtomically && ({',
+    );
+    expect(() => validateControllerLeaseInventory(inventory, mutatedRoot))
+      .toThrow('Controller lease semantic usage atomic-api.03 drifted');
+  });
+
+  it('preserves line terminators that change return semantics', () => {
+    const mutatedRoot = materializeSourceRoot();
+    replaceSource(
+      mutatedRoot,
+      'scripts/ao/lib/state-repository.js',
+      'return readControllerLeaseAuthorityFile(paths.controllerLeasesPath).records;',
+      'return\n    readControllerLeaseAuthorityFile(paths.controllerLeasesPath).records;',
+    );
+    expect(() => validateControllerLeaseInventory(inventory, mutatedRoot))
+      .toThrow('Controller lease authority site repository.canonical-read-and-projection failed');
+  });
+
+  it('preserves semantic whitespace inside template literals', () => {
+    const mutatedRoot = materializeSourceRoot();
+    replaceSource(
+      mutatedRoot,
+      'scripts/ao/lib/state-report.js',
+      '`active_controller_leases: ${report.summary.active_controller_lease_count}`',
+      '`active_controller_leases:  ${report.summary.active_controller_lease_count}`',
+    );
+    expect(() => validateControllerLeaseInventory(inventory, mutatedRoot))
+      .toThrow('Controller lease authority site text-report.derived-count failed');
+  });
+
+  it('rejects new authority usage in the phase-zero evidence module', () => {
+    const mutatedRoot = materializeSourceRoot();
+    fs.appendFileSync(
+      path.join(mutatedRoot, 'scripts/ao/lib/phase-zero-exit-evidence.js'),
+      '\nexport function unregisteredLeaseMutation(repository) { const mutation = repository.mutateControllerLeasesAtomically; return mutation({}); }\n',
+      'utf8',
+    );
+    expect(() => validateControllerLeaseInventory(inventory, mutatedRoot))
+      .toThrow('Controller lease selector atomic-api has unregistered semantic usage at scripts/ao/lib/phase-zero-exit-evidence.js');
+  });
+
   it('replays byte-identical normalized authority evidence deterministically', () => {
     const first = validateControllerLeaseInventory(inventory, repositoryRoot);
     const second = validateControllerLeaseInventory(inventory, repositoryRoot);
@@ -261,8 +309,9 @@ describe('controller lease authority design audit', () => {
       accepted_source_digest: '825880b4f2765e947b1b17105a5ca422f2028addaa5969ebd2b3089cf6e5b638',
       accepted_caller_metadata_digest: '9a33c814e330606fb9022b399c5feed85b4d37b4886aa24f7c125e5bce141859',
     });
+    expect(inventory.migrated_from.accepted_match_count).toBe(61);
     expect(Object.values(inventory.source_scan.expected_selector_counts)
-      .reduce((total, count) => total + count, 0)).toBe(inventory.migrated_from.accepted_match_count);
+      .reduce((total, count) => total + count, 0)).toBe(63);
   });
 
   it('fails closed when frozen authority or semantic manifest evidence drifts', () => {
@@ -279,6 +328,26 @@ describe('controller lease authority design audit', () => {
     const selectorDrift = structuredClone(inventory);
     selectorDrift.source_scan.expected_selector_counts['state-property'] -= 1;
     expect(() => validateControllerLeaseInventory(selectorDrift, repositoryRoot))
+      .toThrow('frozen controller lease semantic manifest has drifted');
+
+    const versionDrift = structuredClone(inventory);
+    versionDrift.inventory_version = 'unexpected';
+    expect(() => validateControllerLeaseInventory(versionDrift, repositoryRoot))
+      .toThrow('frozen controller lease semantic manifest has drifted');
+
+    const migrationDrift = structuredClone(inventory);
+    migrationDrift.migrated_from.accepted_source_digest = '0'.repeat(64);
+    expect(() => validateControllerLeaseInventory(migrationDrift, repositoryRoot))
+      .toThrow('frozen controller lease semantic manifest has drifted');
+
+    const governedBaseDrift = structuredClone(inventory);
+    governedBaseDrift.governed_base.commit = '0'.repeat(40);
+    expect(() => validateControllerLeaseInventory(governedBaseDrift, repositoryRoot))
+      .toThrow('frozen controller lease semantic manifest has drifted');
+
+    const admissionDrift = structuredClone(inventory);
+    admissionDrift.hardening_admission.tree = 'f'.repeat(40);
+    expect(() => validateControllerLeaseInventory(admissionDrift, repositoryRoot))
       .toThrow('frozen controller lease semantic manifest has drifted');
   });
 

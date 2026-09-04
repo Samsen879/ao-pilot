@@ -11,7 +11,7 @@ const FROZEN_AUTHORITY_DESIGN = Object.freeze({
   malformed_authority_policy: 'fail_closed',
   mixed_version_policy: 'validate and migrate the canonical file; never select the state.json shadow by freshness',
 });
-const FROZEN_SEMANTIC_MANIFEST_DIGEST = 'c9760e15ce1feda28032c2113f43d148a2e6425e1730c358ccaa48085106f9f4';
+const FROZEN_SEMANTIC_MANIFEST_DIGEST = '6ed478e687f69b8d4342f709c81458ab9fecaeb77d51512d154890d2223558c2';
 
 function compareStrings(left, right) {
   return Buffer.compare(Buffer.from(String(left), 'utf8'), Buffer.from(String(right), 'utf8'));
@@ -47,10 +47,15 @@ function normalizeSemanticSource(source) {
   let normalized = '';
   let quote = null;
   let escaped = false;
+  const appendRestrictedLineTerminator = () => {
+    if (/(?:^|[^A-Za-z0-9_$.])(?:async|break|continue|return|throw|yield)$/.test(normalized)) {
+      normalized += '\n';
+    }
+  };
   for (let index = 0; index < source.length; index += 1) {
     const character = source[index];
     if (quote != null) {
-      if (quote !== '`' || !/\s/.test(character)) normalized += character;
+      normalized += character;
       if (escaped) escaped = false;
       else if (character === '\\') escaped = true;
       else if (character === quote) quote = null;
@@ -59,15 +64,20 @@ function normalizeSemanticSource(source) {
     if (character === '/' && source[index + 1] === '/') {
       index += 2;
       while (index < source.length && !/[\r\n]/.test(source[index])) index += 1;
+      appendRestrictedLineTerminator();
     } else if (character === '/' && source[index + 1] === '*') {
+      const commentStart = index;
       index += 2;
       while (index < source.length && !(source[index] === '*' && source[index + 1] === '/')) {
         index += 1;
       }
       index += 1;
+      if (/[\r\n]/.test(source.slice(commentStart, index + 1))) appendRestrictedLineTerminator();
     } else if (character === "'" || character === '"' || character === '`') {
       quote = character;
       normalized += character;
+    } else if (/[\r\n]/.test(character)) {
+      appendRestrictedLineTerminator();
     } else if (!/\s/.test(character)) {
       normalized += character;
     }
@@ -114,6 +124,10 @@ export function loadControllerLeaseInventory(inventoryPath) {
 export function createControllerLeaseSemanticManifest(inventory) {
   return {
     schema_version: inventory.schema_version,
+    inventory_version: inventory.inventory_version,
+    migrated_from: inventory.migrated_from,
+    governed_base: inventory.governed_base,
+    hardening_admission: inventory.hardening_admission,
     authority_design: inventory.authority_design,
     authority_sites: inventory.authority_sites.map((site) => ({
       id: site.id,
@@ -131,6 +145,12 @@ export function createControllerLeaseSemanticManifest(inventory) {
         id: selector.id,
         pattern: selector.pattern,
         expected_count: inventory.source_scan.expected_selector_counts[selector.id],
+      })).sort((left, right) => compareStrings(left.id, right.id)),
+      semantic_usages: inventory.source_scan.semantic_usages.map((usage) => ({
+        id: usage.id,
+        selector: usage.selector,
+        semantic_source: normalizeSemanticSource(usage.semantic_source),
+        expected_count: usage.expected_count,
       })).sort((left, right) => compareStrings(left.id, right.id)),
     },
   };
@@ -177,6 +197,73 @@ export function scanControllerLeaseSources(inventory, repositoryRoot) {
   };
 }
 
+function validateSelectorSemanticUsages(inventory, repositoryRoot) {
+  const documents = sourceDocuments(inventory, repositoryRoot);
+  const selectorsById = new Map(inventory.source_scan.selectors
+    .map((selector) => [selector.id, selector]));
+  const coverage = new Map();
+  const usageEvidence = [];
+
+  for (const usage of inventory.source_scan.semantic_usages) {
+    const selector = selectorsById.get(usage.selector);
+    if (selector == null) {
+      throw new Error(`Controller lease semantic usage ${usage.id} names unknown selector ${usage.selector}`);
+    }
+    if (!Number.isInteger(usage.expected_count) || usage.expected_count <= 0) {
+      throw new Error(`Controller lease semantic usage ${usage.id} must declare a positive expected count`);
+    }
+    const semanticSource = normalizeSemanticSource(usage.semantic_source);
+    if (semanticSource === '') {
+      throw new Error(`Controller lease semantic usage ${usage.id} must not be empty`);
+    }
+    const selectorMatches = [...usage.semantic_source.matchAll(new RegExp(selector.pattern, 'g'))];
+    if (selectorMatches.length !== 1) {
+      throw new Error(`Controller lease semantic usage ${usage.id} must contain its selector exactly once`);
+    }
+    const selectorOffsetInSemanticSource = normalizeSemanticSource(
+      usage.semantic_source.slice(0, selectorMatches[0].index),
+    ).length;
+
+    let observedCount = 0;
+    for (const document of documents) {
+      for (const anchorOffset of countLiteralOccurrences(document.normalized_source, semanticSource)) {
+        observedCount += 1;
+        const selectorOffset = anchorOffset + selectorOffsetInSemanticSource;
+        const key = `${usage.selector}\0${document.path}\0${selectorOffset}`;
+        const bindings = coverage.get(key) ?? [];
+        bindings.push(usage.id);
+        coverage.set(key, bindings);
+      }
+    }
+    if (observedCount !== usage.expected_count) {
+      throw new Error(`Controller lease semantic usage ${usage.id} drifted: expected ${usage.expected_count}, got ${observedCount}`);
+    }
+    usageEvidence.push({ id: usage.id, selector: usage.selector, count: observedCount });
+  }
+
+  for (const selector of inventory.source_scan.selectors) {
+    const regex = new RegExp(selector.pattern, 'g');
+    for (const document of documents) {
+      for (const match of document.source.matchAll(regex)) {
+        if (match[0] === '') {
+          throw new Error(`Controller lease selector must not match empty source: ${selector.id}`);
+        }
+        const normalizedOffset = normalizeSemanticSource(document.source.slice(0, match.index)).length;
+        const key = `${selector.id}\0${document.path}\0${normalizedOffset}`;
+        const bindings = coverage.get(key) ?? [];
+        if (bindings.length === 0) {
+          throw new Error(`Controller lease selector ${selector.id} has unregistered semantic usage at ${document.path}`);
+        }
+        if (bindings.length > 1) {
+          throw new Error(`Controller lease selector ${selector.id} has ambiguous semantic usage at ${document.path}: ${bindings.join(', ')}`);
+        }
+      }
+    }
+  }
+
+  return usageEvidence.sort((left, right) => compareStrings(left.id, right.id));
+}
+
 function validateAuthoritySiteBindings(inventory, repositoryRoot) {
   const documents = sourceDocuments(inventory, repositoryRoot);
   const bindingEvidence = [];
@@ -217,6 +304,7 @@ function validateAuthoritySiteBindings(inventory, repositoryRoot) {
 export function generateControllerLeaseAuthorityEvidence(inventory, repositoryRoot) {
   const semanticManifest = createControllerLeaseSemanticManifest(inventory);
   const bindingEvidence = validateAuthoritySiteBindings(inventory, repositoryRoot);
+  const semanticUsageEvidence = validateSelectorSemanticUsages(inventory, repositoryRoot);
   const scan = scanControllerLeaseSources(inventory, repositoryRoot);
   const evidence = {
     schema_version: 'ao.controller-lease-authority-evidence.v2',
@@ -225,7 +313,9 @@ export function generateControllerLeaseAuthorityEvidence(inventory, repositoryRo
     binding_count: bindingEvidence.length,
     bindings: bindingEvidence,
     selector_counts: scan.selector_counts,
-    selector_evidence_digest: scan.digest,
+    semantic_usage_count: semanticUsageEvidence.reduce((total, usage) => total + usage.count, 0),
+    semantic_usages: semanticUsageEvidence,
+    selector_evidence_digest: stableDigest(semanticUsageEvidence),
   };
   return {
     ...evidence,
@@ -253,6 +343,10 @@ export function validateControllerLeaseInventory(inventory, repositoryRoot) {
   const selectorIds = inventory.source_scan.selectors.map((selector) => selector.id);
   if (new Set(selectorIds).size !== selectorIds.length) {
     throw new Error('Controller lease selector ids must be unique');
+  }
+  const semanticUsageIds = inventory.source_scan.semantic_usages.map((usage) => usage.id);
+  if (new Set(semanticUsageIds).size !== semanticUsageIds.length) {
+    throw new Error('Controller lease semantic usage ids must be unique');
   }
   if (inventory.authority_sites.some((site) => (
     site.roles.includes('fallback') || site.roles.includes('shadow-writer')

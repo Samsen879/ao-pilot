@@ -33,10 +33,16 @@ The machine-readable inventory is
 Its verifier scans every JavaScript file under `scripts/ao/lib` for the file
 path, state property, atomic API, and upsert API selectors. It also requires a
 unique normalized semantic binding set for every authority site below. The
-complete authority design, stable site identities, roles, bindings, scan
-boundary, selector patterns, and selector-level occurrence counts are pinned
-in one semantic manifest. The scan also matches every `persistState`
-definition and call, closing the generic shadow-writer path.
+complete authority design, admission/migration provenance, stable site
+identities, roles, bindings, scan boundary, selector patterns, and all
+selector-usage semantics are pinned in one semantic manifest. Every selector
+occurrence must be covered exactly once by a registered whitespace/comment-
+normalized semantic usage. Normalization retains whitespace inside string and
+template literals and line terminators after JavaScript restricted productions
+such as `return`, so automatic-semicolon-insertion changes remain visible. The
+scan also matches every `persistState`
+definition and call, closing the generic shadow-writer path, and includes the
+production phase-zero evidence module rather than treating it as exempt.
 
 Issue #94 migrated the accepted v1 inventory to this v2 representation. The
 v1 digest included file paths, line numbers, and trimmed source lines for all
@@ -44,20 +50,25 @@ v1 digest included file paths, line numbers, and trimmed source lines for all
 after unrelated line movement. V2 separates the evidence layers:
 
 - stable authority evidence contains site IDs, roles, whitespace-normalized
-  semantic bindings, and selector counts;
+  authority bindings, plus stable IDs and counts for the 63 registered semantic
+  selector usages;
 - file paths and line numbers are emitted only as failure diagnostics;
+- inventory version, accepted v1 migration evidence, governed base, and #94
+  admission provenance are frozen as canonical evidence; site path and symbol
+  hints remain diagnostic-only so whole-site relocation stays stable;
 - the semantic manifest digest is frozen in the verifier, so a legitimate
   authority change requires an explicit manifest and verifier update;
 - missing or duplicated bindings identify the exact stable binding ID, while
   added or removed unregistered paths identify the selector and observed
   locations.
 
-This keeps formatting and source relocation out of the normalized evidence
-without weakening exhaustive coverage. Stable explicit site IDs plus
-normalized bindings were selected over a path/line manifest, which preserves
-the original brittleness; over selector counts alone, which cannot detect a
-bypassed check that retains the same tokens; and over AST/symbol extraction,
-which would add a general static-analysis dependency for a bounded invariant.
+This keeps formatting, unrelated edits, and source relocation out of the
+normalized evidence without weakening exhaustive coverage. Stable explicit
+site and semantic-usage IDs plus normalized bindings were selected over a
+path/line manifest, which preserves the original brittleness; over selector
+counts alone, which cannot detect a bypassed check that retains the same
+tokens; and over AST/symbol extraction, which would add a general
+static-analysis dependency for a bounded invariant.
 
 | Boundary | Reads | Writes | Fallback/projection consequence |
 | --- | --- | --- | --- |
@@ -183,8 +194,9 @@ restored, remain failed closed and escalate rather than synthesize a shadow.
   excluding diagnostic locations from its authority digest.
 - `tests/ao/controller-lease-authority-audit.test.js` covers deterministic
   inventory success/failure; formatting and relocation stability;
-  missing/extra/duplicate/mutated/bypassed authority negatives; v1 migration;
-  deterministic replay; and success, invalid-record failure, missing,
+  missing/extra/duplicate/mutated/bypassed authority negatives; exact semantic
+  usage coverage (including phase-zero evidence); frozen provenance; v1
+  migration; deterministic replay; and success, invalid-record failure, missing,
   syntactically/semantically malformed, mixed-version, and projection replay
   behavior.
 - Existing targeted repository, migration, controller-loop, state-runner, and

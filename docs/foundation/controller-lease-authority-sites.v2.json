@@ -146,15 +146,14 @@
       "path": "scripts/ao/lib/state-report.js",
       "symbol": "formatAoStateReport",
       "roles": ["derived-consumer"],
-      "anchors": ["active_controller_leases: ${report.summary.active_controller_lease_count}"]
+      "anchors": ["`active_controller_leases: ${report.summary.active_controller_lease_count}`"]
     }
   ],
   "source_scan": {
     "roots": ["scripts/ao/lib"],
     "extensions": [".js"],
     "exclude_paths": [
-      "scripts/ao/lib/controller-lease-authority-audit.js",
-      "scripts/ao/lib/phase-zero-exit-evidence.js"
+      "scripts/ao/lib/controller-lease-authority-audit.js"
     ],
     "selectors": [
       { "id": "state-property", "pattern": "\\bcontroller_leases\\b" },
@@ -166,11 +165,63 @@
     ],
     "expected_selector_counts": {
       "atomic-api": 5,
-      "file-name": 3,
+      "file-name": 4,
       "isolated-path": 12,
       "persist-state-api": 7,
-      "state-property": 25,
+      "state-property": 26,
       "upsert-api": 9
-    }
+    },
+    "semantic_usages": [
+      { "id": "atomic-api.01", "selector": "atomic-api", "semantic_source": "async function mutateControllerLeasesAtomically({", "expected_count": 1 },
+      { "id": "atomic-api.02", "selector": "atomic-api", "semantic_source": "mutateControllerLeasesAtomically,", "expected_count": 1 },
+      { "id": "atomic-api.03", "selector": "atomic-api", "semantic_source": "return repository.mutateControllerLeasesAtomically({", "expected_count": 3 },
+      { "id": "file-name.01", "selector": "file-name", "semantic_source": "canonical_authority: 'controller-leases.json',", "expected_count": 1 },
+      { "id": "file-name.02", "selector": "file-name", "semantic_source": "controllerLeasesPath: path.join(stateRoot, 'controller-leases.json'),", "expected_count": 1 },
+      { "id": "file-name.03", "selector": "file-name", "semantic_source": "throw new Error('Missing canonical controller lease authority: controller-leases.json');", "expected_count": 1 },
+      { "id": "file-name.04", "selector": "file-name", "semantic_source": "persistent_source: 'controller-leases.json'", "expected_count": 1 },
+      { "id": "isolated-path.01", "selector": "isolated-path", "semantic_source": "const controllerLeaseLockPath = `${paths.controllerLeasesPath}.lock`;", "expected_count": 2 },
+      { "id": "isolated-path.02", "selector": "isolated-path", "semantic_source": "const existingPayload = readJsonFile(paths.controllerLeasesPath);", "expected_count": 1 },
+      { "id": "isolated-path.03", "selector": "isolated-path", "semantic_source": "const sourcePayload = readJsonFile(paths.controllerLeasesPath);", "expected_count": 1 },
+      { "id": "isolated-path.04", "selector": "isolated-path", "semantic_source": "controllerLeasesPath: path.join(stateRoot, 'controller-leases.json'),", "expected_count": 1 },
+      { "id": "isolated-path.05", "selector": "isolated-path", "semantic_source": "if (fs.existsSync(paths.controllerLeasesPath)) {", "expected_count": 3 },
+      { "id": "isolated-path.06", "selector": "isolated-path", "semantic_source": "writeJsonFileAtomic(paths.controllerLeasesPath, createControllerLeaseAuthority(nextControllerLeases),", "expected_count": 1 },
+      { "id": "isolated-path.07", "selector": "isolated-path", "semantic_source": "return readControllerLeaseAuthorityFile(paths.controllerLeasesPath);", "expected_count": 1 },
+      { "id": "isolated-path.08", "selector": "isolated-path", "semantic_source": "return readControllerLeaseAuthorityFile(paths.controllerLeasesPath).records;", "expected_count": 1 },
+      { "id": "isolated-path.09", "selector": "isolated-path", "semantic_source": "writeJsonFileAtomic(paths.controllerLeasesPath, controllerLeaseAuthorityMigration.envelope);", "expected_count": 1 },
+      { "id": "persist-state-api.01", "selector": "persist-state-api", "semantic_source": "function persistState({", "expected_count": 1 },
+      { "id": "persist-state-api.02", "selector": "persist-state-api", "semantic_source": "persistState({ state: nextState, entityKind: descriptor.entityKind,", "expected_count": 1 },
+      { "id": "persist-state-api.03", "selector": "persist-state-api", "semantic_source": "persistState({ state: nextState, entityKind: 'task_relation', entityId: normalizedRecord.relation_id,", "expected_count": 1 },
+      { "id": "persist-state-api.04", "selector": "persist-state-api", "semantic_source": "persistState({ state: nextState, entityKind: 'completion_record',", "expected_count": 1 },
+      { "id": "persist-state-api.05", "selector": "persist-state-api", "semantic_source": "persistState({ state: nextState, entityKind: 'task_relation', entityId: normalizedRelationId,", "expected_count": 1 },
+      { "id": "persist-state-api.06", "selector": "persist-state-api", "semantic_source": "persistState({ state: nextState, entityKind: 'runtime_preflight',", "expected_count": 1 },
+      { "id": "persist-state-api.07", "selector": "persist-state-api", "semantic_source": "persistState({ state: nextState, entityKind: 'repo_knowledge',", "expected_count": 1 },
+      { "id": "state-property.01", "selector": "state-property", "semantic_source": "active_controller_lease_count: snapshot.state.controller_leases.filter((lease) => lease.status === 'active').length,", "expected_count": 1 },
+      { "id": "state-property.02", "selector": "state-property", "semantic_source": "collectionKey: 'controller_leases',", "expected_count": 1 },
+      { "id": "state-property.03", "selector": "state-property", "semantic_source": "const controllerLeases = snapshot.state.controller_leases ?? [];", "expected_count": 1 },
+      { "id": "state-property.04", "selector": "state-property", "semantic_source": "const existingIndex = nextState.controller_leases.findIndex(", "expected_count": 2 },
+      { "id": "state-property.05", "selector": "state-property", "semantic_source": "const sourceRecords = normalizeControllerLeaseRecords(existingState.controller_leases);", "expected_count": 1 },
+      { "id": "state-property.06", "selector": "state-property", "semantic_source": "controller_leases: [],", "expected_count": 1 },
+      { "id": "state-property.07", "selector": "state-property", "semantic_source": "controllerLeases: nextState.controller_leases,", "expected_count": 2 },
+      { "id": "state-property.08", "selector": "state-property", "semantic_source": "delete nextState.controller_leases;", "expected_count": 2 },
+      { "id": "state-property.09", "selector": "state-property", "semantic_source": "details: result?.details ?? nextState.controller_leases,", "expected_count": 1 },
+      { "id": "state-property.10", "selector": "state-property", "semantic_source": "for (const lease of snapshot?.state?.controller_leases ?? []) {", "expected_count": 1 },
+      { "id": "state-property.11", "selector": "state-property", "semantic_source": "if (!Object.hasOwn(existingState ?? {}, 'controller_leases')) {", "expected_count": 1 },
+      { "id": "state-property.12", "selector": "state-property", "semantic_source": "if (Object.hasOwn(state ?? {}, 'controller_leases')) {", "expected_count": 1 },
+      { "id": "state-property.13", "selector": "state-property", "semantic_source": "nextState.controller_leases.push(normalizedRecord);", "expected_count": 2 },
+      { "id": "state-property.14", "selector": "state-property", "semantic_source": "nextState.controller_leases[existingIndex] = normalizedRecord;", "expected_count": 2 },
+      { "id": "state-property.15", "selector": "state-property", "semantic_source": "nextState.controller_leases = controllerLeases;", "expected_count": 1 },
+      { "id": "state-property.16", "selector": "state-property", "semantic_source": "return nextState.controller_leases.find((entry) => (", "expected_count": 1 },
+      { "id": "state-property.17", "selector": "state-property", "semantic_source": "return nextState.controller_leases.find((entry) => entry?.lease_id === leaseId) ?? null;", "expected_count": 1 },
+      { "id": "state-property.18", "selector": "state-property", "semantic_source": "source_evidence_digest: digestControllerLeaseAuthorityEvidence(existingState.controller_leases),", "expected_count": 1 },
+      { "id": "state-property.19", "selector": "state-property", "semantic_source": "state_shadow_removed: Object.hasOwn(existingState ?? {}, 'controller_leases'),", "expected_count": 1 },
+      { "id": "state-property.20", "selector": "state-property", "semantic_source": "throw new Error('Prohibited controller_leases shadow detected in v11 state.json');", "expected_count": 1 },
+      { "id": "state-property.21", "selector": "state-property", "semantic_source": "path: 'snapshot.state.controller_leases'", "expected_count": 1 },
+      { "id": "upsert-api.01", "selector": "upsert-api", "semantic_source": "const lease = upsertControllerLease(buildActiveControllerLease({", "expected_count": 2 },
+      { "id": "upsert-api.02", "selector": "upsert-api", "semantic_source": "const lease = upsertControllerLease(buildReleasedControllerLease(existingLease, {", "expected_count": 1 },
+      { "id": "upsert-api.03", "selector": "upsert-api", "semantic_source": "upsertControllerLease,", "expected_count": 3 },
+      { "id": "upsert-api.04", "selector": "upsert-api", "semantic_source": "upsertControllerLease: upsertControllerLeaseRecord,", "expected_count": 1 },
+      { "id": "upsert-api.05", "selector": "upsert-api", "semantic_source": "upsertControllerLease(buildExpiredControllerLease(activeLease, {", "expected_count": 1 },
+      { "id": "upsert-api.06", "selector": "upsert-api", "semantic_source": "upsertControllerLease(record) {", "expected_count": 1 }
+    ]
   }
 }
