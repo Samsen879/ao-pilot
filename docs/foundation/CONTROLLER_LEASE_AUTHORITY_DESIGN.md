@@ -98,6 +98,14 @@ Tests are consumers, not runtime authorities; the new fixtures isolate the
 authority-selection behavior, while existing repository/controller-loop tests
 cover lock serialization and lease lifecycle operations.
 
+The v2 audit binds 11 normalized semantic regions covering canonical envelope
+validation, collection isolation, migration/bootstrap installation, repository
+reads and writes, and controller acquire/renew/release operations. Normalization
+removes formatting trivia while retaining JavaScript token boundaries,
+restricted-production line terminators, and template-literal contents. Selector
+discovery masks comments so documentation-only mentions do not create evidence
+churn, while executable occurrences remain exhaustively registered.
+
 ## Frozen canonical-authority design
 
 The repair issue must preserve the public read shape while eliminating the

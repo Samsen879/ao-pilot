@@ -49,7 +49,7 @@
       "symbol": "removeControllerLeaseShadow",
       "roles": ["shadow-stripper"],
       "anchors": ["function removeControllerLeaseShadow(state) {", "delete nextState.controller_leases;"],
-      "semantic_regions": [{ "id": "migration.state-shadow-stripper.operation", "start": "function removeControllerLeaseShadow(state) {", "end": "function backfillTaskSpecs({", "expected_digest": "cfe073c27033e46cf6763ca020a61286af055646e7ba60162a002f6d912417b9" }]
+      "semantic_regions": [{ "id": "migration.state-shadow-stripper.operation", "start": "function removeControllerLeaseShadow(state) {", "end": "function backfillTaskSpecs({", "expected_digest": "9d1cdd159e74be3f581304b110a6ae5b67fc6b97737d42e4b139fdf5cfaf73f3" }]
     },
     {
       "id": "migration.explicit-authority-transition",
@@ -57,28 +57,31 @@
       "symbol": "prepareControllerLeaseAuthorityMigration",
       "roles": ["migration-reader", "format", "fail-closed"],
       "anchors": ["function prepareControllerLeaseAuthorityMigration({"],
-      "semantic_regions": [{ "id": "migration.explicit-authority-transition.operation", "start": "function prepareControllerLeaseAuthorityMigration({", "end": "function validateCurrentControllerLeaseAuthority(paths) {", "expected_digest": "7c3a88ccd4c5b44050a6f4f8df21f151578e61d2b2b3307af73cd75412bcb60b" }]
+      "semantic_regions": [{ "id": "migration.explicit-authority-transition.operation", "start": "function prepareControllerLeaseAuthorityMigration({", "end": "function validateCurrentControllerLeaseAuthority(paths) {", "expected_digest": "2082f21a84348149dd92bffb334c3a1d4466c9e85d9f1ac70b28be6058085583" }]
     },
     {
       "id": "migration.atomic-authority-install",
       "path": "scripts/ao/lib/state-migrations.js",
       "symbol": "bootstrapControlPlaneState",
       "roles": ["migration-writer", "lock"],
-      "anchors": ["export function bootstrapControlPlaneState({", "withFileLockSync(controllerLeaseLockPath", "writeJsonFileAtomic(paths.controllerLeasesPath, controllerLeaseAuthorityMigration.envelope)"]
+      "anchors": ["export function bootstrapControlPlaneState({", "withFileLockSync(controllerLeaseLockPath", "writeJsonFileAtomic(paths.controllerLeasesPath, controllerLeaseAuthorityMigration.envelope)"],
+      "semantic_regions": [{ "id": "migration.atomic-authority-install.operation", "start": "export function bootstrapControlPlaneState({", "end": null, "expected_digest": "daa6abc6b6360c5fb3dc3f0c769373c0c3ee588c581ee46a5cb552a6c44f83a1" }]
     },
     {
       "id": "authority.versioned-envelope",
       "path": "scripts/ao/lib/controller-lease-authority.js",
       "symbol": "createControllerLeaseAuthority/parseControllerLeaseAuthority",
       "roles": ["reader", "writer", "format", "fail-closed"],
-      "anchors": ["export const CONTROLLER_LEASE_AUTHORITY_SCHEMA_VERSION", "export function createControllerLeaseAuthority", "export function parseControllerLeaseAuthority"]
+      "anchors": ["export const CONTROLLER_LEASE_AUTHORITY_SCHEMA_VERSION", "export function createControllerLeaseAuthority", "export function parseControllerLeaseAuthority"],
+      "semantic_regions": [{ "id": "authority.versioned-envelope.operations", "start": "export const CONTROLLER_LEASE_AUTHORITY_SCHEMA_VERSION", "end": null, "expected_digest": "6c523ebf03f486e135a8166dafa886d44f5ca3a7934a186e069ef58058c4d084" }]
     },
     {
       "id": "repository.collection-boundary",
       "path": "scripts/ao/lib/state-repository/collections.js",
       "symbol": "STATE_REPOSITORY_COLLECTIONS/sortRepositoryStateCollections",
       "roles": ["projection"],
-      "anchors": ["collectionKey: 'controller_leases'", "nextState.controller_leases = controllerLeases"]
+      "anchors": ["collectionKey: 'controller_leases'", "nextState.controller_leases = controllerLeases"],
+      "semantic_regions": [{ "id": "repository.collection-boundary.contract", "start": "{ collectionKey: 'controller_leases',", "end": "{ collectionKey: 'actions',", "expected_digest": "fd93791e1c01cda74859ce1a122468ad465fd1a3ed7ce0295da79fe6d17662c8" }]
     },
     {
       "id": "repository.canonical-read-and-projection",
@@ -86,7 +89,7 @@
       "symbol": "readControllerLeaseRecords/readSnapshot",
       "roles": ["reader", "projection", "fail-closed"],
       "anchors": ["return readControllerLeaseAuthorityFile(paths.controllerLeasesPath).records", "const nextState = sortRepositoryStateCollections(cloneJsonValue(state), {"],
-      "semantic_regions": [{ "id": "repository.canonical-read-and-projection.operations", "start": "function readControllerLeaseRecords() {", "end": "function ensureBootstrapped() {", "expected_digest": "1ffb74ceedef34de9a10299bd3814079c95a5b56931ca99372de51b8f641785c" }]
+      "semantic_regions": [{ "id": "repository.canonical-read-and-projection.operations", "start": "function readControllerLeaseRecords() {", "end": "function ensureBootstrapped() {", "expected_digest": "faf6da7c5a317a97c09e087a595efa308f98d8fca3ccd6c6bd0ad06889acb43a" }]
     },
     {
       "id": "repository.canonical-write",
@@ -94,7 +97,7 @@
       "symbol": "persistControllerLeases",
       "roles": ["writer"],
       "anchors": ["createControllerLeaseAuthority(nextControllerLeases)"],
-      "semantic_regions": [{ "id": "repository.canonical-write.operation", "start": "function persistControllerLeases({", "end": "async function mutateControllerLeasesAtomically({", "expected_digest": "47b8957bdd5cbfdc75efa567060c6ddc70f4295a442674bc444d7c14e14d72e2" }]
+      "semantic_regions": [{ "id": "repository.canonical-write.operation", "start": "function persistControllerLeases({", "end": "async function mutateControllerLeasesAtomically({", "expected_digest": "dd583dda2d36f1c729c364994280dc09e32db427ef138ba149dd98f7ab3f2f39" }]
     },
     {
       "id": "repository.ordinary-state-shadow-stripper",
@@ -102,7 +105,7 @@
       "symbol": "persistState/upsertCollectionRecord/ensureRuntimePreflights/ensureRepoKnowledge",
       "roles": ["shadow-stripper"],
       "anchors": ["function persistState({", "delete nextState.controller_leases;", "function upsertCollectionRecord({", "ensureRuntimePreflights({", "ensureRepoKnowledge({"],
-      "semantic_regions": [{ "id": "repository.ordinary-state-shadow-stripper.operation", "start": "function persistState({", "end": "function persistControllerLeases({", "expected_digest": "faae5f67b3a5befda1bf7279a5659d3e606c2161b1b6722135974ea43982e0b4" }]
+      "semantic_regions": [{ "id": "repository.ordinary-state-shadow-stripper.operation", "start": "function persistState({", "end": "function persistControllerLeases({", "expected_digest": "db88de22f452d1ead7d7fce4b58aa8412cf51f0de0166c13ecd14646b6354e45" }]
     },
     {
       "id": "repository.atomic-mutation",
@@ -110,7 +113,7 @@
       "symbol": "mutateControllerLeasesAtomically",
       "roles": ["reader", "writer", "lock"],
       "anchors": ["async function mutateControllerLeasesAtomically"],
-      "semantic_regions": [{ "id": "repository.atomic-mutation.operation", "start": "async function mutateControllerLeasesAtomically({", "end": "function upsertCollectionRecord({", "expected_digest": "63fde40b70a804a4c72eaaa4d6b1d54041343a3a40719c02063eebeb818ff783" }]
+      "semantic_regions": [{ "id": "repository.atomic-mutation.operation", "start": "async function mutateControllerLeasesAtomically({", "end": "function upsertCollectionRecord({", "expected_digest": "16dbe7f601c80eda381e8fd67157d4cc4828a1f889f125c2afd74b629aa69e7a" }]
     },
     {
       "id": "repository.synchronous-upsert",
@@ -118,7 +121,7 @@
       "symbol": "upsertControllerLease",
       "roles": ["reader", "writer", "lock"],
       "anchors": ["upsertControllerLease(record) {"],
-      "semantic_regions": [{ "id": "repository.synchronous-upsert.operation", "start": "upsertControllerLease(record) {", "end": "mutateControllerLeasesAtomically,", "expected_digest": "afd83b10ec0286e594c29c9e3c051dbefc9569104d68ed111b990b22ff3cc07d" }]
+      "semantic_regions": [{ "id": "repository.synchronous-upsert.operation", "start": "upsertControllerLease(record) {", "end": "mutateControllerLeasesAtomically,", "expected_digest": "3d4e7c7e9e51c2821c7f9bd5a30ea3289bdadc1fc81d738baf07d91183c063a2" }]
     },
     {
       "id": "controller.acquire-renew-release",
@@ -131,7 +134,7 @@
           "id": "controller.acquire-renew-release.operations",
           "start": "async function acquireControllerLeadership({",
           "end": "function startControllerHeartbeat({",
-          "expected_digest": "9284d500a59a3105e07c2786524c217f87309999e4968ef770109b4004f3f653"
+          "expected_digest": "011ac77ca85b52fa51c04cd8a884fe8d38eaa0eb8c7b11d714dae9e132cfb285"
         }
       ]
     },

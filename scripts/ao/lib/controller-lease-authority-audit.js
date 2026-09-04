@@ -11,7 +11,7 @@ const FROZEN_AUTHORITY_DESIGN = Object.freeze({
   malformed_authority_policy: 'fail_closed',
   mixed_version_policy: 'validate and migrate the canonical file; never select the state.json shadow by freshness',
 });
-const FROZEN_SEMANTIC_MANIFEST_DIGEST = '72bd6108562c37a75573ffe9e1576dc02e8cae3959cc52ba24bae3c6f82a275e';
+const FROZEN_SEMANTIC_MANIFEST_DIGEST = '7718c0b4b80077db6028e41dba2a8272187a4d839b4c8269518f871b65963ba6';
 
 function compareStrings(left, right) {
   return Buffer.compare(Buffer.from(String(left), 'utf8'), Buffer.from(String(right), 'utf8'));
@@ -51,7 +51,16 @@ export function normalizeSemanticSource(source) {
   const appendRestrictedLineTerminator = () => {
     if (/(?:^|[^A-Za-z0-9_$.])(?:async|break|continue|return|throw|yield)$/.test(normalized)) {
       normalized += '\n';
+      return true;
     }
+    return false;
+  };
+  const appendRequiredTokenSeparator = (nextIndex) => {
+    let offset = nextIndex;
+    while (offset < source.length && /\s/.test(source[offset])) offset += 1;
+    const previous = normalized.at(-1) ?? '';
+    const next = source[offset] ?? '';
+    if (/[A-Za-z0-9_$]/.test(previous) && /[A-Za-z0-9_$]/.test(next)) normalized += ' ';
   };
   for (let index = 0; index < source.length; index += 1) {
     const character = source[index];
@@ -86,7 +95,7 @@ export function normalizeSemanticSource(source) {
     if (character === '/' && source[index + 1] === '/') {
       index += 2;
       while (index < source.length && !/[\r\n\u2028\u2029]/.test(source[index])) index += 1;
-      appendRestrictedLineTerminator();
+      if (!appendRestrictedLineTerminator()) appendRequiredTokenSeparator(index + 1);
     } else if (character === '/' && source[index + 1] === '*') {
       const commentStart = index;
       index += 2;
@@ -94,19 +103,82 @@ export function normalizeSemanticSource(source) {
         index += 1;
       }
       index += 1;
-      if (/[\r\n\u2028\u2029]/.test(source.slice(commentStart, index + 1))) {
-        appendRestrictedLineTerminator();
+      const hasLineTerminator = /[\r\n\u2028\u2029]/.test(source.slice(commentStart, index + 1));
+      if (!(hasLineTerminator && appendRestrictedLineTerminator())) {
+        appendRequiredTokenSeparator(index + 1);
       }
     } else if (character === "'" || character === '"' || character === '`') {
       quote = character;
       normalized += character;
-    } else if (/[\r\n\u2028\u2029]/.test(character)) {
-      appendRestrictedLineTerminator();
-    } else if (!/\s/.test(character)) {
+    } else if (/\s/.test(character)) {
+      const whitespaceStart = index;
+      while (index + 1 < source.length && /\s/.test(source[index + 1])) index += 1;
+      const hasLineTerminator = /[\r\n\u2028\u2029]/.test(source.slice(whitespaceStart, index + 1));
+      if (!(hasLineTerminator && appendRestrictedLineTerminator())) {
+        appendRequiredTokenSeparator(index + 1);
+      }
+    } else {
       normalized += character;
     }
   }
   return normalized;
+}
+
+function maskComments(source) {
+  let masked = '';
+  let quote = null;
+  let escaped = false;
+  const templateExpressionDepths = [];
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (quote != null) {
+      masked += character;
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (quote === '`' && character === '$' && source[index + 1] === '{') {
+        masked += '{';
+        index += 1;
+        quote = null;
+        templateExpressionDepths.push(1);
+      } else if (character === quote) quote = null;
+      continue;
+    }
+    if (templateExpressionDepths.length > 0 && character === '{') {
+      templateExpressionDepths[templateExpressionDepths.length - 1] += 1;
+      masked += character;
+    } else if (templateExpressionDepths.length > 0 && character === '}') {
+      const top = templateExpressionDepths.length - 1;
+      templateExpressionDepths[top] -= 1;
+      masked += character;
+      if (templateExpressionDepths[top] === 0) {
+        templateExpressionDepths.pop();
+        quote = '`';
+      }
+    } else if (character === '/' && source[index + 1] === '/') {
+      masked += '  ';
+      index += 2;
+      while (index < source.length && !/[\r\n\u2028\u2029]/.test(source[index])) {
+        masked += ' ';
+        index += 1;
+      }
+      if (index < source.length) masked += source[index];
+    } else if (character === '/' && source[index + 1] === '*') {
+      masked += '  ';
+      index += 2;
+      while (index < source.length && !(source[index] === '*' && source[index + 1] === '/')) {
+        masked += /[\r\n\u2028\u2029]/.test(source[index]) ? source[index] : ' ';
+        index += 1;
+      }
+      if (index < source.length) {
+        masked += '  ';
+        index += 1;
+      }
+    } else {
+      masked += character;
+      if (character === "'" || character === '"' || character === '`') quote = character;
+    }
+  }
+  return masked;
 }
 
 function sourceDocuments(inventory, repositoryRoot) {
@@ -120,6 +192,7 @@ function sourceDocuments(inventory, repositoryRoot) {
       documents.push({
         path: relativePath,
         source,
+        selector_source: maskComments(source),
         normalized_source: normalizeSemanticSource(source),
       });
     }
@@ -163,7 +236,7 @@ export function createControllerLeaseSemanticManifest(inventory) {
       semantic_regions: (site.semantic_regions ?? []).map((region) => ({
         id: region.id,
         start: normalizeSemanticSource(region.start),
-        end: normalizeSemanticSource(region.end),
+        end: region.end == null ? null : normalizeSemanticSource(region.end),
         expected_digest: region.expected_digest,
       })).sort((left, right) => compareStrings(left.id, right.id)),
     })).sort((left, right) => compareStrings(left.id, right.id)),
@@ -192,7 +265,7 @@ export function scanControllerLeaseSources(inventory, repositoryRoot) {
   for (const selector of inventory.source_scan.selectors) {
     const regex = new RegExp(selector.pattern, 'g');
     for (const document of documents) {
-      for (const match of document.source.matchAll(regex)) {
+      for (const match of document.selector_source.matchAll(regex)) {
         if (match[0] === '') throw new Error(`Controller lease selector must not match empty source: ${selector.id}`);
         const line = lineAtOffset(document.source, match.index);
         matches.push({
@@ -274,7 +347,7 @@ function validateSelectorSemanticUsages(inventory, repositoryRoot) {
   for (const selector of inventory.source_scan.selectors) {
     const regex = new RegExp(selector.pattern, 'g');
     for (const document of documents) {
-      for (const match of document.source.matchAll(regex)) {
+      for (const match of document.selector_source.matchAll(regex)) {
         if (match[0] === '') {
           throw new Error(`Controller lease selector must not match empty source: ${selector.id}`);
         }
@@ -337,18 +410,20 @@ function validateAuthoritySemanticRegions(inventory, repositoryRoot) {
   for (const site of inventory.authority_sites) {
     for (const region of site.semantic_regions ?? []) {
       const start = normalizeSemanticSource(region.start);
-      const end = normalizeSemanticSource(region.end);
+      const end = region.end == null ? null : normalizeSemanticSource(region.end);
       const candidates = documents.filter((document) => (
         countLiteralOccurrences(document.normalized_source, start).length === 1
-        && countLiteralOccurrences(document.normalized_source, end).length === 1
-        && document.normalized_source.indexOf(start) < document.normalized_source.indexOf(end)
+        && (end == null || (
+          countLiteralOccurrences(document.normalized_source, end).length === 1
+          && document.normalized_source.indexOf(start) < document.normalized_source.indexOf(end)
+        ))
       ));
       if (candidates.length !== 1) {
         throw new Error(`Controller lease semantic region ${region.id} must resolve to exactly one source`);
       }
       const [document] = candidates;
       const startOffset = document.normalized_source.indexOf(start);
-      const endOffset = document.normalized_source.indexOf(end);
+      const endOffset = end == null ? document.normalized_source.length : document.normalized_source.indexOf(end);
       const digest = stableDigest(document.normalized_source.slice(startOffset, endOffset));
       if (digest !== region.expected_digest) {
         throw new Error(`Controller lease semantic region ${region.id} drifted: expected ${region.expected_digest}, got ${digest}`);
