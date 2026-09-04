@@ -40,6 +40,9 @@
   "engines": {
     "node": "^20.0.0 || >=22.0.0"
   },
+  "dependencies": {
+    "@babel/parser": "^7.29.7"
+  },
   "scripts": {
     "controller": "node scripts/ao-controller.js",
     "doctor": "node scripts/ao-doctor.js",
@@ -84,6 +87,7 @@
     "publish:self-hosting-worktree": "node scripts/publish-self-hosting-worktree.js",
     "publish:self-hosting-preflight": "node scripts/publish-self-hosting-preflight.js",
     "publish:self-hosting-merge": "node scripts/publish-self-hosting-merge.js",
+    "prepare:worker": "node scripts/prepare-worker-worktree.js",
     "test": "node --experimental-vm-modules node_modules/.bin/jest --runInBand --testPathPatterns='tests/ao/' --no-color",
     "verify:package": "node scripts/verify-package-install.js",
     "verify:runtime-lock": "node scripts/verify-runtime-lock.js",
@@ -101,6 +105,21 @@
     "audit:false-success": "node scripts/audit-false-success-trajectories.js",
     "verify:false-success": "node scripts/audit-false-success-trajectories.js --check",
     "release:check": "npm test && npm run ao:test:acceptance && npm run ao:smoke && npm run verify:package && npm run verify:runtime-lock && npm run verify:runtime-bootstrap && npm run verify:runtime-lifecycle && npm run verify:fresh-clone && npm run verify:trajectory-vocabulary && npm run verify:false-success && npm run verify:completion-record-coverage && npm run verify:controller-lease-audit && npm run verify:controller-lease-safety && npm run verify:phase-zero-exit -- --expected-head \"$AO_PHASE_ZERO_EXPECTED_HEAD\" --expected-tree \"$AO_PHASE_ZERO_EXPECTED_TREE\" && npm audit"
+  },
+  "ao": {
+    "worker_worktree_preparation": {
+      "schema_version": "ao.worker-worktree-preparation-contract.v1",
+      "package_manager": "npm",
+      "lockfile": "package-lock.json",
+      "install_command": [
+        "npm",
+        "ci",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "test_runner": "node_modules/.bin/jest"
+    }
   },
   "jest": {
     "testEnvironment": "node",
