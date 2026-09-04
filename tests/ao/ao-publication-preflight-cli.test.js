@@ -22,14 +22,11 @@ function passingRunner() {
   return {
     run(command, args) {
       const invocation = `${command} ${args.join(' ')}`;
-      if (invocation === 'git remote get-url --push origin') {
+      if (invocation === 'git remote get-url --push --all origin') {
         return { status: 0, stdout: 'https://github.com/Samsen879/ao-pilot.git\n' };
       }
       if (invocation === 'gh api user --jq .login') {
         return { status: 0, stdout: 'Samsen879\n' };
-      }
-      if (invocation === 'git config --get-urlmatch credential.helper https://github.com/Samsen879/ao-pilot') {
-        return { status: 0, stdout: 'store\n' };
       }
       if (invocation === 'git config --get user.name') {
         return { status: 0, stdout: 'Worker\n' };
@@ -37,23 +34,26 @@ function passingRunner() {
       if (invocation === 'git config --get user.email') {
         return { status: 0, stdout: '123+Samsen879@users.noreply.github.com\n' };
       }
+      if (args[0] === 'rev-list') {
+        return { status: 0, stdout: '0918e609978553d944f6a6c4798c54691ae90775\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' };
+      }
       if (args[0] === 'log') {
         return { status: 0, stdout: '0918e609978553d944f6a6c4798c54691ae90775\u001fWorker\u001f123+Samsen879@users.noreply.github.com\u001fWorker\u001f123+Samsen879@users.noreply.github.com\n' };
       }
       if (invocation === 'git --exec-path') {
         return { status: 0, stdout: '/git-core\n' };
       }
-      if (invocation === 'git config --get-all credential.helper') {
-        return { status: 0, stdout: 'store\n' };
-      }
-      if (invocation === 'git config --get-urlmatch credential.helper https://github.com/Samsen879/ao-pilot') {
-        return { status: 1, stdout: '' };
+      if (invocation === "git config --null --get-regexp ^credential(\\..*)?\\.helper$") {
+        return { status: 0, stdout: 'credential.helper\nstore\0' };
       }
       if (command === 'git' && args.includes('credential') && args.includes('fill')) {
         return { status: 0, stdout: 'username=worker\npassword=fixture-secret\n' };
       }
       if (command === 'gh' && args[1] === 'repos/Samsen879/ao-pilot') {
         return { status: 0, stdout: '{"repository":"Samsen879/ao-pilot","push":true}\n' };
+      }
+      if (command === 'git' && args.includes('ls-remote')) {
+        return { status: 0, stdout: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\trefs/heads/main\n' };
       }
       if (invocation === 'git rev-parse HEAD') {
         return { status: 0, stdout: '0918e609978553d944f6a6c4798c54691ae90775\n' };

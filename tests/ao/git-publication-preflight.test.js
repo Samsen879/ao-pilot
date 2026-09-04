@@ -14,6 +14,7 @@ const fixturePack = JSON.parse(fs.readFileSync(path.join(
   process.cwd(), 'tests/ao/fixtures/git-publication-preflight/pack.v1.json',
 ), 'utf8'));
 const HEAD = '0918e609978553d944f6a6c4798c54691ae90775';
+const BASE = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
 function result(status, stdout = '', stderr = '') {
   return { status, signal: null, stdout, stderr, error: null };
@@ -26,21 +27,30 @@ function fixtureRunner(fixture) {
     run(command, args, options = {}) {
       calls.push({ command, args, options });
       const invocation = `${command} ${args.join(' ')}`;
-      if (invocation === 'git remote get-url --push origin') return result(0, `${fixture.remote_url}\n`);
+      if (invocation === 'git remote get-url --push --all origin') {
+        return result(0, `${(fixture.remote_urls ?? [fixture.remote_url]).join('\n')}\n`);
+      }
       if (invocation === 'git config --get user.name') return result(0, `${fixture.name}\n`);
       if (invocation === 'git config --get user.email') return result(0, `${fixture.email}\n`);
+      if (args[0] === 'rev-list') return result(0, `${HEAD}\n${BASE}\n`);
       if (args[0] === 'log') {
         const outgoingEmail = fixture.outgoing_email ?? fixture.email;
         return result(0, `${HEAD}\x1f${fixture.name}\x1f${outgoingEmail}\x1f${fixture.name}\x1f${outgoingEmail}\n`);
       }
       if (invocation === 'git --exec-path') return result(0, '/git-core\n');
-      if (invocation === 'git config --get-all credential.helper') {
-        const helpers = fixture.generic_helpers ?? fixture.helpers;
-        return helpers.length ? result(0, `${helpers.join('\n')}\n`) : result(1);
+      if (invocation === "git config --null --get-regexp ^credential(\\..*)?\\.helper$") {
+        const entries = fixture.config_helpers ?? [
+          ...(fixture.generic_helpers ?? fixture.helpers).map((value) => ['credential.helper', value]),
+          ...(fixture.scoped_helpers ?? []).map((value) => [
+            'credential.https://github.com/Samsen879/ao-pilot.git.helper', value,
+          ]),
+        ];
+        return entries.length
+          ? result(0, entries.map(([key, value]) => `${key}\n${value}\0`).join(''))
+          : result(1);
       }
-      if (invocation === 'git config --get-urlmatch credential.helper https://github.com/Samsen879/ao-pilot') {
-        const helpers = fixture.scoped_helpers ?? [];
-        return helpers.length ? result(0, `${helpers.join('\n')}\n`) : result(1);
+      if (invocation === 'git config --get core.sshCommand') {
+        return fixture.ssh_command ? result(0, `${fixture.ssh_command}\n`) : result(1);
       }
       if (command === 'git' && args.includes('credential') && args.includes('fill')) {
         return fixture.credential_available === false
@@ -62,6 +72,15 @@ function fixtureRunner(fixture) {
           ? result(255, '', 'Permission denied')
           : result(1, '', `Hi ${fixture.authenticated_principal}! You've successfully authenticated, but GitHub does not provide shell access.\n`);
       }
+      if (command === 'sh' && args[0] === '-c') {
+        return fixture.authenticated_principal == null
+          ? result(255, '', 'Permission denied')
+          : result(1, '', `Hi ${fixture.authenticated_principal}! You've successfully authenticated, but GitHub does not provide shell access.\n`);
+      }
+      if (command === 'sh' && args[0] === '-n') return result(fixture.shell_syntax_invalid ? 2 : 0);
+      if (command === 'git' && args.includes('ls-remote')) {
+        return fixture.refs_unreadable ? result(1, '', 'denied') : result(0, `${BASE}\trefs/heads/main\n`);
+      }
       if (invocation === 'git rev-parse HEAD') return result(0, `${HEAD}\n`);
       if (command === 'git' && args.includes('push') && args.includes('--dry-run')) {
         return fixture.dry_run_fails ? result(1, '', 'denied') : result(0, 'Done\n');
@@ -81,7 +100,7 @@ function runFixture(fixture, runner = fixtureRunner(fixture)) {
       workerPrincipal: 'Samsen879',
       commandScopedCredentialHelper: fixture.command_scoped_helper ?? null,
       runner,
-      env: {},
+      env: fixture.env ?? {},
       now: () => '2026-09-04T00:00:00.000Z',
       resolveExecutable: (executable) => fixture.available_executables.includes(executable),
     }),
@@ -163,6 +182,24 @@ describe('diagnostic Git publication preflight', () => {
     expect(receipt.checks.credential_helpers).toMatchObject({ verified: true, count: 2 });
   });
 
+  it('collects every matching URL-scoped helper against the exact push URL', () => {
+    const fixture = {
+      ...fixturePack.fixtures[0],
+      config_helpers: [
+        ['credential.helper', 'store'],
+        ['credential.https://github.com.helper', 'cache'],
+        ['credential.https://github.com/Samsen879/ao-pilot.git.helper', '!f() { printf fixture; }; f'],
+        ['credential.https://gist.github.com.helper', 'ignored'],
+      ],
+      available_executables: ['git-credential-store', 'git-credential-cache'],
+    };
+    const { receipt } = runFixture(fixture);
+    expect(receipt.checks.credential_helpers).toMatchObject({ verified: true, count: 3 });
+    expect(receipt.checks.credential_helpers.helpers.at(-1)).toMatchObject({
+      kind: 'shell_snippet', validation: 'shell_syntax_and_credential_fill', available: true,
+    });
+  });
+
   it('finds Git helper subcommands in the Git exec path', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-git-exec-path-'));
     const executable = path.join(root, 'git-credential-example');
@@ -212,6 +249,16 @@ describe('diagnostic Git publication preflight', () => {
     expect(probe.args.some((arg) => arg.includes('git-credential-readonly.js'))).toBe(true);
     expect(probe.options.env).toMatchObject({
       AO_GIT_PUBLICATION_CREDENTIAL_PASSWORD: 'ghp_fixture_secret',
+      GIT_ASKPASS: '',
+      SSH_ASKPASS: '',
+      SSH_ASKPASS_REQUIRE: 'never',
+    });
+    expect(probe.args).toContain('core.askPass=');
+
+    const fill = runner.calls.find(({ args }) => args.includes('credential') && args.includes('fill'));
+    expect(fill.args).toContain('core.askPass=');
+    expect(fill.options.env).toMatchObject({
+      GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never', GIT_ASKPASS: '', SSH_ASKPASS: '',
     });
 
     const helper = path.join(process.cwd(), 'scripts/ao/git-credential-readonly.js');
@@ -234,5 +281,77 @@ describe('diagnostic Git publication preflight', () => {
     expect(parseGitHubRepository('git@github.com:Samsen879/ao-pilot.git')).toEqual({ repository: 'Samsen879/ao-pilot', transport: 'ssh' });
     expect(parseGitHubRepository('other@github.com:Samsen879/ao-pilot.git')).toBeNull();
     expect(parseGitHubRepository('https://token@github.com/Samsen879/ao-pilot.git')).toBeNull();
+    expect(parseGitHubRepository('http://github.com/Samsen879/ao-pilot.git')).toBeNull();
+  });
+
+  it('blocks plaintext HTTP before credential acquisition', () => {
+    const fixture = { ...fixturePack.fixtures[0], remote_url: 'http://github.com/Samsen879/ao-pilot.git' };
+    const { receipt, runner } = runFixture(fixture);
+    expect(receipt.findings.map(({ code }) => code)).toContain('publication_remote_unverified');
+    expect(runner.calls.some(({ args }) => args.includes('fill'))).toBe(false);
+  });
+
+  it('blocks multiple push URLs without probing or exposing their values', () => {
+    const fixture = {
+      ...fixturePack.fixtures[0],
+      remote_urls: [fixturePack.fixtures[0].remote_url, 'https://github.com/Samsen879/second.git'],
+    };
+    const { receipt, runner } = runFixture(fixture);
+    expect(receipt.findings.map(({ code }) => code)).toContain('multiple_publication_push_urls');
+    expect(receipt.checks.remote.push_url_count).toBe(2);
+    expect(runner.calls.some(({ args }) => args.includes('push'))).toBe(false);
+    expect(JSON.stringify(receipt)).not.toContain('second.git');
+  });
+
+  it('binds the outgoing range to actual publication refs with large-output buffers', () => {
+    const fixture = fixturePack.fixtures[0];
+    const { runner } = runFixture(fixture);
+    const refs = runner.calls.find(({ args }) => args.includes('ls-remote'));
+    const revList = runner.calls.find(({ args }) => args[0] === 'rev-list');
+    const log = runner.calls.find(({ args }) => args[0] === 'log');
+    expect(refs.args).toContain(fixture.remote_url);
+    expect(log.args).toEqual(expect.arrayContaining(['--not', BASE]));
+    expect(log.args.some((arg) => arg.startsWith('--remotes='))).toBe(false);
+    expect(revList.options.maxBuffer).toBe(64 * 1024 * 1024);
+    expect(log.options.maxBuffer).toBe(64 * 1024 * 1024);
+  });
+
+  it('honors a custom SSH command while enforcing strict existing-host verification', () => {
+    const fixture = {
+      ...fixturePack.fixtures.find(({ id }) => id === 'ssh_publication'),
+      ssh_command: 'ssh -i /fixture/key',
+    };
+    const { receipt, runner } = runFixture(fixture);
+    expect(receipt.status).toBe('passed');
+    const auth = runner.calls.find(({ command }) => command === 'sh');
+    expect(auth.args[1]).toContain('ssh -i /fixture/key');
+    expect(auth.args[1]).toContain('StrictHostKeyChecking=yes');
+    const remoteReads = runner.calls.filter(({ args }) => args.includes('ls-remote') || args.includes('push'));
+    expect(remoteReads.every(({ options }) => options.env.GIT_SSH_COMMAND.includes('ssh -i /fixture/key'))).toBe(true);
+    expect(remoteReads.every(({ options }) => options.env.GIT_SSH_COMMAND.includes('StrictHostKeyChecking=yes'))).toBe(true);
+  });
+
+  it('gives the environment SSH command precedence over repository configuration', () => {
+    const fixture = {
+      ...fixturePack.fixtures.find(({ id }) => id === 'ssh_publication'),
+      ssh_command: 'ssh -i /fixture/config-key',
+      env: { GIT_SSH_COMMAND: 'ssh -i /fixture/environment-key' },
+    };
+    const { receipt, runner } = runFixture(fixture);
+    expect(receipt.status).toBe('passed');
+    const auth = runner.calls.find(({ command }) => command === 'sh');
+    expect(auth.args[1]).toContain('/fixture/environment-key');
+    expect(auth.args[1]).not.toContain('/fixture/config-key');
+  });
+
+  it('fails closed when a custom SSH command supplies an ambiguous host-key policy', () => {
+    const fixture = {
+      ...fixturePack.fixtures.find(({ id }) => id === 'ssh_publication'),
+      ssh_command: 'ssh -o StrictHostKeyChecking=no',
+    };
+    const { receipt, runner } = runFixture(fixture);
+    expect(receipt.findings.map(({ code }) => code)).toContain('ssh_host_key_policy_ambiguous');
+    expect(runner.calls.some(({ command }) => command === 'sh')).toBe(false);
+    expect(JSON.stringify(receipt)).not.toContain('StrictHostKeyChecking=no');
   });
 });
