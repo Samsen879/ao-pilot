@@ -1312,7 +1312,7 @@ describe('fresh-clone and protected self-hosting gates', () => {
     expect(runtimeDoc).toContain(current.compatibility.platforms[0].binary_sha256);
     expect(runtimeDoc).toContain(current.compatibility.platforms[1].binary_sha256);
     expect(runtimeDoc).toContain('p0.1 tag/commit/tree and binary digests remain immutable historical');
-    expect(runtimeDoc).toContain('p0.2 transition');
+    expect(runtimeDoc).toContain('p0.4 transition');
   });
 
   it.each([
