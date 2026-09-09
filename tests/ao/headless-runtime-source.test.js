@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -26,6 +27,12 @@ function fixture() {
   return root;
 }
 
+function fixtureStartDigest(root) {
+  return createHash('sha256')
+    .update(fs.readFileSync(path.join(root, 'backend', 'internal', 'cli', 'start.go')))
+    .digest('hex');
+}
+
 describe('headless runtime source boundary', () => {
   it('accepts the committed repository-owned source', () => {
     expect(verifyHeadlessRuntimeSource()).toMatchObject({
@@ -39,7 +46,10 @@ describe('headless runtime source boundary', () => {
     const root = fixture();
     fs.mkdirSync(path.join(root, 'frontend', 'electron'), { recursive: true });
     fs.writeFileSync(path.join(root, 'frontend', 'electron', 'main.js'), '');
-    expect(() => verifyHeadlessRuntimeSource({ sourceRoot: root })).toThrow('desktop paths present');
+    expect(() => verifyHeadlessRuntimeSource({
+      sourceRoot: root,
+      expectedStartSourceSha256: fixtureStartDigest(root),
+    })).toThrow('desktop paths present');
   });
 
   it('rejects a reintroduced desktop acquisition sink', () => {
@@ -48,6 +58,23 @@ describe('headless runtime source boundary', () => {
     expect(() => verifyHeadlessRuntimeSource({
       sourceRoot: root,
       runtimeLock: loadRuntimeLock().lock,
+      expectedStartSourceSha256: fixtureStartDigest(root),
     })).toThrow('desktop acquisition sinks present');
+  });
+
+  it('rejects any change to the fail-closed start implementation', () => {
+    const root = fixture();
+    expect(() => verifyHeadlessRuntimeSource({ sourceRoot: root })).toThrow(
+      'headless start boundary digest mismatch',
+    );
+  });
+
+  it('rejects recovery guidance that routes users to the disabled command', () => {
+    const root = fixture();
+    fs.writeFileSync(path.join(root, 'recovery.go'), 'var guidance = "run `ao start`"');
+    expect(() => verifyHeadlessRuntimeSource({
+      sourceRoot: root,
+      expectedStartSourceSha256: fixtureStartDigest(root),
+    })).toThrow('disabled start recovery instructions present');
   });
 });

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -226,6 +227,22 @@ function assertEqual(actual, expected, code, message) {
   if (actual !== expected) fail(code, message, { expected, observed: actual });
 }
 
+function snapshotTree(root) {
+  function walk(directory) {
+    return fs.readdirSync(directory, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .flatMap((entry) => {
+        const resolved = path.join(directory, entry.name);
+        const relative = path.relative(root, resolved).replaceAll('\\', '/');
+        if (entry.isSymbolicLink()) return [`symlink:${relative}:${fs.readlinkSync(resolved)}`];
+        if (entry.isDirectory()) return [`directory:${relative}`, ...walk(resolved)];
+        const digest = createHash('sha256').update(fs.readFileSync(resolved)).digest('hex');
+        return [`file:${relative}:${digest}`];
+      });
+  }
+  return walk(root);
+}
+
 function createInterruptedBootstrapFixture(firstBootstrap) {
   const runtimeDirectory = firstBootstrap.runtime.runtime_directory;
   const targetParent = path.dirname(runtimeDirectory);
@@ -362,6 +379,62 @@ export async function verifyFreshClone(options, {
     }));
     assertEqual(runtimePath.status, 'verified', 'fresh_clone_runtime_not_verified', 'Runtime provenance did not verify');
 
+    const disabledStartRoot = path.join(root, 'disabled-start-boundary');
+    const disabledStartPaths = {
+      home: path.join(disabledStartRoot, 'home'),
+      cwd: path.join(disabledStartRoot, 'cwd'),
+      data: path.join(disabledStartRoot, 'data'),
+      run: path.join(disabledStartRoot, 'run', 'running.json'),
+      temp: path.join(disabledStartRoot, 'tmp'),
+      config: path.join(disabledStartRoot, 'xdg-config'),
+      cache: path.join(disabledStartRoot, 'xdg-cache'),
+      state: path.join(disabledStartRoot, 'xdg-state'),
+    };
+    for (const directory of [
+      disabledStartPaths.home,
+      disabledStartPaths.cwd,
+      disabledStartPaths.data,
+      path.dirname(disabledStartPaths.run),
+      disabledStartPaths.temp,
+      disabledStartPaths.config,
+      disabledStartPaths.cache,
+      disabledStartPaths.state,
+    ]) fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    const disabledStartBefore = snapshotTree(disabledStartRoot);
+    const disabledStart = run(runtimePath.binary_path, ['start'], {
+      cwd: disabledStartPaths.cwd,
+      env: {
+        ...env,
+        HOME: disabledStartPaths.home,
+        AO_DATA_DIR: disabledStartPaths.data,
+        AO_RUN_FILE: disabledStartPaths.run,
+        TMPDIR: disabledStartPaths.temp,
+        XDG_CONFIG_HOME: disabledStartPaths.config,
+        XDG_CACHE_HOME: disabledStartPaths.cache,
+        XDG_STATE_HOME: disabledStartPaths.state,
+        AO_NETWORK_DISABLED: '1',
+        ALL_PROXY: 'http://127.0.0.1:1',
+        HTTPS_PROXY: 'http://127.0.0.1:1',
+        HTTP_PROXY: 'http://127.0.0.1:1',
+        NO_PROXY: '',
+      },
+      allowFailure: true,
+      timeout: 5_000,
+    });
+    assertEqual(disabledStart.status, 1, 'fresh_clone_desktop_start_exit', 'Locked runtime start did not fail closed');
+    assertEqual(disabledStart.signal, null, 'fresh_clone_desktop_start_signal', 'Locked runtime start was terminated by a signal');
+    assertEqual(disabledStart.error, null, 'fresh_clone_desktop_start_error', 'Locked runtime start did not execute deterministically');
+    if (!disabledStart.stderr.includes("desktop entrypoint disabled: use ao-pilot's governed headless lifecycle")) {
+      fail('fresh_clone_desktop_start_message', 'Locked runtime start did not return the admitted fail-closed error');
+    }
+    const disabledStartAfter = snapshotTree(disabledStartRoot);
+    if (JSON.stringify(disabledStartAfter) !== JSON.stringify(disabledStartBefore)) {
+      fail('fresh_clone_desktop_start_side_effect', 'Locked runtime start mutated the isolated filesystem boundary', {
+        before: disabledStartBefore,
+        after: disabledStartAfter,
+      });
+    }
+
     runtimeStopRequired = true;
     const start = parseJsonOutput(run(node, [cli, 'start', '--runtime-store', storeRoot, '--json'], {
       cwd: cloneRoot,
@@ -477,6 +550,13 @@ export async function verifyFreshClone(options, {
         no_runtime_installed: preBootstrapFailure.code,
         wrong_same_name_package: shadowFailure.code,
         path_shadow_binary_executed: false,
+        disabled_desktop_start: {
+          exit_code: disabledStart.status,
+          signal: disabledStart.signal,
+          filesystem_mutation: false,
+          network_posture: 'disabled_and_loopback_refused_proxy',
+          expected_error_observed: true,
+        },
         mutable_ref_wrong_integrity_incompatibility: 'covered_by_required_runtime_contract_tests',
       },
       lifecycle: {
