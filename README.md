@@ -225,8 +225,9 @@ node ./bin/ao-pilot.js stop --project my-project
 Every command above verifies the committed lock, provenance, bootstrap receipt,
 compatibility, binary digest, and PATH-shadow state before runtime execution.
 `start` launches the exact managed binary's daemon entrypoint as a detached
-local service; it does not call the upstream desktop acquisition command named
-`ao start` and therefore cannot fetch a mutable desktop release.
+local service. The repository-owned runtime also makes its own `ao start`
+command fail closed, so no managed or ambient path can fetch or open a desktop
+release.
 `doctor` reports GitHub/Codex authentication availability but never includes
 probe output or credentials. These commands establish the R06 lifecycle
 boundary. The isolated R07 gate is:
