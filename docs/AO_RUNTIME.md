@@ -1,8 +1,8 @@
 # AO Runtime Lock and Provenance
 
-`ao-pilot` and the Agent Orchestrator runtime are separate deliverables. The
-control-plane package must never treat a command named `ao` on `PATH`, an old
-HOME checkout, an npm link, or a mutable Git branch as runtime authority.
+`ao-pilot` owns both its control plane and the minimal headless runtime source.
+The package must never treat a command named `ao` on `PATH`, an old HOME
+checkout, an npm link, or a mutable Git branch as runtime authority.
 
 The canonical runtime contract is committed at
 [`runtime/agent-orchestrator.lock.json`](../runtime/agent-orchestrator.lock.json).
@@ -23,27 +23,30 @@ npm run verify:runtime-bootstrap
 
 ## Canonical runtime
 
-- runtime ref: `runtime.agent_orchestrator.v0_11_2_p0_2`
-- repository: `https://github.com/Samsen879/agent-orchestrator.git`
+- runtime ref: `runtime.ao_pilot_headless.v0_11_2_p0_4`
+- repository: `https://github.com/Samsen879/ao-pilot.git`
 - upstream package identity: `@aoagents/ao@0.11.2` (identity only; not install
   authority for the fork delta)
-- immutable tag: `ao-pilot-runtime-v0.11.2-p0.2`
-- annotated tag object: `450ae009e2c1eb48cdf9c19be676b4a4ff01e611`
-- commit: `aae8a684357271acc7ad2fa1d4116c7c65c8fa9d`
-- tree/integrity: `e8adb9a31068810becfb5d31b46688b04202cf81`
+- immutable subtree tag: `ao-pilot-headless-runtime-v0.11.2-p0.4`
+- annotated tag object: `7947c3ac8787576bce0d5d7627c8020e95643bef`
+- commit: `43d37ef2a76e1949c8032c49c5e6197d98bf0b96`
+- tree/integrity: `91282c19b408935e94d732e8e10699d393f3c821`
 - source toolchain: Go `1.25.7`, `CGO_ENABLED=0`
 - managed binary relative path: `bin/ao`
 - Linux x64 expected binary SHA-256:
-  `ad7fd23c6a3f495e2d10b130cf23227c14e30573db5c2c01b68d8214c5965b4d`
+  `45d257d19810cb606917ce734ec281c16617b0ec0088591e3cea909c27868919`
 - Linux arm64 expected binary SHA-256:
-  `972181d92085fb6772fd9a8edf688f68c290976eda67a282ba1ac83d985d2dc6`
+  `2b2025e9aaf3fd8799fa6c5ed149118f15d8d62e56123c3fa13c70c7c3ea3ffe`
 - ao-pilot compatibility: `>=0.2.0` and `<0.3.0`
 
-No GitHub Release or npm publication is implied by this source lock.
+The tagged subtree contains only `backend/`, upstream license/provenance, and
+the ao-pilot modification that makes `ao start` fail closed. It contains no
+frontend, Electron, AppImage, installer, or desktop acquisition/open source.
+No separate runtime repository or GitHub Release is required.
 
 The p0.1 tag/commit/tree and binary digests remain immutable historical
 evidence for the principal/bootstrap proof produced before this canonical
-p0.2 transition. They are not the current runtime lock and must not be
+p0.4 transition. They are not the current runtime lock and must not be
 rewritten in that historical receipt layer.
 
 ## Managed provenance contract
@@ -80,8 +83,10 @@ same-name package. P0-R06 lifecycle commands invoke only the verified absolute
 managed binary path returned by this resolver. Reconciliation uses that same
 path for runtime status observation and never falls back to a PATH command.
 Runtime observation uses `ao session ls --all --project <id> --json` from that
-binary. Runtime daemon start invokes its `daemon` entrypoint directly; the
-upstream `ao start` desktop download/open path is outside this contract.
+binary. Runtime daemon start invokes its `daemon` entrypoint directly. The
+runtime's own `ao start` command is disabled and cannot discover, download, or
+open a desktop application. Verify the source boundary with
+`npm run verify:headless-runtime-source`.
 
 ## Deterministic managed bootstrap
 
@@ -94,7 +99,7 @@ Run the formal entrypoint from a clone or installed package:
 The bootstrap:
 
 1. validates the runtime lock and `runtime/go-toolchain.lock.json`;
-2. fetches only the locked annotated tag from the public fork into an isolated
+2. fetches only the locked annotated headless subtree tag from `ao-pilot` into an isolated
    content-addressed bare cache and verifies tag object, commit, tree, and Git
    object integrity;
 3. downloads the matching official Go 1.25.7 Linux archive over HTTPS and
