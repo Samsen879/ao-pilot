@@ -9,12 +9,12 @@ only and is no longer required by bootstrap, installation, or runtime use.
 ## Immutable source
 
 - repository: `https://github.com/Samsen879/ao-pilot.git`
-- tag: `ao-pilot-headless-runtime-v0.11.2-p0.3`
-- annotated tag object: `5389a01a13c50c510af326165797eb7774a1ba62`
-- source commit: `6d9168b244600bb14629c6545d667429ad81b981`
-- source tree: `4e92c96cef54ffd9ed28d041a391294249e605db`
-- Linux x64 binary SHA-256: `d122f25278537945ea21356df7a6ac28c2d66c27009c645380dac46f97c2a71d`
-- Linux arm64 binary SHA-256: `4fdc3fa31a44a04d70e28dd291440ef93532342f707c6d47eaef3c079fdfa626`
+- tag: `ao-pilot-headless-runtime-v0.11.2-p0.4`
+- annotated tag object: `7947c3ac8787576bce0d5d7627c8020e95643bef`
+- source commit: `43d37ef2a76e1949c8032c49c5e6197d98bf0b96`
+- source tree: `91282c19b408935e94d732e8e10699d393f3c821`
+- Linux x64 binary SHA-256: `45d257d19810cb606917ce734ec281c16617b0ec0088591e3cea909c27868919`
+- Linux arm64 binary SHA-256: `2b2025e9aaf3fd8799fa6c5ed149118f15d8d62e56123c3fa13c70c7c3ea3ffe`
 
 The tag points to a `git subtree split` of `runtime/headless`, so fetching the
 runtime does not fetch the full control-plane repository. The source retains
@@ -25,7 +25,11 @@ the upstream Apache-2.0 license and exact import provenance.
 The source subtree has no frontend, Electron, AppImage, installer, or desktop
 packaging paths. The upstream `ao start` resolver/downloader/launcher was
 replaced with a command that always exits nonzero. Static verification rejects
-known desktop acquisition symbols and paths before release.
+known desktop acquisition symbols, paths, stale recovery guidance, and any
+unreviewed change to the exact fail-closed implementation. The fresh-clone
+release gate executes the SHA-256-verified locked binary's `start` command in
+an isolated filesystem/network posture, requires exit 1 with the admitted
+error, and rejects any filesystem mutation.
 
 ## Reproducible validation
 

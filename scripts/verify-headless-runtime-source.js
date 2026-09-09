@@ -31,7 +31,7 @@ export function verifyHeadlessRuntimeSource({
   if (lock.artifact.repository !== 'https://github.com/Samsen879/ao-pilot.git') {
     throw new Error('runtime source authority is not ao-pilot');
   }
-  if (lock.artifact.ref.name !== 'ao-pilot-headless-runtime-v0.11.2-p0.3') {
+  if (lock.artifact.ref.name !== 'ao-pilot-headless-runtime-v0.11.2-p0.4') {
     throw new Error('runtime source tag is not the admitted headless tag');
   }
   const files = walk(inspectedSourceRoot);

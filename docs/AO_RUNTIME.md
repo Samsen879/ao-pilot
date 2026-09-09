@@ -23,20 +23,20 @@ npm run verify:runtime-bootstrap
 
 ## Canonical runtime
 
-- runtime ref: `runtime.ao_pilot_headless.v0_11_2_p0_3`
+- runtime ref: `runtime.ao_pilot_headless.v0_11_2_p0_4`
 - repository: `https://github.com/Samsen879/ao-pilot.git`
 - upstream package identity: `@aoagents/ao@0.11.2` (identity only; not install
   authority for the fork delta)
-- immutable subtree tag: `ao-pilot-headless-runtime-v0.11.2-p0.3`
-- annotated tag object: `5389a01a13c50c510af326165797eb7774a1ba62`
-- commit: `6d9168b244600bb14629c6545d667429ad81b981`
-- tree/integrity: `4e92c96cef54ffd9ed28d041a391294249e605db`
+- immutable subtree tag: `ao-pilot-headless-runtime-v0.11.2-p0.4`
+- annotated tag object: `7947c3ac8787576bce0d5d7627c8020e95643bef`
+- commit: `43d37ef2a76e1949c8032c49c5e6197d98bf0b96`
+- tree/integrity: `91282c19b408935e94d732e8e10699d393f3c821`
 - source toolchain: Go `1.25.7`, `CGO_ENABLED=0`
 - managed binary relative path: `bin/ao`
 - Linux x64 expected binary SHA-256:
-  `d122f25278537945ea21356df7a6ac28c2d66c27009c645380dac46f97c2a71d`
+  `45d257d19810cb606917ce734ec281c16617b0ec0088591e3cea909c27868919`
 - Linux arm64 expected binary SHA-256:
-  `4fdc3fa31a44a04d70e28dd291440ef93532342f707c6d47eaef3c079fdfa626`
+  `2b2025e9aaf3fd8799fa6c5ed149118f15d8d62e56123c3fa13c70c7c3ea3ffe`
 - ao-pilot compatibility: `>=0.2.0` and `<0.3.0`
 
 The tagged subtree contains only `backend/`, upstream license/provenance, and
@@ -46,7 +46,7 @@ No separate runtime repository or GitHub Release is required.
 
 The p0.1 tag/commit/tree and binary digests remain immutable historical
 evidence for the principal/bootstrap proof produced before this canonical
-p0.2 transition. They are not the current runtime lock and must not be
+p0.4 transition. They are not the current runtime lock and must not be
 rewritten in that historical receipt layer.
 
 ## Managed provenance contract

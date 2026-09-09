@@ -26,12 +26,12 @@ describe('runtime lock contract', () => {
     expect(loaded.digest).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(loaded.lock).toMatchObject({
       schema_version: RUNTIME_LOCK_SCHEMA_VERSION,
-      runtime_ref: 'runtime.ao_pilot_headless.v0_11_2_p0_3',
+      runtime_ref: 'runtime.ao_pilot_headless.v0_11_2_p0_4',
       artifact: {
         kind: 'git_source',
         repository: 'https://github.com/Samsen879/ao-pilot.git',
         upstream_repository: 'https://github.com/Untrivial-ai/agent-orchestrator.git',
-        version: '0.11.2-p0.3',
+        version: '0.11.2-p0.4',
         package: {
           name: '@aoagents/ao',
           version: '0.11.2',
@@ -40,14 +40,14 @@ describe('runtime lock contract', () => {
         },
         ref: {
           kind: 'annotated_tag',
-          name: 'ao-pilot-headless-runtime-v0.11.2-p0.3',
-          tag_object_sha: '5389a01a13c50c510af326165797eb7774a1ba62',
-          commit_sha: '6d9168b244600bb14629c6545d667429ad81b981',
-          tree_sha: '4e92c96cef54ffd9ed28d041a391294249e605db',
+          name: 'ao-pilot-headless-runtime-v0.11.2-p0.4',
+          tag_object_sha: '7947c3ac8787576bce0d5d7627c8020e95643bef',
+          commit_sha: '43d37ef2a76e1949c8032c49c5e6197d98bf0b96',
+          tree_sha: '91282c19b408935e94d732e8e10699d393f3c821',
         },
         integrity: {
           algorithm: 'git-tree-sha1',
-          digest: '4e92c96cef54ffd9ed28d041a391294249e605db',
+          digest: '91282c19b408935e94d732e8e10699d393f3c821',
         },
       },
       build: {
@@ -70,12 +70,12 @@ describe('runtime lock contract', () => {
       {
         os: 'linux',
         arch: 'x64',
-        binary_sha256: 'd122f25278537945ea21356df7a6ac28c2d66c27009c645380dac46f97c2a71d',
+        binary_sha256: '45d257d19810cb606917ce734ec281c16617b0ec0088591e3cea909c27868919',
       },
       {
         os: 'linux',
         arch: 'arm64',
-        binary_sha256: '4fdc3fa31a44a04d70e28dd291440ef93532342f707c6d47eaef3c079fdfa626',
+        binary_sha256: '2b2025e9aaf3fd8799fa6c5ed149118f15d8d62e56123c3fa13c70c7c3ea3ffe',
       },
     ]);
   });
@@ -139,12 +139,12 @@ describe('runtime lock contract', () => {
     expect(verifyRuntimeLock()).toMatchObject({
       status: 'verified',
       schema_version: RUNTIME_LOCK_SCHEMA_VERSION,
-      runtime_ref: 'runtime.ao_pilot_headless.v0_11_2_p0_3',
+      runtime_ref: 'runtime.ao_pilot_headless.v0_11_2_p0_4',
       lock_digest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
       artifact: {
         repository: 'https://github.com/Samsen879/ao-pilot.git',
-        commit_sha: '6d9168b244600bb14629c6545d667429ad81b981',
-        tree_sha: '4e92c96cef54ffd9ed28d041a391294249e605db',
+        commit_sha: '43d37ef2a76e1949c8032c49c5e6197d98bf0b96',
+        tree_sha: '91282c19b408935e94d732e8e10699d393f3c821',
       },
     });
   });
