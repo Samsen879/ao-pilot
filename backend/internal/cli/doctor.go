@@ -196,7 +196,7 @@ func checkStore(dataDir string) doctorCheck {
 	case errors.Is(err, fs.ErrNotExist):
 		return doctorCheck{
 			Level: doctorWarn, Section: doctorSectionCore, Name: "sqlite",
-			Message: "database not created yet; run `ao start` to initialize and migrate it",
+			Message: "database not created yet; run `ao-pilot start` to initialize and migrate it",
 		}
 	default:
 		return doctorCheck{Level: doctorFail, Section: doctorSectionCore, Name: "sqlite", Message: err.Error()}
