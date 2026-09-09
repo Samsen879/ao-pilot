@@ -146,7 +146,17 @@ function validPremergePublicationAuthority(payload) {
 }
 
 function validSelfHostingReceipt() {
-  const successorRuntime = loadRuntimeLock().lock;
+  const successorRuntime = {
+    runtime_ref: P0_R08_RUNTIME_REF,
+    artifact: {
+      ref: {
+        commit_sha: P0_R08_RUNTIME_COMMIT,
+      },
+    },
+    compatibility: {
+      platforms: [{ binary_sha256: P0_R08_RUNTIME_X64_SHA256 }],
+    },
+  };
   const runtime = {
     runtime_ref: P0_R08_PRINCIPAL_RUNTIME_REF,
     artifact: {
@@ -1291,16 +1301,18 @@ describe('fresh-clone and protected self-hosting gates', () => {
     expect(() => verifySelfHostingReceipt(receipt, validEvidence(receipt))).toThrow('Historical principal runtime ref mismatch');
   });
 
-  it('documents p0.2 as canonical while retaining p0.1 only as historical principal evidence', () => {
+  it('documents the current canonical lock while retaining p0.1 and p0.2 as historical evidence', () => {
     const runtimeDoc = fs.readFileSync('docs/AO_RUNTIME.md', 'utf8');
-    expect(runtimeDoc).toContain(`runtime ref: \`${P0_R08_RUNTIME_REF}\``);
-    expect(runtimeDoc).toContain(`immutable tag: \`${P0_R08_RUNTIME_TAG}\``);
-    expect(runtimeDoc).toContain(`annotated tag object: \`${P0_R08_RUNTIME_TAG_OBJECT}\``);
-    expect(runtimeDoc).toContain(`commit: \`${P0_R08_RUNTIME_COMMIT}\``);
-    expect(runtimeDoc).toContain(`tree/integrity: \`${P0_R08_RUNTIME_TREE}\``);
-    expect(runtimeDoc).toContain(P0_R08_RUNTIME_X64_SHA256);
-    expect(runtimeDoc).toContain(P0_R08_RUNTIME_ARM64_SHA256);
+    const current = loadRuntimeLock().lock;
+    expect(runtimeDoc).toContain(`runtime ref: \`${current.runtime_ref}\``);
+    expect(runtimeDoc).toContain(`immutable subtree tag: \`${current.artifact.ref.name}\``);
+    expect(runtimeDoc).toContain(`annotated tag object: \`${current.artifact.ref.tag_object_sha}\``);
+    expect(runtimeDoc).toContain(`commit: \`${current.artifact.ref.commit_sha}\``);
+    expect(runtimeDoc).toContain(`tree/integrity: \`${current.artifact.ref.tree_sha}\``);
+    expect(runtimeDoc).toContain(current.compatibility.platforms[0].binary_sha256);
+    expect(runtimeDoc).toContain(current.compatibility.platforms[1].binary_sha256);
     expect(runtimeDoc).toContain('p0.1 tag/commit/tree and binary digests remain immutable historical');
+    expect(runtimeDoc).toContain('p0.2 transition');
   });
 
   it.each([

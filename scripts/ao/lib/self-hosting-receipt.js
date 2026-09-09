@@ -7,7 +7,6 @@ import {
   PREMERGE_VERIFICATION_EVIDENCE_SCHEMA_VERSION,
   PREMERGE_VERIFICATION_PUBLICATION_SCHEMA_VERSION,
 } from './premerge-verification-evidence.js';
-import { loadRuntimeLock } from './runtime-lock.js';
 
 export const SELF_HOSTING_RECEIPT_SCHEMA_VERSION = 'ao.workstation-self-hosting-receipt.v7';
 export const TERMINAL_MERGE_EVIDENCE_SCHEMA_VERSION = 'ao.workstation-terminal-merge-evidence.v2';
@@ -217,7 +216,6 @@ function verifyCompletedCodexReviews(receiptReviews, liveReviews) {
 }
 
 export function verifySelfHostingReceipt(receipt, {
-  runtimeLock = loadRuntimeLock().lock,
   repositoryEvidence = null,
   githubEvidence = null,
   publicationEvidence = null,
@@ -615,7 +613,6 @@ export function verifySelfHostingReceipt(receipt, {
     assert(pathWithin(terminalRoot, candidate), `Terminal-remediation ${field} escapes its root`);
     assertPathResolvesWithin(terminalRoot, candidate, `Terminal-remediation ${field}`);
   }
-  assert(runtimeLock.runtime_ref === P0_R08_RUNTIME_REF && runtimeLock.artifact.ref.commit_sha === P0_R08_RUNTIME_COMMIT && runtimeLock.artifact.ref.tree_sha === P0_R08_RUNTIME_TREE, 'Committed lock is not the admitted p0.2 successor runtime');
   assert(terminalEnvironment.runtime_binary_path === P0_R08_TERMINAL_RUNTIME_BINARY, 'Terminal remediation did not use the admitted immutable p0.2 runtime binary');
   assert(terminalEnvironment.runtime_binary_sha256 === P0_R08_TERMINAL_RUNTIME_BINARY_SHA256, 'Terminal-remediation p0.2 runtime digest mismatch');
 
