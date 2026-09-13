@@ -19,9 +19,16 @@ const commit = git(['rev-parse', 'HEAD']);
 const tree = git(['rev-parse', 'HEAD^{tree}']);
 const target = path.join(os.homedir(), '.local/share/ao-pilot/apps', `original-dashboard-${commit}`);
 if (fs.existsSync(target)) throw new Error(`Refusing to overwrite existing installation: ${target}`);
-const archive = execFileSync('git', ['archive', '--format=tar', commit], {cwd: root, maxBuffer: 32 * 1024 * 1024});
-fs.mkdirSync(target, {recursive: true, mode: 0o700});
-execFileSync('tar', ['-xf', '-', '-C', target], {input: archive});
+const archiveDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-dashboard-archive-'));
+const archive = path.join(archiveDir, 'source.tar');
+try {
+  run('git', ['archive', '--format=tar', '-o', archive, commit]);
+  fs.mkdirSync(target, {recursive: true, mode: 0o700});
+  run('tar', ['-xf', archive, '-C', target]);
+} finally {
+  if (fs.existsSync(archive)) fs.unlinkSync(archive);
+  fs.rmdirSync(archiveDir);
+}
 run('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], target);
 const browser = path.join(target, 'browser');
 // Browser devDependencies are required for its TypeScript/Next.js build.
