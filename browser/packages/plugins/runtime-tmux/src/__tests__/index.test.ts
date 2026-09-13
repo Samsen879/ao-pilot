@@ -539,6 +539,16 @@ describe("runtime.isAlive()", () => {
     mockExecFileCustom.mockRejectedValueOnce(new Error("no server running on /tmp/tmux-1000/default"));
     await expect(runtime.isAlive({id:"original-worker",runtimeName:"tmux",data:{}})).resolves.toBe(false);
   });
+  it("returns false when cold boot removed the tmux socket directory", async () => {
+    const runtime = create();
+    mockTmuxError("error connecting to /tmp/tmux-1000/default (No such file or directory)");
+    await expect(runtime.isAlive(makeHandle("original-worker"))).resolves.toBe(false);
+  });
+  it("does not treat a refused socket connection as a missing session", async () => {
+    const runtime = create();
+    mockTmuxError("error connecting to /tmp/tmux-1000/default (Connection refused)");
+    await expect(runtime.isAlive(makeHandle("original-worker"))).rejects.toThrow("Connection refused");
+  });
 });
 
 describe("runtime.getMetrics()", () => {
