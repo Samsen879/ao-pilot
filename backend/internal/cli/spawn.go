@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -21,6 +23,7 @@ import (
 const maxDisplayNameLen = 20
 
 type spawnOptions struct {
+	attemptID      string
 	project        string
 	harness        string
 	kind           string
@@ -36,6 +39,7 @@ type spawnOptions struct {
 // spawnRequest mirrors the daemon's SpawnSessionRequest body for
 // POST /api/v1/sessions. The CLI keeps its own copy so it need not import httpd.
 type spawnRequest struct {
+	AttemptID   string `json:"attemptId,omitempty"`
 	ProjectID   string `json:"projectId"`
 	IssueID     string `json:"issueId,omitempty"`
 	Kind        string `json:"kind,omitempty"`
@@ -118,7 +122,11 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 					return err
 				}
 			}
+			if opts.attemptID == "" {
+				opts.attemptID = uuid.NewString()
+			}
 			req := spawnRequest{
+				AttemptID:   opts.attemptID,
 				ProjectID:   opts.project,
 				IssueID:     opts.issue,
 				Kind:        opts.kind,
@@ -129,7 +137,7 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 			}
 			var res spawnResult
 			if err := ctx.postJSON(cmd.Context(), "sessions", req, &res); err != nil {
-				return err
+				return fmt.Errorf("attempt %s: %w (inspect with ao spawn-attempt %s)", opts.attemptID, err, opts.attemptID)
 			}
 			claimed := ""
 			if opts.claimPR != "" {
@@ -158,6 +166,7 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
+	f.StringVar(&opts.attemptID, "attempt-id", "", "Explicit attempt UUID for idempotent spawn custody")
 	// --agent is an alias for --harness so the more intuitive `ao spawn --agent
 	// droid` works identically; both resolve to the same harness flag.
 	f.SetNormalizeFunc(func(_ *pflag.FlagSet, name string) pflag.NormalizedName {
@@ -452,4 +461,14 @@ type rollbackSessionResponse struct {
 	SessionID string `json:"sessionId"`
 	Deleted   bool   `json:"deleted,omitempty"`
 	Killed    bool   `json:"killed,omitempty"`
+}
+
+func newSpawnAttemptCommand(ctx *commandContext) *cobra.Command {
+	return &cobra.Command{Use: "spawn-attempt <uuid>", Short: "Inspect durable native spawn custody without launching or cleaning", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		var result any
+		if err := ctx.getJSON(cmd.Context(), "spawn-attempts/"+url.PathEscape(args[0]), &result); err != nil {
+			return err
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
+	}}
 }

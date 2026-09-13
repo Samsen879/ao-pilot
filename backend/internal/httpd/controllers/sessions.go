@@ -24,6 +24,7 @@ import (
 	previewutil "github.com/aoagents/agent-orchestrator/backend/internal/preview"
 	"github.com/aoagents/agent-orchestrator/backend/internal/previewserver"
 	sessionsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/session"
+	sessionmanager "github.com/aoagents/agent-orchestrator/backend/internal/session_manager"
 )
 
 const (
@@ -119,6 +120,7 @@ type SessionsController struct {
 func (c *SessionsController) Register(r chi.Router) {
 	r.Get("/sessions", c.list)
 	r.Post("/sessions", c.spawn)
+	r.Get("/spawn-attempts/{attemptId}", c.spawnAttempt)
 	r.Post("/sessions/cleanup", c.cleanup)
 	r.Get("/sessions/{sessionId}", c.get)
 	r.Get("/sessions/{sessionId}/preview", c.preview)
@@ -204,7 +206,7 @@ func (c *SessionsController) spawn(w http.ResponseWriter, r *http.Request) {
 		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", attachErr.code, attachErr.message, nil)
 		return
 	}
-	sess, promptBytes, systemPromptBytes, err := c.Svc.Spawn(r.Context(), ports.SpawnConfig{ProjectID: in.ProjectID, IssueID: in.IssueID, Kind: in.Kind, Harness: in.Harness, Branch: in.Branch, Prompt: in.Prompt, DisplayName: displayName, Attachments: attachments})
+	sess, promptBytes, systemPromptBytes, err := c.Svc.Spawn(r.Context(), ports.SpawnConfig{AttemptID: in.AttemptID, ProjectID: in.ProjectID, IssueID: in.IssueID, Kind: in.Kind, Harness: in.Harness, Branch: in.Branch, Prompt: in.Prompt, DisplayName: displayName, Attachments: attachments})
 	if err != nil {
 		envelope.WriteError(w, r, err)
 		return
@@ -1224,4 +1226,20 @@ func nonNilSessionIDs(ids []domain.SessionID) []domain.SessionID {
 		return []domain.SessionID{}
 	}
 	return ids
+}
+
+func (c *SessionsController) spawnAttempt(w http.ResponseWriter, r *http.Request) {
+	inspector, ok := c.Svc.(interface {
+		InspectSpawnAttempt(context.Context, string) (sessionmanager.SpawnAttemptDiagnosis, error)
+	})
+	if !ok {
+		envelope.WriteAPIError(w, r, 501, "not_implemented", "SPAWN_INSPECT_UNAVAILABLE", "Spawn diagnosis unavailable", nil)
+		return
+	}
+	result, err := inspector.InspectSpawnAttempt(r.Context(), chi.URLParam(r, "attemptId"))
+	if err != nil {
+		envelope.WriteAPIError(w, r, 409, "conflict", "SPAWN_ATTEMPT_HOLD", "Spawn attempt missing or unreadable; preserve resources", nil)
+		return
+	}
+	envelope.WriteJSON(w, 200, result)
 }

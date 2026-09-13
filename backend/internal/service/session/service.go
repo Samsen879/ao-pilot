@@ -191,6 +191,13 @@ func (s *Service) CompleteOrchestrator(ctx context.Context, id domain.SessionID)
 // Spawn creates a session and returns the API-facing read model plus
 // ephemeral prompt size measurements.
 func (s *Service) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Session, int, int, error) {
+	if cfg.CallerFingerprint == "" {
+		fp, err := sessionmanager.CallerSpawnFingerprint(cfg)
+		if err != nil {
+			return domain.Session{}, 0, 0, err
+		}
+		cfg.CallerFingerprint = fp
+	}
 	project, err := s.requireProject(ctx, cfg.ProjectID)
 	if err != nil {
 		return domain.Session{}, 0, 0, err
@@ -734,4 +741,14 @@ func (s *Service) harnessSignals(h domain.AgentHarness) bool {
 		return false
 	}
 	return s.signalCapable(h)
+}
+
+func (s *Service) InspectSpawnAttempt(ctx context.Context, id string) (sessionmanager.SpawnAttemptDiagnosis, error) {
+	inspector, ok := s.manager.(interface {
+		InspectSpawnAttempt(context.Context, string) (sessionmanager.SpawnAttemptDiagnosis, error)
+	})
+	if !ok {
+		return sessionmanager.SpawnAttemptDiagnosis{}, fmt.Errorf("spawn diagnosis unavailable")
+	}
+	return inspector.InspectSpawnAttempt(ctx, id)
 }
