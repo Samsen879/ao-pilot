@@ -10,7 +10,7 @@ The workstation owner supervising AO-managed coding sessions, including CIE work
 
 ## Product Purpose
 
-Replace the legacy browser Dashboard without depending on its repository. Preserve project/session navigation, session detail, and the interactive terminal.
+Transplant the complete original browser Dashboard source into ao-pilot without depending on the retired repository at runtime. Preserve every original page, component, navigation, font and CSS byte; do not substitute a simplified implementation. Limit adaptations to necessary backend integration, localhost safety and deployment.
 
 ## Brand Personality
 

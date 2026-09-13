@@ -35,6 +35,7 @@
     "scripts",
     "docs",
     "dashboard",
+    "browser",
     "templates",
     "tests/ao/fixtures"
   ],

@@ -5,3 +5,7 @@ coverage/
 *.log
 .playwright-cli/
 output/playwright/
+browser/**/.next/
+browser/**/dist/
+browser/**/dist-server/
+browser/**/*.tsbuildinfo

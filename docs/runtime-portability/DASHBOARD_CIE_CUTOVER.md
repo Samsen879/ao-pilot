@@ -1,21 +1,30 @@
-# Native Dashboard and CIE cutover
+# Original browser Dashboard and CIE cutover
 
 ## Scope
 
-The browser UI is now source-owned by `ao-pilot` outside the immutable headless
-runtime subtree. It uses the native p0.4 `/api/v1` and `/mux` surfaces. No legacy
-checkout, Next.js, Electron, CDN, or 14800/14801 service is required.
+The simplified native UI was rejected by the Owner. The complete original
+Next.js Dashboard is now transplanted into `browser/`, outside the immutable
+headless runtime subtree. It includes original pages, components, CSS, API
+routes, terminal servers and supporting core/plugins. No retired checkout or
+its node_modules is required at runtime. This preserves the compatible
+flat-file session backend; it does NOT establish native database migration.
 
-Preserve the old project/session/detail/terminal workflow; improve explicit
-connection failure/timeout/exit status and keyboard/screen-reader accessibility.
-The terminal uses locally installed xterm assets. Dashboard binds 127.0.0.1 only,
-checks localhost Host and same-origin requests/upgrades, and proxies a closed
-set of API routes. Opening a page never spawns a successor or restores a worker.
+All original visual source bytes are verified by
+`node scripts/verify-browser-source.js`. Backend changes bind Next.js and
+14800/14801 to 127.0.0.1, hold writes/terminal actions during validation and
+disable automatic lifecycle/backlog dispatch by default. Terminal permanent
+close codes are aligned with the unchanged original frontend to avoid retrying
+missing sessions indefinitely. Opening a page never restores a worker.
 
 ## Run and deploy
 
 ```sh
-ao-pilot dashboard --port 3000 --runtime-port 3001
+cd browser
+npm ci
+npm run build:deps
+NODE_ENV=production npm run build
+cd ..
+AO_CONFIG_PATH=/home/samsen/agent-orchestrator.yaml AO_DASHBOARD_READ_ONLY=1 ao-pilot dashboard --port 3000
 node scripts/install-dashboard-service.js           # inspect generated units
 node scripts/install-dashboard-service.js --install # refuses existing units
 systemctl --user daemon-reload
@@ -36,7 +45,8 @@ Other workstation users/distributions must adapt the installer before use.
 User services start when WSL starts; the Windows task supplies owner-sign-in
 activation. This is not a claim of pre-login Windows boot activation.
 
-Do not change checkout branches while services point to this source checkout.
+The original config path preserves the existing hashed session namespace.
+Do not move it or change checkout branches while services point to this source checkout.
 A reviewed immutable package installation is the final durable deployment gate.
 The initial local deployment is a candidate, not a merged release.
 
@@ -60,14 +70,27 @@ conversation is not native transcript recovery.
 
 - Unit tests: host/origin/API boundaries, unavailable daemon, service generation,
   explicit runtime binding precedence, and read-only CIE receipt planning.
-- Real-browser smoke: a temporary Scratch shell, mocked session REST identity,
+- Historical simplified-UI smoke (not accepted original-UI evidence): a temporary Scratch shell, mocked session REST identity,
   **real** native mux/PTY input/output; this is transport evidence, not CIE
   session migration acceptance. Desktop and 390px screenshots were inspected.
-- Both user services are enabled/active; only 127.0.0.1:3000/3001 listen.
+- Original browser workspace: final production build PASS, 18 suites / 419
+  tests PASS; original visual-source SHA256 verification PASS (24 files).
+- AO Pilot regression: 111 suites / 1072 tests PASS. Source package dry-run:
+  951 entries, 200 browser entries; no browser dependencies or build caches.
+- CIE API recognizes cie-111 and cie-orchestrator under the original namespace.
+  Host tmux is absent: metadata visibility is not live-session recovery.
+- The deployed original browser candidate listens on 127.0.0.1:14800/14801 in addition
+  to 3000 and the separately managed native daemon on 3001.
 - Windows logon task manual trigger returned LastTaskResult 0.
 - Service restart retained the CIE project; actual full PC reboot remains
   unexecuted, so do not call end-to-end reboot acceptance PASS.
-- Full tests and package installation must be repeated on the final candidate.
+- Dashboard service is active/enabled and its prior unit is backed up. Only
+  that unit was replaced; the native runtime service and CIE state were left
+  untouched. Browser screenshots show original homepage and session detail;
+  validation HOLD is explicit and no longer retries indefinitely.
+- Independent npm package installation/public API verification PASS (951
+  entries). Browser production build and tests were run in its separate
+  workspace; installing the root package alone does not install browser deps.
 
 Rollback: stop/disable the two new user units and unregister AO-Pilot-WSL after
 explicit Owner approval. Remove or rename only the new runtime-binding file to
