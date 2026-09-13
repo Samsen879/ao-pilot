@@ -68,6 +68,38 @@ conversation is not native transcript recovery.
 
 ## Verification and rollback
 
+### Codex restore entry repair (source candidate)
+
+Owner-authorized recovery resumed cie-111 on 2026-09-13 in that exact original
+conversation, existing worktree and PR #1930. No replacement worker/worktree
+was created and workspace hooks were not rewritten. The worker acknowledged
+the handoff and began live rebinding before serial final validation; this is
+not issue completion or validation PASS. Its interrupted prior run remains
+non-PASS. Global automation remains off. `--terminal-access` on the committed
+deployer explicitly opens local direct terminal access while retaining the
+API write hold; it does not relax approval/sandbox settings for the worker.
+
+Codex restore now resolves a non-empty native resume command before archive
+metadata writes, workspace restoration/hooks or destruction of the prior
+runtime. Missing discovery support, null/blank commands or discovery errors
+cannot silently trigger a fresh Codex launch. Other agents' legacy behavior is
+unchanged. The rollout parser supports session_meta.payload.id/session_id,
+rejects conflicting metadata identities, and preserves that authoritative ID
+instead of replacing it with later event/message identifiers.
+
+Verification: 26 restore-specific core tests passed; 155 Codex parser/plugin
+tests passed; 419 original Dashboard/API/terminal tests passed; both supporting
+libraries compiled and the original visual-source hash check passed. A full
+core session-manager run was not PASS: it also encountered an unrelated
+OpenCode orchestrator-title discovery timeout. Focused restore results do not
+substitute for that full suite.
+
+Read-only discovery against the retained cie-111 workspace produced native
+resume for 01a08b6a-6520-7c23-956b-67e5e48ca320, the transcript bound to its
+latest handoff. Legacy metadata hashes were unchanged. This verification did
+not execute the command, start an agent, migrate state or deploy the source
+candidate; the current pinned Dashboard remains read-only.
+
 - Unit tests: host/origin/API boundaries, unavailable daemon, service generation,
   explicit runtime binding precedence, and read-only CIE receipt planning.
 - Historical simplified-UI smoke (not accepted original-UI evidence): a temporary Scratch shell, mocked session REST identity,

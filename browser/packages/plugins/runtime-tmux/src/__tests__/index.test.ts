@@ -534,6 +534,11 @@ describe("runtime.isAlive()", () => {
 
     await expect(runtime.isAlive(handle)).rejects.toThrow("Operation not permitted");
   });
+  it("returns false when reboot left no tmux server", async () => {
+    const runtime = create();
+    mockExecFileCustom.mockRejectedValueOnce(new Error("no server running on /tmp/tmux-1000/default"));
+    await expect(runtime.isAlive({id:"original-worker",runtimeName:"tmux",data:{}})).resolves.toBe(false);
+  });
 });
 
 describe("runtime.getMetrics()", () => {

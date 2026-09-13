@@ -16,7 +16,7 @@ import type {
 
 const execFileAsync = promisify(execFile);
 const TMUX_COMMAND_TIMEOUT_MS = 5_000;
-const MISSING_SESSION_PATTERNS = [/can't find session/i, /session not found/i, /no such session/i];
+const MISSING_SESSION_PATTERNS = [/can't find session/i, /session not found/i, /no such session/i, /no server running on/i];
 const CODEX_FILE_NOTE_PREFIX = "AO note: Read ";
 const SEND_MESSAGE_CONFIRM_LINES = 20;
 const SEND_MESSAGE_CONFIRM_DELAY_MS = 300;

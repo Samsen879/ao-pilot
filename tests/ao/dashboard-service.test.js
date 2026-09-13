@@ -12,3 +12,11 @@ test('service runs verified foreground lifecycle and native Dashboard in isolate
 test('rejects systemd expansion and multiline injection', () => {
   for (const packageRoot of ['relative','/bad\nExecStart=x','/bad%h']) expect(() => buildDashboardUnits({packageRoot,nodePath:'/bin/node',home:'/user'})).toThrow();
 });
+test('terminal access is explicit and never unlocks API writes or automation', () => {
+  for (const terminalAccess of [false, true]) {
+    const unit = buildDashboardUnits({packageRoot:'/repo/ao-pilot',nodePath:'/node/bin/node',home:'/user',terminalAccess})['ao-pilot-dashboard.service'];
+    expect(unit).toContain(`AO_DASHBOARD_TERMINAL_ACCESS=${terminalAccess ? '1' : '0'}`);
+    expect(unit).toContain('AO_DASHBOARD_READ_ONLY=1');
+    expect(unit).toContain('AO_DASHBOARD_AUTOMATION=0');
+  }
+});

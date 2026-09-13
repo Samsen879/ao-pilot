@@ -377,6 +377,8 @@ interface CodexJsonlLine {
   // Thread ID from thread_started notifications
   threadId?: string;
   payload?: {
+    id?: string;
+    session_id?: string;
     cwd?: string;
     model?: string;
     threadId?: string;
@@ -438,6 +440,14 @@ function getEntryModel(entry: CodexJsonlLine): string | null {
 }
 
 function getEntryThreadId(entry: CodexJsonlLine): string | null {
+  // Modern rollouts store the original conversation ID in session_meta.
+  // Never treat an arbitrary message/tool id as a conversation ID.
+  if (entry.type === "session_meta") {
+    const payload = getPayloadObject(entry);
+    for (const key of ["session_id", "id"] as const) {
+      if (payload && typeof payload[key] === "string" && payload[key].trim()) return payload[key];
+    }
+  }
   if (typeof entry.threadId === "string" && entry.threadId) return entry.threadId;
   const payload = getPayloadObject(entry);
   if (payload && typeof payload.threadId === "string" && payload.threadId) return payload.threadId;
@@ -647,6 +657,7 @@ async function streamCodexSessionData(
   try {
     signal?.throwIfAborted();
     const data: CodexSessionData = { model: null, threadId: null, inputTokens: 0, outputTokens: 0 };
+    let metadataThreadId: string | null = null;
     const rl = createInterface({
       input: createReadStream(filePath, { encoding: "utf-8", signal }),
       crlfDelay: Infinity,
@@ -662,13 +673,22 @@ async function streamCodexSessionData(
         const entry = parsed as CodexJsonlLine;
 
         if (entry.type === "session_meta") {
+          const payload = getPayloadObject(entry);
+          const ids = [payload?.id, payload?.session_id, payload?.threadId, entry.threadId]
+            .filter((id): id is string => typeof id === "string" && Boolean(id.trim()));
+          if (new Set(ids).size > 1 || metadataThreadId && ids.some(id => id !== metadataThreadId)) {
+            return { ...data, threadId: null };
+          }
+          metadataThreadId = ids[0] ?? metadataThreadId;
           const model = getEntryModel(entry);
           if (model) {
             data.model = model;
           }
         }
         const threadId = getEntryThreadId(entry);
-        if (threadId) {
+        if (metadataThreadId) {
+          data.threadId = metadataThreadId;
+        } else if (threadId) {
           data.threadId = threadId;
         }
         const usage = getTokenCountUsage(entry);

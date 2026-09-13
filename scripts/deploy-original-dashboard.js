@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const args = process.argv.slice(2);
-if (args.length !== 1 || args[0] !== '--deploy') throw new Error('Usage: node scripts/deploy-original-dashboard.js --deploy');
+if (!args.includes('--deploy') || args.some(arg => !['--deploy', '--terminal-access'].includes(arg))) throw new Error('Usage: node scripts/deploy-original-dashboard.js --deploy [--terminal-access]');
 const run = (command, commandArgs, cwd = root) => execFileSync(command, commandArgs, {
   cwd, stdio: 'inherit', env: {...process.env, NODE_ENV: 'production'},
 });
@@ -43,10 +43,10 @@ const receipt = {
   browser_lock_sha256: digest(path.join(browser, 'package-lock.json')),
   source_import_sha256: digest(path.join(browser, 'SOURCE_IMPORT.json')),
   next_build_id: fs.readFileSync(path.join(browser, 'packages/web/.next/BUILD_ID'), 'utf8').trim(),
-  read_only: true, automation_enabled: false,
+  read_only: true, automation_enabled: false, terminal_access: args.includes('--terminal-access'),
 };
 fs.writeFileSync(path.join(target, 'DEPLOYMENT.json'), JSON.stringify(receipt, null, 2) + '\n', {mode: 0o600});
-run(process.execPath, ['scripts/install-dashboard-service.js', '--install', '--replace', '--dashboard-only'], target);
+run(process.execPath, ['scripts/install-dashboard-service.js', '--install', '--replace', '--dashboard-only', ...(args.includes('--terminal-access') ? ['--terminal-access'] : [])], target);
 run('systemctl', ['--user', 'daemon-reload']);
 run('systemctl', ['--user', 'restart', 'ao-pilot-dashboard.service']);
 run('systemctl', ['--user', 'is-active', 'ao-pilot-dashboard.service']);

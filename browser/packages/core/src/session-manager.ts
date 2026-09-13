@@ -2439,6 +2439,17 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       throw new SessionNotRestorableError(sessionId, "session is not in a terminal state");
     }
 
+    // A Codex restore is an original-thread resume, never a fresh launch.
+    // Resolve it BEFORE archive writes, workspace hooks or runtime destruction.
+    const strictCodexRestore = selection.agentName === "codex" || plugins.agent?.name === "codex";
+    let codexRestoreCommand: string | null = null;
+    if (strictCodexRestore) {
+      codexRestoreCommand = await plugins.agent?.getRestoreCommand?.(session, project) ?? null;
+      if (!codexRestoreCommand?.trim()) {
+        throw new SessionNotRestorableError(sessionId, "original Codex conversation ID could not be verified; fresh conversation fallback is forbidden");
+      }
+    }
+
     if (fromArchive) {
       writeMetadata(sessionsDir, sessionId, {
         worktree: raw["worktree"] ?? "",
@@ -2513,7 +2524,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
     }
 
-    // 7. Get launch command — try restore command first, fall back to fresh launch
+    // 7. Use the verified Codex resume; retain legacy behavior for other agents.
     let launchCommand: string;
     let systemPromptFile: string | undefined;
     if (sessionIsOrchestrator) {
@@ -2546,7 +2557,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       systemPromptFile,
     };
 
-    if (plugins.agent.getRestoreCommand) {
+    if (strictCodexRestore) {
+      launchCommand = codexRestoreCommand!;
+    } else if (plugins.agent.getRestoreCommand) {
       const restoreCmd = await plugins.agent.getRestoreCommand(session, project);
       launchCommand = restoreCmd ?? plugins.agent.getLaunchCommand(agentLaunchConfig);
     } else {

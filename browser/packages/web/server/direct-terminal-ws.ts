@@ -135,7 +135,7 @@ export function createDirectTerminalServer(tmuxPath?: string): DirectTerminalSer
         return;
       }
     }
-    if (process.env["AO_DASHBOARD_READ_ONLY"] === "1") {
+    if (process.env["AO_DASHBOARD_READ_ONLY"] === "1" && process.env["AO_DASHBOARD_TERMINAL_ACCESS"] !== "1") {
       ws.close(4001, "Terminal actions held during read-only validation");
       return;
     }

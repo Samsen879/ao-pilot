@@ -4750,6 +4750,46 @@ describe("restore", () => {
     expect(createCall.launchCommand).toBe("mock-agent --start");
   });
 
+  it.each(["null", "blank", "missing", "throw"])("holds Codex recovery without side effects when discovery is %s", async (mode) => {
+    const workspace = { ...mockWorkspace, restore: vi.fn() };
+    const agent: Agent = { ...mockAgent, name: "codex",
+      getRestoreCommand: mode === "missing" ? undefined : mode === "throw"
+        ? vi.fn().mockRejectedValue(new Error("discovery failed"))
+        : vi.fn().mockResolvedValue(mode === "blank" ? "  " : null),
+    };
+    const registry: PluginRegistry = { ...mockRegistry, get: vi.fn().mockImplementation((slot: string) => {
+      if (slot === "runtime") return mockRuntime;
+      if (slot === "agent") return agent;
+      if (slot === "workspace") return workspace;
+      return null;
+    }) };
+    writeMetadata(sessionsDir, "app-1", {worktree: join(tmpDir, "missing-workspace"), branch: "feat/original", status: "killed", project: "my-app", runtimeHandle: JSON.stringify(makeHandle("rt-old")), pr: "https://example.test/pr/1"});
+    const before = readMetadata(sessionsDir, "app-1");
+    await expect(createSessionManager({config, registry}).restore("app-1")).rejects.toThrow(mode === "throw" ? "discovery failed" : "fallback is forbidden");
+    expect(agent.getLaunchCommand).not.toHaveBeenCalled();
+    expect(mockRuntime.create).not.toHaveBeenCalled();
+    expect(mockRuntime.destroy).not.toHaveBeenCalled();
+    expect(workspace.restore).not.toHaveBeenCalled();
+    expect(readMetadata(sessionsDir, "app-1")).toEqual(before);
+  });
+
+  it("uses the verified Codex resume command once without calling fresh launch", async () => {
+    const wsPath = join(tmpDir, "codex-original-workspace");
+    mkdirSync(wsPath, {recursive: true});
+    const agent: Agent = {...mockAgent, name: "codex", getRestoreCommand: vi.fn().mockResolvedValue("codex resume original-id")};
+    const registry: PluginRegistry = {...mockRegistry, get: vi.fn().mockImplementation((slot: string) => {
+      if (slot === "runtime") return mockRuntime;
+      if (slot === "agent") return agent;
+      if (slot === "workspace") return mockWorkspace;
+      return null;
+    })};
+    writeMetadata(sessionsDir, "app-1", {worktree: wsPath, branch: "feat/original", status: "killed", project: "my-app", runtimeHandle: JSON.stringify(makeHandle("rt-old"))});
+    await createSessionManager({config, registry}).restore("app-1");
+    expect(agent.getRestoreCommand).toHaveBeenCalledTimes(1);
+    expect(agent.getLaunchCommand).not.toHaveBeenCalled();
+    expect(mockRuntime.create).toHaveBeenCalledWith(expect.objectContaining({launchCommand: "codex resume original-id"}));
+  });
+
   it("preserves original createdAt/issue/PR metadata", async () => {
     const wsPath = join(tmpDir, "ws-app-1");
     mkdirSync(wsPath, { recursive: true });

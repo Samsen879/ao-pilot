@@ -1280,6 +1280,31 @@ describe("getRestoreCommand", () => {
     expect(cmd).toContain("thread-abc-123");
   });
 
+  it.each(["id", "session_id"])("resumes modern session_meta.%s and ignores later message IDs", async (key) => {
+    const content = jsonl(
+      { type: "session_meta", payload: { cwd: "/workspace/test", [key]: "original-thread" } },
+      { type: "response_item", payload: { id: "message-not-thread" } },
+      { threadId: "later-not-authoritative" },
+    );
+    mockReaddir.mockResolvedValue(["sess.jsonl"]);
+    setupMockOpen(content);
+    setupMockStream(content);
+    mockStat.mockResolvedValue({ mtimeMs: 1000 });
+    const cmd = await agent.getRestoreCommand!(makeSession({ workspacePath: "/workspace/test" }), makeProjectConfig());
+    expect(cmd).toContain("'codex' resume");
+    expect(cmd).toContain("'original-thread'");
+    expect(cmd).not.toContain("later-not-authoritative");
+  });
+
+  it("rejects conflicting modern session identities", async () => {
+    const content = jsonl({ type: "session_meta", payload: { cwd: "/workspace/test", id: "one", session_id: "two" } });
+    mockReaddir.mockResolvedValue(["sess.jsonl"]);
+    setupMockOpen(content);
+    setupMockStream(content);
+    mockStat.mockResolvedValue({ mtimeMs: 1000 });
+    expect(await agent.getRestoreCommand!(makeSession({ workspacePath: "/workspace/test" }), makeProjectConfig())).toBeNull();
+  });
+
   it("includes bypass flag when project config permissions=permissionless", async () => {
     const content = jsonl(
       { type: "session_meta", cwd: "/workspace/test", model: "gpt-4o" },
