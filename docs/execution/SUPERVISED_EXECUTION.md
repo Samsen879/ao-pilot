@@ -1,0 +1,31 @@
+# Enrolled execution custody (#109)
+
+This opt-in `ao-pilot/execution` trusted-host API executes explicitly credential-free, non-daemonizing commands with the verifier-backed `ao-pilot/authority` ledger from #110. It does not wrap arbitrary historical commands, infer a terminal verification result from conversation restoration, or alter an installed runtime/daemon. The immutable pinned release binary is unchanged. The current barrier/identity implementation is Linux `/proc` only; other hosts cannot establish its identity and remain HOLD.
+
+## Enroll and run
+
+`describeExecutionInputs({cwd,untracked_inputs})` returns repository root, HEAD/tree and a digest of tracked binary diff, staged binary diff, and every named nonignored untracked file's bytes. Undeclared untracked files hold. This records hashes rather than secret-bearing raw diff bytes. Ignored files, interpreter/toolchain, undeclared external resources and generated child dependencies are not hermetic input guarantees. The host must declare the command/output credential-free; argv scanning only rejects obvious credential flags and is not a secrecy proof. No arbitrary caller environment is accepted.
+
+`createSupervisedExecution({directory,ledger}).run(manifest,{gateProofs})` requires:
+
+- `schema_version: ao.execution-enrollment.v1`, unique `invocation_id`, the complete #110 `scope`, exact `runtime_handle: {runtime_name,id}`.
+- `credential_free: true`, `non_daemonizing: true`; `command: {executable: absolute, args: string[], cwd: absolute}`.
+- `untracked_inputs: string[]` matching the actual nonignored set, and `summary: {marker,artifact}` with a single terminal stdout line and a repository-relative artifact.
+
+The private persistent store is outside the repository, `/tmp`, and node_modules. `testOnlyEphemeralStore` records `custody_domain: test-only` for fault fixtures and cannot support a real-host persistence claim. Symlinked/insecure/multiply-linked evidence fails closed. Intent and exclusive unique record are fsynced before helper launch. The helper reports boot/PID/start identity and waits at an IPC barrier. Its identity is fsynced before authority consumption. Under ledger→execution store lock order, Git identity is checked again, lane custody is reserved, and authority hash/permit phase is fsynced before permission is sent. Only then may the helper spawn the business child. Child identity follows as durable supervised observation; a missing child identity after permission remains unknown while the same boot survives. A restarted host can prove all old-boot processes absent. There is no guarantee for daemonizing/escaped descendants.
+
+The child receives only fixed PATH/LANG/LC_ALL/TZ plus fixed, nonsecret `AO_EXECUTION_INVOCATION_ID` and `AO_EXECUTION_INPUT_DIGEST` identity fields for its summary. The summary artifact must contain `schema_version: ao.execution-summary.v1`, the current `invocation_id`, current `input_digest`, and the observed integer `exit_code`. Its exact bytes are copied into private durable custody and hashed. A terminal marker plus a stale artifact is HOLD. Exit zero without bound terminal summary cannot become PASS. Nonzero exit with valid summary/log custody is completed evidence with validation_pass false. A terminal receipt whose final custody failed is evidence_missing, never reclassified as a valid interruption.
+
+## Recovery and rerun
+
+`inspect(invocationId)` makes no store changes and conservatively reports running/completed/interrupted/unknown, evidence_status and validation_pass. Live executor or child overrides a terminal record; inaccessible process view is unknown. Boot change or exact PID-start mismatch can prove a process absent; logs and durable execution identity remain necessary. Historical record fields do not authorize a new invocation. Completion requires matching durable log and summary bytes. Missing/truncated custody is HOLD. The read-only CLI is `ao-pilot execution inspect --store <directory> --invocation <id>`; launch/rerun has no unsigned CLI fallback and requires the host API.
+
+Lane records retain exclusive custody across interruption and completion. An ordinary second run cannot reuse the lane. An explicit fresh `execution.rerun` grant binds the prior invocation and current Git/input digest; the same store lock checks the previous invocation's established terminality before atomically rotating lane ownership. No stale global mutation lock is automatically reclaimed. Crash/uncertain permission leaves the unique invocation and consumed authority conservatively unavailable for retry.
+
+Pass `execution.reconcileExecutionAndPermit` to `createOwnerRecoveryPolicy`. It acquires the same execution-store lock used for launch and lane rotation while the authority ledger lock is held, validates the exact prior lane/scope and established terminality, and retains lane custody through restore initiation. Running/unknown/evidence_missing and bound identity drift prohibit restore. A permitted restore permanently marks that lane as restored, so an execution rerun cannot automatically release a lane with a restored conversation writer. Interrupted observation is durably journaled before restore; no exit code is invented.
+
+## Validation boundaries
+
+`node --experimental-vm-modules node_modules/.bin/jest --runInBand --runTestsByPath tests/ao/supervised-execution.test.js tests/ao/owner-authority-ledger.test.js tests/ao/session-recovery.test.js --no-color`
+
+Fixtures use real Git repositories, IPC helpers and children, kill helper and process group, exercise partial TAP/nonzero/stale summary, authorized rerun, missing/changed/truncated custody, and actual recovery policy/shared-store locks. Boot change and PID reuse are injected process-view fixtures. These are not a real reboot experiment, historical F04/F05 reproduction, live installed verifier, arbitrary shell enrollment or OS portability evidence. Source candidates require independent exact-head review; no merge, restart or cutover was performed.

@@ -22,7 +22,8 @@
     "./schemas/ao.or-merge-outcome.v1.schema.json": "./schemas/ao.or-merge-outcome.v1.schema.json",
     "./package.json": "./package.json",
     "./authority": "./lib/authority.js",
-    "./schemas/ao.owner-authority-event.v1.schema.json": "./schemas/ao.owner-authority-event.v1.schema.json"
+    "./schemas/ao.owner-authority-event.v1.schema.json": "./schemas/ao.owner-authority-event.v1.schema.json",
+    "./execution": "./lib/execution.js"
   },
   "license": "MIT",
   "bin": {

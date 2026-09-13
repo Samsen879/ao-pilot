@@ -17,6 +17,7 @@ const COMMAND_MODULES = {
   dashboard: '../scripts/ao-dashboard.js',
   doctor: '../scripts/ao-doctor.js',
   eval: '../scripts/ao-eval.js',
+  execution: '../scripts/ao-execution.js',
   handoff: '../scripts/ao-handoff.js',
   init: '../scripts/ao-init.js',
   knowledge: '../scripts/ao-knowledge.js',
@@ -38,7 +39,7 @@ const COMMAND_MODULES = {
 const RUNTIME_COMMANDS = new Set(['runtime-path', 'start', 'status', 'stop']);
 
 const PROJECT_SCOPED_COMMANDS = new Set(Object.keys(COMMAND_MODULES).filter(
-  (command) => !['init', 'publication-preflight', 'dashboard'].includes(command),
+  (command) => !['init', 'publication-preflight', 'dashboard', 'execution'].includes(command),
 ));
 const PR_EXCLUSIVE_COMMANDS = new Set(['doctor', 'lifecycle', 'reconcile']);
 
@@ -75,6 +76,7 @@ function renderHelp() {
     '  knowledge   Inspect repository knowledge',
     '  metrics     Inspect run metrics',
     '  eval        Run evaluation packs',
+    '  execution   Inspect enrolled durable command evidence',
     '',
     'Global options:',
     '  --config <path>  Use an explicit AO config file',
@@ -177,7 +179,7 @@ export async function runCli(argv, io = createDefaultIo(), {
       : [...extracted.argv, '--config', extracted.configPath];
     return commandModule.runCli(initArgs, io, { cwd });
   }
-  if (command === 'publication-preflight' || command === 'dashboard') {
+  if (command === 'publication-preflight' || command === 'dashboard' || command === 'execution') {
     return commandModule.runCli(extracted.argv, io, { cwd });
   }
 
