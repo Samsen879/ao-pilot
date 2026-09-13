@@ -9,6 +9,7 @@ import * as repository from 'ao-pilot/repository';
 import * as engines from 'ao-pilot/engines';
 import * as protocols from 'ao-pilot/protocols';
 import * as providers from 'ao-pilot/providers';
+import * as authority from 'ao-pilot/authority';
 
 const PROJECT_ROOT = process.cwd();
 
@@ -47,6 +48,8 @@ describe('ao-pilot public library API', () => {
       './engines': './lib/engines.js',
       './protocols': './lib/protocols.js',
       './providers': './lib/providers.js',
+      './authority': './lib/authority.js',
+      './schemas/ao.owner-authority-event.v1.schema.json': './schemas/ao.owner-authority-event.v1.schema.json',
       './schemas/ao.child-completion.v1alpha1.schema.json':
         './schemas/ao.child-completion.v1alpha1.schema.json',
       './schemas/ao.child-completion-input-manifest.v1alpha1.schema.json':
@@ -65,6 +68,12 @@ describe('ao-pilot public library API', () => {
         './schemas/ao.or-merge-outcome.v1.schema.json',
       './package.json': './package.json',
     });
+  });
+
+  it('exposes verifier-backed authority without widening structural OR grants', () => {
+    expect(authority.createOwnerAuthorityLedger).toEqual(expect.any(Function));
+    expect(authority.createOwnerRecoveryPolicy).toEqual(expect.any(Function));
+    expect(() => authority.createOwnerAuthorityLedger({directory:'/tmp/not-created',ownerRef:'Owner'})).toThrow('Trusted host source verifier required');
   });
 
   it('exports stable names for every embedded CIE CLI facade', () => {
