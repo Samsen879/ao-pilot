@@ -3,3 +3,9 @@ coverage/
 .ao-pilot/
 .ao-control-plane/
 *.log
+.playwright-cli/
+output/playwright/
+browser/**/.next/
+browser/**/dist/
+browser/**/dist-server/
+browser/**/*.tsbuildinfo

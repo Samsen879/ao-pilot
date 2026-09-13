@@ -1,0 +1,19 @@
+{
+  "name": "ao-pilot-browser",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/core",
+    "packages/web",
+    "packages/plugins/*"
+  ],
+  "scripts": {
+    "build:deps": "npm run build --workspace ./packages/core && npm run build --workspace ./packages/plugins/agent-claude-code && npm run build --workspace ./packages/plugins/agent-codex && npm run build --workspace ./packages/plugins/agent-opencode && npm run build --workspace ./packages/plugins/runtime-tmux && npm run build --workspace ./packages/plugins/workspace-worktree && npm run build --workspace ./packages/plugins/scm-github && npm run build --workspace ./packages/plugins/tracker-github && npm run build --workspace ./packages/plugins/tracker-linear",
+    "dev": "npm run dev --workspace @composio/ao-web",
+    "build": "npm run build --workspace @composio/ao-web"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/node": "22.19.15"
+  }
+}

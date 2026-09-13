@@ -1,0 +1,67 @@
+{
+  "name": "@composio/ao-web",
+  "version": "0.1.0",
+  "description": "Web dashboard for agent-orchestrator",
+  "type": "module",
+  "files": [
+    ".next/server",
+    ".next/static",
+    ".next/*.json",
+    ".next/BUILD_ID",
+    "dist-server",
+    "next.config.js"
+  ],
+  "scripts": {
+    "dev": "concurrently --kill-others \"npm:dev:next\" \"npm:dev:terminal\" \"npm:dev:direct-terminal\"",
+    "dev:next": "next dev --turbopack -H 127.0.0.1 -p ${PORT:-3000}",
+    "dev:terminal": "tsx server/terminal-websocket.ts",
+    "dev:direct-terminal": "tsx server/direct-terminal-ws.ts",
+    "build": "next build && tsc -p tsconfig.server.json",
+    "start": "next start -H 127.0.0.1",
+    "start:all": "node dist-server/start-all.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf .next dist-server",
+    "screenshot": "tsx e2e/screenshot.ts",
+    "screenshot:install": "npx playwright install chromium"
+  },
+  "dependencies": {
+    "@composio/ao-core": "*",
+    "@composio/ao-plugin-agent-claude-code": "*",
+    "@composio/ao-plugin-agent-codex": "*",
+    "@composio/ao-plugin-agent-opencode": "*",
+    "@composio/ao-plugin-runtime-tmux": "*",
+    "@composio/ao-plugin-scm-github": "*",
+    "@composio/ao-plugin-tracker-github": "*",
+    "@composio/ao-plugin-tracker-linear": "*",
+    "@composio/ao-plugin-workspace-worktree": "*",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/addon-web-links": "0.12.0",
+    "next": "15.5.12",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "ws": "8.19.0",
+    "xterm": "5.3.0"
+  },
+  "optionalDependencies": {
+    "node-pty": "1.1.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.1.18",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@types/ws": "8.18.1",
+    "@vitejs/plugin-react": "4.7.0",
+    "concurrently": "9.2.1",
+    "jsdom": "25.0.1",
+    "node-gyp": "12.2.0",
+    "playwright": "1.58.2",
+    "tailwindcss": "4.1.18",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "vitest": "2.1.9"
+  }
+}

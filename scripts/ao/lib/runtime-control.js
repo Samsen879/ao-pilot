@@ -8,6 +8,7 @@ import {
 } from './runtime-bootstrap.js';
 import { loadBootstrapToolchainLock } from './runtime-bootstrap-contract.js';
 import { computeRuntimeLockDigest, loadRuntimeLock } from './runtime-lock.js';
+import { resolveDeploymentEnvironment } from './runtime-deployment.js';
 import { resolveManagedRuntime } from './runtime-resolver.js';
 
 const PACKAGE_VERSION = JSON.parse(
@@ -184,6 +185,7 @@ export function runResolvedRuntime(runtime, args, {
   spawn = spawnSync,
   timeoutMs = DEFAULT_RUNTIME_COMMAND_TIMEOUT_MS,
 } = {}) {
+  env = resolveDeploymentEnvironment(env);
   const result = spawn(runtime.binary_path, args.map(String), {
     cwd,
     env,
