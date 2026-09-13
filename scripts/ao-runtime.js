@@ -2,6 +2,7 @@
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveDeploymentEnvironment } from './ao/lib/runtime-deployment.js';
 
 import {
   resolveRuntimeControl,
@@ -122,6 +123,7 @@ export async function runCli(argv, io = createDefaultIo(), {
   }
   let runtime;
   try {
+    env = resolveDeploymentEnvironment(env);
     runtime = resolveRuntime({
       cwd,
       env,
