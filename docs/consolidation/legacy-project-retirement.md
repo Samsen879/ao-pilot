@@ -36,7 +36,13 @@ over localhost WebSocket without sending input. Do not restart workers or OR.
 - Original CIE worker/OR metadata hashes and tmux pane PIDs unchanged.
 - No legacy repository files or historical metadata deleted.
 
-## Remaining gates — not completed by this operation
+## Historical gates at configuration cutover
+
+The following inventory describes the earlier configuration-only operation, not
+the current deployment. See [the closeout handoff](ao-pilot-closeout-handoff.md)
+for merged-source verification, owned commands, local archival and actual WSL
+cold-start acceptance. Compatibility paths remain intentionally unchanged;
+remote repository retirement is still a separate Owner-authorized step.
 
 1. Inventory installed command wrappers and agent PATHs; provide an ao-pilot owned
    lifecycle/session command surface before removing old CLI access.
@@ -47,7 +53,9 @@ over localhost WebSocket without sending input. Do not restart workers or OR.
 4. Review and merge the migration PR, verify clean installation from the merged
    source, then archive the exact legacy checkout after proving no active consumer.
 
-Do not label retirement, automatic recovery, or remote cutover complete yet.
+At that configuration-only checkpoint, retirement, automatic recovery and remote
+cutover had not yet been established. Do not interpret this historical statement
+as overriding the newer, scoped acceptance receipt.
 
 ## Owned session and recovery commands
 
