@@ -51,7 +51,7 @@ export async function withRecoveryLock(file, action) {
   try{return await action();}
   finally{if(fs.readFileSync(lock,'utf8')===owner)fs.unlinkSync(lock);}
 }
-export async function recoverySweep(bindings, adapter, {restore=false, attempts=new Set()}={}) {
+export async function recoverySweep(bindings, adapter, {restore=false, attempts=new Set(), authorityPolicy}={}) {
   const results=[];
   for (const [id,binding] of Object.entries(bindings.sessions)) {
     try {
@@ -61,7 +61,10 @@ export async function recoverySweep(bindings, adapter, {restore=false, attempts=
       if (!restore) {results.push({id,state:'MISSING',action:'none'});continue;}
       if(attempts.has(id)) {results.push({id,state:'HOLD',reason:'Recovery already attempted in this outage; no automatic retry'});continue;}
       attempts.add(id);
-      await adapter.restore(id,binding);
+      if(binding.authorityEnrollment !== undefined) {
+        if(!authorityPolicy || typeof authorityPolicy.restore !== 'function') throw new Error('Enrolled recovery requires trusted authority/execution policy; HOLD');
+        await authorityPolicy.restore(id,binding,()=>adapter.restore(id,binding));
+      } else { await adapter.restore(id,binding); }
       if(!await adapter.alive(id,binding)) throw new Error('Restored runtime not alive; HOLD');
       results.push({id,state:'RESTORED',conversationId:binding.conversationId});
     } catch(error) {results.push({id,state:'HOLD',reason:error.message});}

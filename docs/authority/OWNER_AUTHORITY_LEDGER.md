@@ -1,0 +1,25 @@
+# Owner authority ledger — opt-in source contract (#110)
+
+This additive `ao-pilot/authority` host API extends the authority vocabulary from #19 without treating an OR v1 structural grant as authenticated Owner input. It enrolls only execution.run, execution.rerun and conversation.restore. Existing merge/push/successor/cleanup paths do not acquire this guarantee. No runtime service, binary, installation, credential or live CIE conversation was changed.
+
+## Trust and custody
+
+Construct `createOwnerAuthorityLedger({directory, ownerRef, verifySource, verifyGate, clock})` in a trusted host. `verifySource({canonical,event_sha256,sourceProof})` must authenticate the *complete* canonical event and return the pinned `{owner_ref,source_ref}`. It is called at ingestion and on every replay/consumption. The library supplies no issuer key, CLI module loader or unsigned fallback. The trusted host supplies verification and a trustworthy clock; uncertain source or clock must reject. Persist only a public signature or immutable public source receipt in `source_proof`, never a token or credential. The exported JSON schema is structural and cannot prove issuance. Tests use a fixture-only HMAC host, not a deployed Owner identity.
+
+The absolute, privately owned store contains exclusive, fsynced `<event_id>.json` envelopes and fsynced consumption receipts. Symlink ancestors are rejected before creation. Files are opened with no-follow and checked for ownership, private permissions, single hardlink and size. Unknown/truncated/tampered custody fails closed. A single exclusive `.mutation-lock` serializes ingestion, selection and effect initiation. A stale lock is HOLD; automatic reclamation is prohibited. `inspect` creates and releases this short synchronization lock; it has no business side effects, but is not filesystem-read-only.
+
+## Effective authority and single use
+
+Every event binds repository, project, task, PR, worker, session, generation, head, tree, input digest and prior invocation. No wildcard matching or inherited actions. Exactly one unsuperseded grant for that complete scope must exist. Missing/foreign/cyclic predecessors, incomparable grants, expired/revoked/future effective grants, prohibitions or unresolved dependency gates hold. An expired/revoked successor never revives an ancestor. Narrowing across a different complete scope is not global revocation: issue a revocation against the old scope and a fresh grant for the new scope. Actions are interpreted only inside their bound scope.
+
+`consumeAndPermit({scope,action,invocationId,gateProofs}, callback)` writes a durable event/action single-use receipt *before* calling the callback while holding the shared lock. Consumption is the linearization point. Restriction events arriving after permit initiation govern future invocations. Callback failure or a crash after consumption cannot retry the same grant/action; fresh authority is required. The callback must synchronously initiate its enrolled effect before resolving; this API is not a distributed scheduler or credential-based privilege boundary. Initial run requires a null prior invocation; rerun requires the exact prior ID.
+
+## First recovery consumer
+
+`recoverySweep` detects `binding.authorityEnrollment`. Enrolled missing sessions require an `authorityPolicy` and cannot silently fall back to legacy restoration. Use `createOwnerRecoveryPolicy({ledger,observeExecution})`. Enrollment has exactly `schema_version: ao.owner-recovery-enrollment.v1`, `scope`, `invocation_id`, `gate_proofs`. Scope session/project must equal the binding; prior invocation must be non-null. The required trusted execution observer returns `{state: completed|interrupted, invocation_id, bound_scope}` matching that full restore scope. Running/unknown/evidence-missing or identity drift holds before `adapter.restore`. Only a consumed `conversation.restore` grant permits restoration. The #109 execution API supplies the production execution observer; arbitrary unenrolled commands and legacy recovery are outside this guarantee. The CLI cannot restore an enrolled binding without a trusted host policy.
+
+## Validation and limits
+
+`node --experimental-vm-modules node_modules/.bin/jest --runInBand --runTestsByPath tests/ao/owner-authority-ledger.test.js tests/ao/session-recovery.test.js --no-color`
+
+35 new fixtures cover source forgery/reverification, exact scope, supersession/revocation/expiry, graph conflicts, single-use failure, shared-lock concurrency, dependency gates, symlink/truncated/private custody and actual recoverySweep denial/permission. These fixtures do not establish installed Owner verification, real-host reboot custody, non-Linux directory fsync or authority enforcement for merge/successor/cleanup. The source is a review candidate, not deployment authority.
