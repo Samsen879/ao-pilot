@@ -437,6 +437,9 @@ test('host boot change, PID reuse and lost executor are conservative interrupted
     record = store.read('inv-1');
   record.phase = 'running';
   record.terminal = null;
+  record.validation_pass = false;
+  record.applied_event_sequence = 1;
+  fs.unlinkSync(path.join(directory, 'invocations/inv-1/event-000002.json'));
   store.save(record);
   const bootChanged = createSupervisedExecution({
     directory,
@@ -594,3 +597,75 @@ test('top-level execution help/unsigned launch do not require config or launch a
   })).exitCode).toBe(2);
   expect(io.writeStderr).toHaveBeenCalledWith('Execution custody cannot be established; HOLD\n');
 });
+test('normalized .. and root /tmp production custody reject before creation', () => {
+  expect(() => createSupervisedExecution({
+    directory: '/home/samsen/../../tmp/ao-normalized-custody'
+  })).toThrow('Persistent');
+  expect(() => createSupervisedExecution({
+    directory: '/tmp'
+  })).toThrow('Persistent');
+  expect(() => createSupervisedExecution({
+    directory: '/home/samsen/x/../node_modules/store'
+  })).toThrow('Persistent');
+});
+test('same-process disjoint lane restore cannot lose a naturally exiting child receipt', () => fixture(async ({
+  execution,
+  grant,
+  scope,
+  manifest,
+  directory
+}) => {
+  await grant('run', scope);
+  const pending = execution.run(manifest);
+  const running = await until(() => {
+    const r = createExecutionStore(directory).read('inv-1');
+    return r.phase === 'running' && r;
+  });
+  const store = createExecutionStore(directory);
+  let release, entered;
+  const barrier = new Promise(r => release = r),
+    signal = new Promise(r => entered = r);
+  const foreignRestore = store.withLock(async () => {
+    entered();
+    await barrier;
+  });
+  await signal;
+  await until(() => fs.readdirSync(path.join(directory, 'invocations/inv-1')).some(name => name === 'event-000002.json'));
+  const receipt = JSON.parse(fs.readFileSync(path.join(directory, 'invocations/inv-1/event-000002.json')));
+  expect(receipt.event.type).toBe('terminal');
+  expect(receipt.event.payload.exit_code).toBe(0);
+  release();
+  await foreignRestore;
+  const result = await pending;
+  expect(result.evidence_status).toBe('established');
+  expect(result.validation_pass).toBe(true);
+}, "setTimeout(()=>{require('fs').writeFileSync('summary.json',JSON.stringify({schema_version:'ao.execution-summary.v1',invocation_id:process.env.AO_EXECUTION_INVOCATION_ID,input_digest:process.env.AO_EXECUTION_INPUT_DIGEST,exit_code:0}));console.log('TERMINAL SUMMARY');},300);"));
+test('cross-process legitimate restore lock retains terminal event until finalization', () => fixture(async ({
+  execution,
+  grant,
+  scope,
+  manifest,
+  directory
+}) => {
+  const {
+    spawn
+  } = await import('node:child_process');
+  await grant('run', scope);
+  const pending = execution.run(manifest);
+  await until(() => createExecutionStore(directory).read('inv-1').phase === 'running');
+  const module = new URL('../../scripts/ao/lib/execution-store.js', import.meta.url).href;
+  const child = spawn(process.execPath, ['--input-type=module', '-e', `import {createExecutionStore} from ${JSON.stringify(module)};await createExecutionStore(process.argv[1]).withLock(async()=>{process.stdout.write('locked\\n');await new Promise(r=>setTimeout(r,400));});`, directory], {
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  const finished = new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', code => code === 0 ? resolve() : reject(Error('foreign fixture failed')));
+  });
+  await new Promise(resolve => child.stdout.once('data', resolve));
+  await until(() => fs.existsSync(path.join(directory, 'invocations/inv-1/event-000002.json')));
+  expect((await execution.inspect('inv-1')).observed_terminal.exit_code).toBe(0);
+  await finished;
+  const result = await pending;
+  expect(result.evidence_status).toBe('established');
+  expect(result.validation_pass).toBe(true);
+}, "setTimeout(()=>{require('fs').writeFileSync('summary.json',JSON.stringify({schema_version:'ao.execution-summary.v1',invocation_id:process.env.AO_EXECUTION_INVOCATION_ID,input_digest:process.env.AO_EXECUTION_INPUT_DIGEST,exit_code:0}));console.log('TERMINAL SUMMARY');},300);"));

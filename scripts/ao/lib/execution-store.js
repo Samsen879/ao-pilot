@@ -47,6 +47,7 @@ export function readPrivate(file, json = true) {
   }
 }
 export function savePrivate(file, value, exclusive = false) {
+  privateDirectory(path.dirname(file));
   const temp = exclusive ? file : file + '.' + crypto.randomUUID();
   const fd = fs.openSync(temp, 'wx', 0o600);
   try {
@@ -66,16 +67,25 @@ export function createExecutionStore(directory) {
   return {
     directory,
     recordDirectory,
-    async withLock(action) {
+    async withLock(action, {
+      waitForCustody = false
+    } = {}) {
       privateDirectory(directory, true);
       const lock = path.join(directory, '.mutation-lock');
-      try {
-        fs.mkdirSync(lock, {
-          mode: 0o700
-        });
-      } catch (error) {
-        if (error.code === 'EEXIST') hold('Execution mutation active or interrupted');
-        throw error;
+      // Custody updates may wait for an existing writer, but never unlink or
+      // reclaim its lock. Every helper event is durable before such a wait.
+      const deadline = Date.now() + 5000;
+      for (;;) {
+        try {
+          fs.mkdirSync(lock, {
+            mode: 0o700
+          });
+          break;
+        } catch (error) {
+          if (error.code !== 'EEXIST') throw error;
+          if (!waitForCustody || Date.now() >= deadline) hold('Execution mutation active or interrupted');
+          await new Promise(resolve => setTimeout(resolve, 10));
+        }
       }
       const token = crypto.randomUUID();
       savePrivate(path.join(lock, 'owner.json'), {

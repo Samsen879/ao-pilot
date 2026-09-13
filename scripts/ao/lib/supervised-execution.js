@@ -90,8 +90,10 @@ export function createSupervisedExecution({
   processIdentity = linuxProcessIdentity,
   testOnlyEphemeralStore = false
 }) {
+  if(!path.isAbsolute(directory)) hold('Execution store must be absolute');
+  directory = path.resolve(directory);
   const store = createExecutionStore(directory);
-  if (!path.isAbsolute(directory) || directory.split(path.sep).includes('node_modules') || directory.startsWith('/tmp/') && !testOnlyEphemeralStore) hold('Persistent execution custody required');
+  if (!path.isAbsolute(directory) || directory.split(path.sep).includes('node_modules') || (directory === '/tmp' || directory.startsWith('/tmp/')) && !testOnlyEphemeralStore) hold('Persistent execution custody required');
   function processObservation(identity, currentBoot) {
     if (!identity) return 'unknown';
     if (identity.boot_id !== currentBoot) return 'absent';
@@ -105,16 +107,27 @@ export function createSupervisedExecution({
   function inspectUnlocked(invocationId) {
     const record = store.read(invocationId),
       dir = store.recordDirectory(invocationId);
+    const events = fs.readdirSync(dir).filter(name => /^event-[0-9]{6}\.json$/.test(name)).sort().map(name => {
+      const envelope = readPrivate(path.join(dir, name));
+      if (envelope.event_sha256 !== authorityDigest(envelope.event) || envelope.event.invocation_id !== invocationId) hold('Helper event identity/digest changed');
+      return envelope.event;
+    });
+    for (let index = 0; index < events.length; index++) {
+      if (events[index].sequence !== index + 1 || !['child', 'terminal'].includes(events[index].type)) hold('Helper event order/custody changed');
+    }
+    if ((record.applied_event_sequence || 0) > events.length) hold('Applied helper event missing');
+    const observedTerminal = events.findLast(event => event.type === 'terminal');
     const currentBoot = processIdentity(process.pid).boot_id;
     const executor = processObservation(record.executor, currentBoot),
-      child = processObservation(record.child, currentBoot);
+      child = processObservation(events.findLast(event => event.type === 'child')?.payload || record.child, currentBoot);
     const observation = {
       invocation_id: invocationId,
       state: 'unknown',
       evidence_status: 'missing',
       validation_pass: false,
       reason: 'Process custody uncertain',
-      record
+      record,
+      observed_terminal: observedTerminal?.payload || null
     };
     // Even a terminal receipt cannot override a live enrolled process.
     if (executor === 'live' || child === 'live') return {
@@ -155,6 +168,11 @@ export function createSupervisedExecution({
         reason: 'Durable exit/log/summary custody'
       };
     }
+    if (observedTerminal && record.phase !== 'completed' && record.phase !== 'interrupted') return {
+      ...observation,
+      state: 'completed',
+      reason: 'Observed terminal not finalized; durable event retained'
+    };
     if (record.terminal && record.phase !== 'interrupted') return {
       ...observation,
       reason: 'Terminal receipt not finalized; evidence missing'
@@ -234,31 +252,54 @@ export function createSupervisedExecution({
     helper.stdout.pipe(stdout);
     helper.stderr.pipe(stderr);
     let queue = Promise.resolve(),
-      writeFailure;
-    function enqueue(action) {
-      queue = queue.then(action).catch(error => {
+      writeFailure,
+      eventSequence = 0;
+    function enqueue(type, payload) {
+      // This invocation has one helper observer. Persist exact observed child/
+      // terminal custody independently of the global lane-mutation lock.
+      const sequence = ++eventSequence;
+      const event = {
+        schema_version: 'ao.execution-observation-event.v1',
+        invocation_id: invocationId,
+        sequence,
+        type,
+        payload,
+        observed_at: new Date().toISOString()
+      };
+      try {
+        savePrivate(path.join(dir, `event-${String(sequence).padStart(6, '0')}.json`), {
+          event,
+          event_sha256: authorityDigest(event)
+        }, true);
+      } catch (error) {
+        writeFailure = error;
+        return;
+      }
+      queue = queue.then(() => store.withLock(() => {
+        if (type === 'child') {
+          record.child = payload;
+          record.phase = 'running';
+        } else record.terminal = payload;
+        record.applied_event_sequence = sequence;
+        store.save(record);
+      }, {
+        waitForCustody: true
+      })).catch(error => {
         writeFailure = error;
       });
     }
     helper.on('message', message => {
-      if (message.type === 'child') enqueue(() => store.withLock(() => {
-        record.child = {
-          pid: message.identity.pid,
-          boot_id: message.identity.boot_id,
-          start_identity: message.identity.start_identity
-        };
-        record.phase = 'running';
-        store.save(record);
-      }));
-      if (message.type === 'terminal') enqueue(() => store.withLock(() => {
-        record.terminal = {
-          exit_code: message.exit_code,
-          signal: message.signal,
-          reason: 'helper_child_exit',
-          at: new Date().toISOString()
-        };
-        store.save(record);
-      }));
+      if (message.type === 'child') enqueue('child', {
+        pid: message.identity.pid,
+        boot_id: message.identity.boot_id,
+        start_identity: message.identity.start_identity
+      });
+      if (message.type === 'terminal') enqueue('terminal', {
+        exit_code: message.exit_code,
+        signal: message.signal,
+        reason: 'helper_child_exit',
+        at: new Date().toISOString()
+      });
     });
     const finished = new Promise(resolve => helper.once('close', (code, signal) => resolve({
       code,
@@ -361,6 +402,8 @@ export function createSupervisedExecution({
       record.helper_close = close;
       record.validation_pass = record.terminal.exit_code === 0 && record.terminal.signal === null && record.summary.status === 'established';
       store.save(record);
+    }, {
+      waitForCustody: true
     });
     return inspectUnlocked(invocationId);
   }
