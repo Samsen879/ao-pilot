@@ -90,7 +90,7 @@ export function createSupervisedExecution({
   processIdentity = linuxProcessIdentity,
   testOnlyEphemeralStore = false
 }) {
-  if(!path.isAbsolute(directory)) hold('Execution store must be absolute');
+  if (!path.isAbsolute(directory)) hold('Execution store must be absolute');
   directory = path.resolve(directory);
   const store = createExecutionStore(directory);
   if (!path.isAbsolute(directory) || directory.split(path.sep).includes('node_modules') || (directory === '/tmp' || directory.startsWith('/tmp/')) && !testOnlyEphemeralStore) hold('Persistent execution custody required');
@@ -420,6 +420,25 @@ export function createSupervisedExecution({
         prior_invocation_id: scope.prior_invocation_id
       };
       if (authorityDigest(bound_scope) !== authorityDigest(scope) || id !== scope.session_id || binding.projectId !== scope.project_id) hold('Recovery execution scope drift');
+      if (binding.createdAt !== original.generation || binding.tmuxName !== observation.record.manifest.runtime_handle.id || observation.record.manifest.runtime_handle.runtime_name !== 'tmux' || fs.realpathSync(binding.workspacePath) !== observation.record.inputs.root) hold('Recovery binding birth/runtime/workspace drift');
+      const previous = observation.record,
+        outputPath = path.relative(previous.inputs.root, path.join(previous.manifest.command.cwd, previous.manifest.summary.artifact));
+      const actual = git(previous.inputs.root, ['ls-files', '--others', '--exclude-standard', '-z']).toString().split('\0').filter(Boolean);
+      const fresh = describeExecutionInputs({
+        cwd: previous.manifest.command.cwd,
+        untracked_inputs: actual
+      });
+      // The enrolled summary output is not retroactively an input when it was
+      // absent at admission. All other dirty/untracked bytes must still match.
+      const untracked = fresh.untracked.filter(item => item.path !== outputPath || previous.inputs.untracked.some(input => input.path === outputPath));
+      const snapshot = {
+        head_sha: fresh.head_sha,
+        tree_sha: fresh.tree_sha,
+        diff_sha256: fresh.diff_sha256,
+        cached_diff_sha256: fresh.cached_diff_sha256,
+        untracked
+      };
+      if (authorityDigest(snapshot) !== scope.input_digest || fresh.head_sha !== scope.head_sha || fresh.tree_sha !== scope.tree_sha) hold('Recovery live Git/input identity drift');
       if (!['completed', 'interrupted'].includes(observation.state) || observation.evidence_status !== 'established') hold('Enrolled execution not safely terminal');
       // Retain lane custody after restore initiation. An execution rerun cannot
       // release a lane that now has an independently restored conversation writer.

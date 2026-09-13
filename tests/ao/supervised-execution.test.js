@@ -339,6 +339,9 @@ test('actual running lane blocks concurrent execution and enrolled recovery', ()
   };
   const binding = {
     projectId: 'ap',
+    createdAt: 'birth',
+    tmuxName: 'original',
+    workspacePath: manifest.command.cwd,
     authorityEnrollment: {
       schema_version: 'ao.owner-recovery-enrollment.v1',
       scope: restoreScope,
@@ -388,6 +391,9 @@ test('actual terminal recovery holds execution custody until restore starts and 
   });
   const binding = {
     projectId: 'ap',
+    createdAt: 'birth',
+    tmuxName: 'original',
+    workspacePath: manifest.command.cwd,
     authorityEnrollment: {
       schema_version: 'ao.owner-recovery-enrollment.v1',
       scope: s,
@@ -669,3 +675,50 @@ test('cross-process legitimate restore lock retains terminal event until finaliz
   expect(result.evidence_status).toBe('established');
   expect(result.validation_pass).toBe(true);
 }, "setTimeout(()=>{require('fs').writeFileSync('summary.json',JSON.stringify({schema_version:'ao.execution-summary.v1',invocation_id:process.env.AO_EXECUTION_INVOCATION_ID,input_digest:process.env.AO_EXECUTION_INPUT_DIGEST,exit_code:0}));console.log('TERMINAL SUMMARY');},300);"));
+test.each(['birth', 'handle', 'workspace', 'dirty-input', 'extra-untracked', 'head'])('actual recovery rejects changed binding/live source: %s', kind => fixture(async ({
+  execution,
+  grant,
+  scope,
+  manifest,
+  cwd,
+  root,
+  ledger
+}) => {
+  await grant('run', scope);
+  await execution.run(manifest);
+  const s = {
+    ...scope,
+    prior_invocation_id: 'inv-1'
+  };
+  await grant('restore', s, ['conversation.restore']);
+  const binding = {
+    projectId: 'ap',
+    createdAt: 'birth',
+    tmuxName: 'original',
+    workspacePath: cwd,
+    authorityEnrollment: {
+      schema_version: 'ao.owner-recovery-enrollment.v1',
+      scope: s,
+      invocation_id: 'restore-1',
+      gate_proofs: []
+    }
+  };
+  if (kind === 'birth') binding.createdAt = 'replacement-birth';
+  if (kind === 'handle') binding.tmuxName = 'replacement-runtime';
+  if (kind === 'workspace') {
+    binding.workspacePath = path.join(root, 'other');
+    fs.mkdirSync(binding.workspacePath);
+  }
+  if (kind === 'dirty-input') fs.appendFileSync(path.join(cwd, 'command.cjs'), '\n// changed source');
+  if (kind === 'extra-untracked') fs.writeFileSync(path.join(cwd, 'new-input.txt'), 'changed');
+  if (kind === 'head') spawnSync('git', ['commit', '--allow-empty', '-qm', 'changed head'], {
+    cwd
+  });
+  const restore = jest.fn(),
+    policy = createOwnerRecoveryPolicy({
+      ledger,
+      reconcileExecutionAndPermit: execution.reconcileExecutionAndPermit
+    });
+  await expect(policy.restore('ap-1', binding, restore)).rejects.toThrow('drift');
+  expect(restore).not.toHaveBeenCalled();
+}));
