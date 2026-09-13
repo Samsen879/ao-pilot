@@ -27,6 +27,7 @@ const COMMAND_MODULES = {
   'publication-preflight': '../scripts/ao-publication-preflight.js',
   reconcile: '../scripts/ao-reconcile.js',
   review: '../scripts/ao-review.js',
+  session: '../scripts/ao-session.js',
   'runtime-path': '../scripts/ao-runtime.js',
   start: '../scripts/ao-runtime.js',
   state: '../scripts/ao-state.js',
@@ -63,6 +64,8 @@ function renderHelp() {
     '  runtime-path Inspect exact runtime provenance and binary path',
     '  reconcile   Reconcile AO and source-control observations',
     '  lifecycle   Evaluate lifecycle readiness',
+    '              serve/recover/status: pinned original-session recovery',
+    '  session     List, bind, restore, or message migrated sessions',
     '  manage      Manage durable tasks',
     '  handoff     Manage successor handoffs',
     '  review      Manage independent review records',
@@ -164,6 +167,10 @@ export async function runCli(argv, io = createDefaultIo(), {
   }
 
   const commandModule = await import(COMMAND_MODULES[command]);
+  if (command === 'session' || (command === 'lifecycle' && ['serve', 'recover', 'status'].includes(extracted.argv[0]))) {
+    const recoveryModule = command === 'session' ? commandModule : await import('../scripts/ao-session.js');
+    return recoveryModule.runCli([...extracted.argv, ...(extracted.configPath ? ['--config', extracted.configPath] : [])], io, { cwd });
+  }
   if (command === 'init') {
     const initArgs = extracted.configPath == null
       ? extracted.argv

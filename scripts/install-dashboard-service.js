@@ -7,10 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { buildDashboardUnits } from './ao/lib/dashboard-service.js';
 import { deploymentBinding } from './ao/lib/runtime-deployment.js';
 const args = process.argv.slice(2);
-if (args.some(arg => !['--install', '--replace', '--dashboard-only', '--terminal-access'].includes(arg))) throw new Error('Usage: node scripts/install-dashboard-service.js [--install [--replace] [--dashboard-only] [--terminal-access]]');
+if (args.some(arg => !['--install', '--replace', '--dashboard-only', '--recovery-only', '--terminal-access'].includes(arg)) || (args.includes('--dashboard-only') && args.includes('--recovery-only'))) throw new Error('Usage: node scripts/install-dashboard-service.js [--install [--replace] [--dashboard-only|--recovery-only] [--terminal-access]]');
 const root = fileURLToPath(new URL('../', import.meta.url));
 const units = buildDashboardUnits({ packageRoot: root.replace(/\/$/, ''), nodePath: process.execPath, home: os.homedir(), terminalAccess: args.includes('--terminal-access') });
-if (args.includes('--dashboard-only')) delete units['ao-pilot-runtime.service'];
+if (args.includes('--dashboard-only')) {delete units['ao-pilot-runtime.service'];delete units['ao-pilot-session-recovery.service'];}
+if (args.includes('--recovery-only')) {delete units['ao-pilot-runtime.service'];delete units['ao-pilot-dashboard.service'];}
 const target = path.join(os.homedir(), '.config/systemd/user');
 if (!args.includes('--install')) console.log(JSON.stringify({target,units}, null, 2));
 else {
@@ -21,7 +22,7 @@ else {
     if (fs.existsSync(file)) fs.copyFileSync(file, `${file}.backup-${Date.now()}`);
     fs.writeFileSync(file, body, {mode:0o600});
   }
-  if (!args.includes('--dashboard-only')) {
+  if (!args.includes('--dashboard-only') && !args.includes('--recovery-only')) {
   const bindingDir = path.join(os.homedir(),'.config/ao-pilot');
   fs.mkdirSync(bindingDir,{recursive:true,mode:0o700});
   fs.writeFileSync(path.join(bindingDir,'runtime-binding.json'),JSON.stringify(deploymentBinding(os.homedir()),null,2),{mode:0o600});

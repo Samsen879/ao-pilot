@@ -48,3 +48,44 @@ over localhost WebSocket without sending input. Do not restart workers or OR.
    source, then archive the exact legacy checkout after proving no active consumer.
 
 Do not label retirement, automatic recovery, or remote cutover complete yet.
+
+## Owned session and recovery commands
+
+```sh
+ao-pilot session list --config /home/samsen/agent-orchestrator.yaml
+ao-pilot session bind cie-111 --config /home/samsen/agent-orchestrator.yaml \
+  --conversation ORIGINAL_UUID --transcript /absolute/original.jsonl \
+  --binary /absolute/codex
+ao-pilot session restore cie-111 --config /home/samsen/agent-orchestrator.yaml
+ao-pilot session send cie-111 'Scoped instruction' --config /home/samsen/agent-orchestrator.yaml
+ao-pilot lifecycle status --config /home/samsen/agent-orchestrator.yaml
+ao-pilot lifecycle recover --config /home/samsen/agent-orchestrator.yaml
+ao-pilot lifecycle serve --config /home/samsen/agent-orchestrator.yaml
+```
+
+These commands use only `browser/` core and plugins owned by ao-pilot. Explicit
+config selection bypasses the unrelated `ao.config.json` evaluation lane.
+Existing `start/status/stop` daemon and `lifecycle` evaluation semantics remain
+unchanged. This recovery lifecycle does not enable reaction/backlog dispatch.
+
+Pins reside in `~/.config/ao-pilot/session-recovery.json`; the original transcript
+header ID, workspace, metadata birth time, project, and tmux name must agree.
+Codex is resumed with the explicit original ID, workspace-write sandbox and
+on-request approvals, without changing model or rewriting workspace hooks.
+Live tmux sessions are untouched. Deliberately killed/merged sessions are skipped.
+Failed launch is held without retry in the same running supervisor's outage.
+Concurrent writers are locked; stale locks are reclaimed only when the recorded
+boot differs or the owner PID is demonstrably absent.
+
+`node scripts/deploy-session-recovery.js --deploy` installs a committed snapshot
+and enables `ao-pilot-session-recovery.service`, independently of Dashboard and
+the native daemon. It reuses compiled support only from an immutable ao-pilot
+installation with identical support source/lockfile, recording the dependency.
+Do not remove that support installation before rebuilding/redeploying recovery.
+
+Verification: `node scripts/verify-session-recovery.js` exercises real tmux and
+systemd using an offline Codex double. It proves live-session skip and startup
+restoration of a missing canary with the same ID, with zero provider calls.
+Generated canary evidence is retained under its exact temporary path; only the
+test's own tmux/unit is stopped. This is not whole-host reboot or real-provider
+post-reboot validation.
