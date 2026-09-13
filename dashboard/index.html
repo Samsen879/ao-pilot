@@ -1,0 +1,7 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AO Pilot · Orchestrator</title><link rel="stylesheet" href="/vendor/xterm.css"><link rel="stylesheet" href="/style.css"><script defer src="/vendor/xterm.js"></script><script defer src="/vendor/fit.js"></script><script defer src="/app.js"></script></head>
+<body><a class="skip" href="#main">Skip to sessions</a><header><nav aria-label="Breadcrumb"><a href="/">‹ Orchestrator</a><span id="crumb"></span><span class="tag">ao-pilot</span></nav><span id="health" role="status">Checking runtime…</span></header>
+<main id="main"><section id="overview"><div class="toolbar"><h1>Orchestrator</h1><label>Project <select id="project"><option value="">All projects</option></select></label><button id="refresh">Refresh</button></div><p id="summary"></p><div id="sessions" aria-label="Sessions"></div></section>
+<section id="detail" hidden><article class="session"><h1 id="name"></h1><p id="identity"></p><p id="activity"></p></article><div class="toolbar"><h2>Terminal</h2><button id="reconnect">Reconnect</button><button id="fullscreen">Fullscreen</button></div><section class="terminal-shell" aria-label="Interactive session terminal"><div id="connection" role="status">Not connected</div><div id="terminal"></div></section><p id="notice" role="alert"></p><button id="restore" hidden>Restore saved session</button></section></main>
+</body></html>

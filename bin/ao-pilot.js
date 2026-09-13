@@ -14,6 +14,7 @@ const PACKAGE_VERSION = JSON.parse(
 
 const COMMAND_MODULES = {
   controller: '../scripts/ao-controller.js',
+  dashboard: '../scripts/ao-dashboard.js',
   doctor: '../scripts/ao-doctor.js',
   eval: '../scripts/ao-eval.js',
   handoff: '../scripts/ao-handoff.js',
@@ -36,7 +37,7 @@ const COMMAND_MODULES = {
 const RUNTIME_COMMANDS = new Set(['runtime-path', 'start', 'status', 'stop']);
 
 const PROJECT_SCOPED_COMMANDS = new Set(Object.keys(COMMAND_MODULES).filter(
-  (command) => !['init', 'publication-preflight'].includes(command),
+  (command) => !['init', 'publication-preflight', 'dashboard'].includes(command),
 ));
 const PR_EXCLUSIVE_COMMANDS = new Set(['doctor', 'lifecycle', 'reconcile']);
 
@@ -56,6 +57,7 @@ function renderHelp() {
     '  controller  Run the control loop',
     '  doctor      Diagnose control-plane, runtime, and auth state',
     '  start       Start the verified managed runtime daemon',
+    '  dashboard   Serve the localhost-only browser Dashboard',
     '  stop        Stop the verified managed runtime daemon',
     '  status      Inspect verified managed runtime daemon status',
     '  runtime-path Inspect exact runtime provenance and binary path',
@@ -168,7 +170,7 @@ export async function runCli(argv, io = createDefaultIo(), {
       : [...extracted.argv, '--config', extracted.configPath];
     return commandModule.runCli(initArgs, io, { cwd });
   }
-  if (command === 'publication-preflight') {
+  if (command === 'publication-preflight' || command === 'dashboard') {
     return commandModule.runCli(extracted.argv, io, { cwd });
   }
 

@@ -3,3 +3,5 @@ coverage/
 .ao-pilot/
 .ao-control-plane/
 *.log
+.playwright-cli/
+output/playwright/

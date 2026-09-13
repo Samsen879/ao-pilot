@@ -1,0 +1,20 @@
+import {test,expect,afterEach} from '@jest/globals';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {planCieCutover} from '../../scripts/ao/lib/cie-cutover.js';
+let root;
+afterEach(()=>{if(root)fs.rmSync(root,{recursive:true,force:true});root=null;});
+test('maps CIE config, records unsupported fields and preserves session bytes with HOLD',()=>{
+  root=fs.mkdtempSync(path.join(os.tmpdir(),'ao-cie-plan-'));
+  const configPath=path.join(root,'config.yaml');
+  fs.writeFileSync(configPath,'projects:\n  ciecopilot-home:\n    path: /cie\n    defaultBranch: main\n    tracker: github\n');
+  const original='worktree=/cie-worker\nbranch=feat/same-pr\npr=https://github.com/owner/repo/pull/1\n';
+  for(const id of ['cie-111','cie-orchestrator'])fs.writeFileSync(path.join(root,id),original);
+  const plan=planCieCutover({configPath,sessionsDir:root});
+  expect(plan.project.config.worker.agent).toBe('codex');
+  expect(plan.unsupported_fields).toEqual(['tracker']);
+  expect(plan.sessions[0].disposition).toBe('HOLD_LEGACY_SESSION_NOT_IMPORTED');
+  expect(plan.sessions[0].sha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(fs.readFileSync(path.join(root,'cie-111'),'utf8')).toBe(original);
+});
