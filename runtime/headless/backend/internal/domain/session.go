@@ -25,6 +25,8 @@ const (
 // SessionMetadata is the typed, off-status metadata for a session: operational
 // handles and seed inputs used by Session Manager and reaper.
 type SessionMetadata struct {
+	// SpawnAttemptID is seed-only custody, atomically persisted in spawn_attempt_sessions.
+	SpawnAttemptID    string `json:"-"`
 	Branch            string `json:"branch,omitempty"`
 	WorkspacePath     string `json:"workspacePath,omitempty"`
 	WorkspaceRepoPath string `json:"workspaceRepoPath,omitempty"`

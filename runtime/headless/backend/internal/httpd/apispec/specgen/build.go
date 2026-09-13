@@ -18,6 +18,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/controllers"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/envelope"
 	projectsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/project"
+	sessionmanager "github.com/aoagents/agent-orchestrator/backend/internal/session_manager"
 )
 
 // Build reflects the Go contract types and the operation registry below into
@@ -815,6 +816,8 @@ func sessionOperations() []operation {
 				{http.StatusInternalServerError, envelope.APIError{}},
 			},
 		},
+		{method: http.MethodGet, path: "/api/v1/spawn-attempts/{attemptId}", id: "inspectSpawnAttempt", tag: "sessions", summary: "Inspect native spawn custody without effects", pathParams: []any{controllers.SpawnAttemptIDParam{}}, resps: []respUnit{{http.StatusOK, sessionmanager.SpawnAttemptDiagnosis{}}, {http.StatusConflict, envelope.APIError{}}, {http.StatusNotImplemented, envelope.APIError{}}}},
+
 		{
 			method: http.MethodGet, path: "/api/v1/sessions/{sessionId}", id: "getSession", tag: "sessions",
 			summary:    "Fetch one session",

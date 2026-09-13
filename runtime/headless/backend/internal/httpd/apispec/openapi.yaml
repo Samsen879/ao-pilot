@@ -2583,6 +2583,37 @@ paths:
       summary: Rename a standalone shell terminal tab
       tags:
       - shellTerminals
+  /api/v1/spawn-attempts/{attemptId}:
+    get:
+      operationId: inspectSpawnAttempt
+      parameters:
+      - in: path
+        name: attemptId
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionManagerSpawnAttemptDiagnosis'
+          description: OK
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Conflict
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Inspect native spawn custody without effects
+      tags:
+      - sessions
 components:
   schemas:
     APIError:
@@ -3712,6 +3743,39 @@ components:
       - sessionId
       - message
       type: object
+    SessionManagerSpawnAttemptDiagnosis:
+      properties:
+        action:
+          type: string
+        attempt:
+          $ref: '#/components/schemas/SpawnattemptRecord'
+        observed_paths:
+          additionalProperties:
+            type: string
+          type:
+          - object
+          - "null"
+        observed_runtime:
+          type: string
+        observed_session:
+          type: boolean
+        observed_worktrees:
+          items:
+            $ref: '#/components/schemas/SpawnattemptWorktree'
+          type: array
+        session_id:
+          type: string
+        state:
+          type: string
+      required:
+      - attempt
+      - state
+      - action
+      - observed_session
+      - observed_runtime
+      - observed_worktrees
+      - observed_paths
+      type: object
     SessionPRCISummary:
       properties:
         failingChecks:
@@ -4138,6 +4202,8 @@ components:
           items:
             $ref: '#/components/schemas/ControllersSpawnAttachmentInput'
           type: array
+        attemptId:
+          type: string
         branch:
           type: string
         displayName:
@@ -4197,6 +4263,83 @@ components:
       - session
       - promptBytes
       - systemPromptBytes
+      type: object
+    SpawnattemptRecord:
+      properties:
+        attempt_id:
+          type: string
+        boot_id:
+          type: string
+        branch:
+          type: string
+        created_at:
+          type: string
+        generation:
+          format: int64
+          type: integer
+        launch_id:
+          type: string
+        outcome:
+          type: string
+        owner_pid:
+          type: integer
+        owner_start:
+          type: string
+        phase:
+          type: string
+        project:
+          type: string
+        project_fingerprint:
+          type: string
+        request_fingerprint:
+          type: string
+        residuals_unknown:
+          type: boolean
+        resolved_fingerprint:
+          type: string
+        runtime:
+          type: string
+        schema_version:
+          type: string
+        session_birth:
+          type: string
+        session_id:
+          type: string
+        updated_at:
+          type: string
+        workspace:
+          type: string
+        worktrees:
+          items:
+            $ref: '#/components/schemas/SpawnattemptWorktree'
+          type: array
+      required:
+      - schema_version
+      - attempt_id
+      - request_fingerprint
+      - generation
+      - project
+      - phase
+      - outcome
+      - residuals_unknown
+      - boot_id
+      - owner_pid
+      - owner_start
+      - created_at
+      - updated_at
+      type: object
+    SpawnattemptWorktree:
+      properties:
+        branch:
+          type: string
+        path:
+          type: string
+        repo:
+          type: string
+      required:
+      - path
+      - branch
+      - repo
       type: object
     StartPreviewServerRequest:
       properties:

@@ -152,6 +152,7 @@ type ListSessionsResponse struct {
 
 // SpawnSessionRequest is the body of POST /api/v1/sessions.
 type SpawnSessionRequest struct {
+	AttemptID string              `json:"attemptId,omitempty"`
 	ProjectID domain.ProjectID    `json:"projectId"`
 	IssueID   domain.IssueID      `json:"issueId,omitempty"`
 	Kind      domain.SessionKind  `json:"kind,omitempty" enum:"worker,orchestrator"`
@@ -841,4 +842,9 @@ type PushDeviceEnvelope struct {
 type UnregisterPushDeviceResponse struct {
 	Token   string `json:"token"`
 	Deleted bool   `json:"deleted"`
+}
+
+// SpawnAttemptIDParam identifies immutable native spawn custody.
+type SpawnAttemptIDParam struct {
+	AttemptID string `path:"attemptId"`
 }
