@@ -28,7 +28,13 @@ try {
   const first=await recoverySweep(manifest,adapter,{restore:true});
   if(first.results[0].state!=='RESTORED')throw Error(JSON.stringify(first));
   await new Promise(resolve=>setTimeout(resolve,1200));
-  const capture=()=>run('tmux',['capture-pane','-pt',tmuxName],{encoding:'utf8'});
+  const capture=()=>{
+    // A fresh private server defaults to 80 columns; join soft-wrapped lines
+    // rather than falsely rejecting an ID that straddles the terminal edge.
+    const output=run('tmux',['capture-pane','-pt',tmuxName,'-J'],{encoding:'utf8'});
+    fs.writeFileSync(path.join(root,'terminal-evidence.txt'),output);
+    return output;
+  };
   if(!capture().includes(conversationId))throw Error('Original resume identity absent from terminal');
   const pane=()=>run('tmux',['list-panes','-t',tmuxName,'-F','#{pane_pid}'],{encoding:'utf8'}).trim();
   const initial=pane();

@@ -21,6 +21,10 @@ Regression validation now assigns a new private `TMUX_TMPDIR` to the offline
 canary and its systemd process. The first restore therefore starts without any
 socket, without touching the user's tmux server. Its fake Codex uses no API.
 The suite also preserves live-session skip and service-start restore checks.
+Fresh private tmux defaults to 80 columns; the terminal evidence reader uses
+`capture-pane -J` to join soft wraps before asserting the original ID. Without
+that, a successfully resumed ID crossing the terminal edge was falsely rejected.
+Offline cold-socket/service checks passed with this evidence correction.
 
 Deployment and same-boot recovery after this repair must not retroactively turn
 the failed first restart into PASS. A subsequent actual cold restart remains
