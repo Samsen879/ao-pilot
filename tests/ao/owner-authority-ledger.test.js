@@ -33,11 +33,22 @@ test('interrupted lock is not reclaimed',()=>fixture(async({ledger,directory})=>
 test('truncation and symlink substitution HOLD; no directory creation through symlink',()=>fixture(async({ledger,directory,root,options})=>{await ingest(ledger,event());const file=path.join(directory,'a.json');fs.writeFileSync(file,'{');await expect(consume(ledger)).rejects.toThrow();fs.unlinkSync(file);fs.symlinkSync(path.join(root,'missing'),file);await expect(consume(ledger)).rejects.toThrow();const alias=path.join(root,'alias');fs.symlinkSync(directory,alias);await expect(ingest(createOwnerAuthorityLedger({...options,directory:path.join(alias,'new')}),event())).rejects.toThrow('symlink');expect(fs.existsSync(path.join(directory,'new'))).toBe(false);}));
 test('readable-by-others authority custody holds',()=>fixture(async({ledger,directory})=>{await ingest(ledger,event());fs.chmodSync(path.join(directory,'a.json'),0o644);await expect(consume(ledger)).rejects.toThrow('custody');}));
 
-test.each(['absent-policy','running','unknown','wrong-identity','denied','allowed'])('actual enrolled recovery sweep: %s',kind=>fixture(async({ledger})=>{
+test.each(['absent-policy','running','unknown','wrong-identity','denied','missing-evidence','allowed'])('actual enrolled recovery sweep: %s',kind=>fixture(async({ledger})=>{
  const s={...scope,prior_invocation_id:'previous'},e=event('restore',{scope:s,allowed_actions:kind==='denied'?['execution.rerun']:['conversation.restore']});await ingest(ledger,e);
  const binding={projectId:'ap',conversationId:'conv',authorityEnrollment:{schema_version:'ao.owner-recovery-enrollment.v1',scope:s,invocation_id:'restore-inv',gate_proofs:[]}};
  let live=false;const adapter={validate:async()=>{},alive:async()=>live,restore:jest.fn(async()=>{live=true;})};
- const observer=async()=>({state:['running','unknown'].includes(kind)?kind:'interrupted',invocation_id:kind==='wrong-identity'?'foreign':'previous',bound_scope:s});
- const policy=createOwnerRecoveryPolicy({ledger,observeExecution:observer});const result=await recoverySweep({sessions:{'ap-1':binding}},adapter,{restore:true,authorityPolicy:kind==='absent-policy'?undefined:policy});
+ const observer=async(_id,_binding,_scope,permit)=>permit({evidence_status:kind==='missing-evidence'?'missing':'established',state:['running','unknown'].includes(kind)?kind:'interrupted',invocation_id:kind==='wrong-identity'?'foreign':'previous',bound_scope:s});
+ const policy=createOwnerRecoveryPolicy({ledger,reconcileExecutionAndPermit:observer});const result=await recoverySweep({sessions:{'ap-1':binding}},adapter,{restore:true,authorityPolicy:kind==='absent-policy'?undefined:policy});
  expect(result.results[0].state).toBe(kind==='allowed'?'RESTORED':'HOLD');expect(adapter.restore).toHaveBeenCalledTimes(kind==='allowed'?1:0);
+}));
+
+test('execution starting while source verification waits is rechecked inside restore permit',()=>fixture(async({ledger,options})=>{
+ const s={...scope,prior_invocation_id:'previous'};await ingest(ledger,event('race',{scope:s,allowed_actions:['conversation.restore']}));
+ let verificationEntered,unblock;const entered=new Promise(r=>verificationEntered=r),barrier=new Promise(r=>unblock=r);
+ const blockingLedger=createOwnerAuthorityLedger({...options,verifySource:async args=>{verificationEntered();await barrier;return options.verifySource(args);}});
+ let state='interrupted';const restore=jest.fn();const reconciler=jest.fn(async(_id,_binding,_scope,permit)=>permit({state,evidence_status:'established',invocation_id:'previous',bound_scope:s}));
+ const policy=createOwnerRecoveryPolicy({ledger:blockingLedger,reconcileExecutionAndPermit:reconciler});
+ const binding={projectId:'ap',authorityEnrollment:{schema_version:'ao.owner-recovery-enrollment.v1',scope:s,invocation_id:'restore-race',gate_proofs:[]}};
+ const pending=policy.restore('ap-1',binding,restore);await entered;expect(reconciler).not.toHaveBeenCalled();state='running';unblock();
+ await expect(pending).rejects.toThrow('not safely terminal');expect(restore).not.toHaveBeenCalled();
 }));
