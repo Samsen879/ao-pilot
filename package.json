@@ -46,7 +46,7 @@
     "@babel/parser": "^7.29.7",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
-    "js-yaml": "3.15.1"
+    "js-yaml": "3.15.2"
   },
   "scripts": {
     "dashboard": "node scripts/ao-dashboard.js",
@@ -145,7 +145,7 @@
   },
   "overrides": {
     "brace-expansion": "5.0.9",
-    "js-yaml": "3.15.1"
+    "js-yaml": "3.15.2"
   },
   "keywords": [
     "ai",
