@@ -10,6 +10,9 @@ import * as core from '../browser/packages/core/dist/index.js';
 import {createRecoveryAdapter,recoverySweep,writeBindings} from './ao/lib/session-recovery.js';
 process.env.PATH=path.dirname(process.execPath)+':/usr/local/bin:/usr/bin:/bin';
 const root=fs.mkdtempSync(path.join(os.tmpdir(),'ao-recovery-canary-'));
+// A private, initially nonexistent tmux socket reproduces cold boot without
+// killing or attaching to the user's tmux server.
+process.env.TMUX_TMPDIR=root;
 const workspace=path.join(root,'ao-recovery-canary');fs.mkdirSync(workspace);
 run('/usr/bin/git',['init','--quiet',workspace]);
 const configPath=path.join(root,'config.yaml'), id='canary-1', conversationId='00000000-0000-4000-8000-000000000001';
@@ -31,7 +34,7 @@ try {
   const initial=pane();
   // Restart the recovery foreground process, not a real Codex conversation.
   const unit='ao-pilot-recovery-canary-'+path.basename(root);
-  const start=()=>run('systemd-run',['--user','--unit',unit,'--property=Type=simple','--setenv=PATH='+process.env.PATH,process.execPath,fileURLToPath(new URL('./ao-session.js',import.meta.url)),'serve','--config',configPath,'--bindings',manifestPath]);
+  const start=()=>run('systemd-run',['--user','--unit',unit,'--property=Type=simple','--setenv=PATH='+process.env.PATH,'--setenv=TMUX_TMPDIR='+root,process.execPath,fileURLToPath(new URL('./ao-session.js',import.meta.url)),'serve','--config',configPath,'--bindings',manifestPath]);
   start();
   try {
     await new Promise(resolve=>setTimeout(resolve,1200));
@@ -41,7 +44,7 @@ try {
     start();
     await new Promise(resolve=>setTimeout(resolve,2000));
     if(!capture().includes(conversationId))throw Error('Service startup did not restore original canary identity');
-    console.log(JSON.stringify({status:'PASS',real_tmux:true,service_restart_missing_session_restored:true,original_conversation_preserved:true,live_session_skipped:true,provider_calls:0,live_CIE_touched:false,canary_root:root}));
+    console.log(JSON.stringify({status:'PASS',real_tmux:true,cold_boot_private_socket:true,service_restart_missing_session_restored:true,original_conversation_preserved:true,live_session_skipped:true,provider_calls:0,live_CIE_touched:false,canary_root:root}));
   }finally{try{run('systemctl',['--user','stop',unit]);}catch{}}
 }finally {
   try{run('tmux',['kill-session','-t',tmuxName]);}catch{}
