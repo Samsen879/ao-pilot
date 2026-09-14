@@ -186,6 +186,7 @@ func NewRootCommand(deps Deps) *cobra.Command {
 	root.AddCommand(newDoctorCommand(ctx))
 	root.AddCommand(newAgentCommand(ctx))
 	root.AddCommand(newSpawnCommand(ctx))
+	root.AddCommand(newSpawnAttemptCommand(ctx))
 	root.AddCommand(newSendCommand(ctx))
 	root.AddCommand(newPreviewCommand(ctx))
 	root.AddCommand(newBrowserCommand(ctx))
