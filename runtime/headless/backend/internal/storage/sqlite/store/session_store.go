@@ -21,14 +21,30 @@ func (s *Store) CreateSession(ctx context.Context, rec domain.SessionRecord) (do
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	num, err := s.qw.NextSessionNum(ctx, rec.ProjectID)
+	tx, err := s.writeDB.BeginTx(ctx, nil)
 	if err != nil {
-		return domain.SessionRecord{}, fmt.Errorf("next session num for %s: %w", rec.ProjectID, err)
+		return domain.SessionRecord{}, err
+	}
+	defer tx.Rollback()
+	q := gen.New(tx)
+	var num int64
+	err = tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(num),0)+1 FROM (SELECT num FROM sessions WHERE project_id=? UNION ALL SELECT session_num AS num FROM spawn_attempt_sessions WHERE project_id=?)", rec.ProjectID, rec.ProjectID).Scan(&num)
+	if err != nil {
+		return domain.SessionRecord{}, err
 	}
 	rec.ID = domain.SessionID(fmt.Sprintf("%s-%d", rec.ProjectID, num))
-	if err := s.qw.InsertSession(ctx, recordToInsert(rec, num)); err != nil {
-		return domain.SessionRecord{}, fmt.Errorf("insert session %s: %w", rec.ID, err)
+	if err := q.InsertSession(ctx, recordToInsert(rec, num)); err != nil {
+		return domain.SessionRecord{}, err
 	}
+	if rec.Metadata.SpawnAttemptID != "" {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO spawn_attempt_sessions(session_id,attempt_id,project_id,session_num) VALUES (?,?,?,?)", rec.ID, rec.Metadata.SpawnAttemptID, rec.ProjectID, num); err != nil {
+			return domain.SessionRecord{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.SessionRecord{}, err
+	}
+
 	return rec, nil
 }
 
@@ -320,4 +336,22 @@ func normalActivity(a domain.Activity, fallback time.Time) domain.Activity {
 		a.LastActivityAt = time.Now().UTC()
 	}
 	return a
+}
+
+// SpawnAttemptForSession reads immutable custody even after seed rollback.
+func (s *Store) SpawnAttemptForSession(ctx context.Context, id domain.SessionID) (string, error) {
+	var attempt string
+	err := s.readDB.QueryRowContext(ctx, "SELECT attempt_id FROM spawn_attempt_sessions WHERE session_id=?", id).Scan(&attempt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return attempt, err
+}
+func (s *Store) SessionForSpawnAttempt(ctx context.Context, id string) (domain.SessionID, error) {
+	var session domain.SessionID
+	err := s.readDB.QueryRowContext(ctx, "SELECT session_id FROM spawn_attempt_sessions WHERE attempt_id=?", id).Scan(&session)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return session, err
 }
