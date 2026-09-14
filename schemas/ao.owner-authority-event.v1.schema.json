@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ao-pilot.dev/schemas/ao.owner-authority-event.v1.schema.json",
+  "title": "Owner authority event (structural schema only; mandatory host verification)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "kind",
+    "owner_ref",
+    "source_ref",
+    "issued_at",
+    "expires_at",
+    "scope",
+    "allowed_actions",
+    "prohibited_actions",
+    "supersedes",
+    "revokes",
+    "dependency_gates"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "ao.owner-authority-event.v1"
+    },
+    "event_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_-]{1,128}$"
+    },
+    "kind": {
+      "enum": [
+        "grant",
+        "revoke"
+      ]
+    },
+    "owner_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "issued_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "project_id",
+        "task_id",
+        "worker_ref",
+        "session_id",
+        "generation",
+        "pr_number",
+        "head_sha",
+        "tree_sha",
+        "input_digest",
+        "prior_invocation_id"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "project_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "task_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "worker_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "generation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "pr_number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "head_sha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "tree_sha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "input_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "prior_invocation_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-zA-Z0-9_-]{1,128}$"
+        }
+      }
+    },
+    "allowed_actions": {
+      "type": "array",
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "execution.run",
+          "execution.rerun",
+          "conversation.restore"
+        ]
+      }
+    },
+    "prohibited_actions": {
+      "type": "array",
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "execution.run",
+          "execution.rerun",
+          "conversation.restore"
+        ]
+      }
+    },
+    "supersedes": {
+      "type": "array",
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9_-]{1,128}$"
+      }
+    },
+    "revokes": {
+      "type": "array",
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9_-]{1,128}$"
+      }
+    },
+    "dependency_gates": {
+      "type": "array",
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "gate_id",
+          "evidence_sha256"
+        ],
+        "properties": {
+          "gate_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,128}$"
+          },
+          "evidence_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
+    }
+  }
+}
