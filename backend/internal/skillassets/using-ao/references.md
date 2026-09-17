@@ -25,7 +25,7 @@ Natural-language-to-command mappings for common AO tasks.
 | Restore a killed session | `ao session restore <id>` |
 | Clean up terminated sessions | `ao session cleanup` |
 | See a session's details | `ao session get <id>` |
-| Start the governed headless runtime | `ao-pilot start --project <project>` (`ao start` is disabled) |
+| Start the governed headless runtime | `ao-pilot start` (`ao start` is disabled) |
 | Check the daemon is up | `ao status` |
 | Run health checks | `ao doctor` |
 | Clear the preview panel | `ao preview clear` |
