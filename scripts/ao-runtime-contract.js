@@ -62,12 +62,12 @@ export function inspectWorkerLauncher(runtime, env = process.env, execute = chil
     available = false;
   }
   const validProbe = available ? execute(launcherPath, ['--version'], {
-    env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5_000,
   }) : null;
   const mismatchedDigest = `${runtime.binary_sha256[0] === '0' ? '1' : '0'}${runtime.binary_sha256.slice(1)}`;
   const rejectionProbe = available ? execute(launcherPath, ['--version'], {
     env: {...env,AO_MANAGED_RUNTIME_BINARY_SHA256:mismatchedDigest},
-    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5_000,
   }) : null;
   return {
     path: launcherPath,

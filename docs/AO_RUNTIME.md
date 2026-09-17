@@ -181,7 +181,8 @@ probe.
 Foreground browser launches that do not supply all four managed bindings omit
 the Codex worker CLI contract instead of advertising an unusable launcher. An
 active service's `AO_PILOT_RUNTIME_STORE` override is preserved during installed
-provenance resolution.
+provenance resolution and emitted into every generated service unit. Launcher
+authentication probes are bounded to five seconds and timeouts fail closed.
 
 `npm run verify:runtime-lifecycle` checks the static exact-binary routing
 contract. `npm run verify:fresh-clone` is the separate P0-R07 live integration

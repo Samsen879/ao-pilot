@@ -20,6 +20,7 @@ const units = buildDashboardUnits({
   home: os.homedir(),
   managedRuntimeBinary: runtime.binary_path,
   managedRuntimeBinarySha256: runtime.binary_sha256,
+  managedRuntimeStore: runtime.store_root,
   terminalAccess: args.includes('--terminal-access'),
 });
 if (args.includes('--dashboard-only')) {delete units['ao-pilot-runtime.service'];delete units['ao-pilot-session-recovery.service'];}

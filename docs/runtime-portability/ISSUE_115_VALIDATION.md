@@ -33,7 +33,8 @@ The clean committed source-candidate replay is recorded separately in
   restores the namespace before execution. Partial dashboard/recovery installs
   inherit these values from the effective active runtime process, recheck its
   PID after provenance resolution, and hold on identity, process, or namespace
-  drift rather than trusting only the static unit.
+  drift rather than trusting only the static unit. The selected runtime store is
+  preserved through provenance replay and emitted into every generated service.
 - Codex-only worker instructions define `ao status --json` as global daemon
   health and `ao project get <project-id> --json` as project readback. Other agent
   prompts and Codex launches without all four managed bindings do not claim that
@@ -48,7 +49,8 @@ The clean committed source-candidate replay is recorded separately in
 - `ao-pilot runtime-contract --json` performs read-only version/help probes,
   resolves installed bindings for an operator shell when service-only variables
   are absent, authenticates the worker launcher with matching version and
-  digest-rejection probes, verifies its binary/data/run-file bindings, and
+  digest-rejection probes bounded to five seconds, verifies its
+  binary/data/run-file bindings, and
   converts probe exceptions into a normalized machine-readable `HOLD`.
 
 ## Acceptance matrix

@@ -39,6 +39,7 @@ test('partial service installs inherit the exact installed runtime service bindi
       package_root:packageRoot,
       binary_path:'/installed/runtime/bin/ao',
       binary_sha256:'b'.repeat(64),
+      store_root:'/custom/runtime-store',
       data_dir:binding.data_dir,
       run_file:binding.run_file,
     });
@@ -105,7 +106,7 @@ test('default inspection derives identity from systemd MainPID and proc state',(
   const realpath=jest.fn(value=>value==='/proc/123/cwd'?packageRoot:value);
   const lstat=jest.fn(()=>({isFile:()=>true,isSymbolicLink:()=>false}));
   expect(resolveInstalledRuntimeServiceBinding({home:root,execute,readFile,realpath,lstat})).toMatchObject({
-    package_root:packageRoot,binary_path:'/runtime/ao',data_dir:binding.data_dir,run_file:binding.run_file,
+    package_root:packageRoot,binary_path:'/runtime/ao',store_root:path.join(root,'.local/share/ao-pilot/runtimes'),data_dir:binding.data_dir,run_file:binding.run_file,
   });
   expect(execute).toHaveBeenCalledWith('systemctl',expect.arrayContaining(['--property=ActiveState']),expect.any(Object));
   expect(execute).toHaveBeenCalledWith('systemctl',expect.arrayContaining(['--property=MainPID']),expect.any(Object));

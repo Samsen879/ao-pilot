@@ -136,6 +136,28 @@ echo "ao version 1.2.3"
     }
   });
 
+  it('bounds launcher authentication probes and treats timeouts as unauthenticated', () => {
+    const home=fs.mkdtempSync(path.join(os.tmpdir(),'ao-runtime-contract-'));
+    const bin=path.join(home,'.ao','bin');
+    const launcher=path.join(bin,'ao');
+    const execute=jest.fn().mockReturnValue({status:null,stdout:'',stderr:'',error:{code:'ETIMEDOUT'}});
+    try {
+      fs.mkdirSync(bin,{recursive:true});
+      fs.writeFileSync(launcher,'#!/bin/sh\nexit 0\n',{mode:0o755});
+      expect(inspectWorkerLauncher(runtime,{
+        HOME:home,AO_MANAGED_RUNTIME_BINARY:runtime.binary_path,
+        AO_MANAGED_RUNTIME_BINARY_SHA256:runtime.binary_sha256,
+        AO_MANAGED_RUNTIME_DATA_DIR:path.join(home,'.local/share/ao-pilot/cie-runtime/data'),
+        AO_MANAGED_RUNTIME_RUN_FILE:path.join(home,'.local/share/ao-pilot/cie-runtime/running.json'),
+      },execute).authenticated).toBe(false);
+      expect(execute).toHaveBeenCalledTimes(2);
+      expect(execute.mock.calls[0][2]).toMatchObject({timeout:5_000});
+      expect(execute.mock.calls[1][2]).toMatchObject({timeout:5_000});
+    } finally {
+      fs.rmSync(home,{recursive:true,force:true});
+    }
+  });
+
   it('probes only read-only help/version surfaces on the exact resolved binary', async () => {
     const output = [];
     const executeRuntime = jest.fn((resolved, args) => ({
