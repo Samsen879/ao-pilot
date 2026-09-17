@@ -1,6 +1,6 @@
 {
   "schema_version": "ao.issue-115-source-candidate-receipt.v1",
-  "observed_at": "2026-09-17T22:58:30+08:00",
+  "observed_at": "2026-09-17T23:43:31+08:00",
   "issue": 115,
   "status": "passed",
   "base": {
@@ -8,8 +8,8 @@
     "tree_sha": "a5f34f9b04d013a8c1da93f085c0239fe31ebe2e"
   },
   "implementation_candidate": {
-    "commit_sha": "aa5449c13da44ffb79207410dd7f56645c1b27fe",
-    "tree_sha": "78bb6f3c1c150d0b02a39e64a9ccda4645573040",
+    "commit_sha": "2b6b46516db27b67c6b5313ed35340c1f8bc46fd",
+    "tree_sha": "6cc905f2c94a47fcae4f1141ddc05ca7edf570d2",
     "branch": "task/issue-115-installed-runtime"
   },
   "checks": [
@@ -17,7 +17,7 @@
       "command": "npm test",
       "result": "passed",
       "suites": 118,
-      "tests": 1175,
+      "tests": 1181,
       "execution_boundary": "clean committed HEAD, outside sandbox for child-process fixtures"
     },
     {
@@ -39,7 +39,7 @@
       "command": "npm test --workspace @composio/ao-core",
       "result": "passed",
       "suites": 21,
-      "tests": 526
+      "tests": 527
     },
     {
       "command": "npm test --workspace @composio/ao-web",
@@ -61,14 +61,19 @@
       "command": "npm run verify:package",
       "result": "passed",
       "package": "ao-pilot-0.2.0.tgz",
-      "entry_count": 988,
+      "entry_count": 989,
       "eval_quality_gate": "passed"
     }
   ],
   "source_claims": {
     "managed_worker_launcher": "implemented",
+    "managed_daemon_namespace_binding": "implemented",
+    "pinned_recovery_prelaunch_provisioning": "implemented",
+    "codex_only_worker_prompt_contract": "implemented",
     "global_status_project_readback_split": "implemented",
+    "operator_project_readback_verified_entrypoint": "implemented",
     "read_only_runtime_capability_contract": "implemented",
+    "structured_probe_failure_hold": "implemented",
     "spawn_attempt_custody_in_current_source": "established",
     "installed_runtime_cutover": "not_claimed"
   },
