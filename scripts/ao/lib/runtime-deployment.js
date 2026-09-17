@@ -120,6 +120,7 @@ export function resolveInstalledRuntimeServiceBinding({
     || unitExecStarts[0] !== `"${nodePath}" "${foregroundPath}"`
     || unitDirectiveValues(service.unitText, 'EnvironmentFile').length !== 0
     || unitDirectiveValues(service.unitText, 'UnsetEnvironment').length !== 0
+    || unitEnvironments.some(value => value.trim() === '')
     || unitEnvironments.some(value => value.includes('\\'))
     || !hasExactUnitEnvironment('AO_DATA_DIR', dataDir)
     || !hasExactUnitEnvironment('AO_RUN_FILE', runFile)

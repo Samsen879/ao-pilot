@@ -108,6 +108,7 @@ test('partial service installs reject on-disk or effective restart binding drift
     expect(()=>resolveInstalledRuntimeServiceBinding({home:root,execute,inspectService:()=>({...service,dropInPaths:'/override.conf'})})).toThrow('binding drifted');
     expect(()=>resolveInstalledRuntimeServiceBinding({home:root,execute,inspectService:()=>({...service,unitText:`${service.unitText}Environment="AO_DATA_DIR=/next/data"\n`})})).toThrow('binding drifted');
     expect(()=>resolveInstalledRuntimeServiceBinding({home:root,execute,inspectService:()=>({...service,unitText:`${service.unitText}Environment = 'AO_RUN_FILE=/next/run'\n`})})).toThrow('binding drifted');
+    expect(()=>resolveInstalledRuntimeServiceBinding({home:root,execute,inspectService:()=>({...service,unitText:`${service.unitText}Environment=\n`})})).toThrow('binding drifted');
     expect(()=>resolveInstalledRuntimeServiceBinding({home:root,execute,inspectService:()=>({...service,unitText:`${service.unitText}EnvironmentFile = /tmp/runtime.env\n`})})).toThrow('binding drifted');
   } finally {fs.rmSync(packageRoot,{recursive:true,force:true});}
 });
