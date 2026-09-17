@@ -4302,6 +4302,42 @@ describe("restore", () => {
     expect(meta!["createdAt"]).toBe("2025-01-01T00:00:00.000Z");
   });
 
+  it("provisions agent workspace hooks before starting a restored runtime", async () => {
+    const wsPath = join(tmpDir, "ws-app-1");
+    mkdirSync(wsPath, { recursive: true });
+    const agentWithHooks: Agent = {
+      ...mockAgent,
+      setupWorkspaceHooks: vi.fn().mockResolvedValue(undefined),
+    };
+    const registryWithHooks: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return agentWithHooks;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+    };
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: wsPath,
+      branch: "feat/TEST-1",
+      status: "killed",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-old")),
+    });
+
+    const sm = createSessionManager({ config, registry: registryWithHooks });
+    await sm.restore("app-1");
+
+    expect(agentWithHooks.setupWorkspaceHooks).toHaveBeenCalledWith(
+      wsPath,
+      { dataDir: sessionsDir, sessionId: "app-1" },
+    );
+    expect(
+      vi.mocked(agentWithHooks.setupWorkspaceHooks!).mock.invocationCallOrder[0],
+    ).toBeLessThan(vi.mocked(mockRuntime.create).mock.invocationCallOrder[0]);
+  });
+
   it("continues restore even if old runtime destroy fails", async () => {
     const wsPath = join(tmpDir, "ws-app-1");
     mkdirSync(wsPath, { recursive: true });

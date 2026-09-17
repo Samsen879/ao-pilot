@@ -172,14 +172,19 @@ to Codex workers as `AO_MANAGED_RUNTIME_BINARY`,
 `AO_MANAGED_RUNTIME_RUN_FILE`; their `~/.ao/bin/ao` wrapper rejects an absent,
 relative, non-executable, symlinked, or digest-mismatched binding before
 execution. Partial dashboard/recovery service installs inherit this identity
-from the effective active runtime process (PID, working directory, command, and
-environment) instead of trusting only the static unit or mixing a new CLI with
-an old daemon. Operator `runtime-contract` invocations recover the same active
+from the effective active runtime foreground process and its sole daemon child
+(PIDs, working directory, commands, environments, child executable path, and
+live executable digest) instead of trusting only the static unit or mixing a
+new CLI with an old daemon. Operator `runtime-contract` invocations recover the same active
 binding when service-only environment variables are absent, and authenticate
 the launcher with both a valid version probe and a deliberate digest-rejection
 probe.
 Foreground browser launches that do not supply all four managed bindings omit
-the Codex worker CLI contract instead of advertising an unusable launcher. An
+the Codex worker CLI contract and remove `~/.ao/bin` from the inherited worker
+PATH instead of advertising or selecting an unusable launcher. Restores rerun
+the agent workspace hook before runtime creation. Bound Codex orchestrators use
+`ao status --json` only for daemon health, use project-scoped JSON session
+listing for coordination, and receive managed spawn/send/claim command forms. An
 active service's `AO_PILOT_RUNTIME_STORE` override is preserved during installed
 provenance resolution and emitted into every generated service unit. Launcher
 authentication probes are bounded to five seconds and timeouts fail closed.

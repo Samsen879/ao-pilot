@@ -41,7 +41,7 @@ import { updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
 import { createCorrelationId, createProjectObserver } from "./observability.js";
 import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
-import { generateOrchestratorPrompt } from "./orchestrator-prompt.js";
+import { generateOrchestratorPrompt, hasCompleteManagedAoBinding } from "./orchestrator-prompt.js";
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 function parseDuration(str: string): number {
@@ -807,9 +807,19 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       return existing;
     }
 
+    const orchestratorAgent = resolveAgentSelection({
+      role: "orchestrator",
+      project,
+      defaults: config.defaults,
+    }).agentName;
     return sessionManager.spawnOrchestrator({
       projectId,
-      systemPrompt: generateOrchestratorPrompt({ config, projectId, project }),
+      systemPrompt: generateOrchestratorPrompt({
+        config,
+        projectId,
+        project,
+        managedCli: orchestratorAgent === "codex" && hasCompleteManagedAoBinding(),
+      }),
     });
   }
 

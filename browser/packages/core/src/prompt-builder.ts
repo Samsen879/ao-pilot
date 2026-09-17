@@ -23,7 +23,7 @@ export const BASE_AGENT_PROMPT = `You are an AI coding agent managed by the Agen
 ## Session Lifecycle
 - You are running inside a managed session. Focus on the assigned task.
 - When you finish your work, create a PR and push it. The orchestrator will handle CI monitoring and review routing.
-- If you're told to take over or continue work on an existing PR, run \`ao session claim-pr <pr-number-or-url>\` from inside this session before making changes.
+- If you're told to take over or continue work on an existing PR, inspect \`ao session claim-pr --help\`, then claim it using the current \`AO_SESSION_ID\` and the PR reference in the advertised order before making changes.
 - If CI fails, the orchestrator will send you the failures — fix them and push again.
 - If reviewers request changes, the orchestrator will forward their comments — address each one, push fixes, and reply to the comments.
 
@@ -43,6 +43,7 @@ export const CODEX_AO_CLI_PROMPT = `## AO CLI Contract
 - The supported launcher in this Codex worker is \`ao\`; run \`ao --version\` and command-specific \`--help\` before relying on inherited examples.
 - Daemon health is global: use \`ao status --json\`. The status command has no project flag.
 - Project registration is separate: use \`ao project get <project-id> --json\`.
+- Claim a PR with \`ao session claim-pr "$AO_SESSION_ID" <pr-number-or-url> --project "$AO_PROJECT_ID"\`.
 - Treat an unavailable launcher, unsupported flag, wrong namespace, or conflicting identity as HOLD; do not spawn a replacement writer to work around it.`;
 
 // =============================================================================

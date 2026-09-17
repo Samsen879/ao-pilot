@@ -33,12 +33,21 @@ The clean committed source-candidate replay is recorded separately in
   restores the namespace before execution. Partial dashboard/recovery installs
   inherit these values from the effective active runtime process, recheck its
   PID after provenance resolution, and hold on identity, process, or namespace
-  drift rather than trusting only the static unit. The selected runtime store is
+  drift rather than trusting only the static unit. Inspection binds both the
+  foreground Node parent and its sole `ao daemon` child, including the child's
+  executable path, live executable bytes, digest, arguments, and namespace.
+  The selected runtime store is
   preserved through provenance replay and emitted into every generated service.
 - Codex-only worker instructions define `ao status --json` as global daemon
-  health and `ao project get <project-id> --json` as project readback. Other agent
-  prompts and Codex launches without all four managed bindings do not claim that
-  the launcher exists.
+  health, `ao session ls --all --project <id> --json` as coordination readback,
+  and the managed `claim-pr` argument order. Bound orchestrator prompts rewrite
+  legacy spawn/send/session examples to the installed CLI contract. Other agent
+  prompts do not claim that launcher contract, and Codex launches without all
+  four managed bindings remove `~/.ao/bin` from their inherited PATH so the
+  fail-closed wrapper cannot shadow an ambient AO command.
+- Ordinary session restore reruns the agent workspace hook before creating the
+  resumed runtime, so the managed wrapper is present before the restored Codex
+  conversation can issue its next command.
 - Operator project readback uses `ao-pilot runtime-project-get <id> --json`, so it
   resolves and verifies the managed runtime without relying on ambient `PATH`.
 - `ao-pilot status --project ...` and the other global lifecycle commands now

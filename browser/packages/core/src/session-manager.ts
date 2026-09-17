@@ -58,7 +58,7 @@ import {
   reserveSessionId,
 } from "./metadata.js";
 import { buildPrompt } from "./prompt-builder.js";
-import { generateOrchestratorPrompt } from "./orchestrator-prompt.js";
+import { generateOrchestratorPrompt, hasCompleteManagedAoBinding } from "./orchestrator-prompt.js";
 import {
   getSessionsDir,
   getWorktreesDir,
@@ -2552,6 +2552,15 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
     }
 
+    // Restore agent-owned launch prerequisites before resuming the runtime.
+    // A restored Codex conversation can issue its next command immediately.
+    if (plugins.agent.setupWorkspaceHooks) {
+      await plugins.agent.setupWorkspaceHooks(workspacePath, {
+        dataDir: sessionsDir,
+        sessionId,
+      });
+    }
+
     // 6. Destroy old runtime if still alive (e.g. tmux session survives agent crash)
     if (session.runtimeHandle) {
       try {
@@ -2570,7 +2579,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       systemPromptFile = join(baseDir, "orchestrator-prompt.md");
       writeFileSync(
         systemPromptFile,
-        generateOrchestratorPrompt({ config, projectId, project }),
+        generateOrchestratorPrompt({
+          config,
+          projectId,
+          project,
+          managedCli: selection.agentName === "codex" && hasCompleteManagedAoBinding(),
+        }),
         "utf-8",
       );
     }

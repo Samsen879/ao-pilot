@@ -80,4 +80,26 @@ describe("generateOrchestratorPrompt", () => {
     expect(prompt).toContain("spawn or redirect a successor worker");
     expect(prompt).toContain("Escalate to a human only when");
   });
+
+  it("uses managed runtime session commands for a bound Codex orchestrator", () => {
+    const prompt = generateOrchestratorPrompt({
+      config,
+      projectId: "my-app",
+      project: config.projects["my-app"]!,
+      managedCli: true,
+    });
+
+    expect(prompt).toContain("`ao status --json` only for global daemon health");
+    expect(prompt).toContain("ao session ls --all --project my-app --json");
+    expect(prompt).toContain("ao session claim-pr app-1 123 --project my-app");
+    expect(prompt).toContain("ao send --session app-1 --message");
+    expect(prompt).not.toContain("ao session claim-pr 123 app-1");
+    expect(prompt).not.toContain("ao spawn INT-1234");
+    expect(prompt).not.toContain("ao batch-spawn");
+    expect(prompt).not.toContain("batch-spawn");
+    expect(prompt).not.toContain("ao session attach");
+    expect(prompt).not.toContain("ao dashboard");
+    expect(prompt).not.toContain("ao open");
+    expect(prompt).not.toContain("| `ao status` |");
+  });
 });

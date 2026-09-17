@@ -72,6 +72,13 @@ function buildAgentPath(basePath: string | undefined): string {
   return ordered.join(":");
 }
 
+function buildUnmanagedAgentPath(basePath: string | undefined): string {
+  const entries = (basePath ?? DEFAULT_PATH)
+    .split(":")
+    .filter((entry) => entry && entry !== AO_BIN_DIR);
+  return entries.join(":") || DEFAULT_PATH;
+}
+
 function isLikelyCodexStatusFooter(line: string): boolean {
   if (!line.includes("·")) return false;
 
@@ -98,7 +105,7 @@ export const manifest = {
   name: "codex",
   slot: "agent" as const,
   description: "Agent plugin: OpenAI Codex CLI",
-  version: "0.1.4",
+  version: "0.1.5",
   displayName: "OpenAI Codex",
 };
 
@@ -375,7 +382,7 @@ export async function setupManagedAoLauncher(): Promise<void> {
 
   await atomicWriteFile(join(AO_BIN_DIR, "ao-metadata-helper.sh"), AO_METADATA_HELPER, 0o755);
   const markerPath = join(AO_BIN_DIR, ".ao-version");
-  const currentVersion = "0.1.4";
+  const currentVersion = "0.1.5";
 
   // Always restore every wrapper atomically. A surviving version marker must
   // not hide a deleted or partially replaced launcher during recovery.
@@ -1024,11 +1031,22 @@ function createCodexAgent(): Agent {
         env["AO_MANAGED_RUNTIME_RUN_FILE"] = runtimeRunFile;
       }
 
-      // Prepend ~/.ao/bin to PATH so our gh/git wrappers intercept commands.
-      // The wrappers strip this directory from PATH before calling the real
-      // binary, so there's no infinite recursion.
-      env["PATH"] = buildAgentPath(process.env["PATH"]);
-      env["GH_PATH"] = PREFERRED_GH_PATH;
+      const managedBindingsComplete = [
+        runtimeBinary,
+        runtimeBinarySha256,
+        runtimeDataDir,
+        runtimeRunFile,
+      ].every(Boolean);
+      // Only select the managed wrapper directory when its complete runtime
+      // identity is available. Foreground/unbound launches retain their
+      // inherited PATH instead of shadowing a usable ambient AO command with
+      // the fail-closed managed launcher.
+      if (managedBindingsComplete) {
+        env["PATH"] = buildAgentPath(process.env["PATH"]);
+        env["GH_PATH"] = PREFERRED_GH_PATH;
+      } else {
+        env["PATH"] = buildUnmanagedAgentPath(process.env["PATH"]);
+      }
       // Disable Codex's version check/update prompt for non-interactive AO sessions.
       env["CODEX_DISABLE_UPDATE_CHECK"] = "1";
 

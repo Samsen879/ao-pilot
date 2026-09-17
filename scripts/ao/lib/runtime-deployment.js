@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import * as childProcess from 'node:child_process';
 export function deploymentBinding(home) {
   const root = path.join(home, '.local/share/ao-pilot/cie-runtime');
@@ -24,7 +25,27 @@ function inspectActiveRuntimeService(execute, readFile, realpath) {
       const separator = entry.indexOf('=');
       return separator < 1 ? [entry, ''] : [entry.slice(0, separator), entry.slice(separator + 1)];
     }));
-  return {activeState,mainPid,packageRoot:realpath(path.join(procRoot, 'cwd')),argv,environment};
+  const children = readFile(path.join(procRoot, 'task', mainPid, 'children'), 'utf8')
+    .trim().split(/\s+/).filter(Boolean);
+  if (children.length !== 1 || !/^[1-9][0-9]*$/.test(children[0])) {
+    throw new Error('Installed runtime service does not own exactly one daemon child; HOLD');
+  }
+  const daemonPid = children[0];
+  const daemonRoot = `/proc/${daemonPid}`;
+  const daemonArgv = readFile(path.join(daemonRoot, 'cmdline'))
+    .toString('utf8').split('\0').filter(Boolean);
+  const daemonEnvironment = Object.fromEntries(readFile(path.join(daemonRoot, 'environ'))
+    .toString('utf8').split('\0').filter(Boolean).map(entry => {
+      const separator = entry.indexOf('=');
+      return separator < 1 ? [entry, ''] : [entry.slice(0, separator), entry.slice(separator + 1)];
+    }));
+  const daemonExecutable = realpath(path.join(daemonRoot, 'exe'));
+  const daemonSha256 = crypto.createHash('sha256')
+    .update(readFile(path.join(daemonRoot, 'exe'))).digest('hex');
+  return {
+    activeState,mainPid,packageRoot:realpath(path.join(procRoot, 'cwd')),argv,environment,
+    daemonPid,daemonArgv,daemonEnvironment,daemonExecutable,daemonSha256,
+  };
 }
 
 export function resolveInstalledRuntimeServiceBinding({
@@ -58,6 +79,13 @@ export function resolveInstalledRuntimeServiceBinding({
       && (!path.isAbsolute(runtimeStore) || /[\r\n\x00"%\\]/.test(runtimeStore)))
     || dataDir !== expected.data_dir
     || runFile !== expected.run_file
+    || !/^[1-9][0-9]*$/.test(String(service.daemonPid))
+    || service.daemonArgv?.length !== 2
+    || service.daemonArgv?.[1] !== 'daemon'
+    || service.daemonEnvironment?.AO_DATA_DIR !== dataDir
+    || service.daemonEnvironment?.AO_RUN_FILE !== runFile
+    || (runtimeStore != null
+      && service.daemonEnvironment?.AO_PILOT_RUNTIME_STORE !== runtimeStore)
   ) {
     throw new Error('Installed runtime service binding drifted; HOLD');
   }
@@ -88,10 +116,23 @@ export function resolveInstalledRuntimeServiceBinding({
   ) {
     throw new Error('Installed runtime service provenance is not verified; HOLD');
   }
+  if (service.daemonExecutable !== report.binary_path
+    || service.daemonArgv[0] !== report.binary_path
+    || service.daemonSha256 !== report.binary_sha256) {
+    throw new Error('Active daemon child does not match verified runtime provenance; HOLD');
+  }
   const confirmedService = inspectService();
   if (String(confirmedService.mainPid) !== String(service.mainPid)
     || confirmedService.packageRoot !== packageRoot
-    || confirmedService.argv?.[1] !== foregroundPath) {
+    || JSON.stringify(confirmedService.argv) !== JSON.stringify(service.argv)
+    || String(confirmedService.daemonPid) !== String(service.daemonPid)
+    || JSON.stringify(confirmedService.daemonArgv) !== JSON.stringify(service.daemonArgv)
+    || confirmedService.daemonEnvironment?.AO_DATA_DIR !== dataDir
+    || confirmedService.daemonEnvironment?.AO_RUN_FILE !== runFile
+    || (runtimeStore != null
+      && confirmedService.daemonEnvironment?.AO_PILOT_RUNTIME_STORE !== runtimeStore)
+    || confirmedService.daemonExecutable !== service.daemonExecutable
+    || confirmedService.daemonSha256 !== service.daemonSha256) {
     throw new Error('Installed runtime service changed during inspection; HOLD');
   }
   return {

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type {
   Session,
   RuntimeHandle,
@@ -203,7 +203,7 @@ describe("plugin manifest & exports", () => {
       name: "codex",
       slot: "agent",
       description: "Agent plugin: OpenAI Codex CLI",
-      version: "0.1.4",
+      version: "0.1.5",
       displayName: "OpenAI Codex",
     });
   });
@@ -375,6 +375,29 @@ describe("getLaunchCommand", () => {
 // =========================================================================
 describe("getEnvironment", () => {
   const agent = create();
+  const bindingNames = [
+    "AO_MANAGED_RUNTIME_BINARY",
+    "AO_MANAGED_RUNTIME_BINARY_SHA256",
+    "AO_MANAGED_RUNTIME_DATA_DIR",
+    "AO_MANAGED_RUNTIME_RUN_FILE",
+  ] as const;
+  let previousBindings: Record<string, string | undefined>;
+
+  beforeEach(() => {
+    previousBindings = Object.fromEntries(bindingNames.map((name) => [name, process.env[name]]));
+    process.env["AO_MANAGED_RUNTIME_BINARY"] = "/managed/runtime/bin/ao";
+    process.env["AO_MANAGED_RUNTIME_BINARY_SHA256"] = "a".repeat(64);
+    process.env["AO_MANAGED_RUNTIME_DATA_DIR"] = "/managed/runtime/data";
+    process.env["AO_MANAGED_RUNTIME_RUN_FILE"] = "/managed/runtime/running.json";
+  });
+
+  afterEach(() => {
+    for (const name of bindingNames) {
+      const value = previousBindings[name];
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
 
   it("sets AO_SESSION_ID but not AO_PROJECT_ID (caller's responsibility)", () => {
     const env = agent.getEnvironment(makeLaunchConfig());
@@ -423,6 +446,21 @@ describe("getEnvironment", () => {
   it("sets GH_PATH to preferred wrapper target", () => {
     const env = agent.getEnvironment(makeLaunchConfig());
     expect(env["GH_PATH"]).toBe("/usr/local/bin/gh");
+  });
+
+  it("does not select the managed wrapper PATH when runtime bindings are incomplete", () => {
+    const previousPath = process.env["PATH"];
+    process.env["PATH"] = "/usr/bin:/mock/home/.ao/bin:/bin";
+    delete process.env["AO_MANAGED_RUNTIME_BINARY_SHA256"];
+    try {
+      const env = agent.getEnvironment(makeLaunchConfig());
+      expect(env["PATH"]).toBe("/usr/bin:/bin");
+      expect(env["PATH"]).not.toContain("/mock/home/.ao/bin");
+      expect(env["GH_PATH"]).toBeUndefined();
+    } finally {
+      if (previousPath === undefined) delete process.env["PATH"];
+      else process.env["PATH"] = previousPath;
+    }
   });
 
   it("forwards the installed managed AO binary to the worker launcher", () => {
@@ -1760,7 +1798,7 @@ describe("setupWorkspaceHooks", () => {
   it("restores wrappers even when the version marker survives", async () => {
     mockReadFile.mockImplementation((path: string) => {
       if (typeof path === "string" && path.endsWith(".ao-version")) {
-        return Promise.resolve("0.1.4");
+        return Promise.resolve("0.1.5");
       }
       return Promise.reject(new Error("ENOENT"));
     });
@@ -1797,7 +1835,7 @@ describe("setupWorkspaceHooks", () => {
         typeof call[0] === "string" && call[0].includes(".ao-version.tmp."),
     );
     expect(versionWriteCall).toBeDefined();
-    expect(versionWriteCall![1]).toBe("0.1.4");
+    expect(versionWriteCall![1]).toBe("0.1.5");
 
     const versionRenameCall = mockRename.mock.calls.find(
       (call: string[]) => typeof call[1] === "string" && call[1].endsWith(".ao-version"),
@@ -1810,7 +1848,7 @@ describe("setupWorkspaceHooks", () => {
     // AGENTS.md exists without ao section
     mockReadFile.mockImplementation((path: string) => {
       if (typeof path === "string" && path.endsWith(".ao-version")) {
-        return Promise.resolve("0.1.4");
+        return Promise.resolve("0.1.5");
       }
       if (typeof path === "string" && path.endsWith("AGENTS.md")) {
         return Promise.resolve("# Existing Content\n\nSome stuff here.\n");
@@ -1835,7 +1873,7 @@ describe("setupWorkspaceHooks", () => {
     // Version marker matches, AGENTS.md doesn't exist
     mockReadFile.mockImplementation((path: string) => {
       if (typeof path === "string" && path.endsWith(".ao-version")) {
-        return Promise.resolve("0.1.4");
+        return Promise.resolve("0.1.5");
       }
       return Promise.reject(new Error("ENOENT"));
     });
@@ -1881,7 +1919,7 @@ describe("setupWorkspaceHooks", () => {
   it("does not duplicate ao section in AGENTS.md if already present", async () => {
     mockReadFile.mockImplementation((path: string) => {
       if (typeof path === "string" && path.endsWith(".ao-version")) {
-        return Promise.resolve("0.1.4");
+        return Promise.resolve("0.1.5");
       }
       if (typeof path === "string" && path.endsWith("AGENTS.md")) {
         return Promise.resolve(
