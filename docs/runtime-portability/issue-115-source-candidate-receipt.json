@@ -1,6 +1,6 @@
 {
   "schema_version": "ao.issue-115-source-candidate-receipt.v1",
-  "observed_at": "2026-09-18T02:20:33+08:00",
+  "observed_at": "2026-09-18T02:52:28+08:00",
   "issue": 115,
   "status": "passed",
   "base": {
@@ -8,8 +8,8 @@
     "tree_sha": "a5f34f9b04d013a8c1da93f085c0239fe31ebe2e"
   },
   "implementation_candidate": {
-    "commit_sha": "3aac292918522495067d1a5d0eca1833abdbd264",
-    "tree_sha": "a4e4196caba998840380cc70c52f16c0e5b16b03",
+    "commit_sha": "47c74e473a2d92f7970833ac00c44485976993a7",
+    "tree_sha": "4aaa813bbe2379442206d808dcf03e1246126965",
     "branch": "task/issue-115-installed-runtime"
   },
   "checks": [
@@ -17,7 +17,7 @@
       "command": "npm test",
       "result": "passed",
       "suites": 118,
-      "tests": 1190,
+      "tests": 1192,
       "execution_boundary": "clean committed HEAD, outside sandbox for child-process fixtures"
     },
     {
@@ -39,14 +39,14 @@
       "command": "npm test --workspace @composio/ao-core",
       "result": "passed",
       "suites": 21,
-      "tests": 532,
+      "tests": 533,
       "execution_boundary": "GitHub Actions clean runners on Node 20 and Node 22; local exact-head reruns were held by non-monotonic wall-clock timeout attribution"
     },
     {
       "command": "npm test --workspace @composio/ao-web",
       "result": "passed_after_locked_node_pty_rebuild",
       "suites": 18,
-      "tests": 419
+      "tests": 420
     },
     {
       "command": "npm test --workspace @composio/ao-plugin-agent-codex",
@@ -88,6 +88,8 @@
     "ordinary_restore_prelaunch_provisioning": "implemented",
     "managed_restore_cli_guidance": "implemented",
     "pinned_restore_cli_guidance": "implemented",
+    "pinned_restore_guidance_binding_gate": "implemented",
+    "pinned_recovery_runtime_service_ordering": "implemented",
     "pinned_recovery_prelaunch_provisioning": "implemented",
     "codex_only_worker_prompt_contract": "implemented",
     "bound_codex_orchestrator_prompt_contract": "implemented",
@@ -96,6 +98,9 @@
     "operator_project_readback_verified_entrypoint": "implemented",
     "operator_custom_store_resolution_order": "implemented",
     "launcher_namespace_forwarding_authentication": "implemented",
+    "stable_launcher_namespace_authentication": "implemented",
+    "dashboard_managed_orchestrator_prompt": "implemented",
+    "project_orchestrator_rules_preserved": "implemented",
     "read_only_runtime_capability_contract": "implemented",
     "structured_probe_failure_hold": "implemented",
     "installed_contract_post_service_documentation": "implemented",
@@ -103,7 +108,7 @@
     "installed_runtime_cutover": "not_claimed"
   },
   "github_actions": {
-    "run": "https://github.com/Samsen879/ao-pilot/actions/runs/35258027398",
+    "run": "https://github.com/Samsen879/ao-pilot/actions/runs/35261282105",
     "fresh_clone_runtime": "passed",
     "node_20": "passed",
     "node_22": "passed"
