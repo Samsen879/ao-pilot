@@ -1,6 +1,6 @@
 {
   "schema_version": "ao.issue-115-source-candidate-receipt.v1",
-  "observed_at": "2026-09-18T00:16:33+08:00",
+  "observed_at": "2026-09-18T00:33:51+08:00",
   "issue": 115,
   "status": "passed",
   "base": {
@@ -8,8 +8,8 @@
     "tree_sha": "a5f34f9b04d013a8c1da93f085c0239fe31ebe2e"
   },
   "implementation_candidate": {
-    "commit_sha": "4796354dedd9dae81654b2c60e724ff1648c9abc",
-    "tree_sha": "75e66f44f24893b636251a0fd95f1123fe4d5816",
+    "commit_sha": "f61e9dbf3ee669c1b231f498a3af544c0c693763",
+    "tree_sha": "d80f7651d215c7b5a220a58bd8404b5dd2ce0f9c",
     "branch": "task/issue-115-installed-runtime"
   },
   "checks": [
@@ -17,7 +17,7 @@
       "command": "npm test",
       "result": "passed",
       "suites": 118,
-      "tests": 1184,
+      "tests": 1187,
       "execution_boundary": "clean committed HEAD, outside sandbox for child-process fixtures"
     },
     {
@@ -68,8 +68,11 @@
   "source_claims": {
     "managed_worker_launcher": "implemented",
     "managed_worker_launcher_digest_verification": "implemented",
+    "managed_worker_launcher_behavioral_authentication": "implemented",
     "managed_daemon_namespace_binding": "implemented",
     "partial_service_install_identity_inheritance": "implemented",
+    "active_service_process_identity_recheck": "implemented",
+    "operator_contract_binding_resolution": "implemented",
     "ordinary_worker_prelaunch_provisioning": "implemented",
     "pinned_recovery_prelaunch_provisioning": "implemented",
     "codex_only_worker_prompt_contract": "implemented",
