@@ -1,6 +1,6 @@
 {
   "schema_version": "ao.issue-115-source-candidate-receipt.v1",
-  "observed_at": "2026-09-18T00:47:17+08:00",
+  "observed_at": "2026-09-18T01:01:29+08:00",
   "issue": 115,
   "status": "passed",
   "base": {
@@ -8,8 +8,8 @@
     "tree_sha": "a5f34f9b04d013a8c1da93f085c0239fe31ebe2e"
   },
   "implementation_candidate": {
-    "commit_sha": "01b007959d69c66241fde1b8e555a559cd8a582f",
-    "tree_sha": "0668546eabf0faf8c78e31ba25b3894920ff9ada",
+    "commit_sha": "8014cfeefb7c5c59ed06ea5ef93704bdd6e53003",
+    "tree_sha": "8a6675e9ad5d0cb85e6e32f544bdf5bb3f9cffc1",
     "branch": "task/issue-115-installed-runtime"
   },
   "checks": [
@@ -17,7 +17,7 @@
       "command": "npm test",
       "result": "passed",
       "suites": 118,
-      "tests": 1187,
+      "tests": 1188,
       "execution_boundary": "clean committed HEAD, outside sandbox for child-process fixtures"
     },
     {
@@ -74,6 +74,8 @@
     "active_service_process_identity_recheck": "implemented",
     "operator_contract_binding_resolution": "implemented",
     "custom_runtime_store_preservation": "implemented",
+    "runtime_store_service_binding": "implemented",
+    "bounded_launcher_authentication_probes": "implemented",
     "unbound_foreground_prompt_gating": "implemented",
     "ordinary_worker_prelaunch_provisioning": "implemented",
     "pinned_recovery_prelaunch_provisioning": "implemented",
