@@ -1,6 +1,6 @@
 {
   "schema_version": "ao.issue-115-source-candidate-receipt.v1",
-  "observed_at": "2026-09-17T23:43:31+08:00",
+  "observed_at": "2026-09-18T00:16:33+08:00",
   "issue": 115,
   "status": "passed",
   "base": {
@@ -8,8 +8,8 @@
     "tree_sha": "a5f34f9b04d013a8c1da93f085c0239fe31ebe2e"
   },
   "implementation_candidate": {
-    "commit_sha": "2b6b46516db27b67c6b5313ed35340c1f8bc46fd",
-    "tree_sha": "6cc905f2c94a47fcae4f1141ddc05ca7edf570d2",
+    "commit_sha": "4796354dedd9dae81654b2c60e724ff1648c9abc",
+    "tree_sha": "75e66f44f24893b636251a0fd95f1123fe4d5816",
     "branch": "task/issue-115-installed-runtime"
   },
   "checks": [
@@ -17,7 +17,7 @@
       "command": "npm test",
       "result": "passed",
       "suites": 118,
-      "tests": 1181,
+      "tests": 1184,
       "execution_boundary": "clean committed HEAD, outside sandbox for child-process fixtures"
     },
     {
@@ -39,7 +39,7 @@
       "command": "npm test --workspace @composio/ao-core",
       "result": "passed",
       "suites": 21,
-      "tests": 527
+      "tests": 529
     },
     {
       "command": "npm test --workspace @composio/ao-web",
@@ -67,7 +67,10 @@
   ],
   "source_claims": {
     "managed_worker_launcher": "implemented",
+    "managed_worker_launcher_digest_verification": "implemented",
     "managed_daemon_namespace_binding": "implemented",
+    "partial_service_install_identity_inheritance": "implemented",
+    "ordinary_worker_prelaunch_provisioning": "implemented",
     "pinned_recovery_prelaunch_provisioning": "implemented",
     "codex_only_worker_prompt_contract": "implemented",
     "global_status_project_readback_split": "implemented",
