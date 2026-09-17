@@ -52,4 +52,5 @@ test('owned session and lifecycle help bypass unrelated ao.config.json discovery
 test('recovery service is isolated from API automation and uses owned foreground command',()=>{
   const unit=buildDashboardUnits({packageRoot:'/installed/ao-pilot',nodePath:'/bin/node',home:'/user'})['ao-pilot-session-recovery.service'];
   expect(unit).toContain('/installed/ao-pilot/scripts/ao-session.js" serve');expect(unit).not.toContain('code/agent-orchestrator');
+  expect(unit).toContain('Requires=ao-pilot-runtime.service');expect(unit).toContain('After=network-online.target ao-pilot-runtime.service');
 });

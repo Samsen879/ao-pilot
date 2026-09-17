@@ -102,7 +102,7 @@ describe('installed runtime CLI contract', () => {
       fs.mkdirSync(bin, { recursive: true });
       fs.writeFileSync(managedBinary, `#!/bin/sh
 if [ "$1" = "--version" ]; then echo "ao version 1.2.3"; exit 0; fi
-printf '{"data":"%s","run":"%s"}\n' "$AO_DATA_DIR" "$AO_RUN_FILE"
+printf '{"state":"ready","pid":123,"port":9898,"uptime":"%s","dataDir":"%s","runFile":"%s"}\n' "$(date +%s)" "$AO_DATA_DIR" "$AO_RUN_FILE"
 `, { mode: 0o755 });
       fs.writeFileSync(launcher, `#!/bin/sh
 if [ "$AO_MANAGED_RUNTIME_BINARY_SHA256" != "${runtime.binary_sha256}" ]; then
@@ -148,6 +148,21 @@ exec "$AO_MANAGED_RUNTIME_BINARY" "$@"
     } finally {
       fs.rmSync(home, { recursive: true, force: true });
     }
+  });
+
+  it('ignores dynamic uptime while authenticating stable launcher namespace identity', () => {
+    const home=fs.mkdtempSync(path.join(os.tmpdir(),'ao-runtime-contract-'));
+    const launcher=path.join(home,'.ao','bin','ao');
+    const expected={dataDir:path.join(home,'.local/share/ao-pilot/cie-runtime/data'),runFile:path.join(home,'.local/share/ao-pilot/cie-runtime/running.json')};
+    const execute=jest.fn()
+      .mockReturnValueOnce({status:0,stdout:'ao version 1.2.3\n',stderr:''})
+      .mockReturnValueOnce({status:126,stdout:'',stderr:'managed AO launcher digest mismatch\n'})
+      .mockReturnValueOnce({status:0,stdout:JSON.stringify({state:'ready',pid:7,port:9898,uptime:'59s',...expected})+'\n',stderr:''})
+      .mockReturnValueOnce({status:0,stdout:JSON.stringify({state:'ready',pid:7,port:9898,uptime:'1m0s',...expected})+'\n',stderr:''});
+    try {
+      fs.mkdirSync(path.dirname(launcher),{recursive:true});fs.writeFileSync(launcher,'#!/bin/sh\nexit 0\n',{mode:0o755});
+      expect(inspectWorkerLauncher(runtime,{HOME:home,AO_MANAGED_RUNTIME_BINARY:runtime.binary_path,AO_MANAGED_RUNTIME_BINARY_SHA256:runtime.binary_sha256,AO_MANAGED_RUNTIME_DATA_DIR:expected.dataDir,AO_MANAGED_RUNTIME_RUN_FILE:expected.runFile},execute)).toMatchObject({authenticated:true,namespace_forwarded:true});
+    } finally {fs.rmSync(home,{recursive:true,force:true});}
   });
 
   it('bounds launcher authentication probes and treats timeouts as unauthenticated', () => {

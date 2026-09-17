@@ -49,6 +49,28 @@ function probe(runtime, args, { cwd, env, executeRuntime }) {
   };
 }
 
+function stableNamespaceStatus(probe, expectedNamespace) {
+  if (!Number.isInteger(probe?.status) || String(probe.stdout ?? '') === '') return null;
+  try {
+    const parsed = JSON.parse(String(probe.stdout));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
+      || parsed.dataDir !== expectedNamespace.data_dir
+      || parsed.runFile !== expectedNamespace.run_file) return null;
+    return {
+      state: parsed.state ?? null,
+      pid: parsed.pid ?? null,
+      port: parsed.port ?? null,
+      runFile: parsed.runFile,
+      dataDir: parsed.dataDir,
+      health: parsed.health ?? null,
+      ready: parsed.ready ?? null,
+      error: parsed.error ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function inspectWorkerLauncher(runtime, env = process.env, execute = childProcess.spawnSync) {
   const home = env.HOME || os.homedir();
   const launcherPath = path.join(home, '.ao', 'bin', 'ao');
@@ -86,10 +108,12 @@ export function inspectWorkerLauncher(runtime, env = process.env, execute = chil
     },
     encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5_000,
   }) : null;
-  const namespaceForwarded = Number.isInteger(namespaceDirectProbe?.status)
+  const directNamespaceStatus = stableNamespaceStatus(namespaceDirectProbe, expectedNamespace);
+  const launcherNamespaceStatus = stableNamespaceStatus(namespaceLauncherProbe, expectedNamespace);
+  const namespaceForwarded = directNamespaceStatus !== null
+    && launcherNamespaceStatus !== null
     && namespaceLauncherProbe?.status === namespaceDirectProbe.status
-    && String(namespaceDirectProbe.stdout ?? '') !== ''
-    && String(namespaceLauncherProbe.stdout ?? '') === String(namespaceDirectProbe.stdout)
+    && JSON.stringify(launcherNamespaceStatus) === JSON.stringify(directNamespaceStatus)
     && String(namespaceLauncherProbe.stderr ?? '') === String(namespaceDirectProbe.stderr ?? '');
   return {
     path: launcherPath,

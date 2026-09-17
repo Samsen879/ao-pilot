@@ -102,4 +102,21 @@ describe("generateOrchestratorPrompt", () => {
     expect(prompt).not.toContain("ao open");
     expect(prompt).not.toContain("| `ao status` |");
   });
+
+  it("does not rewrite project-specific rules while adapting built-in guidance", () => {
+    const project = {
+      ...config.projects["my-app"]!,
+      orchestratorRules: "Keep `ao status --json`, Attach with care, and do not batch-spawn.",
+    };
+    const prompt = generateOrchestratorPrompt({
+      config,
+      projectId: "my-app",
+      project,
+      managedCli: true,
+    });
+
+    expect(prompt).toContain("## Project-Specific Rules");
+    expect(prompt).toContain(project.orchestratorRules);
+    expect(prompt).not.toContain("ao status --json --json");
+  });
 });

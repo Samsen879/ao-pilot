@@ -14,6 +14,8 @@ test('service runs verified foreground lifecycle and native Dashboard in isolate
   expect(units['ao-pilot-runtime.service']).toContain('AO_PILOT_RUNTIME_STORE=/managed/runtime');
   expect(units['ao-pilot-dashboard.service']).toContain('AO_MANAGED_RUNTIME_DATA_DIR=/user/.local/share/ao-pilot/cie-runtime/data');
   expect(units['ao-pilot-session-recovery.service']).toContain('AO_MANAGED_RUNTIME_RUN_FILE=/user/.local/share/ao-pilot/cie-runtime/running.json');
+  expect(units['ao-pilot-session-recovery.service']).toContain('Requires=ao-pilot-runtime.service');
+  expect(units['ao-pilot-session-recovery.service']).toContain('After=network-online.target ao-pilot-runtime.service');
 });
 test('rejects systemd expansion and multiline injection', () => {
   for (const packageRoot of ['relative','/bad\nExecStart=x','/bad%h']) expect(() => buildDashboardUnits({packageRoot,nodePath:'/bin/node',home:'/user'})).toThrow();

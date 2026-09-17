@@ -63,14 +63,33 @@ test('launcher provisioning failure holds before pinned restore starts',async()=
  expect((await inspect({restore:true})).results[0]).toMatchObject({id:'fixture-1',state:'HOLD',reason:'launcher write failed'});expect(restore).not.toHaveBeenCalled();
 });
 test('pinned Codex restore injects current managed CLI compatibility guidance',async()=>{
+ const names=['AO_MANAGED_RUNTIME_BINARY','AO_MANAGED_RUNTIME_BINARY_SHA256','AO_MANAGED_RUNTIME_DATA_DIR','AO_MANAGED_RUNTIME_RUN_FILE'];
+ const previous=Object.fromEntries(names.map(name=>[name,process.env[name]]));
+ for(const name of names) process.env[name]=name;
  const manifest={sessions:{'fixture-1':binding}};
- await createRecoveryAdapter(config.configPath,manifest);
- const agent=registered[0].create();
- const command=await agent.getRestoreCommand({id:'fixture-1',workspacePath:binding.workspacePath});
- expect(command).toContain(binding.conversationId);
- expect(command).toContain('ao session claim-pr');
- expect(command).toContain('AO_SESSION_ID');
- expect(command).toContain('ao send --session');
+ try {
+  await createRecoveryAdapter(config.configPath,manifest);
+  const agent=registered[0].create();
+  const command=await agent.getRestoreCommand({id:'fixture-1',workspacePath:binding.workspacePath});
+  expect(command).toContain(binding.conversationId);
+  expect(command).toContain('ao session claim-pr');
+  expect(command).toContain('AO_SESSION_ID');
+  expect(command).toContain('ao send --session');
+ } finally {
+  for(const name of names) previous[name]===undefined?delete process.env[name]:process.env[name]=previous[name];
+ }
+});
+test('pinned Codex restore omits managed CLI guidance without complete bindings',async()=>{
+ const names=['AO_MANAGED_RUNTIME_BINARY','AO_MANAGED_RUNTIME_BINARY_SHA256','AO_MANAGED_RUNTIME_DATA_DIR','AO_MANAGED_RUNTIME_RUN_FILE'];
+ const previous=Object.fromEntries(names.map(name=>[name,process.env[name]]));
+ for(const name of names) delete process.env[name];
+ try {
+  await createRecoveryAdapter(config.configPath,{sessions:{'fixture-1':binding}});
+  const command=await registered[0].create().getRestoreCommand({id:'fixture-1',workspacePath:binding.workspacePath});
+  expect(command).toContain(binding.conversationId);expect(command).not.toContain('ao session claim-pr');
+ } finally {
+  for(const name of names) previous[name]===undefined?delete process.env[name]:process.env[name]=previous[name];
+ }
 });
 test('configured project path is not directly part of the current recovery pin',async()=>{
  config.projects.fixture.path=path.join(root,'changed-configured-root');

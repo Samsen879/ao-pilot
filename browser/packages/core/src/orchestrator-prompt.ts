@@ -6,6 +6,7 @@
  */
 
 import type { OrchestratorConfig, ProjectConfig } from "./types.js";
+import { resolveAgentSelection } from "./agent-selection.js";
 
 export interface OrchestratorPromptConfig {
   config: OrchestratorConfig;
@@ -68,6 +69,10 @@ ${adapted}`;
  */
 export function generateOrchestratorPrompt(opts: OrchestratorPromptConfig): string {
   const { config, projectId, project } = opts;
+  const managedCli = opts.managedCli ?? (
+    resolveAgentSelection({ role: "orchestrator", project, defaults: config.defaults }).agentName === "codex"
+    && hasCompleteManagedAoBinding()
+  );
   const sections: string[] = [];
 
   // Header
@@ -293,13 +298,11 @@ When an agent needs human judgment:
 
 8. **Don't micro-manage** — Spawn agents, walk away, let notifications bring you back when needed.`);
 
-  // Project-specific rules (if any)
-  if (project.orchestratorRules) {
-    sections.push(`## Project-Specific Rules
-
-${project.orchestratorRules}`);
-  }
-
   const prompt = sections.join("\n\n");
-  return opts.managedCli ? adaptForManagedCli(prompt, projectId, project.sessionPrefix) : prompt;
+  const builtInPrompt = managedCli
+    ? adaptForManagedCli(prompt, projectId, project.sessionPrefix)
+    : prompt;
+  return project.orchestratorRules
+    ? `${builtInPrompt}\n\n## Project-Specific Rules\n\n${project.orchestratorRules}`
+    : builtInPrompt;
 }
