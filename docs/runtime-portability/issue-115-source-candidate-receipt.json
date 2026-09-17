@@ -1,6 +1,6 @@
 {
   "schema_version": "ao.issue-115-source-candidate-receipt.v1",
-  "observed_at": "2026-09-18T01:01:29+08:00",
+  "observed_at": "2026-09-18T01:34:12+08:00",
   "issue": 115,
   "status": "passed",
   "base": {
@@ -8,8 +8,8 @@
     "tree_sha": "a5f34f9b04d013a8c1da93f085c0239fe31ebe2e"
   },
   "implementation_candidate": {
-    "commit_sha": "8014cfeefb7c5c59ed06ea5ef93704bdd6e53003",
-    "tree_sha": "8a6675e9ad5d0cb85e6e32f544bdf5bb3f9cffc1",
+    "commit_sha": "9de2e3f3da96f3c0fdf90c8e3d43c60d3734b1b1",
+    "tree_sha": "3c43bfc5e0a56f27f263de451616d0c85a74d747",
     "branch": "task/issue-115-installed-runtime"
   },
   "checks": [
@@ -17,7 +17,7 @@
       "command": "npm test",
       "result": "passed",
       "suites": 118,
-      "tests": 1188,
+      "tests": 1189,
       "execution_boundary": "clean committed HEAD, outside sandbox for child-process fixtures"
     },
     {
@@ -39,7 +39,7 @@
       "command": "npm test --workspace @composio/ao-core",
       "result": "passed",
       "suites": 21,
-      "tests": 530
+      "tests": 532
     },
     {
       "command": "npm test --workspace @composio/ao-web",
@@ -51,7 +51,7 @@
       "command": "npm test --workspace @composio/ao-plugin-agent-codex",
       "result": "passed",
       "suites": 3,
-      "tests": 210
+      "tests": 211
     },
     {
       "command": "npm run typecheck --workspace @composio/ao-core && npm run typecheck --workspace @composio/ao-plugin-agent-codex",
@@ -72,14 +72,19 @@
     "managed_daemon_namespace_binding": "implemented",
     "partial_service_install_identity_inheritance": "implemented",
     "active_service_process_identity_recheck": "implemented",
+    "active_daemon_child_provenance_recheck": "implemented",
     "operator_contract_binding_resolution": "implemented",
     "custom_runtime_store_preservation": "implemented",
     "runtime_store_service_binding": "implemented",
     "bounded_launcher_authentication_probes": "implemented",
     "unbound_foreground_prompt_gating": "implemented",
+    "unbound_foreground_path_de_shadowing": "implemented",
     "ordinary_worker_prelaunch_provisioning": "implemented",
+    "ordinary_restore_prelaunch_provisioning": "implemented",
     "pinned_recovery_prelaunch_provisioning": "implemented",
     "codex_only_worker_prompt_contract": "implemented",
+    "bound_codex_orchestrator_prompt_contract": "implemented",
+    "managed_claim_pr_argument_contract": "implemented",
     "global_status_project_readback_split": "implemented",
     "operator_project_readback_verified_entrypoint": "implemented",
     "read_only_runtime_capability_contract": "implemented",
