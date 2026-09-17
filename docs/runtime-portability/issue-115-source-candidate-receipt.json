@@ -1,6 +1,6 @@
 {
   "schema_version": "ao.issue-115-source-candidate-receipt.v1",
-  "observed_at": "2026-09-18T03:36:12+08:00",
+  "observed_at": "2026-09-18T03:51:10+08:00",
   "issue": 115,
   "status": "passed",
   "base": {
@@ -8,8 +8,8 @@
     "tree_sha": "a5f34f9b04d013a8c1da93f085c0239fe31ebe2e"
   },
   "implementation_candidate": {
-    "commit_sha": "c785c826ef51f69f1d0559a423ca55194fcfeaca",
-    "tree_sha": "33bd94a82a0a1e311f6039e32f4b20a1b343465d",
+    "commit_sha": "b91ccd28bfbf261af4bfea62738b83d23785020e",
+    "tree_sha": "85e9f0c3141a8053f0651fc104e0f9c4559cf248",
     "branch": "task/issue-115-installed-runtime"
   },
   "checks": [
@@ -17,8 +17,8 @@
       "command": "npm test",
       "result": "passed",
       "suites": 118,
-      "tests": 1194,
-      "execution_boundary": "clean committed HEAD, outside sandbox for child-process fixtures"
+      "tests": 1196,
+      "execution_boundary": "GitHub Actions clean runners on Node 20 and Node 22"
     },
     {
       "command": "go test ./...",
@@ -75,9 +75,12 @@
     "active_service_process_identity_recheck": "implemented",
     "active_daemon_child_provenance_recheck": "implemented",
     "effective_runtime_unit_restart_binding": "implemented",
+    "effective_runtime_unit_unique_environment_binding": "implemented",
+    "effective_runtime_unit_environment_file_rejection": "implemented",
     "operator_contract_binding_resolution": "implemented",
     "custom_runtime_store_preservation": "implemented",
     "xdg_runtime_store_preservation": "implemented",
+    "xdg_runtime_store_unit_pinning": "implemented",
     "runtime_store_service_binding": "implemented",
     "bounded_launcher_authentication_probes": "implemented",
     "unbound_foreground_prompt_gating": "implemented",
@@ -110,7 +113,7 @@
     "installed_runtime_cutover": "not_claimed"
   },
   "github_actions": {
-    "run": "https://github.com/Samsen879/ao-pilot/actions/runs/35265622078",
+    "run": "https://github.com/Samsen879/ao-pilot/actions/runs/35267017844",
     "fresh_clone_runtime": "passed",
     "node_20": "passed",
     "node_22": "passed"
