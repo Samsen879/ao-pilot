@@ -379,7 +379,7 @@ export class CodexAppServerClient extends EventEmitter {
       clientInfo: {
         name: "ao-agent-codex",
         title: "Agent Orchestrator — Codex Plugin",
-        version: "0.1.2",
+        version: "0.1.3",
       },
     });
 

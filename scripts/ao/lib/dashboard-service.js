@@ -9,7 +9,7 @@ export function buildDashboardUnits({ packageRoot, nodePath, home, managedRuntim
   const terminalEnvironment = `Environment="AO_DASHBOARD_TERMINAL_ACCESS=${terminalAccess ? '1' : '0'}"\n`;
   const runtimeEnvironment = managedRuntimeBinary == null
     ? ''
-    : `Environment="AO_MANAGED_RUNTIME_BINARY=${managedRuntimeBinary}"\n`;
+    : `Environment="AO_MANAGED_RUNTIME_BINARY=${managedRuntimeBinary}"\nEnvironment="AO_MANAGED_RUNTIME_DATA_DIR=${base}/data"\nEnvironment="AO_MANAGED_RUNTIME_RUN_FILE=${base}/running.json"\n`;
   return {
     'ao-pilot-session-recovery.service': `[Unit]\nDescription=AO Pilot pinned original-session recovery lifecycle\nAfter=network-online.target\n\n[Service]\nType=simple\n${common}${runtimeEnvironment}Environment="AO_CONFIG_PATH=${home}/agent-orchestrator.yaml"\nExecStart=${command('ao-session.js')} serve\n\n[Install]\nWantedBy=default.target\n`,
     'ao-pilot-runtime.service': `[Unit]\nDescription=AO Pilot verified CIE headless runtime\nAfter=network-online.target\n\n[Service]\nType=simple\n${common}ExecStart=${command('ao-runtime-foreground.js')}\nKillMode=mixed\n\n[Install]\nWantedBy=default.target\n`,

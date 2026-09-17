@@ -22,18 +22,23 @@ The clean committed source-candidate replay is recorded separately in
 
 ## Source repair in this change
 
-- Browser Codex setup atomically installs a fail-closed `~/.ao/bin/ao` wrapper.
+- Browser Codex setup and pinned-session recovery atomically install a fail-closed
+  `~/.ao/bin/ao` wrapper before worker launch or restore.
   The wrapper accepts only the absolute, regular, executable, non-symlink runtime
   path injected by the installed AO service.
-- Generated service units bind that exact verified managed binary through
-  `AO_MANAGED_RUNTIME_BINARY`, and the Codex adapter forwards it into workers.
-- Generated worker instructions define `ao status --json` as global daemon
-  health and `ao project get <project-id> --json` as project readback.
+- Generated service units bind that exact verified managed binary and its daemon
+  data/run-file namespace; the Codex adapter forwards all three dedicated bindings
+  into workers and the wrapper restores them before execution.
+- Codex-only worker instructions define `ao status --json` as global daemon
+  health and `ao project get <project-id> --json` as project readback. Other agent
+  prompts do not claim that the Codex launcher exists.
+- Operator project readback uses `ao-pilot runtime-project-get <id> --json`, so it
+  resolves and verifies the managed runtime without relying on ambient `PATH`.
 - `ao-pilot status --project ...` and the other global lifecycle commands now
   reject the unsupported flag instead of silently discarding it.
-- `ao-pilot runtime-contract --json` performs read-only version/help probes and
-  emits a normalized machine-readable command contract without retaining raw
-  command output.
+- `ao-pilot runtime-contract --json` performs read-only version/help probes,
+  verifies the worker launcher plus binary/data/run-file bindings, and converts
+  probe exceptions into a normalized machine-readable `HOLD`.
 
 ## Acceptance matrix
 

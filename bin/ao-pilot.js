@@ -30,6 +30,7 @@ const COMMAND_MODULES = {
   review: '../scripts/ao-review.js',
   session: '../scripts/ao-session.js',
   'runtime-path': '../scripts/ao-runtime.js',
+  'runtime-project-get': '../scripts/ao-runtime.js',
   'runtime-contract': '../scripts/ao-runtime-contract.js',
   start: '../scripts/ao-runtime.js',
   state: '../scripts/ao-state.js',
@@ -37,7 +38,7 @@ const COMMAND_MODULES = {
   stop: '../scripts/ao-runtime.js',
 };
 
-const RUNTIME_COMMANDS = new Set(['runtime-path', 'start', 'status', 'stop']);
+const RUNTIME_COMMANDS = new Set(['runtime-path', 'runtime-project-get', 'start', 'status', 'stop']);
 
 const PROJECT_SCOPED_COMMANDS = new Set(Object.keys(COMMAND_MODULES).filter(
   (command) => ![
@@ -46,6 +47,7 @@ const PROJECT_SCOPED_COMMANDS = new Set(Object.keys(COMMAND_MODULES).filter(
     'dashboard',
     'execution',
     'runtime-path',
+    'runtime-project-get',
     'runtime-contract',
     'start',
     'status',
@@ -74,6 +76,7 @@ function renderHelp() {
     '  stop        Stop the verified managed runtime daemon',
     '  status      Inspect verified managed runtime daemon status',
     '  runtime-path Inspect exact runtime provenance and binary path',
+    '  runtime-project-get Read one project through the exact managed runtime',
     '  runtime-contract Probe the installed AO CLI and emit its supported command contract',
     '  reconcile   Reconcile AO and source-control observations',
     '  lifecycle   Evaluate lifecycle readiness',
@@ -191,8 +194,11 @@ export async function runCli(argv, io = createDefaultIo(), {
       : [...extracted.argv, '--config', extracted.configPath];
     return commandModule.runCli(initArgs, io, { cwd });
   }
-  if (command === 'publication-preflight' || command === 'dashboard' || command === 'execution' || command === 'runtime-contract') {
-    return commandModule.runCli(extracted.argv, io, { cwd });
+  if (command === 'publication-preflight' || command === 'dashboard' || command === 'execution' || command === 'runtime-contract' || RUNTIME_COMMANDS.has(command)) {
+    const delegatedArgs = RUNTIME_COMMANDS.has(command)
+      ? [command, ...extracted.argv]
+      : extracted.argv;
+    return commandModule.runCli(delegatedArgs, io, { cwd });
   }
 
   let loadedConfig;
@@ -218,10 +224,7 @@ export async function runCli(argv, io = createDefaultIo(), {
       loadedConfig.path,
     );
   }
-  const delegatedArgs = RUNTIME_COMMANDS.has(command)
-    ? [command, ...effectiveArgs]
-    : effectiveArgs;
-  return commandModule.runCli(delegatedArgs, io, {
+  return commandModule.runCli(effectiveArgs, io, {
     cwd,
     defaultProjectId: loadedConfig.config.project_id,
   });

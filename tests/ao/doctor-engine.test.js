@@ -101,7 +101,7 @@ describe('doctor engine', () => {
         id: 'ao_runtime_status',
         commands: [
           "ao-pilot status --json --runtime-store '/custom/store with '\"'\"'quote'\"'\"''",
-          'ao project get my-project --json',
+          "ao-pilot runtime-project-get my-project --json --runtime-store '/custom/store with '\"'\"'quote'\"'\"''",
         ],
       }),
     ]));

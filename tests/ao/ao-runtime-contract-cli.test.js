@@ -1,7 +1,11 @@
 import { describe, expect, it, jest } from '@jest/globals';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import {
   buildRuntimeContract,
+  inspectWorkerLauncher,
   parseRuntimeContractArgs,
   runCli,
 } from '../../scripts/ao-runtime-contract.js';
@@ -23,9 +27,19 @@ function successfulProbes() {
   };
 }
 
+function successfulLauncher() {
+  return {
+    path: '/home/test/.ao/bin/ao',
+    available: true,
+    binary_binding_matches: true,
+    data_binding_present: true,
+    run_file_binding_present: true,
+  };
+}
+
 describe('installed runtime CLI contract', () => {
   it('publishes distinct global status and project readback commands', () => {
-    const report = buildRuntimeContract(runtime, successfulProbes());
+    const report = buildRuntimeContract(runtime, successfulProbes(), successfulLauncher());
     expect(report).toMatchObject({
       status: 'passed',
       launcher: { worker_command: 'ao', resolved_binary_path: runtime.binary_path },
@@ -40,13 +54,57 @@ describe('installed runtime CLI contract', () => {
     const probes = successfulProbes();
     probes.status_help.stdout += '\n --project string';
     probes.spawn_help.stdout = 'Usage: ao spawn';
-    expect(buildRuntimeContract(runtime, probes)).toMatchObject({
+    expect(buildRuntimeContract(runtime, probes, successfulLauncher())).toMatchObject({
       status: 'hold',
       checks: {
         status_project_flag_absent: false,
         spawn_attempt_custody_supported: false,
       },
     });
+  });
+
+  it('holds when the worker launcher or managed namespace bindings are unavailable', () => {
+    expect(buildRuntimeContract(runtime, successfulProbes(), {
+      ...successfulLauncher(),
+      available: false,
+      run_file_binding_present: false,
+    })).toMatchObject({
+      status: 'hold',
+      checks: {
+        worker_launcher_available: false,
+        worker_run_file_binding_present: false,
+      },
+    });
+  });
+
+  it('accepts only an executable regular launcher with exact managed bindings', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-runtime-contract-'));
+    const bin = path.join(home, '.ao', 'bin');
+    const launcher = path.join(bin, 'ao');
+    try {
+      fs.mkdirSync(bin, { recursive: true });
+      fs.writeFileSync(launcher, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      expect(inspectWorkerLauncher(runtime, {
+        HOME: home,
+        AO_MANAGED_RUNTIME_BINARY: runtime.binary_path,
+        AO_MANAGED_RUNTIME_DATA_DIR: '/managed/runtime/data',
+        AO_MANAGED_RUNTIME_RUN_FILE: '/managed/runtime/running.json',
+      })).toEqual({
+        ...successfulLauncher(),
+        path: launcher,
+      });
+
+      fs.rmSync(launcher);
+      fs.symlinkSync('/bin/true', launcher);
+      expect(inspectWorkerLauncher(runtime, {
+        HOME: home,
+        AO_MANAGED_RUNTIME_BINARY: runtime.binary_path,
+        AO_MANAGED_RUNTIME_DATA_DIR: '/managed/runtime/data',
+        AO_MANAGED_RUNTIME_RUN_FILE: '/managed/runtime/running.json',
+      }).available).toBe(false);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
   });
 
   it('probes only read-only help/version surfaces on the exact resolved binary', async () => {
@@ -69,7 +127,7 @@ describe('installed runtime CLI contract', () => {
     const result = await runCli(['--json'], {
       writeStdout: (text) => output.push(text),
       writeStderr: (text) => output.push(text),
-    }, { resolveRuntime: () => runtime, executeRuntime });
+    }, { resolveRuntime: () => runtime, executeRuntime, inspectLauncher: () => successfulLauncher() });
 
     expect(result.exitCode).toBe(0);
     expect(executeRuntime.mock.calls.map(([, args]) => args)).toEqual([
@@ -79,6 +137,27 @@ describe('installed runtime CLI contract', () => {
       ['spawn', '--help'],
     ]);
     expect(JSON.parse(output.join('')).status).toBe('passed');
+  });
+
+  it('converts probe exceptions into a structured hold', async () => {
+    const output = [];
+    const error = Object.assign(new Error('deployment binding changed'), {
+      code: 'runtime_binding_changed',
+    });
+    const result = await runCli(['--json'], {
+      writeStdout: (text) => output.push(text),
+      writeStderr: (text) => output.push(text),
+    }, {
+      resolveRuntime: () => runtime,
+      executeRuntime: () => { throw error; },
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(JSON.parse(output.join(''))).toMatchObject({
+      status: 'hold',
+      code: 'runtime_binding_changed',
+      runtime: { binary_path: runtime.binary_path },
+    });
   });
 
   it('rejects unsupported options before resolving the runtime', () => {

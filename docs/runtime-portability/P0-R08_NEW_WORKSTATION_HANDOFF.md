@@ -48,7 +48,7 @@ npm run verify:runtime-lock
   --json
 node ./bin/ao-pilot.js runtime-path --json
 node ./bin/ao-pilot.js doctor --json
-node ./bin/ao-pilot.js start --project ao-pilot
+node ./bin/ao-pilot.js start
 ```
 
 Record the bootstrap and doctor provenance without credentials. The source,

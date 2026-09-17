@@ -27,12 +27,6 @@ export const BASE_AGENT_PROMPT = `You are an AI coding agent managed by the Agen
 - If CI fails, the orchestrator will send you the failures — fix them and push again.
 - If reviewers request changes, the orchestrator will forward their comments — address each one, push fixes, and reply to the comments.
 
-## AO CLI Contract
-- The supported launcher in this worker is \`ao\`; run \`ao --version\` and command-specific \`--help\` before relying on inherited examples.
-- Daemon health is global: use \`ao status --json\`. The status command has no project flag.
-- Project registration is separate: use \`ao project get <project-id> --json\`.
-- Treat an unavailable launcher, unsupported flag, wrong namespace, or conflicting identity as HOLD; do not spawn a replacement writer to work around it.
-
 ## Git Workflow
 - Always create a feature branch from the default branch (never commit directly to it).
 - Use conventional commit messages (feat:, fix:, chore:, etc.).
@@ -45,6 +39,12 @@ export const BASE_AGENT_PROMPT = `You are an AI coding agent managed by the Agen
 - If the repo has CI checks, make sure they pass before requesting review.
 - Respond to every review comment, even if just to acknowledge it.`;
 
+export const CODEX_AO_CLI_PROMPT = `## AO CLI Contract
+- The supported launcher in this Codex worker is \`ao\`; run \`ao --version\` and command-specific \`--help\` before relying on inherited examples.
+- Daemon health is global: use \`ao status --json\`. The status command has no project flag.
+- Project registration is separate: use \`ao project get <project-id> --json\`.
+- Treat an unavailable launcher, unsupported flag, wrong namespace, or conflicting identity as HOLD; do not spawn a replacement writer to work around it.`;
+
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -55,6 +55,9 @@ export interface PromptBuildConfig {
 
   /** The project ID (key in the projects map) */
   projectId: string;
+
+  /** Selected agent plugin. Agent-specific runtime contracts must not leak across plugins. */
+  agentName?: string;
 
   /** Issue identifier (e.g. "INT-1343", "#42") — triggers Layer 1+2 */
   issueId?: string;
@@ -162,6 +165,10 @@ export function buildPrompt(config: PromptBuildConfig): string {
 
   // Layer 1: Base prompt is always included for every managed session.
   sections.push(BASE_AGENT_PROMPT);
+
+  if (config.agentName === "codex") {
+    sections.push(CODEX_AO_CLI_PROMPT);
+  }
 
   // Layer 2: Config-derived context
   sections.push(buildConfigLayer(config));

@@ -47,7 +47,7 @@ function buildSuggestionTemplates(scope, { runtimeStore = null } = {}) {
       summary: 'Inspect AO runtime status.',
       commands: [
         `ao-pilot status --json${runtimeStoreArgument}`,
-        `ao project get ${projectId} --json`,
+        `ao-pilot runtime-project-get ${projectId} --json${runtimeStoreArgument}`,
       ],
       rationale: 'Daemon health is global; project registration requires a separate project readback.',
     },

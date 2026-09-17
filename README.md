@@ -220,7 +220,7 @@ node ./bin/ao-pilot.js runtime-contract --json
 node ./bin/ao-pilot.js doctor --json
 node ./bin/ao-pilot.js start
 node ./bin/ao-pilot.js status --json
-ao project get my-project --json
+ao-pilot runtime-project-get my-project --json
 node ./bin/ao-pilot.js stop
 ```
 

@@ -1121,6 +1121,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     const composedPrompt = buildPrompt({
       project,
       projectId: spawnConfig.projectId,
+      agentName: selection.agentName,
       issueId: spawnConfig.issueId,
       issueContext,
       userPrompt: spawnConfig.prompt,

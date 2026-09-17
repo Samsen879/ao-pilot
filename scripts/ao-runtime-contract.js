@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -45,7 +47,27 @@ function probe(runtime, args, { cwd, env, executeRuntime }) {
   };
 }
 
-export function buildRuntimeContract(runtime, probes) {
+export function inspectWorkerLauncher(runtime, env = process.env) {
+  const home = env.HOME || os.homedir();
+  const launcherPath = path.join(home, '.ao', 'bin', 'ao');
+  let available = false;
+  try {
+    const info = fs.lstatSync(launcherPath);
+    fs.accessSync(launcherPath, fs.constants.X_OK);
+    available = info.isFile() && !info.isSymbolicLink();
+  } catch {
+    available = false;
+  }
+  return {
+    path: launcherPath,
+    available,
+    binary_binding_matches: env.AO_MANAGED_RUNTIME_BINARY === runtime.binary_path,
+    data_binding_present: path.isAbsolute(env.AO_MANAGED_RUNTIME_DATA_DIR ?? ''),
+    run_file_binding_present: path.isAbsolute(env.AO_MANAGED_RUNTIME_RUN_FILE ?? ''),
+  };
+}
+
+export function buildRuntimeContract(runtime, probes, launcher) {
   const statusHelp = probes.status_help.stdout;
   const projectGetHelp = probes.project_get_help.stdout;
   const spawnHelp = probes.spawn_help.stdout;
@@ -59,6 +81,10 @@ export function buildRuntimeContract(runtime, probes) {
       && projectGetHelp.includes('--json'),
     spawn_attempt_custody_supported: probes.spawn_help.exit_code === 0
       && spawnHelp.includes('--attempt-id'),
+    worker_launcher_available: launcher.available,
+    worker_binary_binding_matches: launcher.binary_binding_matches,
+    worker_data_binding_present: launcher.data_binding_present,
+    worker_run_file_binding_present: launcher.run_file_binding_present,
   };
   const passed = Object.values(checks).every(Boolean);
   return {
@@ -74,7 +100,10 @@ export function buildRuntimeContract(runtime, probes) {
     launcher: {
       worker_command: 'ao',
       environment_binding: 'AO_MANAGED_RUNTIME_BINARY',
+      data_environment_binding: 'AO_MANAGED_RUNTIME_DATA_DIR',
+      run_file_environment_binding: 'AO_MANAGED_RUNTIME_RUN_FILE',
       resolved_binary_path: runtime.binary_path,
+      launcher_path: launcher.path,
     },
     commands: {
       capability_probe: ['ao', '--version'],
@@ -95,6 +124,7 @@ export async function runCli(argv, io = createDefaultIo(), {
   env = process.env,
   resolveRuntime = resolveRuntimeControl,
   executeRuntime = runResolvedRuntime,
+  inspectLauncher = inspectWorkerLauncher,
 } = {}) {
   let options;
   try {
@@ -122,13 +152,32 @@ export async function runCli(argv, io = createDefaultIo(), {
     return { exitCode: 2, report };
   }
 
-  const probes = {
-    version: probe(runtime, ['--version'], { cwd, env, executeRuntime }),
-    status_help: probe(runtime, ['status', '--help'], { cwd, env, executeRuntime }),
-    project_get_help: probe(runtime, ['project', 'get', '--help'], { cwd, env, executeRuntime }),
-    spawn_help: probe(runtime, ['spawn', '--help'], { cwd, env, executeRuntime }),
-  };
-  const report = buildRuntimeContract(runtime, probes);
+  let probes;
+  let launcher;
+  try {
+    probes = {
+      version: probe(runtime, ['--version'], { cwd, env, executeRuntime }),
+      status_help: probe(runtime, ['status', '--help'], { cwd, env, executeRuntime }),
+      project_get_help: probe(runtime, ['project', 'get', '--help'], { cwd, env, executeRuntime }),
+      spawn_help: probe(runtime, ['spawn', '--help'], { cwd, env, executeRuntime }),
+    };
+    launcher = inspectLauncher(runtime, env);
+  } catch (error) {
+    const report = {
+      schema_version: 'ao.installed-runtime-cli-contract.v1',
+      status: 'hold',
+      code: error.code ?? 'runtime_contract_probe_failed',
+      message: error.message,
+      runtime: {
+        runtime_ref: runtime.runtime_ref,
+        binary_path: runtime.binary_path,
+        binary_sha256: runtime.binary_sha256,
+      },
+    };
+    io.writeStderr(`${JSON.stringify(report, null, options.json ? 2 : 0)}\n`);
+    return { exitCode: 2, report };
+  }
+  const report = buildRuntimeContract(runtime, probes, launcher);
   io.writeStdout(`${JSON.stringify(report, null, options.json ? 2 : 0)}\n`);
   return { exitCode: report.status === 'passed' ? 0 : 3, report };
 }

@@ -4,7 +4,7 @@ import path from 'node:path';
 import {test,expect,jest,beforeEach,afterEach} from '@jest/globals';
 
 let root, config, raw, binding;
-const restore=jest.fn(), isAlive=jest.fn();
+const restore=jest.fn(), isAlive=jest.fn(), setupManagedAoLauncher=jest.fn();
 const core={
  loadConfig:()=>config,
  createPluginRegistry:()=>({register:()=>{}}),
@@ -14,9 +14,8 @@ const core={
  shellEscape:s=>s,
 };
 jest.unstable_mockModule('../../browser/packages/core/dist/index.js',()=>core,{virtual:true});
-for (const name of ['agent-codex','workspace-worktree','scm-github','tracker-github']) {
- jest.unstable_mockModule(`../../browser/packages/plugins/${name}/dist/index.js`,()=>({default:{create:()=>({})}}),{virtual:true});
-}
+jest.unstable_mockModule('../../browser/packages/plugins/agent-codex/dist/index.js',()=>({default:{create:()=>({})},setupManagedAoLauncher}),{virtual:true});
+for (const name of ['workspace-worktree','scm-github','tracker-github']) jest.unstable_mockModule(`../../browser/packages/plugins/${name}/dist/index.js`,()=>({default:{create:()=>({})}}),{virtual:true});
 jest.unstable_mockModule('../../browser/packages/plugins/runtime-tmux/dist/index.js',()=>({default:{create:()=>({isAlive})}}),{virtual:true});
 const {createRecoveryAdapter,recoverySweep}=await import('../../scripts/ao/lib/session-recovery.js');
 beforeEach(()=>{
@@ -57,7 +56,11 @@ test('actual adapter treats runtime permission uncertainty as HOLD rather than m
 });
 test('actual adapter missing runtime may restore exact original session and verifies liveness',async()=>{
  isAlive.mockResolvedValueOnce(false).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
- expect((await inspect({restore:true})).results[0]).toEqual({id:'fixture-1',state:'RESTORED',conversationId:binding.conversationId});expect(restore).toHaveBeenCalledWith('fixture-1');
+ expect((await inspect({restore:true})).results[0]).toEqual({id:'fixture-1',state:'RESTORED',conversationId:binding.conversationId});expect(setupManagedAoLauncher).toHaveBeenCalledTimes(1);expect(setupManagedAoLauncher.mock.invocationCallOrder[0]).toBeLessThan(restore.mock.invocationCallOrder[0]);expect(restore).toHaveBeenCalledWith('fixture-1');
+});
+test('launcher provisioning failure holds before pinned restore starts',async()=>{
+ isAlive.mockResolvedValueOnce(false).mockResolvedValueOnce(false);setupManagedAoLauncher.mockRejectedValueOnce(Error('launcher write failed'));
+ expect((await inspect({restore:true})).results[0]).toMatchObject({id:'fixture-1',state:'HOLD',reason:'launcher write failed'});expect(restore).not.toHaveBeenCalled();
 });
 test('configured project path is not directly part of the current recovery pin',async()=>{
  config.projects.fixture.path=path.join(root,'changed-configured-root');

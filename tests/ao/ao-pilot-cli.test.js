@@ -176,6 +176,21 @@ describe('ao-pilot unified cli', () => {
     }
   });
 
+  it('routes global runtime commands without loading malformed project config', async () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-pilot-runtime-help-'));
+    const output = createIo();
+    try {
+      fs.writeFileSync(path.join(repoRoot, 'ao.config.json'), '{not-json');
+      const result = await runCli(['runtime-path', '--help'], output.io, { cwd: repoRoot });
+
+      expect(result.exitCode).toBe(0);
+      expect(output.stdout.join('')).toContain('ao-pilot runtime-path');
+      expect(output.stderr.join('')).toBe('');
+    } finally {
+      fs.rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
   it('recognizes npm-style bin symlinks as direct execution', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-pilot-bin-'));
     const target = path.join(root, 'ao-pilot.js');
