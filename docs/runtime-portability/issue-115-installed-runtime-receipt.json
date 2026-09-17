@@ -1,0 +1,59 @@
+{
+  "schema_version": "ao.issue-115-installed-runtime-receipt.v1",
+  "observed_at": "2026-09-17T22:52:30+08:00",
+  "issue": 115,
+  "status": "HOLD",
+  "scope": "read_only_installed_runtime",
+  "source_main": {
+    "commit_sha": "a1eb9cc7f3425f1ef16bd2409852b2f641197625",
+    "tree_sha": "a5f34f9b04d013a8c1da93f085c0239fe31ebe2e"
+  },
+  "installed_support": {
+    "deployment_schema": "ao.session-recovery-deployment.v1",
+    "commit_sha": "97d0ef20b41f172cbaeba50fd8f8a5db92d7b0a6",
+    "tree_sha": "63ba5e589c327fa104fb991801dcf5d31f8af185",
+    "deployment_receipt_sha256": "4a1f17299eab494b70da17ff1ea9678c4c10548139d8665ce9532ae6a950dab0",
+    "launcher_path": "/home/samsen/.local/bin/ao-pilot"
+  },
+  "managed_runtime": {
+    "runtime_ref": "runtime.ao_pilot_headless.v0_11_2_p0_4",
+    "source_commit_sha": "43d37ef2a76e1949c8032c49c5e6197d98bf0b96",
+    "source_tree_sha": "91282c19b408935e94d732e8e10699d393f3c821",
+    "binary_sha256": "45d257d19810cb606917ce734ec281c16617b0ec0088591e3cea909c27868919",
+    "reported_version": "ao version dev"
+  },
+  "configuration": {
+    "config_sha256": "359988e33eaf8fdd5e8151a1df9d0f0fd1e5929805f703366508374a61aaefbd",
+    "recovery_bindings_sha256": "32568848326d10832ca53a2785889adec5fa342febfee42f4b8e1efcd57a3e17",
+    "store_database_bytes": 270336,
+    "store_schema_version": "NOT_ESTABLISHED"
+  },
+  "checks": {
+    "worker_path_contains_ao": false,
+    "ao_pilot_runtime_path_verified": true,
+    "global_status_json_supported": true,
+    "status_project_flag_absent": true,
+    "project_get_json_supported": true,
+    "spawn_attempt_custody_supported": false,
+    "runtime_service_active": true,
+    "runtime_run_file_live": false,
+    "runtime_service_and_run_file_consistent": false
+  },
+  "observations": {
+    "runtime_service_main_pid": 319,
+    "runtime_run_file_pid": 396,
+    "runtime_status": "stale",
+    "runtime_status_error": "run-file points to a dead process",
+    "visible_tmux_sessions": [
+      "1138d27ac12f-cie-orchestrator"
+    ]
+  },
+  "mutations_performed": [],
+  "gates_not_authorized": [
+    "runtime_cutover",
+    "host_reboot",
+    "service_restart",
+    "real_worker_failure_injection",
+    "real_9231_replay"
+  ]
+}

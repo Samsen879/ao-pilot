@@ -6,10 +6,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDashboardUnits } from './ao/lib/dashboard-service.js';
 import { deploymentBinding } from './ao/lib/runtime-deployment.js';
+import { resolveRuntimeControl } from './ao/lib/runtime-control.js';
 const args = process.argv.slice(2);
 if (args.some(arg => !['--install', '--replace', '--dashboard-only', '--recovery-only', '--terminal-access'].includes(arg)) || (args.includes('--dashboard-only') && args.includes('--recovery-only'))) throw new Error('Usage: node scripts/install-dashboard-service.js [--install [--replace] [--dashboard-only|--recovery-only] [--terminal-access]]');
 const root = fileURLToPath(new URL('../', import.meta.url));
-const units = buildDashboardUnits({ packageRoot: root.replace(/\/$/, ''), nodePath: process.execPath, home: os.homedir(), terminalAccess: args.includes('--terminal-access') });
+const managedRuntimeBinary = resolveRuntimeControl({ cwd: root }).binary_path;
+const units = buildDashboardUnits({ packageRoot: root.replace(/\/$/, ''), nodePath: process.execPath, home: os.homedir(), managedRuntimeBinary, terminalAccess: args.includes('--terminal-access') });
 if (args.includes('--dashboard-only')) {delete units['ao-pilot-runtime.service'];delete units['ao-pilot-session-recovery.service'];}
 if (args.includes('--recovery-only')) {delete units['ao-pilot-runtime.service'];delete units['ao-pilot-dashboard.service'];}
 const target = path.join(os.homedir(), '.config/systemd/user');

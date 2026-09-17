@@ -150,16 +150,25 @@ doctor output and verified `start`, `stop`, `status`, and
 
 ```bash
 node ./bin/ao-pilot.js runtime-path --json
+node ./bin/ao-pilot.js runtime-contract --json
 node ./bin/ao-pilot.js doctor --json
-node ./bin/ao-pilot.js start --project my-project
-node ./bin/ao-pilot.js status --project my-project --json
-node ./bin/ao-pilot.js stop --project my-project
+node ./bin/ao-pilot.js start
+node ./bin/ao-pilot.js status --json
+ao project get my-project --json
+node ./bin/ao-pilot.js stop
 ```
 
 The doctor reports source/version/commit/tree/integrity, compatibility, exact
 binary path/digest, shadowing, and GitHub/Codex auth availability without
 retaining command output or secrets. A missing, changed, incompatible, or
 shadowed runtime blocks lifecycle execution.
+
+`runtime-contract` probes only version and command help on that exact binary. It
+publishes the supported global status, project readback, and spawn-custody
+surfaces as normalized JSON. Installed browser services pass the verified
+absolute binary to Codex workers as `AO_MANAGED_RUNTIME_BINARY`; their
+`~/.ao/bin/ao` wrapper rejects an absent, relative, non-executable, or symlinked
+binding before execution.
 
 `npm run verify:runtime-lifecycle` checks the static exact-binary routing
 contract. `npm run verify:fresh-clone` is the separate P0-R07 live integration

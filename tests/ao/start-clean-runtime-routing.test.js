@@ -14,9 +14,10 @@ describe('start-clean managed runtime routing', () => {
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('bin/ao-pilot.js runtime-path');
-    expect(result.stdout).toContain('bin/ao-pilot.js stop --project portable');
-    expect(result.stdout).toContain('bin/ao-pilot.js start --project portable');
-    expect(result.stdout).toContain('bin/ao-pilot.js status --project portable');
+    expect(result.stdout).toContain('bin/ao-pilot.js stop');
+    expect(result.stdout).toContain('bin/ao-pilot.js start');
+    expect(result.stdout).toContain('bin/ao-pilot.js status');
+    expect(result.stdout).not.toContain('status --project');
     expect(result.stdout).not.toMatch(/(^|[+ ])ao (start|stop|status|doctor|update|send)\b/m);
   });
 

@@ -38,7 +38,6 @@ export function parseRuntimeArgs(argv) {
   if (!OPERATIONS.has(operation)) throw new Error(`Unknown runtime operation: ${operation ?? ''}`);
   const options = {
     operation,
-    projectId: 'my-project',
     storeRoot: null,
     dryRun: false,
     json: false,
@@ -46,10 +45,7 @@ export function parseRuntimeArgs(argv) {
   };
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
-    if (argument === '--project') {
-      options.projectId = requiredValue(args, index, argument);
-      index += 1;
-    } else if (argument === '--runtime-store') {
+    if (argument === '--runtime-store') {
       options.storeRoot = path.resolve(requiredValue(args, index, argument));
       index += 1;
     } else if (argument === '--dry-run' && operation !== 'runtime-path') {

@@ -98,7 +98,7 @@ export const manifest = {
   name: "codex",
   slot: "agent" as const,
   description: "Agent plugin: OpenAI Codex CLI",
-  version: "0.1.1",
+  version: "0.1.2",
   displayName: "OpenAI Codex",
 };
 
@@ -305,6 +305,24 @@ If automatic updates fail, you can manually update metadata:
 # Then call: update_ao_metadata <key> <value>
 \`\`\`
 `;
+
+const AO_CLI_WRAPPER = `#!/usr/bin/env bash
+set -euo pipefail
+
+runtime_binary="\${AO_MANAGED_RUNTIME_BINARY:-}"
+case "$runtime_binary" in
+  /*) ;;
+  *)
+    echo "ao-wrapper: AO_MANAGED_RUNTIME_BINARY is not an absolute managed launcher path" >&2
+    exit 126
+    ;;
+esac
+if [[ ! -f "$runtime_binary" || ! -x "$runtime_binary" || -L "$runtime_binary" ]]; then
+  echo "ao-wrapper: managed AO launcher is missing, non-executable, or a symlink" >&2
+  exit 126
+fi
+exec "$runtime_binary" "$@"
+`;
 /* eslint-enable no-useless-escape */
 
 /**
@@ -327,7 +345,7 @@ async function setupCodexWorkspace(workspacePath: string): Promise<void> {
 
   // Only write wrappers if they don't exist or are outdated (check marker)
   const markerPath = join(AO_BIN_DIR, ".ao-version");
-  const currentVersion = "0.1.1";
+  const currentVersion = "0.1.2";
   let needsUpdate = true;
   try {
     const existing = await readFile(markerPath, "utf-8");
@@ -342,6 +360,7 @@ async function setupCodexWorkspace(workspacePath: string): Promise<void> {
     // invocation will redo the writes (safe: wrappers are idempotent).
     await atomicWriteFile(join(AO_BIN_DIR, "gh"), GH_WRAPPER, 0o755);
     await atomicWriteFile(join(AO_BIN_DIR, "git"), GIT_WRAPPER, 0o755);
+    await atomicWriteFile(join(AO_BIN_DIR, "ao"), AO_CLI_WRAPPER, 0o755);
     await atomicWriteFile(markerPath, currentVersion, 0o644);
   }
 
@@ -961,6 +980,11 @@ function createCodexAgent(): Agent {
       // NOTE: AO_PROJECT_ID is the caller's responsibility (spawn.ts sets it)
       if (config.issueId) {
         env["AO_ISSUE_ID"] = config.issueId;
+      }
+
+      const runtimeBinary = process.env["AO_MANAGED_RUNTIME_BINARY"];
+      if (runtimeBinary) {
+        env["AO_MANAGED_RUNTIME_BINARY"] = runtimeBinary;
       }
 
       // Prepend ~/.ao/bin to PATH so our gh/git wrappers intercept commands.

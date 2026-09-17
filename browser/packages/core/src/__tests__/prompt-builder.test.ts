@@ -215,5 +215,8 @@ describe("BASE_AGENT_PROMPT", () => {
     expect(BASE_AGENT_PROMPT).toContain("Git Workflow");
     expect(BASE_AGENT_PROMPT).toContain("PR Best Practices");
     expect(BASE_AGENT_PROMPT).toContain("ao session claim-pr");
+    expect(BASE_AGENT_PROMPT).toContain("ao status --json");
+    expect(BASE_AGENT_PROMPT).toContain("ao project get <project-id> --json");
+    expect(BASE_AGENT_PROMPT).toContain("The status command has no project flag");
   });
 });

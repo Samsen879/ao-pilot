@@ -30,6 +30,7 @@ const COMMAND_MODULES = {
   review: '../scripts/ao-review.js',
   session: '../scripts/ao-session.js',
   'runtime-path': '../scripts/ao-runtime.js',
+  'runtime-contract': '../scripts/ao-runtime-contract.js',
   start: '../scripts/ao-runtime.js',
   state: '../scripts/ao-state.js',
   status: '../scripts/ao-runtime.js',
@@ -39,7 +40,17 @@ const COMMAND_MODULES = {
 const RUNTIME_COMMANDS = new Set(['runtime-path', 'start', 'status', 'stop']);
 
 const PROJECT_SCOPED_COMMANDS = new Set(Object.keys(COMMAND_MODULES).filter(
-  (command) => !['init', 'publication-preflight', 'dashboard', 'execution'].includes(command),
+  (command) => ![
+    'init',
+    'publication-preflight',
+    'dashboard',
+    'execution',
+    'runtime-path',
+    'runtime-contract',
+    'start',
+    'status',
+    'stop',
+  ].includes(command),
 ));
 const PR_EXCLUSIVE_COMMANDS = new Set(['doctor', 'lifecycle', 'reconcile']);
 
@@ -63,6 +74,7 @@ function renderHelp() {
     '  stop        Stop the verified managed runtime daemon',
     '  status      Inspect verified managed runtime daemon status',
     '  runtime-path Inspect exact runtime provenance and binary path',
+    '  runtime-contract Probe the installed AO CLI and emit its supported command contract',
     '  reconcile   Reconcile AO and source-control observations',
     '  lifecycle   Evaluate lifecycle readiness',
     '              serve/recover/status: pinned original-session recovery',
@@ -179,7 +191,7 @@ export async function runCli(argv, io = createDefaultIo(), {
       : [...extracted.argv, '--config', extracted.configPath];
     return commandModule.runCli(initArgs, io, { cwd });
   }
-  if (command === 'publication-preflight' || command === 'dashboard' || command === 'execution') {
+  if (command === 'publication-preflight' || command === 'dashboard' || command === 'execution' || command === 'runtime-contract') {
     return commandModule.runCli(extracted.argv, io, { cwd });
   }
 
