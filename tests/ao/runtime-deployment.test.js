@@ -7,13 +7,17 @@ import {deploymentBinding,resolveDeploymentEnvironment,resolveInstalledRuntimeSe
 let root;
 afterEach(()=>{if(root)fs.rmSync(root,{recursive:true,force:true});root=null;});
 function activeService(packageRoot,binding,{binary='/installed/runtime/bin/ao',digest='b'.repeat(64),environment={}}={}) {
+  const mergedEnvironment={AO_DATA_DIR:binding.data_dir,AO_RUN_FILE:binding.run_file,...environment};
+  const unitEnvironment=Object.entries(mergedEnvironment).map(([name,value])=>`Environment="${name}=${value}"`).join('\n');
   return {
     activeState:'active',mainPid:'123',packageRoot,
     argv:['/usr/bin/node',path.join(packageRoot,'scripts/ao-runtime-foreground.js')],
-    environment:{AO_DATA_DIR:binding.data_dir,AO_RUN_FILE:binding.run_file,...environment},
+    environment:mergedEnvironment,
     daemonPid:'124',daemonArgv:[binary,'daemon'],
-    daemonEnvironment:{AO_DATA_DIR:binding.data_dir,AO_RUN_FILE:binding.run_file,...environment},
+    daemonEnvironment:mergedEnvironment,
     daemonExecutable:binary,daemonSha256:digest,
+    fragmentPath:'/unit/ao-pilot-runtime.service',dropInPaths:'',
+    unitText:`[Service]\nWorkingDirectory=${packageRoot}\n${unitEnvironment}\nExecStart="/usr/bin/node" "${path.join(packageRoot,'scripts/ao-runtime-foreground.js')}"\n`,
   };
 }
 test('deployment binding aligns default CLI and preserves explicit private runtime',()=>{
@@ -77,6 +81,34 @@ test('partial service installs hold on installed namespace drift',()=>{
   }
 });
 
+test('partial service installs preserve XDG_DATA_HOME when the runtime store is implicit',()=>{
+  root=fs.mkdtempSync(path.join(os.tmpdir(),'ao-deploy-test-'));
+  const packageRoot=fs.mkdtempSync(path.join(os.tmpdir(),'ao-installed-package-'));
+  const binding=deploymentBinding(root);
+  fs.mkdirSync(path.join(packageRoot,'bin'),{recursive:true});fs.mkdirSync(path.join(packageRoot,'scripts'),{recursive:true});
+  fs.writeFileSync(path.join(packageRoot,'bin/ao-pilot.js'),'#!/usr/bin/env node\n');fs.writeFileSync(path.join(packageRoot,'scripts/ao-runtime-foreground.js'),'#!/usr/bin/env node\n');
+  const service=activeService(packageRoot,binding,{environment:{XDG_DATA_HOME:'/xdg/data'}});
+  const execute=jest.fn().mockReturnValue(JSON.stringify({status:'verified',binary_path:'/installed/runtime/bin/ao',binary_sha256:'b'.repeat(64)}));
+  try {
+    expect(resolveInstalledRuntimeServiceBinding({home:root,execute,inspectService:()=>service}).store_root).toBe('/xdg/data/ao-pilot/runtimes');
+    expect(execute).toHaveBeenCalledWith('/usr/bin/node',expect.any(Array),expect.objectContaining({env:expect.objectContaining({AO_PILOT_RUNTIME_STORE:'/xdg/data/ao-pilot/runtimes'})}));
+  } finally {fs.rmSync(packageRoot,{recursive:true,force:true});}
+});
+
+test('partial service installs reject on-disk or effective restart binding drift',()=>{
+  root=fs.mkdtempSync(path.join(os.tmpdir(),'ao-deploy-test-'));
+  const packageRoot=fs.mkdtempSync(path.join(os.tmpdir(),'ao-installed-package-'));
+  const binding=deploymentBinding(root);
+  fs.mkdirSync(path.join(packageRoot,'bin'),{recursive:true});fs.mkdirSync(path.join(packageRoot,'scripts'),{recursive:true});
+  fs.writeFileSync(path.join(packageRoot,'bin/ao-pilot.js'),'#!/usr/bin/env node\n');fs.writeFileSync(path.join(packageRoot,'scripts/ao-runtime-foreground.js'),'#!/usr/bin/env node\n');
+  const execute=jest.fn().mockReturnValue(JSON.stringify({status:'verified',binary_path:'/installed/runtime/bin/ao',binary_sha256:'b'.repeat(64)}));
+  try {
+    const service=activeService(packageRoot,binding);
+    expect(()=>resolveInstalledRuntimeServiceBinding({home:root,execute,inspectService:()=>({...service,unitText:service.unitText.replace(packageRoot,'/next/release')})})).toThrow('binding drifted');
+    expect(()=>resolveInstalledRuntimeServiceBinding({home:root,execute,inspectService:()=>({...service,dropInPaths:'/override.conf'})})).toThrow('binding drifted');
+  } finally {fs.rmSync(packageRoot,{recursive:true,force:true});}
+});
+
 test('partial service installs hold when the active service changes during inspection',()=>{
   root=fs.mkdtempSync(path.join(os.tmpdir(),'ao-deploy-test-'));
   const packageRoot=fs.mkdtempSync(path.join(os.tmpdir(),'ao-installed-package-'));
@@ -122,7 +154,12 @@ test('default inspection derives identity from systemd MainPID and proc state',(
   const binding=deploymentBinding(root);
   const awaitedDigest=crypto.createHash('sha256').update('active-daemon-bytes').digest('hex');
   const execute=jest.fn((command,args)=>{
-    if(command==='systemctl')return args.includes('--property=ActiveState')?'active\n':'123\n';
+    if(command==='systemctl') {
+      if(args.includes('--property=ActiveState'))return 'active\n';
+      if(args.includes('--property=MainPID'))return '123\n';
+      if(args.includes('--property=FragmentPath'))return '/unit/ao-pilot-runtime.service\n';
+      if(args.includes('--property=DropInPaths'))return '\n';
+    }
     return JSON.stringify({status:'verified',binary_path:'/runtime/ao',binary_sha256:awaitedDigest});
   });
   const readFile=jest.fn(file=>{
@@ -132,6 +169,7 @@ test('default inspection derives identity from systemd MainPID and proc state',(
     if(file==='/proc/124/cmdline')return Buffer.from('/runtime/ao\0daemon\0');
     if(file==='/proc/124/environ')return Buffer.from(`AO_DATA_DIR=${binding.data_dir}\0AO_RUN_FILE=${binding.run_file}\0`);
     if(file==='/proc/124/exe')return Buffer.from('active-daemon-bytes');
+    if(file==='/unit/ao-pilot-runtime.service')return `[Service]\nWorkingDirectory=${packageRoot}\nEnvironment="AO_DATA_DIR=${binding.data_dir}"\nEnvironment="AO_RUN_FILE=${binding.run_file}"\nExecStart="/usr/bin/node" "${packageRoot}/scripts/ao-runtime-foreground.js"\n`;
     throw new Error(`unexpected read ${file}`);
   });
   const realpath=jest.fn(value=>value==='/proc/123/cwd'?packageRoot:value==='/proc/124/exe'?'/runtime/ao':value);

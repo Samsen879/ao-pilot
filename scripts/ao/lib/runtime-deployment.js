@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import * as childProcess from 'node:child_process';
+import { getDefaultRuntimeStore } from './runtime-bootstrap.js';
 export function deploymentBinding(home) {
   const root = path.join(home, '.local/share/ao-pilot/cie-runtime');
   return {schema_version:'ao.runtime-deployment.v1',data_dir:path.join(root,'data'),run_file:path.join(root,'running.json')};
@@ -14,6 +15,8 @@ function inspectActiveRuntimeService(execute, readFile, realpath) {
   ], {encoding:'utf8',stdio:['ignore','pipe','pipe']})).trim();
   const activeState = property('ActiveState');
   const mainPid = property('MainPID');
+  const fragmentPath = property('FragmentPath');
+  const dropInPaths = property('DropInPaths');
   if (activeState !== 'active' || !/^[1-9][0-9]*$/.test(mainPid)) {
     throw new Error('Installed runtime service is not active; HOLD');
   }
@@ -42,10 +45,21 @@ function inspectActiveRuntimeService(execute, readFile, realpath) {
   const daemonExecutable = realpath(path.join(daemonRoot, 'exe'));
   const daemonSha256 = crypto.createHash('sha256')
     .update(readFile(path.join(daemonRoot, 'exe'))).digest('hex');
+  if (!path.isAbsolute(fragmentPath) || dropInPaths !== '') {
+    throw new Error('Installed runtime service effective unit is not immutable; HOLD');
+  }
   return {
     activeState,mainPid,packageRoot:realpath(path.join(procRoot, 'cwd')),argv,environment,
     daemonPid,daemonArgv,daemonEnvironment,daemonExecutable,daemonSha256,
+    fragmentPath,dropInPaths,unitText:readFile(fragmentPath, 'utf8'),
   };
+}
+
+function unitDirectiveValues(unitText, name) {
+  return String(unitText ?? '').split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(line => line.startsWith(`${name}=`))
+    .map(line => line.slice(name.length + 1));
 }
 
 export function resolveInstalledRuntimeServiceBinding({
@@ -63,9 +77,12 @@ export function resolveInstalledRuntimeServiceBinding({
   const dataDir = service.environment.AO_DATA_DIR;
   const runFile = service.environment.AO_RUN_FILE;
   const runtimeStore = service.environment.AO_PILOT_RUNTIME_STORE;
-  const effectiveRuntimeStore = runtimeStore ?? path.join(home, '.local/share/ao-pilot/runtimes');
+  const effectiveRuntimeStore = runtimeStore ?? getDefaultRuntimeStore({env:service.environment,homedir:home});
   const nodePath = service.argv[0];
   const foregroundPath = path.join(packageRoot, 'scripts', 'ao-runtime-foreground.js');
+  const unitWorkingDirectories = unitDirectiveValues(service.unitText, 'WorkingDirectory');
+  const unitExecStarts = unitDirectiveValues(service.unitText, 'ExecStart');
+  const unitEnvironments = new Set(unitDirectiveValues(service.unitText, 'Environment'));
   if (
     service.activeState !== 'active'
     || !/^[1-9][0-9]*$/.test(String(service.mainPid))
@@ -75,6 +92,15 @@ export function resolveInstalledRuntimeServiceBinding({
     || service.argv.length !== 2
     || !path.isAbsolute(nodePath ?? '')
     || service.argv[1] !== foregroundPath
+    || !path.isAbsolute(service.fragmentPath ?? '')
+    || service.dropInPaths !== ''
+    || unitWorkingDirectories.length !== 1
+    || unitWorkingDirectories[0] !== packageRoot
+    || unitExecStarts.length !== 1
+    || unitExecStarts[0] !== `"${nodePath}" "${foregroundPath}"`
+    || !unitEnvironments.has(`"AO_DATA_DIR=${dataDir}"`)
+    || !unitEnvironments.has(`"AO_RUN_FILE=${runFile}"`)
+    || (runtimeStore != null && !unitEnvironments.has(`"AO_PILOT_RUNTIME_STORE=${runtimeStore}"`))
     || (runtimeStore != null
       && (!path.isAbsolute(runtimeStore) || /[\r\n\x00"%\\]/.test(runtimeStore)))
     || dataDir !== expected.data_dir
@@ -127,6 +153,9 @@ export function resolveInstalledRuntimeServiceBinding({
     || JSON.stringify(confirmedService.argv) !== JSON.stringify(service.argv)
     || String(confirmedService.daemonPid) !== String(service.daemonPid)
     || JSON.stringify(confirmedService.daemonArgv) !== JSON.stringify(service.daemonArgv)
+    || confirmedService.fragmentPath !== service.fragmentPath
+    || confirmedService.dropInPaths !== service.dropInPaths
+    || confirmedService.unitText !== service.unitText
     || confirmedService.daemonEnvironment?.AO_DATA_DIR !== dataDir
     || confirmedService.daemonEnvironment?.AO_RUN_FILE !== runFile
     || (runtimeStore != null
