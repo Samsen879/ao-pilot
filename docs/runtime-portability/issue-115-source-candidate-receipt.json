@@ -1,0 +1,76 @@
+{
+  "schema_version": "ao.issue-115-source-candidate-receipt.v1",
+  "observed_at": "2026-09-17T22:58:30+08:00",
+  "issue": 115,
+  "status": "passed",
+  "base": {
+    "commit_sha": "a1eb9cc7f3425f1ef16bd2409852b2f641197625",
+    "tree_sha": "a5f34f9b04d013a8c1da93f085c0239fe31ebe2e"
+  },
+  "implementation_candidate": {
+    "commit_sha": "aa5449c13da44ffb79207410dd7f56645c1b27fe",
+    "tree_sha": "78bb6f3c1c150d0b02a39e64a9ccda4645573040",
+    "branch": "task/issue-115-installed-runtime"
+  },
+  "checks": [
+    {
+      "command": "npm test",
+      "result": "passed",
+      "suites": 118,
+      "tests": 1175,
+      "execution_boundary": "clean committed HEAD, outside sandbox for child-process fixtures"
+    },
+    {
+      "command": "go test ./...",
+      "result": "passed",
+      "execution_boundary": "locked Go 1.25.7 toolchain and module cache"
+    },
+    {
+      "command": "go vet ./...",
+      "result": "passed",
+      "execution_boundary": "locked Go 1.25.7 toolchain and module cache"
+    },
+    {
+      "command": "npm run build:deps",
+      "result": "passed",
+      "scope": "browser workspace"
+    },
+    {
+      "command": "npm test --workspace @composio/ao-core",
+      "result": "passed",
+      "suites": 21,
+      "tests": 526
+    },
+    {
+      "command": "npm test --workspace @composio/ao-web",
+      "result": "passed_after_locked_node_pty_rebuild",
+      "suites": 18,
+      "tests": 419
+    },
+    {
+      "command": "npm test --workspace @composio/ao-plugin-agent-codex",
+      "result": "passed",
+      "suites": 3,
+      "tests": 210
+    },
+    {
+      "command": "npm run typecheck --workspace @composio/ao-core && npm run typecheck --workspace @composio/ao-plugin-agent-codex",
+      "result": "passed"
+    },
+    {
+      "command": "npm run verify:package",
+      "result": "passed",
+      "package": "ao-pilot-0.2.0.tgz",
+      "entry_count": 988,
+      "eval_quality_gate": "passed"
+    }
+  ],
+  "source_claims": {
+    "managed_worker_launcher": "implemented",
+    "global_status_project_readback_split": "implemented",
+    "read_only_runtime_capability_contract": "implemented",
+    "spawn_attempt_custody_in_current_source": "established",
+    "installed_runtime_cutover": "not_claimed"
+  },
+  "installed_runtime_receipt": "docs/runtime-portability/issue-115-installed-runtime-receipt.json"
+}

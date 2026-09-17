@@ -3,6 +3,8 @@
 This report keeps source-main evidence and installed-runtime evidence separate. The
 read-only installed snapshot is
 [`issue-115-installed-runtime-receipt.json`](./issue-115-installed-runtime-receipt.json).
+The clean committed source-candidate replay is recorded separately in
+[`issue-115-source-candidate-receipt.json`](./issue-115-source-candidate-receipt.json).
 
 ## Confirmed current gaps
 
