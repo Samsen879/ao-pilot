@@ -3,13 +3,14 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import * as childProcess from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import {
   resolveRuntimeControl,
   runResolvedRuntime,
 } from './ao/lib/runtime-control.js';
-import { deploymentBinding } from './ao/lib/runtime-deployment.js';
+import { deploymentBinding, resolveInstalledRuntimeServiceBinding } from './ao/lib/runtime-deployment.js';
 
 function createDefaultIo() {
   return {
@@ -48,7 +49,7 @@ function probe(runtime, args, { cwd, env, executeRuntime }) {
   };
 }
 
-export function inspectWorkerLauncher(runtime, env = process.env) {
+export function inspectWorkerLauncher(runtime, env = process.env, execute = childProcess.spawnSync) {
   const home = env.HOME || os.homedir();
   const launcherPath = path.join(home, '.ao', 'bin', 'ao');
   const expectedNamespace = deploymentBinding(home);
@@ -60,9 +61,24 @@ export function inspectWorkerLauncher(runtime, env = process.env) {
   } catch {
     available = false;
   }
+  const validProbe = available ? execute(launcherPath, ['--version'], {
+    env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  }) : null;
+  const mismatchedDigest = `${runtime.binary_sha256[0] === '0' ? '1' : '0'}${runtime.binary_sha256.slice(1)}`;
+  const rejectionProbe = available ? execute(launcherPath, ['--version'], {
+    env: {...env,AO_MANAGED_RUNTIME_BINARY_SHA256:mismatchedDigest},
+    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  }) : null;
   return {
     path: launcherPath,
     available,
+    authenticated: validProbe?.status === 0
+      && rejectionProbe?.status === 126
+      && String(rejectionProbe.stderr).includes('managed AO launcher digest mismatch'),
+    version_probe: {
+      exit_code: Number.isInteger(validProbe?.status) ? validProbe.status : null,
+      stdout: String(validProbe?.stdout ?? ''),
+    },
     binary_binding_matches: env.AO_MANAGED_RUNTIME_BINARY === runtime.binary_path,
     binary_digest_binding_matches: env.AO_MANAGED_RUNTIME_BINARY_SHA256 === runtime.binary_sha256,
     data_binding_matches: env.AO_MANAGED_RUNTIME_DATA_DIR === expectedNamespace.data_dir,
@@ -85,6 +101,9 @@ export function buildRuntimeContract(runtime, probes, launcher) {
     spawn_attempt_custody_supported: probes.spawn_help.exit_code === 0
       && spawnHelp.includes('--attempt-id'),
     worker_launcher_available: launcher.available,
+    worker_launcher_authenticated: launcher.authenticated,
+    worker_launcher_version_matches: launcher.version_probe.exit_code === probes.version.exit_code
+      && launcher.version_probe.stdout === probes.version.stdout,
     worker_binary_binding_matches: launcher.binary_binding_matches,
     worker_binary_digest_binding_matches: launcher.binary_digest_binding_matches,
     worker_data_binding_matches: launcher.data_binding_matches,
@@ -130,6 +149,7 @@ export async function runCli(argv, io = createDefaultIo(), {
   resolveRuntime = resolveRuntimeControl,
   executeRuntime = runResolvedRuntime,
   inspectLauncher = inspectWorkerLauncher,
+  resolveInstalledBinding = resolveInstalledRuntimeServiceBinding,
 } = {}) {
   let options;
   try {
@@ -144,8 +164,25 @@ export async function runCli(argv, io = createDefaultIo(), {
   }
 
   let runtime;
+  let contractEnv = env;
   try {
     runtime = resolveRuntime({ cwd, env, storeRoot: options.storeRoot });
+    const bindingNames = [
+      'AO_MANAGED_RUNTIME_BINARY',
+      'AO_MANAGED_RUNTIME_BINARY_SHA256',
+      'AO_MANAGED_RUNTIME_DATA_DIR',
+      'AO_MANAGED_RUNTIME_RUN_FILE',
+    ];
+    if (bindingNames.every(name => !env[name])) {
+      const installed = resolveInstalledBinding({home:env.HOME || os.homedir(),env});
+      contractEnv = {
+        ...env,
+        AO_MANAGED_RUNTIME_BINARY: installed.binary_path,
+        AO_MANAGED_RUNTIME_BINARY_SHA256: installed.binary_sha256,
+        AO_MANAGED_RUNTIME_DATA_DIR: installed.data_dir,
+        AO_MANAGED_RUNTIME_RUN_FILE: installed.run_file,
+      };
+    }
   } catch (error) {
     const report = {
       schema_version: 'ao.installed-runtime-cli-contract.v1',
@@ -161,12 +198,12 @@ export async function runCli(argv, io = createDefaultIo(), {
   let launcher;
   try {
     probes = {
-      version: probe(runtime, ['--version'], { cwd, env, executeRuntime }),
-      status_help: probe(runtime, ['status', '--help'], { cwd, env, executeRuntime }),
-      project_get_help: probe(runtime, ['project', 'get', '--help'], { cwd, env, executeRuntime }),
-      spawn_help: probe(runtime, ['spawn', '--help'], { cwd, env, executeRuntime }),
+      version: probe(runtime, ['--version'], { cwd, env:contractEnv, executeRuntime }),
+      status_help: probe(runtime, ['status', '--help'], { cwd, env:contractEnv, executeRuntime }),
+      project_get_help: probe(runtime, ['project', 'get', '--help'], { cwd, env:contractEnv, executeRuntime }),
+      spawn_help: probe(runtime, ['spawn', '--help'], { cwd, env:contractEnv, executeRuntime }),
     };
-    launcher = inspectLauncher(runtime, env);
+    launcher = inspectLauncher(runtime, contractEnv);
   } catch (error) {
     const report = {
       schema_version: 'ao.installed-runtime-cli-contract.v1',

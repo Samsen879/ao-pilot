@@ -172,7 +172,12 @@ to Codex workers as `AO_MANAGED_RUNTIME_BINARY`,
 `AO_MANAGED_RUNTIME_RUN_FILE`; their `~/.ao/bin/ao` wrapper rejects an absent,
 relative, non-executable, symlinked, or digest-mismatched binding before
 execution. Partial dashboard/recovery service installs inherit this identity
-from the installed runtime unit instead of mixing a new CLI with an old daemon.
+from the effective active runtime process (PID, working directory, command, and
+environment) instead of trusting only the static unit or mixing a new CLI with
+an old daemon. Operator `runtime-contract` invocations recover the same active
+binding when service-only environment variables are absent, and authenticate
+the launcher with both a valid version probe and a deliberate digest-rejection
+probe.
 
 `npm run verify:runtime-lifecycle` checks the static exact-binary routing
 contract. `npm run verify:fresh-clone` is the separate P0-R07 live integration

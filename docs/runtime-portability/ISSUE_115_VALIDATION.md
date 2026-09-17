@@ -31,8 +31,9 @@ The clean committed source-candidate replay is recorded separately in
   data/run-file namespace; the Codex adapter forwards all four dedicated bindings
   (binary, digest, data directory, and run file) into workers and the wrapper
   restores the namespace before execution. Partial dashboard/recovery installs
-  inherit these values from the already installed runtime service and hold on
-  identity or namespace drift.
+  inherit these values from the effective active runtime process, recheck its
+  PID after provenance resolution, and hold on identity, process, or namespace
+  drift rather than trusting only the static unit.
 - Codex-only worker instructions define `ao status --json` as global daemon
   health and `ao project get <project-id> --json` as project readback. Other agent
   prompts do not claim that the Codex launcher exists.
@@ -44,8 +45,10 @@ The clean committed source-candidate replay is recorded separately in
   after the global lifecycle checks, so its accepted project argument is no
   longer silently ignored.
 - `ao-pilot runtime-contract --json` performs read-only version/help probes,
-  verifies the worker launcher plus binary/data/run-file bindings, and converts
-  probe exceptions into a normalized machine-readable `HOLD`.
+  resolves installed bindings for an operator shell when service-only variables
+  are absent, authenticates the worker launcher with matching version and
+  digest-rejection probes, verifies its binary/data/run-file bindings, and
+  converts probe exceptions into a normalized machine-readable `HOLD`.
 
 ## Acceptance matrix
 

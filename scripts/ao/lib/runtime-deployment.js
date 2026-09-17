@@ -7,16 +7,24 @@ export function deploymentBinding(home) {
   return {schema_version:'ao.runtime-deployment.v1',data_dir:path.join(root,'data'),run_file:path.join(root,'running.json')};
 }
 
-function unitValue(source, key) {
-  const match = source.match(new RegExp(`^${key}=(.+)$`, 'm'));
-  if (!match) throw new Error(`Installed runtime service is missing ${key}; HOLD`);
-  return match[1].replace(/^"|"$/g, '');
-}
-
-function unitEnvironment(source, key) {
-  const match = source.match(new RegExp(`^Environment="${key}=([^"\\r\\n]+)"$`, 'm'));
-  if (!match) throw new Error(`Installed runtime service is missing ${key}; HOLD`);
-  return match[1];
+function inspectActiveRuntimeService(execute, readFile, realpath) {
+  const property = name => String(execute('systemctl', [
+    '--user', 'show', 'ao-pilot-runtime.service', `--property=${name}`, '--value',
+  ], {encoding:'utf8',stdio:['ignore','pipe','pipe']})).trim();
+  const activeState = property('ActiveState');
+  const mainPid = property('MainPID');
+  if (activeState !== 'active' || !/^[1-9][0-9]*$/.test(mainPid)) {
+    throw new Error('Installed runtime service is not active; HOLD');
+  }
+  const procRoot = `/proc/${mainPid}`;
+  const argv = readFile(path.join(procRoot, 'cmdline'))
+    .toString('utf8').split('\0').filter(Boolean);
+  const environment = Object.fromEntries(readFile(path.join(procRoot, 'environ'))
+    .toString('utf8').split('\0').filter(Boolean).map(entry => {
+      const separator = entry.indexOf('=');
+      return separator < 1 ? [entry, ''] : [entry.slice(0, separator), entry.slice(separator + 1)];
+    }));
+  return {activeState,mainPid,packageRoot:realpath(path.join(procRoot, 'cwd')),argv,environment};
 }
 
 export function resolveInstalledRuntimeServiceBinding({
@@ -26,18 +34,24 @@ export function resolveInstalledRuntimeServiceBinding({
   lstat = fs.lstatSync,
   realpath = fs.realpathSync,
   execute = childProcess.execFileSync,
-  nodePath = process.execPath,
+  inspectService = () => inspectActiveRuntimeService(execute, readFile, realpath),
 } = {}) {
-  const unitPath = path.join(home, '.config/systemd/user/ao-pilot-runtime.service');
-  const source = readFile(unitPath, 'utf8');
-  const packageRoot = unitValue(source, 'WorkingDirectory');
+  const service = inspectService();
+  const packageRoot = service.packageRoot;
   const expected = deploymentBinding(home);
-  const dataDir = unitEnvironment(source, 'AO_DATA_DIR');
-  const runFile = unitEnvironment(source, 'AO_RUN_FILE');
+  const dataDir = service.environment.AO_DATA_DIR;
+  const runFile = service.environment.AO_RUN_FILE;
+  const nodePath = service.argv[0];
+  const foregroundPath = path.join(packageRoot, 'scripts', 'ao-runtime-foreground.js');
   if (
-    !path.isAbsolute(packageRoot)
+    service.activeState !== 'active'
+    || !/^[1-9][0-9]*$/.test(String(service.mainPid))
+    || !path.isAbsolute(packageRoot)
     || /[\r\n\x00"%\\]/.test(packageRoot)
     || realpath(packageRoot) !== packageRoot
+    || service.argv.length !== 2
+    || !path.isAbsolute(nodePath ?? '')
+    || service.argv[1] !== foregroundPath
     || dataDir !== expected.data_dir
     || runFile !== expected.run_file
   ) {
@@ -45,12 +59,19 @@ export function resolveInstalledRuntimeServiceBinding({
   }
   const cliPath = path.join(packageRoot, 'bin', 'ao-pilot.js');
   const cliStat = lstat(cliPath);
-  if (!cliStat.isFile() || cliStat.isSymbolicLink()) {
+  const foregroundStat = lstat(foregroundPath);
+  if (!cliStat.isFile() || cliStat.isSymbolicLink()
+    || !foregroundStat.isFile() || foregroundStat.isSymbolicLink()) {
     throw new Error('Installed runtime service CLI is not an immutable regular file; HOLD');
   }
   const raw = execute(nodePath, [cliPath, 'runtime-path', '--json'], {
     cwd: packageRoot,
-    env: { ...env, HOME: home, AO_DATA_DIR: dataDir, AO_RUN_FILE: runFile },
+    env: {
+      HOME: home,
+      PATH: service.environment.PATH ?? path.dirname(nodePath),
+      AO_DATA_DIR: dataDir,
+      AO_RUN_FILE: runFile,
+    },
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -61,6 +82,12 @@ export function resolveInstalledRuntimeServiceBinding({
     || !/^[a-f0-9]{64}$/.test(report.binary_sha256 ?? '')
   ) {
     throw new Error('Installed runtime service provenance is not verified; HOLD');
+  }
+  const confirmedService = inspectService();
+  if (String(confirmedService.mainPid) !== String(service.mainPid)
+    || confirmedService.packageRoot !== packageRoot
+    || confirmedService.argv?.[1] !== foregroundPath) {
+    throw new Error('Installed runtime service changed during inspection; HOLD');
   }
   return {
     package_root: packageRoot,

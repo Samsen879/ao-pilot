@@ -31,10 +31,21 @@ function successfulLauncher() {
   return {
     path: '/home/test/.ao/bin/ao',
     available: true,
+    authenticated: true,
+    version_probe: { exit_code: 0, stdout: 'ao version 1.2.3\n' },
     binary_binding_matches: true,
     binary_digest_binding_matches: true,
     data_binding_matches: true,
     run_file_binding_matches: true,
+  };
+}
+
+function successfulInstalledBinding() {
+  return {
+    binary_path: runtime.binary_path,
+    binary_sha256: runtime.binary_sha256,
+    data_dir: '/home/test/.local/share/ao-pilot/cie-runtime/data',
+    run_file: '/home/test/.local/share/ao-pilot/cie-runtime/running.json',
   };
 }
 
@@ -84,7 +95,13 @@ describe('installed runtime CLI contract', () => {
     const launcher = path.join(bin, 'ao');
     try {
       fs.mkdirSync(bin, { recursive: true });
-      fs.writeFileSync(launcher, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      fs.writeFileSync(launcher, `#!/bin/sh
+if [ "$AO_MANAGED_RUNTIME_BINARY_SHA256" != "${runtime.binary_sha256}" ]; then
+  echo "ao-wrapper: managed AO launcher digest mismatch" >&2
+  exit 126
+fi
+echo "ao version 1.2.3"
+`, { mode: 0o755 });
       expect(inspectWorkerLauncher(runtime, {
         HOME: home,
         AO_MANAGED_RUNTIME_BINARY: runtime.binary_path,
@@ -95,6 +112,15 @@ describe('installed runtime CLI contract', () => {
         ...successfulLauncher(),
         path: launcher,
       });
+
+      fs.writeFileSync(launcher, '#!/bin/sh\necho "ao version 1.2.3"\n', { mode: 0o755 });
+      expect(inspectWorkerLauncher(runtime, {
+        HOME: home,
+        AO_MANAGED_RUNTIME_BINARY: runtime.binary_path,
+        AO_MANAGED_RUNTIME_BINARY_SHA256: runtime.binary_sha256,
+        AO_MANAGED_RUNTIME_DATA_DIR: path.join(home, '.local/share/ao-pilot/cie-runtime/data'),
+        AO_MANAGED_RUNTIME_RUN_FILE: path.join(home, '.local/share/ao-pilot/cie-runtime/running.json'),
+      }).authenticated).toBe(false);
 
       fs.rmSync(launcher);
       fs.symlinkSync('/bin/true', launcher);
@@ -130,7 +156,13 @@ describe('installed runtime CLI contract', () => {
     const result = await runCli(['--json'], {
       writeStdout: (text) => output.push(text),
       writeStderr: (text) => output.push(text),
-    }, { resolveRuntime: () => runtime, executeRuntime, inspectLauncher: () => successfulLauncher() });
+    }, {
+      resolveRuntime: () => runtime,
+      resolveInstalledBinding: () => successfulInstalledBinding(),
+      executeRuntime,
+      inspectLauncher: () => successfulLauncher(),
+      env: {HOME:'/home/test'},
+    });
 
     expect(result.exitCode).toBe(0);
     expect(executeRuntime.mock.calls.map(([, args]) => args)).toEqual([
@@ -152,7 +184,9 @@ describe('installed runtime CLI contract', () => {
       writeStderr: (text) => output.push(text),
     }, {
       resolveRuntime: () => runtime,
+      resolveInstalledBinding: () => successfulInstalledBinding(),
       executeRuntime: () => { throw error; },
+      env: {HOME:'/home/test'},
     });
 
     expect(result.exitCode).toBe(2);
@@ -161,6 +195,27 @@ describe('installed runtime CLI contract', () => {
       code: 'runtime_binding_changed',
       runtime: { binary_path: runtime.binary_path },
     });
+  });
+
+  it('derives missing worker bindings from the active installed service', async () => {
+    const output=[];
+    const inspectLauncher=jest.fn(() => successfulLauncher());
+    const result=await runCli(['--json'],{
+      writeStdout:text=>output.push(text),writeStderr:text=>output.push(text),
+    },{
+      env:{HOME:'/home/test'},
+      resolveRuntime:()=>runtime,
+      resolveInstalledBinding:()=>successfulInstalledBinding(),
+      executeRuntime:(resolved,args)=>({runtime:resolved,result:{status:0,stdout:args[0]==='--version'?'ao version 1.2.3\n':args[0]==='status'?'Usage: ao status [flags]\n --json':args[0]==='project'?'Usage: ao project get <id> [flags]\n --json':'Usage: ao spawn [flags]\n --attempt-id string',stderr:'',error_code:null}}),
+      inspectLauncher,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(inspectLauncher).toHaveBeenCalledWith(runtime,expect.objectContaining({
+      AO_MANAGED_RUNTIME_BINARY:runtime.binary_path,
+      AO_MANAGED_RUNTIME_BINARY_SHA256:runtime.binary_sha256,
+      AO_MANAGED_RUNTIME_DATA_DIR:successfulInstalledBinding().data_dir,
+      AO_MANAGED_RUNTIME_RUN_FILE:successfulInstalledBinding().run_file,
+    }));
   });
 
   it('rejects unsupported options before resolving the runtime', () => {
