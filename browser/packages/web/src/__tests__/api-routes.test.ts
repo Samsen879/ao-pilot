@@ -476,6 +476,36 @@ describe("API Routes", () => {
       });
     });
 
+    it("uses managed CLI guidance for a bound Codex orchestrator", async () => {
+      const project = mockConfig.projects["my-app"]!;
+      const originalOrchestrator = project.orchestrator;
+      project.orchestrator = { agent: "codex" };
+      for (const [name, value] of Object.entries({
+        AO_MANAGED_RUNTIME_BINARY: "/runtime/ao",
+        AO_MANAGED_RUNTIME_BINARY_SHA256: "a".repeat(64),
+        AO_MANAGED_RUNTIME_DATA_DIR: "/runtime/data",
+        AO_MANAGED_RUNTIME_RUN_FILE: "/runtime/run.json",
+      })) vi.stubEnv(name, value);
+      (mockSessionManager.spawnOrchestrator as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+        makeSession({ id: "my-app-orchestrator", projectId: "my-app" }),
+      );
+      try {
+        const res = await orchestratorsPOST(makeRequest("/api/orchestrators", {
+          method: "POST",
+          body: JSON.stringify({ projectId: "my-app" }),
+          headers: { "Content-Type": "application/json" },
+        }));
+        expect(res.status).toBe(201);
+        expect(mockSessionManager.spawnOrchestrator).toHaveBeenCalledWith({
+          projectId: "my-app",
+          systemPrompt: expect.stringContaining("`ao status --json` only for global daemon health"),
+        });
+      } finally {
+        project.orchestrator = originalOrchestrator;
+        vi.unstubAllEnvs();
+      }
+    });
+
     it("returns 404 for an unknown project", async () => {
       const req = makeRequest("/api/orchestrators", {
         method: "POST",

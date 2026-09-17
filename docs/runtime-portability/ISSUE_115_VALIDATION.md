@@ -1,0 +1,94 @@
+# Issue 115 installed-runtime validation
+
+This report keeps source-main evidence and installed-runtime evidence separate. The
+read-only installed snapshot is
+[`issue-115-installed-runtime-receipt.json`](./issue-115-installed-runtime-receipt.json).
+The clean committed source-candidate replay is recorded separately in
+[`issue-115-source-candidate-receipt.json`](./issue-115-source-candidate-receipt.json).
+
+## Confirmed current gaps
+
+- A managed Codex worker PATH contains `~/.ao/bin`, but the installed wrapper set
+  has only `git`, `gh`, and `ao-metadata-helper.sh`; bare `ao` is unavailable.
+- The installed managed runtime supports global `ao status --json` and project
+  readback through `ao project get <id> --json`. It does not advertise a project
+  flag for `status`; the repository's old `status --project` examples were wrong.
+- The installed runtime predates current-main spawn-attempt custody: its
+  `ao spawn --help` has no `--attempt-id`. This is an installed-runtime `HOLD`,
+  not evidence that the current source implementation is absent.
+- The AO runtime systemd unit is active, while the supported status command says
+  the bound run-file points to a dead PID. Neither projection is promoted over
+  the other; the conflict remains `HOLD` pending an authorized service replay.
+
+## Source repair in this change
+
+- Browser Codex setup and pinned-session recovery atomically install a fail-closed
+  `~/.ao/bin/ao` wrapper before worker launch or restore.
+  The wrapper accepts only the absolute, regular, executable, non-symlink runtime
+  path injected by the installed AO service and verifies its SHA-256 immediately
+  before execution.
+- Generated service units bind that exact verified managed binary and its daemon
+  data/run-file namespace; the Codex adapter forwards all four dedicated bindings
+  (binary, digest, data directory, and run file) into workers and the wrapper
+  restores the namespace before execution. Partial dashboard/recovery installs
+  inherit these values from the effective active runtime process, recheck its
+  PID after provenance resolution, and hold on identity, process, or namespace
+  drift rather than trusting only the static unit. Inspection binds both the
+  foreground Node parent and its sole `ao daemon` child, including the child's
+  executable path, live executable bytes, digest, arguments, and namespace.
+  The selected runtime store is
+  preserved through provenance replay and emitted into every generated service.
+- Codex-only worker instructions define `ao status --json` as global daemon
+  health, `ao session ls --all --project <id> --json` as coordination readback,
+  and the managed `claim-pr` argument order. Bound orchestrator prompts rewrite
+  legacy spawn/send/session examples to the installed CLI contract. Other agent
+  prompts do not claim that launcher contract. Codex launches without any
+  managed binding keep the git/gh metadata wrappers active while the ao wrapper
+  canonically removes every alias of its own directory and delegates to an
+  ambient AO command; it also rejects a candidate resolving to the wrapper
+  itself. All four bindings are explicitly cleared for unbound tmux launches,
+  preventing inheritance from an older server. Partial managed bindings remain
+  fail-closed.
+- Ordinary session restore reruns the agent workspace hook before creating the
+  resumed runtime, and a bound Codex resume carries current status/session and
+  claim-pr compatibility guidance as its initial prompt. The managed wrapper is
+  therefore present and the restored conversation receives the current CLI
+  contract before it can issue its next command.
+- Operator project readback uses `ao-pilot runtime-project-get <id> --json`, so it
+  resolves and verifies the managed runtime without relying on ambient `PATH`.
+- `ao-pilot status --project ...` and the other global lifecycle commands now
+  reject the unsupported flag instead of silently discarding it.
+- `start-clean --project <id>` performs an exact managed-runtime project readback
+  after the global lifecycle checks, so its accepted project argument is no
+  longer silently ignored.
+- `ao-pilot runtime-contract --json` performs read-only version/help probes,
+  resolves the active installed binding and custom store before resolving the
+  operator runtime when service-only variables are absent, authenticates the
+  worker launcher with matching version, digest-rejection, and poisoned-ambient
+  namespace-forwarding probes bounded to five seconds, verifies its
+  binary/data/run-file bindings, and
+  converts probe exceptions into a normalized machine-readable `HOLD`.
+
+## Acceptance matrix
+
+| Surface | Source candidate | Installed runtime | Disposition / owner |
+| --- | --- | --- | --- |
+| Worker launcher and CLI contract | Implemented and covered by focused Jest/Vitest/typecheck | Missing launcher; old spawn capability | AO source owner; cutover requires separate Owner authorization |
+| Registration and namespace identity | Existing #107 recovery tests retained | Config/binding fingerprints captured; cold start not run | `NOT_ESTABLISHED`; AO installed-runtime replay |
+| Spawn timeout reconciliation | Current Go source exposes `--attempt-id`; existing bounded Go tests pass | Installed binary lacks `--attempt-id` | `HOLD`; AO runtime cutover/replay |
+| Execution terminality | Existing #109 source tests retained | Reboot/kill replay not run | `NOT_ESTABLISHED`; AO installed-runtime replay |
+| Owner supersession | Existing #110 focused tests pass | Effect enforcement not injected into a real worker | `NOT_ESTABLISHED`; AO installed-runtime replay |
+| Recap versus raw terminal receipt | Source tests preserve raw terminal evidence | No safe current-main installed replay | `NOT_ESTABLISHED`; AO projection owner |
+| Browser 120-second / 7.5-GiB materialization | No substitute native claim | Historical observation only | `NOT_ESTABLISHED`; browser adapter owner |
+| Global quiescence across unrelated work | No current-main reproduction | Not injected | `NOT_ESTABLISHED`; scheduler/supervisor owner |
+| Approval timeout classification | No current-main reproduction | Not injected | `NOT_ESTABLISHED`; approval-policy/UI owner |
+| Duplicate wake/poll behavior | No current-main measurement | Not injected | `NOT_ESTABLISHED`; scheduler/supervisor owner |
+| Baseline target selection | No CIE workflow mutation in this issue | Not replayed | `NOT_ESTABLISHED`; CIE workflow/AO adapter ownership must be established first |
+
+## Safety boundary
+
+No service was restarted, no host/WSL reboot was requested, no real worker was
+restored, killed, cleaned, or failure-injected, and no 9231 product validation
+was rerun. Those actions remain separate authorization gates. Source merge will
+not be reported as installed-runtime PASS; a post-cutover receipt must re-run the
+same CLI contract plus isolated native/browser recovery fixtures.

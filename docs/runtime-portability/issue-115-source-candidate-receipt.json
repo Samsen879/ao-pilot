@@ -1,0 +1,123 @@
+{
+  "schema_version": "ao.issue-115-source-candidate-receipt.v1",
+  "observed_at": "2026-09-18T04:04:23+08:00",
+  "issue": 115,
+  "status": "passed",
+  "base": {
+    "commit_sha": "a1eb9cc7f3425f1ef16bd2409852b2f641197625",
+    "tree_sha": "a5f34f9b04d013a8c1da93f085c0239fe31ebe2e"
+  },
+  "implementation_candidate": {
+    "commit_sha": "aacd53c81221b47a7148165e4ad1ff3d27c8a148",
+    "tree_sha": "6e90203d4d0dfb9158f79aee0a5cbef6ad26ebf5",
+    "branch": "task/issue-115-installed-runtime"
+  },
+  "checks": [
+    {
+      "command": "npm test",
+      "result": "passed",
+      "suites": 118,
+      "tests": 1196,
+      "execution_boundary": "GitHub Actions clean runners on Node 20 and Node 22"
+    },
+    {
+      "command": "go test ./...",
+      "result": "passed",
+      "execution_boundary": "locked Go 1.25.7 toolchain and module cache"
+    },
+    {
+      "command": "go vet ./...",
+      "result": "passed",
+      "execution_boundary": "locked Go 1.25.7 toolchain and module cache"
+    },
+    {
+      "command": "npm run build:deps",
+      "result": "passed",
+      "scope": "browser workspace"
+    },
+    {
+      "command": "npm test --workspace @composio/ao-core",
+      "result": "passed",
+      "suites": 21,
+      "tests": 533,
+      "execution_boundary": "GitHub Actions clean runners on Node 20 and Node 22; local exact-head reruns were held by non-monotonic wall-clock timeout attribution"
+    },
+    {
+      "command": "npm test --workspace @composio/ao-web",
+      "result": "passed_after_locked_node_pty_rebuild",
+      "suites": 18,
+      "tests": 420
+    },
+    {
+      "command": "npm test --workspace @composio/ao-plugin-agent-codex",
+      "result": "passed",
+      "suites": 3,
+      "tests": 214
+    },
+    {
+      "command": "npm run typecheck --workspace @composio/ao-core && npm run typecheck --workspace @composio/ao-plugin-agent-codex",
+      "result": "passed"
+    },
+    {
+      "command": "npm run verify:package",
+      "result": "passed",
+      "package": "ao-pilot-0.2.0.tgz",
+      "entry_count": 989,
+      "eval_quality_gate": "passed"
+    }
+  ],
+  "source_claims": {
+    "managed_worker_launcher": "implemented",
+    "managed_worker_launcher_digest_verification": "implemented",
+    "managed_worker_launcher_behavioral_authentication": "implemented",
+    "managed_daemon_namespace_binding": "implemented",
+    "partial_service_install_identity_inheritance": "implemented",
+    "active_service_process_identity_recheck": "implemented",
+    "active_daemon_child_provenance_recheck": "implemented",
+    "effective_runtime_unit_restart_binding": "implemented",
+    "effective_runtime_unit_unique_environment_binding": "implemented",
+    "effective_runtime_unit_environment_reset_rejection": "implemented",
+    "effective_runtime_unit_environment_file_rejection": "implemented",
+    "operator_contract_binding_resolution": "implemented",
+    "custom_runtime_store_preservation": "implemented",
+    "xdg_runtime_store_preservation": "implemented",
+    "xdg_runtime_store_unit_pinning": "implemented",
+    "runtime_store_service_binding": "implemented",
+    "bounded_launcher_authentication_probes": "implemented",
+    "unbound_foreground_prompt_gating": "implemented",
+    "unbound_foreground_path_de_shadowing": "implemented",
+    "unbound_ambient_ao_delegation": "implemented",
+    "canonical_ambient_ao_delegation": "implemented",
+    "explicit_unbound_tmux_binding_clear": "implemented",
+    "unbound_metadata_wrapper_preservation": "implemented",
+    "ordinary_worker_prelaunch_provisioning": "implemented",
+    "ordinary_restore_prelaunch_provisioning": "implemented",
+    "managed_restore_cli_guidance": "implemented",
+    "pinned_restore_cli_guidance": "implemented",
+    "pinned_restore_guidance_binding_gate": "implemented",
+    "pinned_recovery_runtime_service_ordering": "implemented",
+    "pinned_recovery_prelaunch_provisioning": "implemented",
+    "codex_only_worker_prompt_contract": "implemented",
+    "bound_codex_orchestrator_prompt_contract": "implemented",
+    "managed_claim_pr_argument_contract": "implemented",
+    "global_status_project_readback_split": "implemented",
+    "operator_project_readback_verified_entrypoint": "implemented",
+    "operator_custom_store_resolution_order": "implemented",
+    "launcher_namespace_forwarding_authentication": "implemented",
+    "stable_launcher_namespace_authentication": "implemented",
+    "dashboard_managed_orchestrator_prompt": "implemented",
+    "project_orchestrator_rules_preserved": "implemented",
+    "read_only_runtime_capability_contract": "implemented",
+    "structured_probe_failure_hold": "implemented",
+    "installed_contract_post_service_documentation": "implemented",
+    "spawn_attempt_custody_in_current_source": "established",
+    "installed_runtime_cutover": "not_claimed"
+  },
+  "github_actions": {
+    "run": "https://github.com/Samsen879/ao-pilot/actions/runs/35268348512",
+    "fresh_clone_runtime": "passed",
+    "node_20": "passed",
+    "node_22": "passed"
+  },
+  "installed_runtime_receipt": "docs/runtime-portability/issue-115-installed-runtime-receipt.json"
+}

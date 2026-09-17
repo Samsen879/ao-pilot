@@ -10,7 +10,7 @@ import {
   startVerifiedRuntimeDaemon,
 } from './ao/lib/runtime-control.js';
 
-const OPERATIONS = new Set(['start', 'stop', 'status', 'runtime-path']);
+const OPERATIONS = new Set(['start', 'stop', 'status', 'runtime-path', 'runtime-project-get']);
 
 function createDefaultIo() {
   return {
@@ -24,7 +24,8 @@ function usage(operation = null) {
   if (operation === 'stop') return 'Usage: ao-pilot stop [--runtime-store <path>] [--dry-run] [--json]';
   if (operation === 'status') return 'Usage: ao-pilot status [--runtime-store <path>] [--dry-run] [--json]';
   if (operation === 'runtime-path') return 'Usage: ao-pilot runtime-path [--json]';
-  return 'Usage: ao-pilot <start|stop|status|runtime-path> [options]';
+  if (operation === 'runtime-project-get') return 'Usage: ao-pilot runtime-project-get <project-id> [--runtime-store <path>] [--json]';
+  return 'Usage: ao-pilot <start|stop|status|runtime-path|runtime-project-get> [options]';
 }
 
 function requiredValue(argv, index, option) {
@@ -38,18 +39,15 @@ export function parseRuntimeArgs(argv) {
   if (!OPERATIONS.has(operation)) throw new Error(`Unknown runtime operation: ${operation ?? ''}`);
   const options = {
     operation,
-    projectId: 'my-project',
     storeRoot: null,
     dryRun: false,
     json: false,
     help: false,
+    projectId: null,
   };
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
-    if (argument === '--project') {
-      options.projectId = requiredValue(args, index, argument);
-      index += 1;
-    } else if (argument === '--runtime-store') {
+    if (argument === '--runtime-store') {
       options.storeRoot = path.resolve(requiredValue(args, index, argument));
       index += 1;
     } else if (argument === '--dry-run' && operation !== 'runtime-path') {
@@ -58,9 +56,14 @@ export function parseRuntimeArgs(argv) {
       options.json = true;
     } else if (argument === '--help' || argument === '-h') {
       options.help = true;
+    } else if (operation === 'runtime-project-get' && options.projectId == null && !argument.startsWith('-')) {
+      options.projectId = argument;
     } else {
       throw new Error(`Unknown argument for ${operation}: ${argument}`);
     }
+  }
+  if (operation === 'runtime-project-get' && options.projectId == null && !options.help) {
+    throw new Error('Missing project id for runtime-project-get');
   }
   return options;
 }
@@ -74,6 +77,9 @@ export function buildRuntimeArguments(options) {
   }
   if (options.operation === 'status') {
     return ['status', '--json'];
+  }
+  if (options.operation === 'runtime-project-get') {
+    return ['project', 'get', options.projectId, '--json'];
   }
   return [];
 }

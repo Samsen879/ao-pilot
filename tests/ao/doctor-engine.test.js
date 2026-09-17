@@ -99,7 +99,10 @@ describe('doctor engine', () => {
     expect(report.suggestions).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: 'ao_runtime_status',
-        commands: ["ao-pilot status --project my-project --json --runtime-store '/custom/store with '\"'\"'quote'\"'\"''"],
+        commands: [
+          "ao-pilot status --json --runtime-store '/custom/store with '\"'\"'quote'\"'\"''",
+          "ao-pilot runtime-project-get my-project --json --runtime-store '/custom/store with '\"'\"'quote'\"'\"''",
+        ],
       }),
     ]));
   });

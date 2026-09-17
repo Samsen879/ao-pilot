@@ -151,15 +151,55 @@ doctor output and verified `start`, `stop`, `status`, and
 ```bash
 node ./bin/ao-pilot.js runtime-path --json
 node ./bin/ao-pilot.js doctor --json
-node ./bin/ao-pilot.js start --project my-project
-node ./bin/ao-pilot.js status --project my-project --json
-node ./bin/ao-pilot.js stop --project my-project
+node ./bin/ao-pilot.js start
+node ./bin/ao-pilot.js status --json
+node ./bin/ao-pilot.js runtime-project-get my-project --json
+node ./bin/ao-pilot.js stop
 ```
 
 The doctor reports source/version/commit/tree/integrity, compatibility, exact
 binary path/digest, shadowing, and GitHub/Codex auth availability without
 retaining command output or secrets. A missing, changed, incompatible, or
 shadowed runtime blocks lifecycle execution.
+
+`runtime-contract` probes only version and command help on that exact binary. It
+publishes the supported global status, project readback, and spawn-custody
+surfaces as normalized JSON. Installed browser services pass the verified
+absolute binary, its verified SHA-256, and the exact deployment daemon namespace
+to Codex workers as `AO_MANAGED_RUNTIME_BINARY`,
+`AO_MANAGED_RUNTIME_BINARY_SHA256`, `AO_MANAGED_RUNTIME_DATA_DIR`, and
+`AO_MANAGED_RUNTIME_RUN_FILE`; their `~/.ao/bin/ao` wrapper rejects an absent,
+relative, non-executable, symlinked, or digest-mismatched binding before
+execution. Partial dashboard/recovery service installs inherit this identity
+from the effective active runtime foreground process and its sole daemon child
+(PIDs, working directory, commands, environments, child executable path, and
+live executable digest) instead of trusting only the static unit or mixing a
+new CLI with an old daemon. Operator `runtime-contract` invocations recover the same active
+binding when service-only environment variables are absent, and authenticate
+the launcher with a valid version probe, a deliberate digest-rejection probe,
+and a namespace-sensitive status probe with poisoned ambient data/run paths.
+The active service store is resolved before the operator runtime, preserving a
+custom `AO_PILOT_RUNTIME_STORE` even when it is absent from the shell.
+Run that installed-boundary check only after the runtime service is active and
+a managed Codex worker/orchestrator has been spawned (or a pinned Codex session
+restored), because that workspace hook provisions the launcher:
+
+```bash
+node ./bin/ao-pilot.js runtime-contract --json
+```
+
+Foreground browser launches that do not supply all four managed bindings omit
+the Codex worker CLI contract. Their wrapper keeps the `git`/`gh` metadata
+interceptors active while delegating `ao` to the ambient command outside
+every canonical alias of `~/.ao/bin`; unbound tmux launches explicitly clear
+all four managed bindings, while partial bindings remain fail-closed. Restores rerun
+the agent workspace hook before runtime creation and inject current managed CLI
+compatibility guidance into the resumed Codex conversation. Bound Codex orchestrators use
+`ao status --json` only for daemon health, use project-scoped JSON session
+listing for coordination, and receive managed spawn/send/claim command forms. An
+active service's `AO_PILOT_RUNTIME_STORE` override is preserved during installed
+provenance resolution and emitted into every generated service unit. Launcher
+authentication probes are bounded to five seconds and timeouts fail closed.
 
 `npm run verify:runtime-lifecycle` checks the static exact-binary routing
 contract. `npm run verify:fresh-clone` is the separate P0-R07 live integration

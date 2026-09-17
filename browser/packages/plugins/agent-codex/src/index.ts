@@ -72,6 +72,15 @@ function buildAgentPath(basePath: string | undefined): string {
   return ordered.join(":");
 }
 
+function hasCompleteManagedRuntimeBinding(env: NodeJS.ProcessEnv = process.env): boolean {
+  return [
+    "AO_MANAGED_RUNTIME_BINARY",
+    "AO_MANAGED_RUNTIME_BINARY_SHA256",
+    "AO_MANAGED_RUNTIME_DATA_DIR",
+    "AO_MANAGED_RUNTIME_RUN_FILE",
+  ].every((name) => Boolean(env[name]));
+}
+
 function isLikelyCodexStatusFooter(line: string): boolean {
   if (!line.includes("·")) return false;
 
@@ -98,7 +107,7 @@ export const manifest = {
   name: "codex",
   slot: "agent" as const,
   description: "Agent plugin: OpenAI Codex CLI",
-  version: "0.1.1",
+  version: "0.1.7",
   displayName: "OpenAI Codex",
 };
 
@@ -305,6 +314,74 @@ If automatic updates fail, you can manually update metadata:
 # Then call: update_ao_metadata <key> <value>
 \`\`\`
 `;
+
+const AO_CLI_WRAPPER = `#!/usr/bin/env bash
+set -euo pipefail
+
+runtime_binary="\${AO_MANAGED_RUNTIME_BINARY:-}"
+runtime_binary_sha256="\${AO_MANAGED_RUNTIME_BINARY_SHA256:-}"
+runtime_data_dir="\${AO_MANAGED_RUNTIME_DATA_DIR:-}"
+runtime_run_file="\${AO_MANAGED_RUNTIME_RUN_FILE:-}"
+if [[ -z "$runtime_binary" && -z "$runtime_binary_sha256" && -z "$runtime_data_dir" && -z "$runtime_run_file" ]]; then
+  ao_bin_dir="$(cd "$(dirname "$0")" && pwd -P)"
+  clean_path=""
+  IFS=':' read -r -a path_entries <<< "\${PATH:-/usr/bin:/bin}"
+  for entry in "\${path_entries[@]}"; do
+    [[ -n "$entry" ]] || continue
+    resolved_entry="$(cd "$entry" 2>/dev/null && pwd -P || true)"
+    [[ -n "$resolved_entry" && "$resolved_entry" == "$ao_bin_dir" ]] && continue
+    clean_path="\${clean_path:+$clean_path:}$entry"
+  done
+  ambient_ao="$(PATH="$clean_path" command -v ao 2>/dev/null || true)"
+  if [[ -z "$ambient_ao" || ! -x "$ambient_ao" || "$ambient_ao" -ef "$0" ]]; then
+    echo "ao-wrapper: ambient ao not found outside the managed wrapper directory" >&2
+    exit 127
+  fi
+  exec env PATH="$clean_path" "$ambient_ao" "$@"
+fi
+case "$runtime_binary" in
+  /*) ;;
+  *)
+    echo "ao-wrapper: AO_MANAGED_RUNTIME_BINARY is not an absolute managed launcher path" >&2
+    exit 126
+    ;;
+esac
+if [[ ! -f "$runtime_binary" || ! -x "$runtime_binary" || -L "$runtime_binary" ]]; then
+  echo "ao-wrapper: managed AO launcher is missing, non-executable, or a symlink" >&2
+  exit 126
+fi
+if [[ ! "$runtime_binary_sha256" =~ ^[a-f0-9]{64}$ ]]; then
+  echo "ao-wrapper: AO_MANAGED_RUNTIME_BINARY_SHA256 is not a valid digest" >&2
+  exit 126
+fi
+if ! command -v sha256sum >/dev/null 2>&1; then
+  echo "ao-wrapper: sha256sum is required to verify the managed AO launcher" >&2
+  exit 126
+fi
+observed_sha256="$(sha256sum -- "$runtime_binary")"
+observed_sha256="\${observed_sha256%% *}"
+if [[ "$observed_sha256" != "$runtime_binary_sha256" ]]; then
+  echo "ao-wrapper: managed AO launcher digest mismatch" >&2
+  exit 126
+fi
+case "$runtime_data_dir" in
+  /*) ;;
+  *)
+    echo "ao-wrapper: AO_MANAGED_RUNTIME_DATA_DIR is not an absolute managed namespace" >&2
+    exit 126
+    ;;
+esac
+case "$runtime_run_file" in
+  /*) ;;
+  *)
+    echo "ao-wrapper: AO_MANAGED_RUNTIME_RUN_FILE is not an absolute managed namespace" >&2
+    exit 126
+    ;;
+esac
+export AO_DATA_DIR="$runtime_data_dir"
+export AO_RUN_FILE="$runtime_run_file"
+exec "$runtime_binary" "$@"
+`;
 /* eslint-enable no-useless-escape */
 
 /**
@@ -319,31 +396,24 @@ async function atomicWriteFile(filePath: string, content: string, mode: number):
   await rename(tmpPath, filePath);
 }
 
-async function setupCodexWorkspace(workspacePath: string): Promise<void> {
-  // 1. Write shared wrappers to ~/.ao/bin/
+export async function setupManagedAoLauncher(): Promise<void> {
   await mkdir(AO_BIN_DIR, { recursive: true });
 
   await atomicWriteFile(join(AO_BIN_DIR, "ao-metadata-helper.sh"), AO_METADATA_HELPER, 0o755);
-
-  // Only write wrappers if they don't exist or are outdated (check marker)
   const markerPath = join(AO_BIN_DIR, ".ao-version");
-  const currentVersion = "0.1.1";
-  let needsUpdate = true;
-  try {
-    const existing = await readFile(markerPath, "utf-8");
-    if (existing.trim() === currentVersion) needsUpdate = false;
-  } catch {
-    // File doesn't exist — needs update
-  }
+  const currentVersion = "0.1.7";
 
-  if (needsUpdate) {
-    // Write wrappers atomically, then write the version marker last.
-    // If we crash between wrapper writes and marker write, the next
-    // invocation will redo the writes (safe: wrappers are idempotent).
-    await atomicWriteFile(join(AO_BIN_DIR, "gh"), GH_WRAPPER, 0o755);
-    await atomicWriteFile(join(AO_BIN_DIR, "git"), GIT_WRAPPER, 0o755);
-    await atomicWriteFile(markerPath, currentVersion, 0o644);
-  }
+  // Always restore every wrapper atomically. A surviving version marker must
+  // not hide a deleted or partially replaced launcher during recovery.
+  await atomicWriteFile(join(AO_BIN_DIR, "gh"), GH_WRAPPER, 0o755);
+  await atomicWriteFile(join(AO_BIN_DIR, "git"), GIT_WRAPPER, 0o755);
+  await atomicWriteFile(join(AO_BIN_DIR, "ao"), AO_CLI_WRAPPER, 0o755);
+  await atomicWriteFile(markerPath, currentVersion, 0o644);
+}
+
+async function setupCodexWorkspace(workspacePath: string): Promise<void> {
+  // 1. Restore shared wrappers in ~/.ao/bin/ before writing workspace guidance.
+  await setupManagedAoLauncher();
 
   // 2. Append ao section to AGENTS.md (create if missing, skip if already present)
   const agentsMdPath = join(workspacePath, "AGENTS.md");
@@ -963,9 +1033,18 @@ function createCodexAgent(): Agent {
         env["AO_ISSUE_ID"] = config.issueId;
       }
 
-      // Prepend ~/.ao/bin to PATH so our gh/git wrappers intercept commands.
-      // The wrappers strip this directory from PATH before calling the real
-      // binary, so there's no infinite recursion.
+      const runtimeBinary = process.env["AO_MANAGED_RUNTIME_BINARY"];
+      env["AO_MANAGED_RUNTIME_BINARY"] = runtimeBinary ?? "";
+      const runtimeBinarySha256 = process.env["AO_MANAGED_RUNTIME_BINARY_SHA256"];
+      env["AO_MANAGED_RUNTIME_BINARY_SHA256"] = runtimeBinarySha256 ?? "";
+      const runtimeDataDir = process.env["AO_MANAGED_RUNTIME_DATA_DIR"];
+      env["AO_MANAGED_RUNTIME_DATA_DIR"] = runtimeDataDir ?? "";
+      const runtimeRunFile = process.env["AO_MANAGED_RUNTIME_RUN_FILE"];
+      env["AO_MANAGED_RUNTIME_RUN_FILE"] = runtimeRunFile ?? "";
+
+      // Keep metadata wrappers active in every Codex session. With no managed
+      // binding, the ao wrapper removes its own directory and delegates to the
+      // ambient ao command; partial bindings remain fail-closed.
       env["PATH"] = buildAgentPath(process.env["PATH"]);
       env["GH_PATH"] = PREFERRED_GH_PATH;
       // Disable Codex's version check/update prompt for non-interactive AO sessions.
@@ -1161,6 +1240,14 @@ function createCodexAgent(): Agent {
 
       // Positional threadId goes last, after all flags
       parts.push(shellEscape(data.threadId));
+      if (hasCompleteManagedRuntimeBinding()) {
+        parts.push(shellEscape(
+          "Managed AO CLI compatibility update: use `ao status --json` only for daemon health; " +
+          "use `ao session ls --all --project \"$AO_PROJECT_ID\" --json` for coordination; " +
+          "claim an existing PR with `ao session claim-pr \"$AO_SESSION_ID\" <pr-number-or-url> " +
+          "--project \"$AO_PROJECT_ID\"`; run command-specific `--help` before relying on older syntax.",
+        ));
+      }
 
       return parts.join(" ");
     },

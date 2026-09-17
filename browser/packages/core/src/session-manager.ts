@@ -58,7 +58,7 @@ import {
   reserveSessionId,
 } from "./metadata.js";
 import { buildPrompt } from "./prompt-builder.js";
-import { generateOrchestratorPrompt } from "./orchestrator-prompt.js";
+import { generateOrchestratorPrompt, hasCompleteManagedAoBinding } from "./orchestrator-prompt.js";
 import {
   getSessionsDir,
   getWorktreesDir,
@@ -1107,6 +1107,35 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
     }
 
+    // Agent-owned launch prerequisites must exist before the runtime starts.
+    // Codex uses this hook to provision the verified AO launcher referenced by
+    // its initial prompt; postLaunchSetup is too late for that contract.
+    if (plugins.agent.setupWorkspaceHooks) {
+      try {
+        await plugins.agent.setupWorkspaceHooks(workspacePath, {
+          dataDir: sessionsDir,
+          sessionId,
+        });
+      } catch (err) {
+        if (
+          plugins.workspace
+          && shouldDestroyWorkspacePath(project, spawnConfig.projectId, workspacePath)
+        ) {
+          try {
+            await plugins.workspace.destroy(workspacePath);
+          } catch {
+            /* best effort */
+          }
+        }
+        try {
+          deleteMetadata(sessionsDir, sessionId, false);
+        } catch {
+          /* best effort */
+        }
+        throw err;
+      }
+    }
+
     // Generate prompt with validated issue
     let issueContext: string | undefined;
     if (spawnConfig.issueId && plugins.tracker && resolvedIssue) {
@@ -1121,6 +1150,14 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     const composedPrompt = buildPrompt({
       project,
       projectId: spawnConfig.projectId,
+      agentName: selection.agentName,
+      aoCliContractAvailable: selection.agentName === "codex"
+        && [
+          "AO_MANAGED_RUNTIME_BINARY",
+          "AO_MANAGED_RUNTIME_BINARY_SHA256",
+          "AO_MANAGED_RUNTIME_DATA_DIR",
+          "AO_MANAGED_RUNTIME_RUN_FILE",
+        ].every((name) => Boolean(process.env[name])),
       issueId: spawnConfig.issueId,
       issueContext,
       userPrompt: spawnConfig.prompt,
@@ -2515,6 +2552,15 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
     }
 
+    // Restore agent-owned launch prerequisites before resuming the runtime.
+    // A restored Codex conversation can issue its next command immediately.
+    if (plugins.agent.setupWorkspaceHooks) {
+      await plugins.agent.setupWorkspaceHooks(workspacePath, {
+        dataDir: sessionsDir,
+        sessionId,
+      });
+    }
+
     // 6. Destroy old runtime if still alive (e.g. tmux session survives agent crash)
     if (session.runtimeHandle) {
       try {
@@ -2533,7 +2579,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       systemPromptFile = join(baseDir, "orchestrator-prompt.md");
       writeFileSync(
         systemPromptFile,
-        generateOrchestratorPrompt({ config, projectId, project }),
+        generateOrchestratorPrompt({
+          config,
+          projectId,
+          project,
+          managedCli: selection.agentName === "codex" && hasCompleteManagedAoBinding(),
+        }),
         "utf-8",
       );
     }

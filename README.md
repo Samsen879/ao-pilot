@@ -217,13 +217,26 @@ Inspect the exact runtime and use the managed lifecycle entrypoints:
 ```bash
 node ./bin/ao-pilot.js runtime-path --json
 node ./bin/ao-pilot.js doctor --json
-node ./bin/ao-pilot.js start --project my-project
-node ./bin/ao-pilot.js status --project my-project --json
-node ./bin/ao-pilot.js stop --project my-project
+node ./bin/ao-pilot.js start
+node ./bin/ao-pilot.js status --json
+node ./bin/ao-pilot.js runtime-project-get my-project --json
+node ./bin/ao-pilot.js stop
 ```
 
-Every command above verifies the committed lock, provenance, bootstrap receipt,
-compatibility, binary digest, and PATH-shadow state before runtime execution.
+The `ao-pilot` lifecycle and contract commands verify the committed lock,
+provenance, bootstrap receipt, compatibility, binary digest, and PATH-shadow
+state before runtime execution. Installed worker services then bind the verified
+absolute binary as the bare `ao` launcher; the wrapper fails closed if that
+binding is missing, relative, non-executable, a symlink, or no longer matches
+the installed binary SHA-256.
+After the runtime service is active and a managed Codex worker/orchestrator has
+been spawned (or a pinned Codex session restored), the workspace hook has
+provisioned the launcher. Validate that installed boundary separately:
+
+```bash
+node ./bin/ao-pilot.js runtime-contract --json
+```
+
 `start` launches the exact managed binary's daemon entrypoint as a detached
 local service. The repository-owned runtime also makes its own `ao start`
 command fail closed, so no managed or ambient path can fetch or open a desktop

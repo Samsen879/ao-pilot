@@ -5,6 +5,10 @@ import readline from 'node:readline';
 import crypto from 'node:crypto';
 
 export const defaultBindingsPath = () => path.join(os.homedir(), '.config/ao-pilot/session-recovery.json');
+export const PINNED_RESTORE_CLI_GUIDANCE = 'Managed AO CLI compatibility update: use `ao status --json` only for daemon health; use `ao session ls --all --project "$AO_PROJECT_ID" --json` for coordination; claim an existing PR with `ao session claim-pr "$AO_SESSION_ID" <pr-number-or-url> --project "$AO_PROJECT_ID"`; use `ao send --session <session-id> --message <message>` and run command-specific `--help` before relying on older syntax.';
+export function hasCompleteManagedRuntimeBinding(env = process.env) {
+  return ['AO_MANAGED_RUNTIME_BINARY','AO_MANAGED_RUNTIME_BINARY_SHA256','AO_MANAGED_RUNTIME_DATA_DIR','AO_MANAGED_RUNTIME_RUN_FILE'].every(name => Boolean(env[name]));
+}
 export async function verifyTranscript(binding) {
   if (!/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(binding.conversationId)) throw new Error('Invalid original conversation ID; HOLD');
   for (const key of ['workspacePath','transcriptPath','binaryPath']) if (!path.isAbsolute(binding[key] || '')) throw new Error(`Invalid ${key}; HOLD`);
@@ -75,13 +79,15 @@ export async function recoverySweep(bindings, adapter, {restore=false, attempts=
 export async function createRecoveryAdapter(configPath, manifest) {
   // Every import is ao-pilot-owned; no sibling checkout or PATH-shadowed ao.
   const core=await import('../../../browser/packages/core/dist/index.js');
-  const [{default:codex},{default:tmux},{default:workspace},{default:scm},{default:tracker}]=await Promise.all([
+  const [codexModule,{default:tmux},{default:workspace},{default:scm},{default:tracker}]=await Promise.all([
     import('../../../browser/packages/plugins/agent-codex/dist/index.js'),
     import('../../../browser/packages/plugins/runtime-tmux/dist/index.js'),
     import('../../../browser/packages/plugins/workspace-worktree/dist/index.js'),
     import('../../../browser/packages/plugins/scm-github/dist/index.js'),
     import('../../../browser/packages/plugins/tracker-github/dist/index.js'),
   ]);
+  const {default:codex,setupManagedAoLauncher}=codexModule;
+  if(typeof setupManagedAoLauncher!=='function') throw new Error('Managed AO launcher installer unavailable; HOLD');
   const config=core.loadConfig(configPath), registry=core.createPluginRegistry();
   const metadata = (id,binding) => {
     const project=config.projects[binding.projectId];
@@ -95,7 +101,9 @@ export async function createRecoveryAdapter(configPath, manifest) {
     const binding=manifest.sessions[session.id];
     if(!binding || session.workspacePath!==binding.workspacePath) throw new Error('Unpinned restore forbidden; HOLD');
     await validate(session.id,binding);
-    return [core.shellEscape(binding.binaryPath),'resume','--sandbox','workspace-write','--ask-for-approval','on-request','--cd',core.shellEscape(binding.workspacePath),'-c','check_for_update_on_startup=false',core.shellEscape(binding.conversationId)].join(' ');
+    const command=[core.shellEscape(binding.binaryPath),'resume','--sandbox','workspace-write','--ask-for-approval','on-request','--cd',core.shellEscape(binding.workspacePath),'-c','check_for_update_on_startup=false',core.shellEscape(binding.conversationId)];
+    if(hasCompleteManagedRuntimeBinding()) command.push(core.shellEscape(PINNED_RESTORE_CLI_GUIDANCE));
+    return command.join(' ');
   }}}});
   for(const plugin of [tmux,workspace,scm,tracker]) registry.register(plugin);
   const manager=core.createSessionManager({config,registry});
@@ -103,6 +111,6 @@ export async function createRecoveryAdapter(configPath, manifest) {
   return {core,config,manager,metadata,validate,
     async retired(id,binding){return ['merged','killed','cleanup','done'].includes(metadata(id,binding).raw.status);},
     async alive(id,binding){const {raw}=metadata(id,binding);const handle=JSON.parse(raw.runtimeHandle || 'null');if(!handle || handle.id!==binding.tmuxName || handle.runtimeName!=='tmux') throw new Error('Runtime handle identity mismatch; HOLD');return runtime.isAlive(handle);},
-    async restore(id,binding){await validate(id,binding);if(await this.alive(id,binding)) return;await manager.restore(id);},
+    async restore(id,binding){await validate(id,binding);if(await this.alive(id,binding)) return;await setupManagedAoLauncher();await manager.restore(id);},
   };
 }

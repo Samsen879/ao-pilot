@@ -81,9 +81,9 @@ for candidate in "${git_hooks_install_candidates[@]}"; do
 done
 
 run_cmd "${pilot_command[@]}" runtime-path
-printf '+ node %q stop --project %q || true\n' "$repo_root/bin/ao-pilot.js" "$project"
+printf '+ node %q stop || true\n' "$repo_root/bin/ao-pilot.js"
 if [[ "$dry_run" -eq 0 ]]; then
-  "${pilot_command[@]}" stop --project "$project" || true
+  "${pilot_command[@]}" stop || true
 fi
 
 if [[ -n "$git_hooks_install_script" ]]; then
@@ -102,5 +102,6 @@ else
   echo "+ skip workflow baseline sync (repo-local baseline sync script not present)"
 fi
 
-run_cmd "${pilot_command[@]}" start --project "$project"
-run_cmd "${pilot_command[@]}" status --project "$project"
+run_cmd "${pilot_command[@]}" start
+run_cmd "${pilot_command[@]}" status
+run_cmd "${pilot_command[@]}" runtime-project-get "$project"

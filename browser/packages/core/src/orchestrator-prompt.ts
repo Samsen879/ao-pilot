@@ -6,11 +6,60 @@
  */
 
 import type { OrchestratorConfig, ProjectConfig } from "./types.js";
+import { resolveAgentSelection } from "./agent-selection.js";
 
 export interface OrchestratorPromptConfig {
   config: OrchestratorConfig;
   projectId: string;
   project: ProjectConfig;
+  managedCli?: boolean;
+}
+
+export function hasCompleteManagedAoBinding(env: NodeJS.ProcessEnv = process.env): boolean {
+  return [
+    "AO_MANAGED_RUNTIME_BINARY",
+    "AO_MANAGED_RUNTIME_BINARY_SHA256",
+    "AO_MANAGED_RUNTIME_DATA_DIR",
+    "AO_MANAGED_RUNTIME_RUN_FILE",
+  ].every((name) => Boolean(env[name]));
+}
+
+function adaptForManagedCli(prompt: string, projectId: string, sessionPrefix: string): string {
+  const sessions = `ao session ls --all --project ${projectId} --json`;
+  const adapted = prompt
+    .replaceAll(`ao session claim-pr 123 ${sessionPrefix}-1`, `ao session claim-pr ${sessionPrefix}-1 123 --project ${projectId}`)
+    .replaceAll("ao session claim-pr <pr> [session]", `ao session claim-pr <session> <pr> --project ${projectId}`)
+    .replaceAll("ao spawn INT-1234", `ao spawn --project ${projectId} --name INT-1234 --issue INT-1234`)
+    .replaceAll("ao spawn --claim-pr 123", `ao spawn --project ${projectId} --name pr-123 --claim-pr 123`)
+    .replaceAll("ao spawn [issue] [--claim-pr <pr>]", `ao spawn --project ${projectId} --name <name> [--issue <issue>] [--claim-pr <pr>]`)
+    .replaceAll("ao batch-spawn INT-1 INT-2 INT-3", `repeat ao spawn with --project ${projectId}, a unique --name, and each --issue`)
+    .replaceAll("ao batch-spawn <issues...>", "repeat the documented ao spawn command for each issue")
+    .replaceAll("ao batch-spawn", "repeat the documented ao spawn command")
+    .replaceAll("batch-spawn", "individual spawn commands")
+    .replaceAll(`ao send ${sessionPrefix}-1 "Your message here"`, `ao send --session ${sessionPrefix}-1 --message "Your message here"`)
+    .replaceAll(`ao send ${sessionPrefix}-1 "Please address the review comments on your PR"`, `ao send --session ${sessionPrefix}-1 --message "Please address the review comments on your PR"`)
+    .replaceAll("ao send <session> '...'", "ao send --session <session> --message '...'")
+    .replaceAll("ao send <session> <message>", "ao send --session <session> --message <message>")
+    .replaceAll("ao session attach <session>", `ao session get <session> --project ${projectId} --json`)
+    .replaceAll("`ao session ls`, `ao session attach`, and SCM/tracker lookups", "project-scoped session JSON and SCM/tracker lookups")
+    .replaceAll("Attach to a session's tmux window", "Fetch one session record as JSON")
+    .replaceAll("Attach with", "Inspect with")
+    .replaceAll("Attach to the session if needed:", "Inspect the session record if needed:")
+    .replaceAll("ao dashboard", "the installed Dashboard service")
+    .replaceAll("Start the web dashboard", "Use the installed web dashboard")
+    .replaceAll("ao open <project>", "the Dashboard session list")
+    .replaceAll(`ao open ${projectId}`, "the Dashboard session list")
+    .replaceAll("Open all project sessions in terminal tabs", "Use the Dashboard session list")
+    .replaceAll("to see what they're doing", "to inspect its recorded state")
+    .replaceAll("**Use individual spawn commands for multiple issues** — Much faster than spawning one at a time.", "**Use one explicit spawn command per issue** — Give every worker a unique name and issue binding.")
+    .replaceAll("ao status", sessions);
+  return `## Managed AO CLI Contract
+
+- Use \`ao status --json\` only for global daemon health.
+- Use \`${sessions}\` for session, PR, CI, and review coordination state.
+- Run command-specific \`--help\` before relying on any inherited syntax.
+
+${adapted}`;
 }
 
 /**
@@ -20,6 +69,10 @@ export interface OrchestratorPromptConfig {
  */
 export function generateOrchestratorPrompt(opts: OrchestratorPromptConfig): string {
   const { config, projectId, project } = opts;
+  const managedCli = opts.managedCli ?? (
+    resolveAgentSelection({ role: "orchestrator", project, defaults: config.defaults }).agentName === "codex"
+    && hasCompleteManagedAoBinding()
+  );
   const sections: string[] = [];
 
   // Header
@@ -245,12 +298,11 @@ When an agent needs human judgment:
 
 8. **Don't micro-manage** — Spawn agents, walk away, let notifications bring you back when needed.`);
 
-  // Project-specific rules (if any)
-  if (project.orchestratorRules) {
-    sections.push(`## Project-Specific Rules
-
-${project.orchestratorRules}`);
-  }
-
-  return sections.join("\n\n");
+  const prompt = sections.join("\n\n");
+  const builtInPrompt = managedCli
+    ? adaptForManagedCli(prompt, projectId, project.sessionPrefix)
+    : prompt;
+  return project.orchestratorRules
+    ? `${builtInPrompt}\n\n## Project-Specific Rules\n\n${project.orchestratorRules}`
+    : builtInPrompt;
 }

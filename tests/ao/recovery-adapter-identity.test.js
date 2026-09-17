@@ -3,24 +3,23 @@ import os from 'node:os';
 import path from 'node:path';
 import {test,expect,jest,beforeEach,afterEach} from '@jest/globals';
 
-let root, config, raw, binding;
-const restore=jest.fn(), isAlive=jest.fn();
+let root, config, raw, binding, registered;
+const restore=jest.fn(), isAlive=jest.fn(), setupManagedAoLauncher=jest.fn();
 const core={
  loadConfig:()=>config,
- createPluginRegistry:()=>({register:()=>{}}),
+ createPluginRegistry:()=>({register:plugin=>registered.push(plugin)}),
  getSessionsDir:()=>path.join(root,'metadata'),
  readMetadata:()=>raw,
  createSessionManager:()=>({restore}),
  shellEscape:s=>s,
 };
 jest.unstable_mockModule('../../browser/packages/core/dist/index.js',()=>core,{virtual:true});
-for (const name of ['agent-codex','workspace-worktree','scm-github','tracker-github']) {
- jest.unstable_mockModule(`../../browser/packages/plugins/${name}/dist/index.js`,()=>({default:{create:()=>({})}}),{virtual:true});
-}
+jest.unstable_mockModule('../../browser/packages/plugins/agent-codex/dist/index.js',()=>({default:{create:()=>({})},setupManagedAoLauncher}),{virtual:true});
+for (const name of ['workspace-worktree','scm-github','tracker-github']) jest.unstable_mockModule(`../../browser/packages/plugins/${name}/dist/index.js`,()=>({default:{create:()=>({})}}),{virtual:true});
 jest.unstable_mockModule('../../browser/packages/plugins/runtime-tmux/dist/index.js',()=>({default:{create:()=>({isAlive})}}),{virtual:true});
 const {createRecoveryAdapter,recoverySweep}=await import('../../scripts/ao/lib/session-recovery.js');
 beforeEach(()=>{
- root=fs.mkdtempSync(path.join(os.tmpdir(),'ao-adapter-identity-'));jest.clearAllMocks();isAlive.mockResolvedValue(false);
+ root=fs.mkdtempSync(path.join(os.tmpdir(),'ao-adapter-identity-'));registered=[];jest.clearAllMocks();isAlive.mockResolvedValue(false);
  const transcriptPath=path.join(root,'original.jsonl'),conversationId='00000000-0000-4000-8000-000000000001';
  fs.writeFileSync(transcriptPath,JSON.stringify({type:'session_meta',payload:{id:conversationId,session_id:conversationId,cwd:root}})+'\n');
  config={configPath:path.join(root,'config.yaml'),projects:{fixture:{path:root}}};
@@ -57,7 +56,40 @@ test('actual adapter treats runtime permission uncertainty as HOLD rather than m
 });
 test('actual adapter missing runtime may restore exact original session and verifies liveness',async()=>{
  isAlive.mockResolvedValueOnce(false).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
- expect((await inspect({restore:true})).results[0]).toEqual({id:'fixture-1',state:'RESTORED',conversationId:binding.conversationId});expect(restore).toHaveBeenCalledWith('fixture-1');
+ expect((await inspect({restore:true})).results[0]).toEqual({id:'fixture-1',state:'RESTORED',conversationId:binding.conversationId});expect(setupManagedAoLauncher).toHaveBeenCalledTimes(1);expect(setupManagedAoLauncher.mock.invocationCallOrder[0]).toBeLessThan(restore.mock.invocationCallOrder[0]);expect(restore).toHaveBeenCalledWith('fixture-1');
+});
+test('launcher provisioning failure holds before pinned restore starts',async()=>{
+ isAlive.mockResolvedValueOnce(false).mockResolvedValueOnce(false);setupManagedAoLauncher.mockRejectedValueOnce(Error('launcher write failed'));
+ expect((await inspect({restore:true})).results[0]).toMatchObject({id:'fixture-1',state:'HOLD',reason:'launcher write failed'});expect(restore).not.toHaveBeenCalled();
+});
+test('pinned Codex restore injects current managed CLI compatibility guidance',async()=>{
+ const names=['AO_MANAGED_RUNTIME_BINARY','AO_MANAGED_RUNTIME_BINARY_SHA256','AO_MANAGED_RUNTIME_DATA_DIR','AO_MANAGED_RUNTIME_RUN_FILE'];
+ const previous=Object.fromEntries(names.map(name=>[name,process.env[name]]));
+ for(const name of names) process.env[name]=name;
+ const manifest={sessions:{'fixture-1':binding}};
+ try {
+  await createRecoveryAdapter(config.configPath,manifest);
+  const agent=registered[0].create();
+  const command=await agent.getRestoreCommand({id:'fixture-1',workspacePath:binding.workspacePath});
+  expect(command).toContain(binding.conversationId);
+  expect(command).toContain('ao session claim-pr');
+  expect(command).toContain('AO_SESSION_ID');
+  expect(command).toContain('ao send --session');
+ } finally {
+  for(const name of names) previous[name]===undefined?delete process.env[name]:process.env[name]=previous[name];
+ }
+});
+test('pinned Codex restore omits managed CLI guidance without complete bindings',async()=>{
+ const names=['AO_MANAGED_RUNTIME_BINARY','AO_MANAGED_RUNTIME_BINARY_SHA256','AO_MANAGED_RUNTIME_DATA_DIR','AO_MANAGED_RUNTIME_RUN_FILE'];
+ const previous=Object.fromEntries(names.map(name=>[name,process.env[name]]));
+ for(const name of names) delete process.env[name];
+ try {
+  await createRecoveryAdapter(config.configPath,{sessions:{'fixture-1':binding}});
+  const command=await registered[0].create().getRestoreCommand({id:'fixture-1',workspacePath:binding.workspacePath});
+  expect(command).toContain(binding.conversationId);expect(command).not.toContain('ao session claim-pr');
+ } finally {
+  for(const name of names) previous[name]===undefined?delete process.env[name]:process.env[name]=previous[name];
+ }
 });
 test('configured project path is not directly part of the current recovery pin',async()=>{
  config.projects.fixture.path=path.join(root,'changed-configured-root');

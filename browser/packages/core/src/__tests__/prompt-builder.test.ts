@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { buildPrompt, BASE_AGENT_PROMPT } from "../prompt-builder.js";
+import { buildPrompt, BASE_AGENT_PROMPT, CODEX_AO_CLI_PROMPT } from "../prompt-builder.js";
 import type { ProjectConfig } from "../types.js";
 
 let tmpDir: string;
@@ -215,5 +215,29 @@ describe("BASE_AGENT_PROMPT", () => {
     expect(BASE_AGENT_PROMPT).toContain("Git Workflow");
     expect(BASE_AGENT_PROMPT).toContain("PR Best Practices");
     expect(BASE_AGENT_PROMPT).toContain("ao session claim-pr");
+    expect(BASE_AGENT_PROMPT).not.toContain("ao status --json");
+  });
+});
+
+describe("CODEX_AO_CLI_PROMPT", () => {
+  it("is included only for Codex workers", () => {
+    expect(CODEX_AO_CLI_PROMPT).toContain("ao status --json");
+    expect(CODEX_AO_CLI_PROMPT).toContain("ao project get <project-id> --json");
+    expect(CODEX_AO_CLI_PROMPT).toContain("The status command has no project flag");
+
+    expect(buildPrompt({
+      project,
+      projectId: "test-app",
+      agentName: "codex",
+      aoCliContractAvailable: true,
+    }))
+      .toContain(CODEX_AO_CLI_PROMPT);
+    expect(buildPrompt({ project, projectId: "test-app", agentName: "claude-code" }))
+      .not.toContain("AO CLI Contract");
+  });
+
+  it("omits the contract when a Codex worker has no complete runtime binding", () => {
+    expect(buildPrompt({ project, projectId: "test-app", agentName: "codex" }))
+      .not.toContain(CODEX_AO_CLI_PROMPT);
   });
 });

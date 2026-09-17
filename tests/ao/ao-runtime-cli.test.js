@@ -37,21 +37,17 @@ function createIo() {
 
 describe('ao-pilot runtime lifecycle CLI', () => {
   it('maps lifecycle options to the locked runtime CLI contract', () => {
-    expect(buildRuntimeArguments(parseRuntimeArgs([
-      'start', '--project', 'portable',
-    ]))).toEqual(['daemon']);
-    expect(buildRuntimeArguments(parseRuntimeArgs([
-      'stop', '--project', 'portable',
-    ]))).toEqual(['stop', '--json']);
-    expect(buildRuntimeArguments(parseRuntimeArgs([
-      'status', '--project', 'portable', '--json',
-    ]))).toEqual(['status', '--json']);
+    expect(buildRuntimeArguments(parseRuntimeArgs(['start']))).toEqual(['daemon']);
+    expect(buildRuntimeArguments(parseRuntimeArgs(['stop']))).toEqual(['stop', '--json']);
+    expect(buildRuntimeArguments(parseRuntimeArgs(['status', '--json']))).toEqual(['status', '--json']);
+    expect(buildRuntimeArguments(parseRuntimeArgs(['runtime-project-get', 'my-project', '--json'])))
+      .toEqual(['project', 'get', 'my-project', '--json']);
   });
 
   it('prints exact runtime provenance without invoking the runtime', async () => {
     const output = createIo();
     const executeRuntime = jest.fn();
-    const result = await runCli(['runtime-path', '--json', '--project', 'portable'], output.io, {
+    const result = await runCli(['runtime-path', '--json'], output.io, {
       resolveRuntime: () => runtime,
       executeRuntime,
     });
@@ -74,7 +70,7 @@ describe('ao-pilot runtime lifecycle CLI', () => {
       exit_code: 0,
       daemon_status: { state: 'ready', pid: 1234 },
     });
-    const result = await runCli(['start', '--project', 'portable', '--json'], output.io, {
+    const result = await runCli(['start', '--json'], output.io, {
       resolveRuntime: () => runtime,
       executeRuntime,
       startDaemon,
@@ -99,6 +95,28 @@ describe('ao-pilot runtime lifecycle CLI', () => {
     expect(() => parseRuntimeArgs(['start', '--with-dashboard'])).toThrow('Unknown argument');
     expect(() => parseRuntimeArgs(['stop', '--purge-session'])).toThrow('Unknown argument');
     expect(() => parseRuntimeArgs(['status', '--watch'])).toThrow('Unknown argument');
+    expect(() => parseRuntimeArgs(['status', '--project', 'portable'])).toThrow('Unknown argument');
+    expect(() => parseRuntimeArgs(['runtime-project-get'])).toThrow('Missing project id');
+  });
+
+  it('reads one project through the exact resolved runtime', async () => {
+    const output = createIo();
+    const executeRuntime = jest.fn().mockReturnValue({
+      runtime,
+      result: { status: 0, signal: null, stdout: '{"id":"my-project"}', stderr: '', error: null },
+    });
+    const result = await runCli(['runtime-project-get', 'my-project', '--json'], output.io, {
+      resolveRuntime: () => runtime,
+      executeRuntime,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(executeRuntime).toHaveBeenCalledWith(
+      runtime,
+      ['project', 'get', 'my-project', '--json'],
+      expect.any(Object),
+    );
+    expect(result.report.output).toEqual({ id: 'my-project' });
   });
 
   it('executes status from the already verified runtime without a second resolution', async () => {
@@ -180,7 +198,7 @@ describe('ao-pilot runtime lifecycle CLI', () => {
   it('fails closed and does not execute when a wrong ao shadows the runtime', async () => {
     const output = createIo();
     const executeRuntime = jest.fn();
-    const result = await runCli(['status', '--project', 'portable', '--json'], output.io, {
+    const result = await runCli(['status', '--json'], output.io, {
       resolveRuntime: () => {
         const error = new Error('PATH contains a different binary');
         error.code = 'runtime_path_shadowed';
