@@ -37,6 +37,8 @@ function successfulLauncher() {
     binary_digest_binding_matches: true,
     data_binding_matches: true,
     run_file_binding_matches: true,
+    namespace_forwarded: true,
+    namespace_probe: { exit_code: 0, stdout: '{"status":"ok"}\n' },
   };
 }
 
@@ -44,6 +46,7 @@ function successfulInstalledBinding() {
   return {
     binary_path: runtime.binary_path,
     binary_sha256: runtime.binary_sha256,
+    store_root: '/home/test/.local/share/ao-pilot/custom-runtimes',
     data_dir: '/home/test/.local/share/ao-pilot/cie-runtime/data',
     run_file: '/home/test/.local/share/ao-pilot/cie-runtime/running.json',
   };
@@ -93,30 +96,41 @@ describe('installed runtime CLI contract', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-runtime-contract-'));
     const bin = path.join(home, '.ao', 'bin');
     const launcher = path.join(bin, 'ao');
+    const managedBinary = path.join(home, 'managed-ao');
+    const localRuntime = {...runtime,binary_path:managedBinary};
     try {
       fs.mkdirSync(bin, { recursive: true });
+      fs.writeFileSync(managedBinary, `#!/bin/sh
+if [ "$1" = "--version" ]; then echo "ao version 1.2.3"; exit 0; fi
+printf '{"data":"%s","run":"%s"}\n' "$AO_DATA_DIR" "$AO_RUN_FILE"
+`, { mode: 0o755 });
       fs.writeFileSync(launcher, `#!/bin/sh
 if [ "$AO_MANAGED_RUNTIME_BINARY_SHA256" != "${runtime.binary_sha256}" ]; then
   echo "ao-wrapper: managed AO launcher digest mismatch" >&2
   exit 126
 fi
-echo "ao version 1.2.3"
+export AO_DATA_DIR="$AO_MANAGED_RUNTIME_DATA_DIR"
+export AO_RUN_FILE="$AO_MANAGED_RUNTIME_RUN_FILE"
+exec "$AO_MANAGED_RUNTIME_BINARY" "$@"
 `, { mode: 0o755 });
-      expect(inspectWorkerLauncher(runtime, {
+      expect(inspectWorkerLauncher(localRuntime, {
         HOME: home,
-        AO_MANAGED_RUNTIME_BINARY: runtime.binary_path,
+        AO_MANAGED_RUNTIME_BINARY: managedBinary,
         AO_MANAGED_RUNTIME_BINARY_SHA256: runtime.binary_sha256,
         AO_MANAGED_RUNTIME_DATA_DIR: path.join(home, '.local/share/ao-pilot/cie-runtime/data'),
         AO_MANAGED_RUNTIME_RUN_FILE: path.join(home, '.local/share/ao-pilot/cie-runtime/running.json'),
-      })).toEqual({
-        ...successfulLauncher(),
+      })).toMatchObject({
         path: launcher,
+        available: true,
+        authenticated: true,
+        namespace_forwarded: true,
+        binary_binding_matches: true,
       });
 
       fs.writeFileSync(launcher, '#!/bin/sh\necho "ao version 1.2.3"\n', { mode: 0o755 });
-      expect(inspectWorkerLauncher(runtime, {
+      expect(inspectWorkerLauncher(localRuntime, {
         HOME: home,
-        AO_MANAGED_RUNTIME_BINARY: runtime.binary_path,
+        AO_MANAGED_RUNTIME_BINARY: managedBinary,
         AO_MANAGED_RUNTIME_BINARY_SHA256: runtime.binary_sha256,
         AO_MANAGED_RUNTIME_DATA_DIR: path.join(home, '.local/share/ao-pilot/cie-runtime/data'),
         AO_MANAGED_RUNTIME_RUN_FILE: path.join(home, '.local/share/ao-pilot/cie-runtime/running.json'),
@@ -124,9 +138,9 @@ echo "ao version 1.2.3"
 
       fs.rmSync(launcher);
       fs.symlinkSync('/bin/true', launcher);
-      expect(inspectWorkerLauncher(runtime, {
+      expect(inspectWorkerLauncher(localRuntime, {
         HOME: home,
-        AO_MANAGED_RUNTIME_BINARY: runtime.binary_path,
+        AO_MANAGED_RUNTIME_BINARY: managedBinary,
         AO_MANAGED_RUNTIME_BINARY_SHA256: runtime.binary_sha256,
         AO_MANAGED_RUNTIME_DATA_DIR: path.join(home, '.local/share/ao-pilot/cie-runtime/data'),
         AO_MANAGED_RUNTIME_RUN_FILE: path.join(home, '.local/share/ao-pilot/cie-runtime/running.json'),
@@ -150,9 +164,11 @@ echo "ao version 1.2.3"
         AO_MANAGED_RUNTIME_DATA_DIR:path.join(home,'.local/share/ao-pilot/cie-runtime/data'),
         AO_MANAGED_RUNTIME_RUN_FILE:path.join(home,'.local/share/ao-pilot/cie-runtime/running.json'),
       },execute).authenticated).toBe(false);
-      expect(execute).toHaveBeenCalledTimes(2);
+      expect(execute).toHaveBeenCalledTimes(4);
       expect(execute.mock.calls[0][2]).toMatchObject({timeout:5_000});
       expect(execute.mock.calls[1][2]).toMatchObject({timeout:5_000});
+      expect(execute.mock.calls[2][0]).toBe(runtime.binary_path);
+      expect(execute.mock.calls[3][0]).toBe(launcher);
     } finally {
       fs.rmSync(home,{recursive:true,force:true});
     }
@@ -222,16 +238,23 @@ echo "ao version 1.2.3"
   it('derives missing worker bindings from the active installed service', async () => {
     const output=[];
     const inspectLauncher=jest.fn(() => successfulLauncher());
+    const calls=[];
+    const resolveInstalledBinding=jest.fn(()=>{calls.push('installed');return successfulInstalledBinding();});
+    const resolveRuntime=jest.fn(options=>{calls.push('runtime');expect(options).toMatchObject({
+      storeRoot:successfulInstalledBinding().store_root,
+      env:{AO_PILOT_RUNTIME_STORE:successfulInstalledBinding().store_root},
+    });return runtime;});
     const result=await runCli(['--json'],{
       writeStdout:text=>output.push(text),writeStderr:text=>output.push(text),
     },{
       env:{HOME:'/home/test'},
-      resolveRuntime:()=>runtime,
-      resolveInstalledBinding:()=>successfulInstalledBinding(),
+      resolveRuntime,
+      resolveInstalledBinding,
       executeRuntime:(resolved,args)=>({runtime:resolved,result:{status:0,stdout:args[0]==='--version'?'ao version 1.2.3\n':args[0]==='status'?'Usage: ao status [flags]\n --json':args[0]==='project'?'Usage: ao project get <id> [flags]\n --json':'Usage: ao spawn [flags]\n --attempt-id string',stderr:'',error_code:null}}),
       inspectLauncher,
     });
     expect(result.exitCode).toBe(0);
+    expect(calls).toEqual(['installed','runtime']);
     expect(inspectLauncher).toHaveBeenCalledWith(runtime,expect.objectContaining({
       AO_MANAGED_RUNTIME_BINARY:runtime.binary_path,
       AO_MANAGED_RUNTIME_BINARY_SHA256:runtime.binary_sha256,

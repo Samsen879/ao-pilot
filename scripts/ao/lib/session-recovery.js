@@ -5,6 +5,7 @@ import readline from 'node:readline';
 import crypto from 'node:crypto';
 
 export const defaultBindingsPath = () => path.join(os.homedir(), '.config/ao-pilot/session-recovery.json');
+export const PINNED_RESTORE_CLI_GUIDANCE = 'Managed AO CLI compatibility update: use `ao status --json` only for daemon health; use `ao session ls --all --project "$AO_PROJECT_ID" --json` for coordination; claim an existing PR with `ao session claim-pr "$AO_SESSION_ID" <pr-number-or-url> --project "$AO_PROJECT_ID"`; use `ao send --session <session-id> --message <message>` and run command-specific `--help` before relying on older syntax.';
 export async function verifyTranscript(binding) {
   if (!/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(binding.conversationId)) throw new Error('Invalid original conversation ID; HOLD');
   for (const key of ['workspacePath','transcriptPath','binaryPath']) if (!path.isAbsolute(binding[key] || '')) throw new Error(`Invalid ${key}; HOLD`);
@@ -97,7 +98,7 @@ export async function createRecoveryAdapter(configPath, manifest) {
     const binding=manifest.sessions[session.id];
     if(!binding || session.workspacePath!==binding.workspacePath) throw new Error('Unpinned restore forbidden; HOLD');
     await validate(session.id,binding);
-    return [core.shellEscape(binding.binaryPath),'resume','--sandbox','workspace-write','--ask-for-approval','on-request','--cd',core.shellEscape(binding.workspacePath),'-c','check_for_update_on_startup=false',core.shellEscape(binding.conversationId)].join(' ');
+    return [core.shellEscape(binding.binaryPath),'resume','--sandbox','workspace-write','--ask-for-approval','on-request','--cd',core.shellEscape(binding.workspacePath),'-c','check_for_update_on_startup=false',core.shellEscape(binding.conversationId),core.shellEscape(PINNED_RESTORE_CLI_GUIDANCE)].join(' ');
   }}}});
   for(const plugin of [tmux,workspace,scm,tracker]) registry.register(plugin);
   const manager=core.createSessionManager({config,registry});

@@ -44,8 +44,11 @@ The clean committed source-candidate replay is recorded separately in
   legacy spawn/send/session examples to the installed CLI contract. Other agent
   prompts do not claim that launcher contract. Codex launches without any
   managed binding keep the git/gh metadata wrappers active while the ao wrapper
-  removes its own directory and delegates to an ambient AO command; partial
-  managed bindings remain fail-closed.
+  canonically removes every alias of its own directory and delegates to an
+  ambient AO command; it also rejects a candidate resolving to the wrapper
+  itself. All four bindings are explicitly cleared for unbound tmux launches,
+  preventing inheritance from an older server. Partial managed bindings remain
+  fail-closed.
 - Ordinary session restore reruns the agent workspace hook before creating the
   resumed runtime, and a bound Codex resume carries current status/session and
   claim-pr compatibility guidance as its initial prompt. The managed wrapper is
@@ -59,9 +62,10 @@ The clean committed source-candidate replay is recorded separately in
   after the global lifecycle checks, so its accepted project argument is no
   longer silently ignored.
 - `ao-pilot runtime-contract --json` performs read-only version/help probes,
-  resolves installed bindings for an operator shell when service-only variables
-  are absent, authenticates the worker launcher with matching version and
-  digest-rejection probes bounded to five seconds, verifies its
+  resolves the active installed binding and custom store before resolving the
+  operator runtime when service-only variables are absent, authenticates the
+  worker launcher with matching version, digest-rejection, and poisoned-ambient
+  namespace-forwarding probes bounded to five seconds, verifies its
   binary/data/run-file bindings, and
   converts probe exceptions into a normalized machine-readable `HOLD`.
 

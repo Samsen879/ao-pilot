@@ -176,10 +176,13 @@ from the effective active runtime foreground process and its sole daemon child
 live executable digest) instead of trusting only the static unit or mixing a
 new CLI with an old daemon. Operator `runtime-contract` invocations recover the same active
 binding when service-only environment variables are absent, and authenticate
-the launcher with both a valid version probe and a deliberate digest-rejection
-probe.
-Run that installed-boundary check only after the browser service installer has
-provisioned the launcher and the runtime service is active:
+the launcher with a valid version probe, a deliberate digest-rejection probe,
+and a namespace-sensitive status probe with poisoned ambient data/run paths.
+The active service store is resolved before the operator runtime, preserving a
+custom `AO_PILOT_RUNTIME_STORE` even when it is absent from the shell.
+Run that installed-boundary check only after the runtime service is active and
+a managed Codex worker/orchestrator has been spawned (or a pinned Codex session
+restored), because that workspace hook provisions the launcher:
 
 ```bash
 node ./bin/ao-pilot.js runtime-contract --json
@@ -188,7 +191,8 @@ node ./bin/ao-pilot.js runtime-contract --json
 Foreground browser launches that do not supply all four managed bindings omit
 the Codex worker CLI contract. Their wrapper keeps the `git`/`gh` metadata
 interceptors active while delegating `ao` to the ambient command outside
-`~/.ao/bin`; partial managed bindings remain fail-closed. Restores rerun
+every canonical alias of `~/.ao/bin`; unbound tmux launches explicitly clear
+all four managed bindings, while partial bindings remain fail-closed. Restores rerun
 the agent workspace hook before runtime creation and inject current managed CLI
 compatibility guidance into the resumed Codex conversation. Bound Codex orchestrators use
 `ao status --json` only for daemon health, use project-scoped JSON session

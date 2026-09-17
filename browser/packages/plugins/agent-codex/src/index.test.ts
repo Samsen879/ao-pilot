@@ -203,7 +203,7 @@ describe("plugin manifest & exports", () => {
       name: "codex",
       slot: "agent",
       description: "Agent plugin: OpenAI Codex CLI",
-      version: "0.1.6",
+      version: "0.1.7",
       displayName: "OpenAI Codex",
     });
   });
@@ -456,10 +456,17 @@ describe("getEnvironment", () => {
       const env = agent.getEnvironment(makeLaunchConfig());
       expect(env["PATH"]?.split(":")[0]).toBe("/mock/home/.ao/bin");
       expect(env["GH_PATH"]).toBe("/usr/local/bin/gh");
+      expect(env["AO_MANAGED_RUNTIME_BINARY_SHA256"]).toBe("");
     } finally {
       if (previousPath === undefined) delete process.env["PATH"];
       else process.env["PATH"] = previousPath;
     }
+  });
+
+  it("explicitly clears all inherited tmux bindings for an unbound launch", () => {
+    for (const name of bindingNames) delete process.env[name];
+    const env = agent.getEnvironment(makeLaunchConfig());
+    for (const name of bindingNames) expect(env[name]).toBe("");
   });
 
   it("forwards the installed managed AO binary to the worker launcher", () => {
@@ -1835,7 +1842,7 @@ describe("setupWorkspaceHooks", () => {
   it("restores wrappers even when the version marker survives", async () => {
     mockReadFile.mockImplementation((path: string) => {
       if (typeof path === "string" && path.endsWith(".ao-version")) {
-        return Promise.resolve("0.1.6");
+        return Promise.resolve("0.1.7");
       }
       return Promise.reject(new Error("ENOENT"));
     });
@@ -1872,7 +1879,7 @@ describe("setupWorkspaceHooks", () => {
         typeof call[0] === "string" && call[0].includes(".ao-version.tmp."),
     );
     expect(versionWriteCall).toBeDefined();
-    expect(versionWriteCall![1]).toBe("0.1.6");
+    expect(versionWriteCall![1]).toBe("0.1.7");
 
     const versionRenameCall = mockRename.mock.calls.find(
       (call: string[]) => typeof call[1] === "string" && call[1].endsWith(".ao-version"),
@@ -1885,7 +1892,7 @@ describe("setupWorkspaceHooks", () => {
     // AGENTS.md exists without ao section
     mockReadFile.mockImplementation((path: string) => {
       if (typeof path === "string" && path.endsWith(".ao-version")) {
-        return Promise.resolve("0.1.6");
+        return Promise.resolve("0.1.7");
       }
       if (typeof path === "string" && path.endsWith("AGENTS.md")) {
         return Promise.resolve("# Existing Content\n\nSome stuff here.\n");
@@ -1910,7 +1917,7 @@ describe("setupWorkspaceHooks", () => {
     // Version marker matches, AGENTS.md doesn't exist
     mockReadFile.mockImplementation((path: string) => {
       if (typeof path === "string" && path.endsWith(".ao-version")) {
-        return Promise.resolve("0.1.6");
+        return Promise.resolve("0.1.7");
       }
       return Promise.reject(new Error("ENOENT"));
     });
@@ -1956,7 +1963,7 @@ describe("setupWorkspaceHooks", () => {
   it("does not duplicate ao section in AGENTS.md if already present", async () => {
     mockReadFile.mockImplementation((path: string) => {
       if (typeof path === "string" && path.endsWith(".ao-version")) {
-        return Promise.resolve("0.1.6");
+        return Promise.resolve("0.1.7");
       }
       if (typeof path === "string" && path.endsWith("AGENTS.md")) {
         return Promise.resolve(
@@ -2118,8 +2125,10 @@ describe("shell wrapper content", () => {
     it("delegates to ambient ao only when every managed binding is absent", async () => {
       const content = await getWrapperContent("ao");
       expect(content).toContain('[[ -z "$runtime_binary" && -z "$runtime_binary_sha256"');
-      expect(content).toContain('grep -Fxv "$ao_bin_dir"');
+      expect(content).toContain('resolved_entry="$(cd "$entry"');
+      expect(content).toContain('"$resolved_entry" == "$ao_bin_dir"');
       expect(content).toContain('command -v ao');
+      expect(content).toContain('"$ambient_ao" -ef "$0"');
       expect(content).toContain('exec env PATH="$clean_path" "$ambient_ao" "$@"');
     });
   });

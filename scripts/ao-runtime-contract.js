@@ -69,12 +69,35 @@ export function inspectWorkerLauncher(runtime, env = process.env, execute = chil
     env: {...env,AO_MANAGED_RUNTIME_BINARY_SHA256:mismatchedDigest},
     encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5_000,
   }) : null;
+  const namespaceArgs = ['status', '--json'];
+  const namespaceDirectProbe = available ? execute(runtime.binary_path, namespaceArgs, {
+    env: {
+      ...env,
+      AO_DATA_DIR: expectedNamespace.data_dir,
+      AO_RUN_FILE: expectedNamespace.run_file,
+    },
+    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5_000,
+  }) : null;
+  const namespaceLauncherProbe = available ? execute(launcherPath, namespaceArgs, {
+    env: {
+      ...env,
+      AO_DATA_DIR: '/ao-invalid-ambient-data',
+      AO_RUN_FILE: '/ao-invalid-ambient-run.json',
+    },
+    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5_000,
+  }) : null;
+  const namespaceForwarded = Number.isInteger(namespaceDirectProbe?.status)
+    && namespaceLauncherProbe?.status === namespaceDirectProbe.status
+    && String(namespaceDirectProbe.stdout ?? '') !== ''
+    && String(namespaceLauncherProbe.stdout ?? '') === String(namespaceDirectProbe.stdout)
+    && String(namespaceLauncherProbe.stderr ?? '') === String(namespaceDirectProbe.stderr ?? '');
   return {
     path: launcherPath,
     available,
     authenticated: validProbe?.status === 0
       && rejectionProbe?.status === 126
-      && String(rejectionProbe.stderr).includes('managed AO launcher digest mismatch'),
+      && String(rejectionProbe.stderr).includes('managed AO launcher digest mismatch')
+      && namespaceForwarded,
     version_probe: {
       exit_code: Number.isInteger(validProbe?.status) ? validProbe.status : null,
       stdout: String(validProbe?.stdout ?? ''),
@@ -83,6 +106,11 @@ export function inspectWorkerLauncher(runtime, env = process.env, execute = chil
     binary_digest_binding_matches: env.AO_MANAGED_RUNTIME_BINARY_SHA256 === runtime.binary_sha256,
     data_binding_matches: env.AO_MANAGED_RUNTIME_DATA_DIR === expectedNamespace.data_dir,
     run_file_binding_matches: env.AO_MANAGED_RUNTIME_RUN_FILE === expectedNamespace.run_file,
+    namespace_forwarded: namespaceForwarded,
+    namespace_probe: {
+      exit_code: Number.isInteger(namespaceLauncherProbe?.status) ? namespaceLauncherProbe.status : null,
+      stdout: String(namespaceLauncherProbe?.stdout ?? ''),
+    },
   };
 }
 
@@ -108,6 +136,7 @@ export function buildRuntimeContract(runtime, probes, launcher) {
     worker_binary_digest_binding_matches: launcher.binary_digest_binding_matches,
     worker_data_binding_matches: launcher.data_binding_matches,
     worker_run_file_binding_matches: launcher.run_file_binding_matches,
+    worker_namespace_forwarding_authenticated: launcher.namespace_forwarded,
   };
   const passed = Object.values(checks).every(Boolean);
   return {
@@ -166,7 +195,6 @@ export async function runCli(argv, io = createDefaultIo(), {
   let runtime;
   let contractEnv = env;
   try {
-    runtime = resolveRuntime({ cwd, env, storeRoot: options.storeRoot });
     const bindingNames = [
       'AO_MANAGED_RUNTIME_BINARY',
       'AO_MANAGED_RUNTIME_BINARY_SHA256',
@@ -177,11 +205,19 @@ export async function runCli(argv, io = createDefaultIo(), {
       const installed = resolveInstalledBinding({home:env.HOME || os.homedir(),env});
       contractEnv = {
         ...env,
+        AO_PILOT_RUNTIME_STORE: installed.store_root,
         AO_MANAGED_RUNTIME_BINARY: installed.binary_path,
         AO_MANAGED_RUNTIME_BINARY_SHA256: installed.binary_sha256,
         AO_MANAGED_RUNTIME_DATA_DIR: installed.data_dir,
         AO_MANAGED_RUNTIME_RUN_FILE: installed.run_file,
       };
+      runtime = resolveRuntime({
+        cwd,
+        env: contractEnv,
+        storeRoot: options.storeRoot ?? installed.store_root,
+      });
+    } else {
+      runtime = resolveRuntime({ cwd, env, storeRoot: options.storeRoot });
     }
   } catch (error) {
     const report = {

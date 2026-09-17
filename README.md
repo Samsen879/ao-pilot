@@ -229,8 +229,9 @@ state before runtime execution. Installed worker services then bind the verified
 absolute binary as the bare `ao` launcher; the wrapper fails closed if that
 binding is missing, relative, non-executable, a symlink, or no longer matches
 the installed binary SHA-256.
-After the browser service installer has provisioned the launcher and the
-runtime service is active, validate that installed boundary separately:
+After the runtime service is active and a managed Codex worker/orchestrator has
+been spawned (or a pinned Codex session restored), the workspace hook has
+provisioned the launcher. Validate that installed boundary separately:
 
 ```bash
 node ./bin/ao-pilot.js runtime-contract --json

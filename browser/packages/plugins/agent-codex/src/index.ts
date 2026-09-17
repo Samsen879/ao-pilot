@@ -107,7 +107,7 @@ export const manifest = {
   name: "codex",
   slot: "agent" as const,
   description: "Agent plugin: OpenAI Codex CLI",
-  version: "0.1.6",
+  version: "0.1.7",
   displayName: "OpenAI Codex",
 };
 
@@ -324,10 +324,16 @@ runtime_data_dir="\${AO_MANAGED_RUNTIME_DATA_DIR:-}"
 runtime_run_file="\${AO_MANAGED_RUNTIME_RUN_FILE:-}"
 if [[ -z "$runtime_binary" && -z "$runtime_binary_sha256" && -z "$runtime_data_dir" && -z "$runtime_run_file" ]]; then
   ao_bin_dir="$(cd "$(dirname "$0")" && pwd -P)"
-  clean_path="$(printf '%s' "\${PATH:-/usr/bin:/bin}" | tr ':' '\n' | grep -Fxv "$ao_bin_dir" | grep . | tr '\n' ':' || true)"
-  clean_path="\${clean_path%:}"
+  clean_path=""
+  IFS=':' read -r -a path_entries <<< "\${PATH:-/usr/bin:/bin}"
+  for entry in "\${path_entries[@]}"; do
+    [[ -n "$entry" ]] || continue
+    resolved_entry="$(cd "$entry" 2>/dev/null && pwd -P || true)"
+    [[ -n "$resolved_entry" && "$resolved_entry" == "$ao_bin_dir" ]] && continue
+    clean_path="\${clean_path:+$clean_path:}$entry"
+  done
   ambient_ao="$(PATH="$clean_path" command -v ao 2>/dev/null || true)"
-  if [[ -z "$ambient_ao" || ! -x "$ambient_ao" ]]; then
+  if [[ -z "$ambient_ao" || ! -x "$ambient_ao" || "$ambient_ao" -ef "$0" ]]; then
     echo "ao-wrapper: ambient ao not found outside the managed wrapper directory" >&2
     exit 127
   fi
@@ -395,7 +401,7 @@ export async function setupManagedAoLauncher(): Promise<void> {
 
   await atomicWriteFile(join(AO_BIN_DIR, "ao-metadata-helper.sh"), AO_METADATA_HELPER, 0o755);
   const markerPath = join(AO_BIN_DIR, ".ao-version");
-  const currentVersion = "0.1.6";
+  const currentVersion = "0.1.7";
 
   // Always restore every wrapper atomically. A surviving version marker must
   // not hide a deleted or partially replaced launcher during recovery.
@@ -1028,21 +1034,13 @@ function createCodexAgent(): Agent {
       }
 
       const runtimeBinary = process.env["AO_MANAGED_RUNTIME_BINARY"];
-      if (runtimeBinary) {
-        env["AO_MANAGED_RUNTIME_BINARY"] = runtimeBinary;
-      }
+      env["AO_MANAGED_RUNTIME_BINARY"] = runtimeBinary ?? "";
       const runtimeBinarySha256 = process.env["AO_MANAGED_RUNTIME_BINARY_SHA256"];
-      if (runtimeBinarySha256) {
-        env["AO_MANAGED_RUNTIME_BINARY_SHA256"] = runtimeBinarySha256;
-      }
+      env["AO_MANAGED_RUNTIME_BINARY_SHA256"] = runtimeBinarySha256 ?? "";
       const runtimeDataDir = process.env["AO_MANAGED_RUNTIME_DATA_DIR"];
-      if (runtimeDataDir) {
-        env["AO_MANAGED_RUNTIME_DATA_DIR"] = runtimeDataDir;
-      }
+      env["AO_MANAGED_RUNTIME_DATA_DIR"] = runtimeDataDir ?? "";
       const runtimeRunFile = process.env["AO_MANAGED_RUNTIME_RUN_FILE"];
-      if (runtimeRunFile) {
-        env["AO_MANAGED_RUNTIME_RUN_FILE"] = runtimeRunFile;
-      }
+      env["AO_MANAGED_RUNTIME_RUN_FILE"] = runtimeRunFile ?? "";
 
       // Keep metadata wrappers active in every Codex session. With no managed
       // binding, the ao wrapper removes its own directory and delegates to the

@@ -3,11 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 import {test,expect,jest,beforeEach,afterEach} from '@jest/globals';
 
-let root, config, raw, binding;
+let root, config, raw, binding, registered;
 const restore=jest.fn(), isAlive=jest.fn(), setupManagedAoLauncher=jest.fn();
 const core={
  loadConfig:()=>config,
- createPluginRegistry:()=>({register:()=>{}}),
+ createPluginRegistry:()=>({register:plugin=>registered.push(plugin)}),
  getSessionsDir:()=>path.join(root,'metadata'),
  readMetadata:()=>raw,
  createSessionManager:()=>({restore}),
@@ -19,7 +19,7 @@ for (const name of ['workspace-worktree','scm-github','tracker-github']) jest.un
 jest.unstable_mockModule('../../browser/packages/plugins/runtime-tmux/dist/index.js',()=>({default:{create:()=>({isAlive})}}),{virtual:true});
 const {createRecoveryAdapter,recoverySweep}=await import('../../scripts/ao/lib/session-recovery.js');
 beforeEach(()=>{
- root=fs.mkdtempSync(path.join(os.tmpdir(),'ao-adapter-identity-'));jest.clearAllMocks();isAlive.mockResolvedValue(false);
+ root=fs.mkdtempSync(path.join(os.tmpdir(),'ao-adapter-identity-'));registered=[];jest.clearAllMocks();isAlive.mockResolvedValue(false);
  const transcriptPath=path.join(root,'original.jsonl'),conversationId='00000000-0000-4000-8000-000000000001';
  fs.writeFileSync(transcriptPath,JSON.stringify({type:'session_meta',payload:{id:conversationId,session_id:conversationId,cwd:root}})+'\n');
  config={configPath:path.join(root,'config.yaml'),projects:{fixture:{path:root}}};
@@ -61,6 +61,16 @@ test('actual adapter missing runtime may restore exact original session and veri
 test('launcher provisioning failure holds before pinned restore starts',async()=>{
  isAlive.mockResolvedValueOnce(false).mockResolvedValueOnce(false);setupManagedAoLauncher.mockRejectedValueOnce(Error('launcher write failed'));
  expect((await inspect({restore:true})).results[0]).toMatchObject({id:'fixture-1',state:'HOLD',reason:'launcher write failed'});expect(restore).not.toHaveBeenCalled();
+});
+test('pinned Codex restore injects current managed CLI compatibility guidance',async()=>{
+ const manifest={sessions:{'fixture-1':binding}};
+ await createRecoveryAdapter(config.configPath,manifest);
+ const agent=registered[0].create();
+ const command=await agent.getRestoreCommand({id:'fixture-1',workspacePath:binding.workspacePath});
+ expect(command).toContain(binding.conversationId);
+ expect(command).toContain('ao session claim-pr');
+ expect(command).toContain('AO_SESSION_ID');
+ expect(command).toContain('ao send --session');
 });
 test('configured project path is not directly part of the current recovery pin',async()=>{
  config.projects.fixture.path=path.join(root,'changed-configured-root');
