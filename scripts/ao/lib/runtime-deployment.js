@@ -41,6 +41,7 @@ export function resolveInstalledRuntimeServiceBinding({
   const expected = deploymentBinding(home);
   const dataDir = service.environment.AO_DATA_DIR;
   const runFile = service.environment.AO_RUN_FILE;
+  const runtimeStore = service.environment.AO_PILOT_RUNTIME_STORE;
   const nodePath = service.argv[0];
   const foregroundPath = path.join(packageRoot, 'scripts', 'ao-runtime-foreground.js');
   if (
@@ -52,6 +53,8 @@ export function resolveInstalledRuntimeServiceBinding({
     || service.argv.length !== 2
     || !path.isAbsolute(nodePath ?? '')
     || service.argv[1] !== foregroundPath
+    || (runtimeStore != null
+      && (!path.isAbsolute(runtimeStore) || /[\r\n\x00"%\\]/.test(runtimeStore)))
     || dataDir !== expected.data_dir
     || runFile !== expected.run_file
   ) {
@@ -71,6 +74,7 @@ export function resolveInstalledRuntimeServiceBinding({
       PATH: service.environment.PATH ?? path.dirname(nodePath),
       AO_DATA_DIR: dataDir,
       AO_RUN_FILE: runFile,
+      ...(runtimeStore == null ? {} : {AO_PILOT_RUNTIME_STORE:runtimeStore}),
     },
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],

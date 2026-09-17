@@ -26,7 +26,7 @@ test('partial service installs inherit the exact installed runtime service bindi
   const service={
     activeState:'active',mainPid:'123',packageRoot,
     argv:['/usr/bin/node',path.join(packageRoot,'scripts/ao-runtime-foreground.js')],
-    environment:{AO_DATA_DIR:binding.data_dir,AO_RUN_FILE:binding.run_file},
+    environment:{AO_DATA_DIR:binding.data_dir,AO_RUN_FILE:binding.run_file,AO_PILOT_RUNTIME_STORE:'/custom/runtime-store'},
   };
   const inspectService=jest.fn().mockReturnValue(service);
   const execute=jest.fn().mockReturnValue(JSON.stringify({
@@ -44,7 +44,7 @@ test('partial service installs inherit the exact installed runtime service bindi
     });
     expect(execute).toHaveBeenCalledWith('/usr/bin/node',[path.join(packageRoot,'bin/ao-pilot.js'),'runtime-path','--json'],expect.objectContaining({
       cwd:packageRoot,
-      env:expect.objectContaining({HOME:root,AO_DATA_DIR:binding.data_dir,AO_RUN_FILE:binding.run_file}),
+      env:expect.objectContaining({HOME:root,AO_DATA_DIR:binding.data_dir,AO_RUN_FILE:binding.run_file,AO_PILOT_RUNTIME_STORE:'/custom/runtime-store'}),
     }));
     expect(inspectService).toHaveBeenCalledTimes(2);
   } finally {

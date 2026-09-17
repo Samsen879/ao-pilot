@@ -178,6 +178,10 @@ an old daemon. Operator `runtime-contract` invocations recover the same active
 binding when service-only environment variables are absent, and authenticate
 the launcher with both a valid version probe and a deliberate digest-rejection
 probe.
+Foreground browser launches that do not supply all four managed bindings omit
+the Codex worker CLI contract instead of advertising an unusable launcher. An
+active service's `AO_PILOT_RUNTIME_STORE` override is preserved during installed
+provenance resolution.
 
 `npm run verify:runtime-lifecycle` checks the static exact-binary routing
 contract. `npm run verify:fresh-clone` is the separate P0-R07 live integration

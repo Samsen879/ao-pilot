@@ -59,6 +59,9 @@ export interface PromptBuildConfig {
   /** Selected agent plugin. Agent-specific runtime contracts must not leak across plugins. */
   agentName?: string;
 
+  /** True only when the worker inherits every verified managed AO runtime binding. */
+  aoCliContractAvailable?: boolean;
+
   /** Issue identifier (e.g. "INT-1343", "#42") — triggers Layer 1+2 */
   issueId?: string;
 
@@ -166,7 +169,7 @@ export function buildPrompt(config: PromptBuildConfig): string {
   // Layer 1: Base prompt is always included for every managed session.
   sections.push(BASE_AGENT_PROMPT);
 
-  if (config.agentName === "codex") {
+  if (config.agentName === "codex" && config.aoCliContractAvailable) {
     sections.push(CODEX_AO_CLI_PROMPT);
   }
 

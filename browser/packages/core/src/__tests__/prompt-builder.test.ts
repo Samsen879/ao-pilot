@@ -225,9 +225,19 @@ describe("CODEX_AO_CLI_PROMPT", () => {
     expect(CODEX_AO_CLI_PROMPT).toContain("ao project get <project-id> --json");
     expect(CODEX_AO_CLI_PROMPT).toContain("The status command has no project flag");
 
-    expect(buildPrompt({ project, projectId: "test-app", agentName: "codex" }))
+    expect(buildPrompt({
+      project,
+      projectId: "test-app",
+      agentName: "codex",
+      aoCliContractAvailable: true,
+    }))
       .toContain(CODEX_AO_CLI_PROMPT);
     expect(buildPrompt({ project, projectId: "test-app", agentName: "claude-code" }))
       .not.toContain("AO CLI Contract");
+  });
+
+  it("omits the contract when a Codex worker has no complete runtime binding", () => {
+    expect(buildPrompt({ project, projectId: "test-app", agentName: "codex" }))
+      .not.toContain(CODEX_AO_CLI_PROMPT);
   });
 });

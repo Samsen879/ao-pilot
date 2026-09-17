@@ -36,7 +36,8 @@ The clean committed source-candidate replay is recorded separately in
   drift rather than trusting only the static unit.
 - Codex-only worker instructions define `ao status --json` as global daemon
   health and `ao project get <project-id> --json` as project readback. Other agent
-  prompts do not claim that the Codex launcher exists.
+  prompts and Codex launches without all four managed bindings do not claim that
+  the launcher exists.
 - Operator project readback uses `ao-pilot runtime-project-get <id> --json`, so it
   resolves and verifies the managed runtime without relying on ambient `PATH`.
 - `ao-pilot status --project ...` and the other global lifecycle commands now

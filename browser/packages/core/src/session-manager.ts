@@ -1151,6 +1151,13 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       project,
       projectId: spawnConfig.projectId,
       agentName: selection.agentName,
+      aoCliContractAvailable: selection.agentName === "codex"
+        && [
+          "AO_MANAGED_RUNTIME_BINARY",
+          "AO_MANAGED_RUNTIME_BINARY_SHA256",
+          "AO_MANAGED_RUNTIME_DATA_DIR",
+          "AO_MANAGED_RUNTIME_RUN_FILE",
+        ].every((name) => Boolean(process.env[name])),
       issueId: spawnConfig.issueId,
       issueContext,
       userPrompt: spawnConfig.prompt,
