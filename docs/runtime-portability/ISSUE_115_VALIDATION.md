@@ -42,12 +42,15 @@ The clean committed source-candidate replay is recorded separately in
   health, `ao session ls --all --project <id> --json` as coordination readback,
   and the managed `claim-pr` argument order. Bound orchestrator prompts rewrite
   legacy spawn/send/session examples to the installed CLI contract. Other agent
-  prompts do not claim that launcher contract, and Codex launches without all
-  four managed bindings remove `~/.ao/bin` from their inherited PATH so the
-  fail-closed wrapper cannot shadow an ambient AO command.
+  prompts do not claim that launcher contract. Codex launches without any
+  managed binding keep the git/gh metadata wrappers active while the ao wrapper
+  removes its own directory and delegates to an ambient AO command; partial
+  managed bindings remain fail-closed.
 - Ordinary session restore reruns the agent workspace hook before creating the
-  resumed runtime, so the managed wrapper is present before the restored Codex
-  conversation can issue its next command.
+  resumed runtime, and a bound Codex resume carries current status/session and
+  claim-pr compatibility guidance as its initial prompt. The managed wrapper is
+  therefore present and the restored conversation receives the current CLI
+  contract before it can issue its next command.
 - Operator project readback uses `ao-pilot runtime-project-get <id> --json`, so it
   resolves and verifies the managed runtime without relying on ambient `PATH`.
 - `ao-pilot status --project ...` and the other global lifecycle commands now

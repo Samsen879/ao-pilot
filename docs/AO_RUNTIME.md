@@ -150,7 +150,6 @@ doctor output and verified `start`, `stop`, `status`, and
 
 ```bash
 node ./bin/ao-pilot.js runtime-path --json
-node ./bin/ao-pilot.js runtime-contract --json
 node ./bin/ao-pilot.js doctor --json
 node ./bin/ao-pilot.js start
 node ./bin/ao-pilot.js status --json
@@ -179,10 +178,19 @@ new CLI with an old daemon. Operator `runtime-contract` invocations recover the 
 binding when service-only environment variables are absent, and authenticate
 the launcher with both a valid version probe and a deliberate digest-rejection
 probe.
+Run that installed-boundary check only after the browser service installer has
+provisioned the launcher and the runtime service is active:
+
+```bash
+node ./bin/ao-pilot.js runtime-contract --json
+```
+
 Foreground browser launches that do not supply all four managed bindings omit
-the Codex worker CLI contract and remove `~/.ao/bin` from the inherited worker
-PATH instead of advertising or selecting an unusable launcher. Restores rerun
-the agent workspace hook before runtime creation. Bound Codex orchestrators use
+the Codex worker CLI contract. Their wrapper keeps the `git`/`gh` metadata
+interceptors active while delegating `ao` to the ambient command outside
+`~/.ao/bin`; partial managed bindings remain fail-closed. Restores rerun
+the agent workspace hook before runtime creation and inject current managed CLI
+compatibility guidance into the resumed Codex conversation. Bound Codex orchestrators use
 `ao status --json` only for daemon health, use project-scoped JSON session
 listing for coordination, and receive managed spawn/send/claim command forms. An
 active service's `AO_PILOT_RUNTIME_STORE` override is preserved during installed

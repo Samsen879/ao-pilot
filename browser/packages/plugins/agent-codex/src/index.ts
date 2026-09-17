@@ -72,11 +72,13 @@ function buildAgentPath(basePath: string | undefined): string {
   return ordered.join(":");
 }
 
-function buildUnmanagedAgentPath(basePath: string | undefined): string {
-  const entries = (basePath ?? DEFAULT_PATH)
-    .split(":")
-    .filter((entry) => entry && entry !== AO_BIN_DIR);
-  return entries.join(":") || DEFAULT_PATH;
+function hasCompleteManagedRuntimeBinding(env: NodeJS.ProcessEnv = process.env): boolean {
+  return [
+    "AO_MANAGED_RUNTIME_BINARY",
+    "AO_MANAGED_RUNTIME_BINARY_SHA256",
+    "AO_MANAGED_RUNTIME_DATA_DIR",
+    "AO_MANAGED_RUNTIME_RUN_FILE",
+  ].every((name) => Boolean(env[name]));
 }
 
 function isLikelyCodexStatusFooter(line: string): boolean {
@@ -105,7 +107,7 @@ export const manifest = {
   name: "codex",
   slot: "agent" as const,
   description: "Agent plugin: OpenAI Codex CLI",
-  version: "0.1.5",
+  version: "0.1.6",
   displayName: "OpenAI Codex",
 };
 
@@ -320,6 +322,17 @@ runtime_binary="\${AO_MANAGED_RUNTIME_BINARY:-}"
 runtime_binary_sha256="\${AO_MANAGED_RUNTIME_BINARY_SHA256:-}"
 runtime_data_dir="\${AO_MANAGED_RUNTIME_DATA_DIR:-}"
 runtime_run_file="\${AO_MANAGED_RUNTIME_RUN_FILE:-}"
+if [[ -z "$runtime_binary" && -z "$runtime_binary_sha256" && -z "$runtime_data_dir" && -z "$runtime_run_file" ]]; then
+  ao_bin_dir="$(cd "$(dirname "$0")" && pwd -P)"
+  clean_path="$(printf '%s' "\${PATH:-/usr/bin:/bin}" | tr ':' '\n' | grep -Fxv "$ao_bin_dir" | grep . | tr '\n' ':' || true)"
+  clean_path="\${clean_path%:}"
+  ambient_ao="$(PATH="$clean_path" command -v ao 2>/dev/null || true)"
+  if [[ -z "$ambient_ao" || ! -x "$ambient_ao" ]]; then
+    echo "ao-wrapper: ambient ao not found outside the managed wrapper directory" >&2
+    exit 127
+  fi
+  exec env PATH="$clean_path" "$ambient_ao" "$@"
+fi
 case "$runtime_binary" in
   /*) ;;
   *)
@@ -382,7 +395,7 @@ export async function setupManagedAoLauncher(): Promise<void> {
 
   await atomicWriteFile(join(AO_BIN_DIR, "ao-metadata-helper.sh"), AO_METADATA_HELPER, 0o755);
   const markerPath = join(AO_BIN_DIR, ".ao-version");
-  const currentVersion = "0.1.5";
+  const currentVersion = "0.1.6";
 
   // Always restore every wrapper atomically. A surviving version marker must
   // not hide a deleted or partially replaced launcher during recovery.
@@ -1031,22 +1044,11 @@ function createCodexAgent(): Agent {
         env["AO_MANAGED_RUNTIME_RUN_FILE"] = runtimeRunFile;
       }
 
-      const managedBindingsComplete = [
-        runtimeBinary,
-        runtimeBinarySha256,
-        runtimeDataDir,
-        runtimeRunFile,
-      ].every(Boolean);
-      // Only select the managed wrapper directory when its complete runtime
-      // identity is available. Foreground/unbound launches retain their
-      // inherited PATH instead of shadowing a usable ambient AO command with
-      // the fail-closed managed launcher.
-      if (managedBindingsComplete) {
-        env["PATH"] = buildAgentPath(process.env["PATH"]);
-        env["GH_PATH"] = PREFERRED_GH_PATH;
-      } else {
-        env["PATH"] = buildUnmanagedAgentPath(process.env["PATH"]);
-      }
+      // Keep metadata wrappers active in every Codex session. With no managed
+      // binding, the ao wrapper removes its own directory and delegates to the
+      // ambient ao command; partial bindings remain fail-closed.
+      env["PATH"] = buildAgentPath(process.env["PATH"]);
+      env["GH_PATH"] = PREFERRED_GH_PATH;
       // Disable Codex's version check/update prompt for non-interactive AO sessions.
       env["CODEX_DISABLE_UPDATE_CHECK"] = "1";
 
@@ -1240,6 +1242,14 @@ function createCodexAgent(): Agent {
 
       // Positional threadId goes last, after all flags
       parts.push(shellEscape(data.threadId));
+      if (hasCompleteManagedRuntimeBinding()) {
+        parts.push(shellEscape(
+          "Managed AO CLI compatibility update: use `ao status --json` only for daemon health; " +
+          "use `ao session ls --all --project \"$AO_PROJECT_ID\" --json` for coordination; " +
+          "claim an existing PR with `ao session claim-pr \"$AO_SESSION_ID\" <pr-number-or-url> " +
+          "--project \"$AO_PROJECT_ID\"`; run command-specific `--help` before relying on older syntax.",
+        ));
+      }
 
       return parts.join(" ");
     },
