@@ -1,6 +1,6 @@
 {
   "schema_version": "ao.issue-115-source-candidate-receipt.v1",
-  "observed_at": "2026-09-18T00:33:51+08:00",
+  "observed_at": "2026-09-18T00:47:17+08:00",
   "issue": 115,
   "status": "passed",
   "base": {
@@ -8,8 +8,8 @@
     "tree_sha": "a5f34f9b04d013a8c1da93f085c0239fe31ebe2e"
   },
   "implementation_candidate": {
-    "commit_sha": "f61e9dbf3ee669c1b231f498a3af544c0c693763",
-    "tree_sha": "d80f7651d215c7b5a220a58bd8404b5dd2ce0f9c",
+    "commit_sha": "01b007959d69c66241fde1b8e555a559cd8a582f",
+    "tree_sha": "0668546eabf0faf8c78e31ba25b3894920ff9ada",
     "branch": "task/issue-115-installed-runtime"
   },
   "checks": [
@@ -39,7 +39,7 @@
       "command": "npm test --workspace @composio/ao-core",
       "result": "passed",
       "suites": 21,
-      "tests": 529
+      "tests": 530
     },
     {
       "command": "npm test --workspace @composio/ao-web",
@@ -73,6 +73,8 @@
     "partial_service_install_identity_inheritance": "implemented",
     "active_service_process_identity_recheck": "implemented",
     "operator_contract_binding_resolution": "implemented",
+    "custom_runtime_store_preservation": "implemented",
+    "unbound_foreground_prompt_gating": "implemented",
     "ordinary_worker_prelaunch_provisioning": "implemented",
     "pinned_recovery_prelaunch_provisioning": "implemented",
     "codex_only_worker_prompt_contract": "implemented",
