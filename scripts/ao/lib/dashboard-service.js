@@ -12,7 +12,7 @@ export function buildDashboardUnits({ packageRoot, nodePath, home, managedRuntim
   const common = `WorkingDirectory=${packageRoot}\nEnvironment="PATH=${path.dirname(nodePath)}:/usr/local/bin:/usr/bin:/bin"\nEnvironment="AO_DATA_DIR=${base}/data"\nEnvironment="AO_RUN_FILE=${base}/running.json"\nRestart=on-failure\nRestartSec=3\nTimeoutStopSec=30\nUMask=0077\n`;
   const terminalEnvironment = `Environment="AO_DASHBOARD_TERMINAL_ACCESS=${terminalAccess ? '1' : '0'}"\n`;
   const runtimeEnvironment = managedRuntimeBinary == null
-    ? ''
+    ? `Environment="XDG_DATA_HOME=${path.join(home, '.local/share')}"\n`
     : `Environment="AO_PILOT_RUNTIME_STORE=${managedRuntimeStore}"\nEnvironment="AO_MANAGED_RUNTIME_BINARY=${managedRuntimeBinary}"\nEnvironment="AO_MANAGED_RUNTIME_BINARY_SHA256=${managedRuntimeBinarySha256}"\nEnvironment="AO_MANAGED_RUNTIME_DATA_DIR=${base}/data"\nEnvironment="AO_MANAGED_RUNTIME_RUN_FILE=${base}/running.json"\n`;
   return {
     'ao-pilot-session-recovery.service': `[Unit]\nDescription=AO Pilot pinned original-session recovery lifecycle\nRequires=ao-pilot-runtime.service\nAfter=network-online.target ao-pilot-runtime.service\n\n[Service]\nType=simple\n${common}${runtimeEnvironment}Environment="AO_CONFIG_PATH=${home}/agent-orchestrator.yaml"\nExecStart=${command('ao-session.js')} serve\n\n[Install]\nWantedBy=default.target\n`,

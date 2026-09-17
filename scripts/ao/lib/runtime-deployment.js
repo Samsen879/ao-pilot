@@ -56,10 +56,19 @@ function inspectActiveRuntimeService(execute, readFile, realpath) {
 }
 
 function unitDirectiveValues(unitText, name) {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const directive = new RegExp(`^${escapedName}\\s*=\\s*(.*)$`);
   return String(unitText ?? '').split(/\r?\n/)
     .map(line => line.trim())
-    .filter(line => line.startsWith(`${name}=`))
-    .map(line => line.slice(name.length + 1));
+    .map(line => line.match(directive))
+    .filter(Boolean)
+    .map(match => match[1]);
+}
+
+function unitEnvironmentAssignmentCount(values, name) {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const assignment = new RegExp(`(?:^|[\\s"'])${escapedName}=`, 'g');
+  return values.reduce((count, value) => count + [...value.matchAll(assignment)].length, 0);
 }
 
 export function resolveInstalledRuntimeServiceBinding({
@@ -82,7 +91,18 @@ export function resolveInstalledRuntimeServiceBinding({
   const foregroundPath = path.join(packageRoot, 'scripts', 'ao-runtime-foreground.js');
   const unitWorkingDirectories = unitDirectiveValues(service.unitText, 'WorkingDirectory');
   const unitExecStarts = unitDirectiveValues(service.unitText, 'ExecStart');
-  const unitEnvironments = new Set(unitDirectiveValues(service.unitText, 'Environment'));
+  const unitEnvironments = unitDirectiveValues(service.unitText, 'Environment');
+  const hasExactUnitEnvironment = (name, value) => (
+    unitEnvironmentAssignmentCount(unitEnvironments, name) === 1
+    && unitEnvironments.includes(`"${name}=${value}"`)
+  );
+  const xdgDataHome = service.environment.XDG_DATA_HOME;
+  const implicitStorePinned = runtimeStore != null || (
+    xdgDataHome != null
+    && path.isAbsolute(xdgDataHome)
+    && !/[\r\n\x00"%\\]/.test(xdgDataHome)
+    && hasExactUnitEnvironment('XDG_DATA_HOME', xdgDataHome)
+  );
   if (
     service.activeState !== 'active'
     || !/^[1-9][0-9]*$/.test(String(service.mainPid))
@@ -98,9 +118,15 @@ export function resolveInstalledRuntimeServiceBinding({
     || unitWorkingDirectories[0] !== packageRoot
     || unitExecStarts.length !== 1
     || unitExecStarts[0] !== `"${nodePath}" "${foregroundPath}"`
-    || !unitEnvironments.has(`"AO_DATA_DIR=${dataDir}"`)
-    || !unitEnvironments.has(`"AO_RUN_FILE=${runFile}"`)
-    || (runtimeStore != null && !unitEnvironments.has(`"AO_PILOT_RUNTIME_STORE=${runtimeStore}"`))
+    || unitDirectiveValues(service.unitText, 'EnvironmentFile').length !== 0
+    || unitDirectiveValues(service.unitText, 'UnsetEnvironment').length !== 0
+    || unitEnvironments.some(value => value.includes('\\'))
+    || !hasExactUnitEnvironment('AO_DATA_DIR', dataDir)
+    || !hasExactUnitEnvironment('AO_RUN_FILE', runFile)
+    || (runtimeStore != null
+      ? !hasExactUnitEnvironment('AO_PILOT_RUNTIME_STORE', runtimeStore)
+      : unitEnvironmentAssignmentCount(unitEnvironments, 'AO_PILOT_RUNTIME_STORE') !== 0)
+    || !implicitStorePinned
     || (runtimeStore != null
       && (!path.isAbsolute(runtimeStore) || /[\r\n\x00"%\\]/.test(runtimeStore)))
     || dataDir !== expected.data_dir

@@ -25,6 +25,10 @@ test('requires an exact digest and store whenever a managed runtime binary is bo
   expect(() => buildDashboardUnits({packageRoot:'/repo',nodePath:'/bin/node',home:'/user',managedRuntimeBinarySha256:'a'.repeat(64)})).toThrow('identity');
   expect(() => buildDashboardUnits({packageRoot:'/repo',nodePath:'/bin/node',home:'/user',managedRuntimeBinary:'/runtime/ao',managedRuntimeBinarySha256:'a'.repeat(64)})).toThrow('identity');
 });
+test('pins the default runtime store selector when no managed store is bound', () => {
+  const unit = buildDashboardUnits({packageRoot:'/repo',nodePath:'/bin/node',home:'/user'})['ao-pilot-runtime.service'];
+  expect(unit).toContain('Environment="XDG_DATA_HOME=/user/.local/share"');
+});
 test('terminal access is explicit and never unlocks API writes or automation', () => {
   for (const terminalAccess of [false, true]) {
     const unit = buildDashboardUnits({packageRoot:'/repo/ao-pilot',nodePath:'/node/bin/node',home:'/user',terminalAccess})['ao-pilot-dashboard.service'];
