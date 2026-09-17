@@ -32,8 +32,9 @@ function successfulLauncher() {
     path: '/home/test/.ao/bin/ao',
     available: true,
     binary_binding_matches: true,
-    data_binding_present: true,
-    run_file_binding_present: true,
+    binary_digest_binding_matches: true,
+    data_binding_matches: true,
+    run_file_binding_matches: true,
   };
 }
 
@@ -67,12 +68,12 @@ describe('installed runtime CLI contract', () => {
     expect(buildRuntimeContract(runtime, successfulProbes(), {
       ...successfulLauncher(),
       available: false,
-      run_file_binding_present: false,
+      run_file_binding_matches: false,
     })).toMatchObject({
       status: 'hold',
       checks: {
         worker_launcher_available: false,
-        worker_run_file_binding_present: false,
+        worker_run_file_binding_matches: false,
       },
     });
   });
@@ -87,8 +88,9 @@ describe('installed runtime CLI contract', () => {
       expect(inspectWorkerLauncher(runtime, {
         HOME: home,
         AO_MANAGED_RUNTIME_BINARY: runtime.binary_path,
-        AO_MANAGED_RUNTIME_DATA_DIR: '/managed/runtime/data',
-        AO_MANAGED_RUNTIME_RUN_FILE: '/managed/runtime/running.json',
+        AO_MANAGED_RUNTIME_BINARY_SHA256: runtime.binary_sha256,
+        AO_MANAGED_RUNTIME_DATA_DIR: path.join(home, '.local/share/ao-pilot/cie-runtime/data'),
+        AO_MANAGED_RUNTIME_RUN_FILE: path.join(home, '.local/share/ao-pilot/cie-runtime/running.json'),
       })).toEqual({
         ...successfulLauncher(),
         path: launcher,
@@ -99,8 +101,9 @@ describe('installed runtime CLI contract', () => {
       expect(inspectWorkerLauncher(runtime, {
         HOME: home,
         AO_MANAGED_RUNTIME_BINARY: runtime.binary_path,
-        AO_MANAGED_RUNTIME_DATA_DIR: '/managed/runtime/data',
-        AO_MANAGED_RUNTIME_RUN_FILE: '/managed/runtime/running.json',
+        AO_MANAGED_RUNTIME_BINARY_SHA256: runtime.binary_sha256,
+        AO_MANAGED_RUNTIME_DATA_DIR: path.join(home, '.local/share/ao-pilot/cie-runtime/data'),
+        AO_MANAGED_RUNTIME_RUN_FILE: path.join(home, '.local/share/ao-pilot/cie-runtime/running.json'),
       }).available).toBe(false);
     } finally {
       fs.rmSync(home, { recursive: true, force: true });

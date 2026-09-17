@@ -9,6 +9,7 @@ import {
   resolveRuntimeControl,
   runResolvedRuntime,
 } from './ao/lib/runtime-control.js';
+import { deploymentBinding } from './ao/lib/runtime-deployment.js';
 
 function createDefaultIo() {
   return {
@@ -50,6 +51,7 @@ function probe(runtime, args, { cwd, env, executeRuntime }) {
 export function inspectWorkerLauncher(runtime, env = process.env) {
   const home = env.HOME || os.homedir();
   const launcherPath = path.join(home, '.ao', 'bin', 'ao');
+  const expectedNamespace = deploymentBinding(home);
   let available = false;
   try {
     const info = fs.lstatSync(launcherPath);
@@ -62,8 +64,9 @@ export function inspectWorkerLauncher(runtime, env = process.env) {
     path: launcherPath,
     available,
     binary_binding_matches: env.AO_MANAGED_RUNTIME_BINARY === runtime.binary_path,
-    data_binding_present: path.isAbsolute(env.AO_MANAGED_RUNTIME_DATA_DIR ?? ''),
-    run_file_binding_present: path.isAbsolute(env.AO_MANAGED_RUNTIME_RUN_FILE ?? ''),
+    binary_digest_binding_matches: env.AO_MANAGED_RUNTIME_BINARY_SHA256 === runtime.binary_sha256,
+    data_binding_matches: env.AO_MANAGED_RUNTIME_DATA_DIR === expectedNamespace.data_dir,
+    run_file_binding_matches: env.AO_MANAGED_RUNTIME_RUN_FILE === expectedNamespace.run_file,
   };
 }
 
@@ -83,8 +86,9 @@ export function buildRuntimeContract(runtime, probes, launcher) {
       && spawnHelp.includes('--attempt-id'),
     worker_launcher_available: launcher.available,
     worker_binary_binding_matches: launcher.binary_binding_matches,
-    worker_data_binding_present: launcher.data_binding_present,
-    worker_run_file_binding_present: launcher.run_file_binding_present,
+    worker_binary_digest_binding_matches: launcher.binary_digest_binding_matches,
+    worker_data_binding_matches: launcher.data_binding_matches,
+    worker_run_file_binding_matches: launcher.run_file_binding_matches,
   };
   const passed = Object.values(checks).every(Boolean);
   return {
@@ -100,6 +104,7 @@ export function buildRuntimeContract(runtime, probes, launcher) {
     launcher: {
       worker_command: 'ao',
       environment_binding: 'AO_MANAGED_RUNTIME_BINARY',
+      digest_environment_binding: 'AO_MANAGED_RUNTIME_BINARY_SHA256',
       data_environment_binding: 'AO_MANAGED_RUNTIME_DATA_DIR',
       run_file_environment_binding: 'AO_MANAGED_RUNTIME_RUN_FILE',
       resolved_binary_path: runtime.binary_path,

@@ -25,10 +25,14 @@ The clean committed source-candidate replay is recorded separately in
 - Browser Codex setup and pinned-session recovery atomically install a fail-closed
   `~/.ao/bin/ao` wrapper before worker launch or restore.
   The wrapper accepts only the absolute, regular, executable, non-symlink runtime
-  path injected by the installed AO service.
+  path injected by the installed AO service and verifies its SHA-256 immediately
+  before execution.
 - Generated service units bind that exact verified managed binary and its daemon
-  data/run-file namespace; the Codex adapter forwards all three dedicated bindings
-  into workers and the wrapper restores them before execution.
+  data/run-file namespace; the Codex adapter forwards all four dedicated bindings
+  (binary, digest, data directory, and run file) into workers and the wrapper
+  restores the namespace before execution. Partial dashboard/recovery installs
+  inherit these values from the already installed runtime service and hold on
+  identity or namespace drift.
 - Codex-only worker instructions define `ao status --json` as global daemon
   health and `ao project get <project-id> --json` as project readback. Other agent
   prompts do not claim that the Codex launcher exists.
@@ -36,6 +40,9 @@ The clean committed source-candidate replay is recorded separately in
   resolves and verifies the managed runtime without relying on ambient `PATH`.
 - `ao-pilot status --project ...` and the other global lifecycle commands now
   reject the unsupported flag instead of silently discarding it.
+- `start-clean --project <id>` performs an exact managed-runtime project readback
+  after the global lifecycle checks, so its accepted project argument is no
+  longer silently ignored.
 - `ao-pilot runtime-contract --json` performs read-only version/help probes,
   verifies the worker launcher plus binary/data/run-file bindings, and converts
   probe exceptions into a normalized machine-readable `HOLD`.

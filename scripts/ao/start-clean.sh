@@ -104,3 +104,4 @@ fi
 
 run_cmd "${pilot_command[@]}" start
 run_cmd "${pilot_command[@]}" status
+run_cmd "${pilot_command[@]}" runtime-project-get "$project"

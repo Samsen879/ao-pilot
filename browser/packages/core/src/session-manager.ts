@@ -1107,6 +1107,35 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
     }
 
+    // Agent-owned launch prerequisites must exist before the runtime starts.
+    // Codex uses this hook to provision the verified AO launcher referenced by
+    // its initial prompt; postLaunchSetup is too late for that contract.
+    if (plugins.agent.setupWorkspaceHooks) {
+      try {
+        await plugins.agent.setupWorkspaceHooks(workspacePath, {
+          dataDir: sessionsDir,
+          sessionId,
+        });
+      } catch (err) {
+        if (
+          plugins.workspace
+          && shouldDestroyWorkspacePath(project, spawnConfig.projectId, workspacePath)
+        ) {
+          try {
+            await plugins.workspace.destroy(workspacePath);
+          } catch {
+            /* best effort */
+          }
+        }
+        try {
+          deleteMetadata(sessionsDir, sessionId, false);
+        } catch {
+          /* best effort */
+        }
+        throw err;
+      }
+    }
+
     // Generate prompt with validated issue
     let issueContext: string | undefined;
     if (spawnConfig.issueId && plugins.tracker && resolvedIssue) {

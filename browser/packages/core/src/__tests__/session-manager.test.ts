@@ -339,6 +339,66 @@ describe("spawn", () => {
     expect(mockRuntime.create).toHaveBeenCalled();
   });
 
+  it("provisions agent workspace hooks before starting the runtime", async () => {
+    const agentWithHooks: Agent = {
+      ...mockAgent,
+      setupWorkspaceHooks: vi.fn().mockResolvedValue(undefined),
+    };
+    const registryWithHooks: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return agentWithHooks;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+    };
+
+    const sm = createSessionManager({ config, registry: registryWithHooks });
+    await sm.spawn({ projectId: "my-app" });
+
+    expect(agentWithHooks.setupWorkspaceHooks).toHaveBeenCalledWith(
+      "/tmp/mock-ws/app-1",
+      { dataDir: sessionsDir, sessionId: "app-1" },
+    );
+    expect(
+      vi.mocked(agentWithHooks.setupWorkspaceHooks!).mock.invocationCallOrder[0],
+    ).toBeLessThan(vi.mocked(mockRuntime.create).mock.invocationCallOrder[0]);
+  });
+
+  it("cleans up the workspace when pre-launch agent provisioning fails", async () => {
+    const managedWorkspacePath = join(
+      getWorktreesDir(configPath, join(tmpDir, "my-app")),
+      "app-1",
+    );
+    vi.mocked(mockWorkspace.create).mockResolvedValueOnce({
+      path: managedWorkspacePath,
+      branch: "feat/TEST-1",
+      sessionId: "app-1",
+      projectId: "my-app",
+    });
+    const agentWithHooks: Agent = {
+      ...mockAgent,
+      setupWorkspaceHooks: vi.fn().mockRejectedValue(new Error("launcher install failed")),
+    };
+    const registryWithHooks: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return agentWithHooks;
+        if (slot === "workspace") return mockWorkspace;
+        return null;
+      }),
+    };
+
+    const sm = createSessionManager({ config, registry: registryWithHooks });
+    await expect(sm.spawn({ projectId: "my-app" })).rejects.toThrow("launcher install failed");
+
+    expect(mockWorkspace.destroy).toHaveBeenCalledWith(managedWorkspacePath);
+    expect(mockRuntime.create).not.toHaveBeenCalled();
+    expect(readMetadataRaw(sessionsDir, "app-1")).toBeNull();
+  });
+
   it("persists a durable spawning record before workspace creation starts", async () => {
     vi.mocked(mockWorkspace.create).mockImplementationOnce(async (workspaceConfig) => {
       const creating = readMetadataRaw(sessionsDir, "app-1");

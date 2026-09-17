@@ -98,7 +98,7 @@ export const manifest = {
   name: "codex",
   slot: "agent" as const,
   description: "Agent plugin: OpenAI Codex CLI",
-  version: "0.1.3",
+  version: "0.1.4",
   displayName: "OpenAI Codex",
 };
 
@@ -310,6 +310,7 @@ const AO_CLI_WRAPPER = `#!/usr/bin/env bash
 set -euo pipefail
 
 runtime_binary="\${AO_MANAGED_RUNTIME_BINARY:-}"
+runtime_binary_sha256="\${AO_MANAGED_RUNTIME_BINARY_SHA256:-}"
 runtime_data_dir="\${AO_MANAGED_RUNTIME_DATA_DIR:-}"
 runtime_run_file="\${AO_MANAGED_RUNTIME_RUN_FILE:-}"
 case "$runtime_binary" in
@@ -321,6 +322,20 @@ case "$runtime_binary" in
 esac
 if [[ ! -f "$runtime_binary" || ! -x "$runtime_binary" || -L "$runtime_binary" ]]; then
   echo "ao-wrapper: managed AO launcher is missing, non-executable, or a symlink" >&2
+  exit 126
+fi
+if [[ ! "$runtime_binary_sha256" =~ ^[a-f0-9]{64}$ ]]; then
+  echo "ao-wrapper: AO_MANAGED_RUNTIME_BINARY_SHA256 is not a valid digest" >&2
+  exit 126
+fi
+if ! command -v sha256sum >/dev/null 2>&1; then
+  echo "ao-wrapper: sha256sum is required to verify the managed AO launcher" >&2
+  exit 126
+fi
+observed_sha256="$(sha256sum -- "$runtime_binary")"
+observed_sha256="\${observed_sha256%% *}"
+if [[ "$observed_sha256" != "$runtime_binary_sha256" ]]; then
+  echo "ao-wrapper: managed AO launcher digest mismatch" >&2
   exit 126
 fi
 case "$runtime_data_dir" in
@@ -360,7 +375,7 @@ export async function setupManagedAoLauncher(): Promise<void> {
 
   await atomicWriteFile(join(AO_BIN_DIR, "ao-metadata-helper.sh"), AO_METADATA_HELPER, 0o755);
   const markerPath = join(AO_BIN_DIR, ".ao-version");
-  const currentVersion = "0.1.3";
+  const currentVersion = "0.1.4";
 
   // Always restore every wrapper atomically. A surviving version marker must
   // not hide a deleted or partially replaced launcher during recovery.
@@ -995,6 +1010,10 @@ function createCodexAgent(): Agent {
       const runtimeBinary = process.env["AO_MANAGED_RUNTIME_BINARY"];
       if (runtimeBinary) {
         env["AO_MANAGED_RUNTIME_BINARY"] = runtimeBinary;
+      }
+      const runtimeBinarySha256 = process.env["AO_MANAGED_RUNTIME_BINARY_SHA256"];
+      if (runtimeBinarySha256) {
+        env["AO_MANAGED_RUNTIME_BINARY_SHA256"] = runtimeBinarySha256;
       }
       const runtimeDataDir = process.env["AO_MANAGED_RUNTIME_DATA_DIR"];
       if (runtimeDataDir) {

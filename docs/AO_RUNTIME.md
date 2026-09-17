@@ -154,7 +154,7 @@ node ./bin/ao-pilot.js runtime-contract --json
 node ./bin/ao-pilot.js doctor --json
 node ./bin/ao-pilot.js start
 node ./bin/ao-pilot.js status --json
-ao-pilot runtime-project-get my-project --json
+node ./bin/ao-pilot.js runtime-project-get my-project --json
 node ./bin/ao-pilot.js stop
 ```
 
@@ -166,11 +166,13 @@ shadowed runtime blocks lifecycle execution.
 `runtime-contract` probes only version and command help on that exact binary. It
 publishes the supported global status, project readback, and spawn-custody
 surfaces as normalized JSON. Installed browser services pass the verified
-absolute binary and daemon namespace to Codex workers as
-`AO_MANAGED_RUNTIME_BINARY`, `AO_MANAGED_RUNTIME_DATA_DIR`, and
+absolute binary, its verified SHA-256, and the exact deployment daemon namespace
+to Codex workers as `AO_MANAGED_RUNTIME_BINARY`,
+`AO_MANAGED_RUNTIME_BINARY_SHA256`, `AO_MANAGED_RUNTIME_DATA_DIR`, and
 `AO_MANAGED_RUNTIME_RUN_FILE`; their `~/.ao/bin/ao` wrapper rejects an absent,
-relative, non-executable, or symlinked
-binding before execution.
+relative, non-executable, symlinked, or digest-mismatched binding before
+execution. Partial dashboard/recovery service installs inherit this identity
+from the installed runtime unit instead of mixing a new CLI with an old daemon.
 
 `npm run verify:runtime-lifecycle` checks the static exact-binary routing
 contract. `npm run verify:fresh-clone` is the separate P0-R07 live integration
