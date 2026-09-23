@@ -11,6 +11,7 @@ package sessionguard
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -86,9 +87,20 @@ type Guard struct {
 	store     SessionReader
 	messenger ports.AgentMessenger
 	logger    *slog.Logger
-	locksMu   sync.Mutex
-	locks     map[domain.SessionID]*sync.Mutex
 }
+
+var sharedLocks = struct {
+	sync.Mutex
+	bySession map[domain.SessionID]*sync.Mutex
+}{bySession: make(map[domain.SessionID]*sync.Mutex)}
+
+type guardedMessenger interface {
+	SendGuarded(context.Context, domain.SessionID, string, func(context.Context) error) error
+}
+
+type suppressedError struct{ outcome Outcome }
+
+func (e suppressedError) Error() string { return e.outcome.String() }
 
 var _ ports.AgentMessenger = (*Guard)(nil)
 
@@ -98,16 +110,16 @@ func New(store SessionReader, messenger ports.AgentMessenger, logger *slog.Logge
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Guard{store: store, messenger: messenger, logger: logger, locks: make(map[domain.SessionID]*sync.Mutex)}
+	return &Guard{store: store, messenger: messenger, logger: logger}
 }
 
 func (g *Guard) sessionLock(id domain.SessionID) *sync.Mutex {
-	g.locksMu.Lock()
-	defer g.locksMu.Unlock()
-	lock := g.locks[id]
+	sharedLocks.Lock()
+	defer sharedLocks.Unlock()
+	lock := sharedLocks.bySession[id]
 	if lock == nil {
 		lock = &sync.Mutex{}
-		g.locks[id] = lock
+		sharedLocks.bySession[id] = lock
 	}
 	return lock
 }
@@ -176,6 +188,40 @@ func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, refus
 	lock := g.sessionLock(id)
 	lock.Lock()
 	defer lock.Unlock()
+	check := func(checkCtx context.Context) error {
+		outcome, err := g.check(checkCtx, id, refuse)
+		if err != nil {
+			return err
+		}
+		if outcome != Sent {
+			return suppressedError{outcome: outcome}
+		}
+		return nil
+	}
+	if err := check(ctx); err != nil {
+		var suppressed suppressedError
+		if errors.As(err, &suppressed) {
+			return suppressed.outcome, nil
+		}
+		return SuppressedUnknown, err
+	}
+	var err error
+	if messenger, ok := g.messenger.(guardedMessenger); ok {
+		err = messenger.SendGuarded(ctx, id, msg, check)
+	} else {
+		err = g.messenger.Send(ctx, id, msg)
+	}
+	if err != nil {
+		var suppressed suppressedError
+		if errors.As(err, &suppressed) {
+			return suppressed.outcome, nil
+		}
+		return Sent, fmt.Errorf("guard %s: send: %w", id, err)
+	}
+	return Sent, nil
+}
+
+func (g *Guard) check(ctx context.Context, id domain.SessionID, refuse func(domain.SessionRecord) (Outcome, bool)) (Outcome, error) {
 	rec, ok, err := g.store.GetSession(ctx, id)
 	if err != nil {
 		return SuppressedUnknown, fmt.Errorf("guard %s: read session: %w", id, err)
@@ -195,9 +241,6 @@ func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, refus
 	if outcome, deny := refuse(rec); deny {
 		g.logger.Info("sessionguard: write suppressed", "sessionID", id, "reason", outcome.String(), "state", string(rec.Activity.State))
 		return outcome, nil
-	}
-	if err := g.messenger.Send(ctx, id, msg); err != nil {
-		return Sent, fmt.Errorf("guard %s: send: %w", id, err)
 	}
 	return Sent, nil
 }
