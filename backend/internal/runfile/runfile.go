@@ -86,8 +86,36 @@ func RestoreIfMissing(path string, info Info) (bool, error) {
 	if current != nil {
 		return false, nil
 	}
-	if err := Write(path, info); err != nil {
-		return false, err
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return false, fmt.Errorf("create run-file dir: %w", err)
+	}
+	data, err := json.MarshalIndent(info, "", "  ")
+	if err != nil {
+		return false, fmt.Errorf("marshal run-file: %w", err)
+	}
+	data = append(data, '\n')
+
+	// Publish a complete file with an atomic, no-replace link. A replacement
+	// daemon may create path after Read observes it missing; Link then returns
+	// os.ErrExist and preserves that newer daemon's handshake.
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".running-restore-*.json")
+	if err != nil {
+		return false, fmt.Errorf("create temp run-file: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return false, fmt.Errorf("write temp run-file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return false, fmt.Errorf("close temp run-file: %w", err)
+	}
+	if err := os.Link(tmpName, path); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("publish restored run-file: %w", err)
 	}
 	return true, nil
 }
