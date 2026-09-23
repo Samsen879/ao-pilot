@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
@@ -76,14 +77,17 @@ func (o Outcome) String() string {
 }
 
 // Guard is the guarded pane-write primitive shared by the session manager and
-// lifecycle. It takes no locks of its own, so callers may hold theirs across a
-// call (lifecycle's sendOnce calls it under react.mu). It implements
+// lifecycle. It serializes each session before the just-in-time state read so
+// a queued write cannot use state that changed while another send completed.
+// It implements
 // ports.AgentMessenger (via Send) so it can transparently replace a raw
 // messenger wherever only the error matters.
 type Guard struct {
 	store     SessionReader
 	messenger ports.AgentMessenger
 	logger    *slog.Logger
+	locksMu   sync.Mutex
+	locks     map[domain.SessionID]*sync.Mutex
 }
 
 var _ ports.AgentMessenger = (*Guard)(nil)
@@ -94,7 +98,18 @@ func New(store SessionReader, messenger ports.AgentMessenger, logger *slog.Logge
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Guard{store: store, messenger: messenger, logger: logger}
+	return &Guard{store: store, messenger: messenger, logger: logger, locks: make(map[domain.SessionID]*sync.Mutex)}
+}
+
+func (g *Guard) sessionLock(id domain.SessionID) *sync.Mutex {
+	g.locksMu.Lock()
+	defer g.locksMu.Unlock()
+	lock := g.locks[id]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		g.locks[id] = lock
+	}
+	return lock
 }
 
 // Send satisfies ports.AgentMessenger so a Guard can sit in for the raw
@@ -158,6 +173,9 @@ func (g *Guard) NudgeCoordination(ctx context.Context, id domain.SessionID, msg 
 // available without scraping the terminal. Fail closed: a store error
 // suppresses the write rather than pressing Enter on an unknown state.
 func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, refuse func(domain.SessionRecord) (Outcome, bool)) (Outcome, error) {
+	lock := g.sessionLock(id)
+	lock.Lock()
+	defer lock.Unlock()
 	rec, ok, err := g.store.GetSession(ctx, id)
 	if err != nil {
 		return SuppressedUnknown, fmt.Errorf("guard %s: read session: %w", id, err)
