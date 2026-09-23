@@ -566,6 +566,13 @@ func (r *Runtime) IsSupervisedProcessAlive(ctx context.Context, handle ports.Run
 // ceiling is very large messages may be slower, but chunk size defaults to 16 KB
 // which is ample for agent prompts.
 func (r *Runtime) SendMessage(ctx context.Context, handle ports.RuntimeHandle, message string) error {
+	return r.SendMessageGuarded(ctx, handle, message, nil)
+}
+
+// SendMessageGuarded holds the pane write lock while calling check immediately
+// before paste and again before Enter. The second check can suppress Enter if
+// the agent reaches a permission dialog during the paste settle delay.
+func (r *Runtime) SendMessageGuarded(ctx context.Context, handle ports.RuntimeHandle, message string, check func(context.Context) error) error {
 	id, err := handleID(handle)
 	if err != nil {
 		return err
@@ -576,6 +583,11 @@ func (r *Runtime) SendMessage(ctx context.Context, handle ports.RuntimeHandle, m
 	lock := r.sendLock(id)
 	lock.Lock()
 	defer lock.Unlock()
+	if check != nil {
+		if err := check(ctx); err != nil {
+			return err
+		}
+	}
 	enterCtx := ctx
 	if message != "" {
 		messageChunks := chunks(message, r.chunkSize)
@@ -618,6 +630,11 @@ func (r *Runtime) SendMessage(ctx context.Context, handle ports.RuntimeHandle, m
 			}
 		}
 	}
+	if check != nil {
+		if err := check(enterCtx); err != nil {
+			return err
+		}
+	}
 	if _, err := r.run(enterCtx, sendEnterArgs(id)...); err != nil {
 		return fmt.Errorf("tmux runtime: send enter %s: %w", id, err)
 	}
@@ -635,6 +652,9 @@ func (r *Runtime) Interrupt(ctx context.Context, handle ports.RuntimeHandle) err
 	if err != nil {
 		return err
 	}
+	lock := r.sendLock(id)
+	lock.Lock()
+	defer lock.Unlock()
 	if _, err := r.run(ctx, sendInterruptArgs(id)...); err != nil {
 		return fmt.Errorf("tmux runtime: interrupt session %s: %w", id, err)
 	}

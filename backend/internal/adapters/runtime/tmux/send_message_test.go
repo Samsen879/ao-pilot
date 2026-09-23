@@ -1,10 +1,45 @@
 package tmux
 
 import (
+	"context"
+	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 )
+
+type recordingRunner struct {
+	mu      sync.Mutex
+	calls   []string
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (r *recordingRunner) Run(_ context.Context, _ []string, _ string, args ...string) ([]byte, error) {
+	call := strings.Join(args, " ")
+	r.mu.Lock()
+	r.calls = append(r.calls, call)
+	r.mu.Unlock()
+	if strings.Contains(call, " -l ") && r.entered != nil {
+		close(r.entered)
+		<-r.release
+	}
+	return nil, nil
+}
+
+func (r *recordingRunner) contains(fragment string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, call := range r.calls {
+		if strings.Contains(call, fragment) {
+			return true
+		}
+	}
+	return false
+}
 
 func TestNewUsesOneSecondEnterSettleDelay(t *testing.T) {
 	runtime := New(Options{Binary: "tmux", Shell: "/bin/sh"})
@@ -42,4 +77,54 @@ func TestSendLockSerializesOneSessionOnly(t *testing.T) {
 	}
 	first.Unlock()
 	wait.Wait()
+}
+
+func TestSendMessageGuardedRechecksBeforeEnter(t *testing.T) {
+	runner := &recordingRunner{}
+	runtime := New(Options{Binary: "tmux", Shell: "/bin/sh"})
+	runtime.runner = runner
+	runtime.enterDelay = time.Millisecond
+	checks := 0
+	err := runtime.SendMessageGuarded(context.Background(), ports.RuntimeHandle{ID: "session-a"}, "hello", func(context.Context) error {
+		checks++
+		if checks == 2 {
+			return errors.New("blocked")
+		}
+		return nil
+	})
+	if err == nil || err.Error() != "blocked" {
+		t.Fatalf("SendMessageGuarded error = %v, want blocked", err)
+	}
+	if runner.contains(" Enter") {
+		t.Fatal("Enter was sent after the guard rejected the post-settle state")
+	}
+}
+
+func TestInterruptWaitsForPendingSend(t *testing.T) {
+	runner := &recordingRunner{entered: make(chan struct{}), release: make(chan struct{})}
+	runtime := New(Options{Binary: "tmux", Shell: "/bin/sh"})
+	runtime.runner = runner
+	runtime.enterDelay = 0
+	done := make(chan struct{})
+	go func() {
+		_ = runtime.SendMessage(context.Background(), ports.RuntimeHandle{ID: "session-a"}, "hello")
+		close(done)
+	}()
+	<-runner.entered
+	interruptDone := make(chan struct{})
+	go func() {
+		_ = runtime.Interrupt(context.Background(), ports.RuntimeHandle{ID: "session-a"})
+		close(interruptDone)
+	}()
+	select {
+	case <-interruptDone:
+		t.Fatal("interrupt bypassed the pending send lock")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(runner.release)
+	<-done
+	<-interruptDone
+	if !runner.contains(" C-c") {
+		t.Fatal("interrupt did not reach tmux after the send completed")
+	}
 }

@@ -41,18 +41,19 @@ func (m *blockingMessenger) Send(context.Context, domain.SessionID, string) erro
 func TestQueuedNudgeRechecksStateAfterPriorSend(t *testing.T) {
 	store := &guardedStateStore{rec: domain.SessionRecord{Activity: domain.Activity{State: domain.ActivityWaitingInput}}}
 	messenger := &blockingMessenger{store: store, entered: make(chan struct{}), release: make(chan struct{})}
-	guard := New(store, messenger, nil)
+	firstGuard := New(store, messenger, nil)
+	secondGuard := New(store, messenger, nil)
 
 	firstDone := make(chan struct{})
 	go func() {
 		defer close(firstDone)
-		_, _ = guard.Deliver(context.Background(), "session", "message")
+		_, _ = firstGuard.Deliver(context.Background(), "session", "message")
 	}()
 	<-messenger.entered
 
 	result := make(chan Outcome, 1)
 	go func() {
-		outcome, _ := guard.Nudge(context.Background(), "session", "")
+		outcome, _ := secondGuard.Nudge(context.Background(), "session", "")
 		result <- outcome
 	}()
 	close(messenger.release)
