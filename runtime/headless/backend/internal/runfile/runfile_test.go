@@ -2,6 +2,7 @@ package runfile
 
 import (
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -23,6 +24,51 @@ func TestRestoreIfMissingRecreatesHandshake(t *testing.T) {
 	}
 	if got == nil || got.PID != want.PID || got.Port != want.Port || !got.StartedAt.Equal(want.StartedAt) {
 		t.Fatalf("restored info = %#v, want %#v", got, want)
+	}
+}
+
+func TestRestoreIfMissingConcurrentPublishKeepsOneOwner(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "running.json")
+	const writers = 16
+	start := make(chan struct{})
+	results := make(chan bool, writers)
+	errs := make(chan error, writers)
+	var wait sync.WaitGroup
+	for i := 1; i <= writers; i++ {
+		wait.Add(1)
+		go func(pid int) {
+			defer wait.Done()
+			<-start
+			restored, err := RestoreIfMissing(path, Info{PID: pid, Port: 3000 + pid})
+			results <- restored
+			errs <- err
+		}(i)
+	}
+	close(start)
+	wait.Wait()
+	close(results)
+	close(errs)
+
+	winners := 0
+	for restored := range results {
+		if restored {
+			winners++
+		}
+	}
+	if winners != 1 {
+		t.Fatalf("successful restores = %d, want 1", winners)
+	}
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("RestoreIfMissing() error = %v", err)
+		}
+	}
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if got == nil || got.PID < 1 || got.PID > writers || got.Port != 3000+got.PID {
+		t.Fatalf("restored info = %#v", got)
 	}
 }
 
