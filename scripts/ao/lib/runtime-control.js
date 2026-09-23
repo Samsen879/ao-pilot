@@ -210,7 +210,7 @@ function daemonReady(result) {
   if (result?.status !== 0) return false;
   try {
     const parsed = JSON.parse(result.stdout || '{}');
-    return parsed?.state === 'ready' || parsed?.ready === 'ready' || parsed?.health === 'ok';
+    return parsed?.state === 'ready' || parsed?.ready === 'ready' || parsed?.ready === true;
   } catch {
     return false;
   }

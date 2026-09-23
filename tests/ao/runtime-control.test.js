@@ -213,6 +213,32 @@ describe('runtime control boundary', () => {
     expect(childSpawn).not.toHaveBeenCalled();
   });
 
+  it('does not treat liveness health as startup readiness', async () => {
+    const syncSpawn = jest.fn()
+      .mockReturnValueOnce({
+        status: 0,
+        stdout: '{"state":"not_ready","health":"ok","pid":42}',
+        stderr: '',
+      })
+      .mockReturnValueOnce({
+        status: 0,
+        stdout: '{"state":"ready","health":"ok","pid":42}',
+        stderr: '',
+      });
+    const child = { once: jest.fn(), unref: jest.fn() };
+    const childSpawn = jest.fn().mockReturnValue(child);
+
+    const result = await startVerifiedRuntimeDaemon(verified, {
+      syncSpawn,
+      childSpawn,
+      delay: async () => {},
+    });
+
+    expect(result.status).toBe('started');
+    expect(childSpawn).toHaveBeenCalledTimes(1);
+    expect(syncSpawn).toHaveBeenCalledTimes(2);
+  });
+
   it('bounds the initial status probe by the remaining startup timeout', async () => {
     const syncSpawn = jest.fn().mockReturnValue({
       status: null,
