@@ -56,6 +56,10 @@ func worktreeForceRemoveArgs(repo, path string) []string {
 	return []string{"-C", repo, "worktree", "remove", "--force", path}
 }
 
+func worktreeUnlockArgs(repo, path string) []string {
+	return []string{"-C", repo, "worktree", "unlock", path}
+}
+
 func worktreePruneArgs(repo string) []string {
 	return []string{"-C", repo, "worktree", "prune"}
 }
