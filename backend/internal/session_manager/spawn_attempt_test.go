@@ -367,6 +367,41 @@ func (w fakeMultiWorkspace) DestroyWorkspaceProject(context.Context, ports.Works
 	return errors.New("dirty child")
 }
 
+type canceledMultiWorkspace struct {
+	fakeMultiWorkspace
+	cancel context.CancelFunc
+}
+
+func (w canceledMultiWorkspace) CreateWorkspaceProject(ctx context.Context, cfg ports.WorkspaceProjectConfig) (ports.WorkspaceProjectInfo, error) {
+	info, err := w.fakeMultiWorkspace.CreateWorkspaceProject(ctx, cfg)
+	if err != nil {
+		return info, err
+	}
+	w.cancel()
+	return info, context.Canceled
+}
+
+func TestCanceledWorkspaceProjectRecordsRetainedCustody(t *testing.T) {
+	m, s, _, ws, cfg := newSpawnFixture(t)
+	project, _, _ := s.GetProject(context.Background(), "fixture")
+	project.Kind = domain.ProjectKindWorkspace
+	if err := s.UpsertProject(context.Background(), project); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.workspace = canceledMultiWorkspace{fakeMultiWorkspace: fakeMultiWorkspace{ws}, cancel: cancel}
+	if _, _, _, err := m.Spawn(ctx, cfg); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Spawn error = %v, want context.Canceled", err)
+	}
+	rows, err := s.ListSessionWorktrees(context.Background(), "fixture-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("retained custody rows = %d, want 2", len(rows))
+	}
+}
+
 type failingWorktreeStore struct{ *sqlite.Store }
 
 func (s failingWorktreeStore) UpsertSessionWorktree(ctx context.Context, row domain.SessionWorktreeRecord) error {

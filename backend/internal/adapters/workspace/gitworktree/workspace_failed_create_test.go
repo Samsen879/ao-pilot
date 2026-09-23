@@ -8,10 +8,27 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 )
+
+func TestFailedCreateCleanupContextGetsFreshDeadline(t *testing.T) {
+	parent, cancelParent := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancelParent()
+	<-parent.Done()
+
+	cleanup, cancelCleanup := failedCreateCleanupContext(parent)
+	defer cancelCleanup()
+	if err := cleanup.Err(); err != nil {
+		t.Fatalf("cleanup context inherited expired deadline: %v", err)
+	}
+	deadline, ok := cleanup.Deadline()
+	if !ok || time.Until(deadline) <= 0 {
+		t.Fatalf("cleanup deadline = %v, %v; want fresh future deadline", deadline, ok)
+	}
+}
 
 func TestCreateRollsBackInterruptedInitializingWorktree(t *testing.T) {
 	repo := t.TempDir()
