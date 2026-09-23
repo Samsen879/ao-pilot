@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/config"
@@ -27,6 +28,7 @@ type Server struct {
 
 	shutdownRequested chan struct{}
 	shutdownOnce      sync.Once
+	ready             atomic.Bool
 }
 
 // NewWithDeps constructs a Server with API dependencies supplied by the daemon
@@ -67,6 +69,7 @@ func NewWithDeps(cfg config.Config, log *slog.Logger, termMgr *terminal.Manager,
 	srv.http = &http.Server{
 		Handler: NewRouterWithControl(cfg, log, termMgr, deps, ControlDeps{
 			RequestShutdown: srv.requestShutdown,
+			IsReady:         srv.ready.Load,
 		}),
 		// ReadHeaderTimeout guards against slow-loris even on loopback;
 		// per-request body/handler timeouts are applied per-surface.
@@ -83,6 +86,9 @@ func (s *Server) Addr() net.Addr { return s.listen.Addr() }
 // the exact same handler instance with the LAN listener (via NewMobileLAN),
 // keeping the loopback and LAN surfaces identical.
 func (s *Server) Handler() http.Handler { return s.http.Handler }
+
+// MarkReady opens the REST API and readiness probe after boot reconciliation.
+func (s *Server) MarkReady() { s.ready.Store(true) }
 
 // Run serves until ctx is cancelled (SIGINT/SIGTERM via signal.NotifyContext),
 // then performs a graceful shutdown bounded by cfg.ShutdownTimeout. It writes
