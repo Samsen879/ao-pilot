@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -20,7 +21,7 @@ const (
 	defaultGitBinary = "git"
 	// defaultBranch is the base branch used when neither the per-project config
 	// nor the adapter options name one. It shares domain's single source of truth.
-	defaultBranch = domain.DefaultBranchName
+	defaultBranch              = domain.DefaultBranchName
 	failedCreateCleanupTimeout = 30 * time.Second
 )
 
@@ -220,10 +221,26 @@ func (w *Workspace) CreateWorkspaceProject(ctx context.Context, cfg ports.Worksp
 	for _, repo := range repos {
 		baseSHA, err := w.createWorkspaceProjectRepo(ctx, repo, branch)
 		if err != nil {
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), failedCreateCleanupTimeout)
+			defer cancel()
+			remaining := make([]ports.WorkspaceRepoInfo, 0, len(out.Worktrees))
+			var cleanupErr error
 			for i := len(created) - 1; i >= 0; i-- {
-				_ = w.forceDestroyPath(ctx, created[i].repoPath, created[i].outputPath)
+				if rollbackErr := w.rollbackFailedCreate(cleanupCtx, created[i].repoPath, created[i].outputPath, branch); rollbackErr != nil {
+					cleanupErr = errors.Join(cleanupErr, rollbackErr)
+					remaining = append(remaining, out.Worktrees[i])
+				} else if out.Root.Path == created[i].outputPath {
+					out.Root = ports.WorkspaceInfo{}
+				}
 			}
-			return ports.WorkspaceProjectInfo{}, err
+			// Cleanup ran in reverse order; restore the public root-first order for
+			// any worktrees whose removal failed so the caller retains custody.
+			slices.Reverse(remaining)
+			out.Worktrees = remaining
+			if len(remaining) == 0 {
+				out = ports.WorkspaceProjectInfo{}
+			}
+			return out, errors.Join(err, cleanupErr)
 		}
 		created = append(created, repo)
 		info := ports.WorkspaceRepoInfo{
@@ -1003,13 +1020,32 @@ func (w *Workspace) rollbackFailedCreate(parent context.Context, repo, path, bra
 	if registered && rec.Branch != "" && rec.Branch != branch {
 		return fmt.Errorf("gitworktree: preserve failed create %q: registered branch %q differs from requested %q", path, rec.Branch, branch)
 	}
-	if registered && rec.Locked {
+	if !registered {
+		if _, statErr := os.Lstat(path); statErr == nil {
+			return fmt.Errorf("gitworktree: preserve failed create %q: path is not registered", path)
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return fmt.Errorf("gitworktree: inspect failed create path %q: %w", path, statErr)
+		}
+		return nil
+	}
+	if rec.Locked {
 		if _, err := w.run(cleanupCtx, w.binary, worktreeUnlockArgs(repo, path)...); err != nil {
 			return fmt.Errorf("gitworktree: unlock failed create %q: %w", path, err)
 		}
 	}
-	if err := w.forceDestroyPath(cleanupCtx, repo, path); err != nil {
-		return fmt.Errorf("gitworktree: rollback failed create %q: %w", path, err)
+	removeOut, removeErr := w.run(cleanupCtx, w.binary, worktreeForceRemoveArgs(repo, path)...)
+	records, inspectErr := w.listRecords(cleanupCtx, repo)
+	if inspectErr != nil {
+		return fmt.Errorf("gitworktree: inspect rollback result %q: %w", path, inspectErr)
+	}
+	if _, stillRegistered := findWorktree(records, path); stillRegistered {
+		if removeErr != nil {
+			return fmt.Errorf("gitworktree: rollback failed create %q: %w: %s", path, removeErr, strings.TrimSpace(string(removeOut)))
+		}
+		return fmt.Errorf("gitworktree: rollback failed create %q: worktree remains registered", path)
+	}
+	if err := removeAllWithRetry(cleanupCtx, path); err != nil {
+		return fmt.Errorf("gitworktree: force remove path %q: %w", path, err)
 	}
 	return nil
 }
