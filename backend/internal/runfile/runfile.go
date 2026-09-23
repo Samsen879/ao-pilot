@@ -75,6 +75,23 @@ func Write(path string, info Info) error {
 	return nil
 }
 
+// RestoreIfMissing rewrites the daemon handshake only when no record exists.
+// It deliberately leaves an observed existing record untouched, including one
+// owned by another PID, so the normal overlapping-restart path is preserved.
+func RestoreIfMissing(path string, info Info) (bool, error) {
+	current, err := Read(path)
+	if err != nil {
+		return false, err
+	}
+	if current != nil {
+		return false, nil
+	}
+	if err := Write(path, info); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // Read loads running.json. A missing file returns (nil, nil) — that is the
 // normal "no daemon recorded" state, not an error.
 func Read(path string) (*Info, error) {
