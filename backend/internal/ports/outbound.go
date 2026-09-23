@@ -213,6 +213,10 @@ var (
 	// recoverable on their own; the operator has to unlock or remove the
 	// registration first.
 	ErrWorkspaceLocked = errors.New("workspace: registered worktree is locked")
+	// ErrWorkspaceInsufficientSpace reports that the configured capacity
+	// filesystem has fallen below the operator's reserve. Worktree creation is
+	// rejected before git begins materializing a checkout.
+	ErrWorkspaceInsufficientSpace = errors.New("workspace: insufficient free space")
 	// ErrPreservedConflict is returned by ApplyPreserved when replaying a
 	// preserved ref onto the worktree produces merge conflicts. The ref is
 	// kept intact (never deleted on conflict); the working tree is left with

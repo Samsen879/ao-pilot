@@ -88,6 +88,13 @@ type Config struct {
 	// DataDir is the directory holding durable SQLite state: DB and WAL files.
 	// It is created on first use by the storage layer.
 	DataDir string
+	// WorktreeCapacityPath selects the filesystem whose free space gates new
+	// worktrees. It can point at a backing host mount (for example /mnt/c under
+	// WSL) when DataDir's virtual filesystem free-space view is misleading.
+	WorktreeCapacityPath string
+	// WorktreeMinFreeBytes is the reserve required before materializing a new
+	// worktree. Zero disables the guard.
+	WorktreeMinFreeBytes uint64
 	// Agent is the compatibility agent adapter id selected by AO_AGENT;
 	// startSession fails fast if no adapter with this id is registered.
 	Agent string
@@ -128,6 +135,8 @@ func (c Config) Addr() string {
 //	AO_SHUTDOWN_TIMEOUT  shutdown deadline   (Go duration > 0, default 10s)
 //	AO_RUN_FILE          running.json path   (default ~/.ao/running.json)
 //	AO_DATA_DIR          durable state dir   (default ~/.ao/data)
+//	AO_WORKTREE_CAPACITY_PATH filesystem checked before worktree creation
+//	AO_WORKTREE_MIN_FREE_BYTES required free-byte reserve (default 0, disabled)
 //	AO_AGENT             compatibility agent id (default claude-code)
 //	AO_APP_RUN_ID        desktop-app launch id, set by the Electron supervisor
 //	                     (default: a fresh id minted per daemon boot)
@@ -178,6 +187,21 @@ func Load() (Config, error) {
 			return Config{}, err
 		}
 		cfg.ShutdownTimeout = d
+	}
+
+	if raw := strings.TrimSpace(os.Getenv("AO_WORKTREE_CAPACITY_PATH")); raw != "" {
+		capacityPath, err := filepath.Abs(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid AO_WORKTREE_CAPACITY_PATH %q: %w", raw, err)
+		}
+		cfg.WorktreeCapacityPath = filepath.Clean(capacityPath)
+	}
+	if raw := strings.TrimSpace(os.Getenv("AO_WORKTREE_MIN_FREE_BYTES")); raw != "" {
+		bytes, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil || bytes == 0 {
+			return Config{}, fmt.Errorf("invalid AO_WORKTREE_MIN_FREE_BYTES %q: expected a positive integer", raw)
+		}
+		cfg.WorktreeMinFreeBytes = bytes
 	}
 
 	if raw := os.Getenv("AO_AGENT"); raw != "" {
@@ -251,6 +275,9 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	cfg.DataDir = dataDir
+	if cfg.WorktreeMinFreeBytes > 0 && cfg.WorktreeCapacityPath == "" {
+		cfg.WorktreeCapacityPath = cfg.DataDir
+	}
 
 	return cfg, nil
 }
