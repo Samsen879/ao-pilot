@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -68,6 +69,8 @@ type Runtime struct {
 	reapGrace    time.Duration
 	runner       runner
 	reapSessions func(ctx context.Context, pids []int, grace time.Duration)
+	sendLocksMu  sync.Mutex
+	sendLocks    map[string]*sync.Mutex
 }
 
 var _ ports.Runtime = (*Runtime)(nil)
@@ -280,7 +283,22 @@ func New(opts Options) *Runtime {
 		reapGrace:    reapGrace,
 		runner:       execRunner{},
 		reapSessions: killSessionsByPID,
+		sendLocks:    make(map[string]*sync.Mutex),
 	}
+}
+
+func (r *Runtime) sendLock(id string) *sync.Mutex {
+	r.sendLocksMu.Lock()
+	defer r.sendLocksMu.Unlock()
+	if r.sendLocks == nil {
+		r.sendLocks = make(map[string]*sync.Mutex)
+	}
+	lock := r.sendLocks[id]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		r.sendLocks[id] = lock
+	}
+	return lock
 }
 
 // Create starts a new tmux session in the workspace, running the agent's
@@ -552,6 +570,12 @@ func (r *Runtime) SendMessage(ctx context.Context, handle ports.RuntimeHandle, m
 	if err != nil {
 		return err
 	}
+	// Keep the whole paste-delay-Enter sequence atomic per pane. HTTP handlers
+	// may call SendMessage concurrently; without this lock a second paste can
+	// land before the first Enter and merge two prompts.
+	lock := r.sendLock(id)
+	lock.Lock()
+	defer lock.Unlock()
 	enterCtx := ctx
 	if message != "" {
 		messageChunks := chunks(message, r.chunkSize)
