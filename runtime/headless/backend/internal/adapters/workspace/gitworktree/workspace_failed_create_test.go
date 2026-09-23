@@ -1,0 +1,92 @@
+package gitworktree
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
+)
+
+func TestCreateRollsBackInterruptedInitializingWorktree(t *testing.T) {
+	repo := t.TempDir()
+	managed := filepath.Join(t.TempDir(), "worktrees")
+	if err := os.MkdirAll(managed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w, err := New(Options{
+		ManagedRoot: managed,
+		RepoResolver: StaticRepoResolver{
+			domain.ProjectID("project"): repo,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	wantPath := filepath.Join(managed, "project", "project-1")
+	partial := false
+	var calls [][]string
+	w.run = func(runCtx context.Context, _ string, args ...string) ([]byte, error) {
+		calls = append(calls, slices.Clone(args))
+		joined := strings.Join(args, " ")
+		switch {
+		case strings.Contains(joined, "check-ref-format --branch"):
+			return nil, nil
+		case strings.Contains(joined, "worktree list --porcelain"):
+			out := "worktree " + repo + "\nHEAD abc\nbranch refs/heads/main\n\n"
+			if partial {
+				out += "worktree " + wantPath + "\nHEAD def\nbranch refs/heads/ao/project-1/root\nlocked initializing\n\n"
+			}
+			return []byte(out), nil
+		case strings.Contains(joined, "rev-parse --verify --quiet refs/heads/ao/project-1/root"):
+			return []byte("def\n"), nil
+		case strings.Contains(joined, "worktree add"):
+			partial = true
+			cancel()
+			return nil, context.Canceled
+		case strings.Contains(joined, "worktree unlock"):
+			if runCtx.Err() != nil {
+				t.Fatalf("rollback inherited cancelled request context: %v", runCtx.Err())
+			}
+			return nil, nil
+		case strings.Contains(joined, "worktree remove --force"):
+			return nil, nil
+		case strings.Contains(joined, "worktree prune"):
+			return nil, nil
+		default:
+			t.Fatalf("unexpected git call: %v", args)
+			return nil, nil
+		}
+	}
+
+	info, err := w.Create(ctx, ports.WorkspaceConfig{
+		ProjectID: "project",
+		SessionID: "project-1",
+		Kind:      domain.KindWorker,
+		Branch:    "ao/project-1/root",
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Create error = %v, want context.Canceled", err)
+	}
+	if info.Path != wantPath || info.RepoPath != repo {
+		t.Fatalf("Create returned custody %+v, want path %q repo %q", info, wantPath, repo)
+	}
+	joinedCalls := make([]string, 0, len(calls))
+	for _, call := range calls {
+		joinedCalls = append(joinedCalls, strings.Join(call, " "))
+	}
+	if !slices.ContainsFunc(joinedCalls, func(call string) bool { return strings.Contains(call, "worktree unlock "+wantPath) }) {
+		t.Fatalf("calls %v did not unlock interrupted worktree", joinedCalls)
+	}
+	if !slices.ContainsFunc(joinedCalls, func(call string) bool { return strings.Contains(call, "worktree remove --force "+wantPath) }) {
+		t.Fatalf("calls %v did not remove interrupted worktree", joinedCalls)
+	}
+}
+

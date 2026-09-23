@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
@@ -20,6 +21,7 @@ const (
 	// defaultBranch is the base branch used when neither the per-project config
 	// nor the adapter options name one. It shares domain's single source of truth.
 	defaultBranch = domain.DefaultBranchName
+	failedCreateCleanupTimeout = 30 * time.Second
 )
 
 // ErrUnsafePath is returned when a resolved worktree path escapes the managed
@@ -142,9 +144,20 @@ func (w *Workspace) Create(ctx context.Context, cfg ports.WorkspaceConfig) (port
 		return info, nil
 	}
 	if err := w.addWorktree(ctx, repo, path, cfg.Branch, cfg.BaseBranch); err != nil {
-		return ports.WorkspaceInfo{}, err
+		// git can materialize most or all of a large checkout before the request
+		// context expires. In that case it leaves a locked "initializing"
+		// registration and a multi-gigabyte directory behind. Return custody of
+		// the allocated path even on failure, and clean only the registration for
+		// this exact path/branch under a context that outlives the cancelled
+		// request. The caller can make a second rollback attempt from the returned
+		// WorkspaceInfo if this best-effort cleanup cannot finish.
+		info := ports.WorkspaceInfo{Path: path, Branch: cfg.Branch, SessionID: cfg.SessionID, ProjectID: cfg.ProjectID, RepoPath: repo}
+		if cleanupErr := w.rollbackFailedCreate(ctx, repo, path, cfg.Branch); cleanupErr != nil {
+			return info, errors.Join(err, cleanupErr)
+		}
+		return info, err
 	}
-	return ports.WorkspaceInfo{Path: path, Branch: cfg.Branch, SessionID: cfg.SessionID, ProjectID: cfg.ProjectID}, nil
+	return ports.WorkspaceInfo{Path: path, Branch: cfg.Branch, SessionID: cfg.SessionID, ProjectID: cfg.ProjectID, RepoPath: repo}, nil
 }
 
 // CreateWorkspaceProject materialises a root-as-repo workspace session: the
@@ -962,9 +975,43 @@ func (w *Workspace) createWorkspaceProjectRepo(ctx context.Context, repo workspa
 	// prune this used to run, which would also drop sibling sessions'
 	// registrations.
 	if err := w.addNewBranchWorktree(ctx, repo.repoPath, branch, repo.outputPath, baseRef, force); err != nil {
-		return "", fmt.Errorf("gitworktree: workspace repo %q worktree add branch %q from %q: %w", repo.name, branch, baseRef, err)
+		createErr := fmt.Errorf("gitworktree: workspace repo %q worktree add branch %q from %q: %w", repo.name, branch, baseRef, err)
+		if cleanupErr := w.rollbackFailedCreate(ctx, repo.repoPath, repo.outputPath, branch); cleanupErr != nil {
+			return "", errors.Join(createErr, cleanupErr)
+		}
+		return "", createErr
 	}
 	return baseSHA, nil
+}
+
+// rollbackFailedCreate removes a partially materialized worktree after git
+// worktree add fails. A cancelled request is the common case for large repos,
+// so teardown deliberately uses a detached, bounded context. The exact branch
+// check prevents cleanup from deleting a different worktree that won a race to
+// the same path. Unlocking is safe here because Create already established
+// that no usable worktree existed at the target before this add attempt; the
+// lock is git's interrupted-initialization marker, not live-session custody.
+func (w *Workspace) rollbackFailedCreate(parent context.Context, repo, path, branch string) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(parent), failedCreateCleanupTimeout)
+	defer cancel()
+
+	records, err := w.listRecords(cleanupCtx, repo)
+	if err != nil {
+		return fmt.Errorf("gitworktree: inspect failed create %q: %w", path, err)
+	}
+	rec, registered := findWorktree(records, path)
+	if registered && rec.Branch != "" && rec.Branch != branch {
+		return fmt.Errorf("gitworktree: preserve failed create %q: registered branch %q differs from requested %q", path, rec.Branch, branch)
+	}
+	if registered && rec.Locked {
+		if _, err := w.run(cleanupCtx, w.binary, worktreeUnlockArgs(repo, path)...); err != nil {
+			return fmt.Errorf("gitworktree: unlock failed create %q: %w", path, err)
+		}
+	}
+	if err := w.forceDestroyPath(cleanupCtx, repo, path); err != nil {
+		return fmt.Errorf("gitworktree: rollback failed create %q: %w", path, err)
+	}
+	return nil
 }
 
 func (w *Workspace) forceDestroyPath(ctx context.Context, repo, path string) error {
