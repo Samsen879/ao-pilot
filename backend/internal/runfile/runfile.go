@@ -95,9 +95,9 @@ func RestoreIfMissing(path string, info Info) (bool, error) {
 	}
 	data = append(data, '\n')
 
-	// Publish a complete file with an atomic, no-replace link. A replacement
-	// daemon may create path after Read observes it missing; Link then returns
-	// os.ErrExist and preserves that newer daemon's handshake.
+	// Publish a complete file with an atomic, no-replace operation. A replacement
+	// daemon may create path after Read observes it missing; atomicCreate then
+	// returns os.ErrExist and preserves that newer daemon's handshake.
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".running-restore-*.json")
 	if err != nil {
 		return false, fmt.Errorf("create temp run-file: %w", err)
@@ -111,7 +111,7 @@ func RestoreIfMissing(path string, info Info) (bool, error) {
 	if err := tmp.Close(); err != nil {
 		return false, fmt.Errorf("close temp run-file: %w", err)
 	}
-	if err := os.Link(tmpName, path); err != nil {
+	if err := atomicCreate(tmpName, path); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return false, nil
 		}
