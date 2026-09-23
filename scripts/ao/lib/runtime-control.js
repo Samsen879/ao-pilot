@@ -216,6 +216,16 @@ function daemonReady(result) {
   }
 }
 
+function daemonStarting(result) {
+  if (result?.status !== 0) return false;
+  try {
+    const parsed = JSON.parse(result.stdout || '{}');
+    return parsed?.state === 'not_ready' && parsed?.health === 'ok' && Number.isInteger(parsed?.pid);
+  } catch {
+    return false;
+  }
+}
+
 function statusProbe(runtime, {
   cwd,
   env,
@@ -236,7 +246,7 @@ export async function startVerifiedRuntimeDaemon(runtime, {
   env = process.env,
   childSpawn = spawn,
   syncSpawn = spawnSync,
-  timeoutMs = 10_000,
+  timeoutMs = 5 * 60_000,
   pollIntervalMs = 100,
   delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   now = () => Date.now(),
@@ -265,32 +275,36 @@ export async function startVerifiedRuntimeDaemon(runtime, {
     };
   }
 
+  const existingDaemon = daemonStarting(before);
+
   let spawnError = null;
   let childExited = false;
   let childExitCode = null;
   let childExitSignal = null;
   let child;
-  try {
-    child = childSpawn(runtime.binary_path, ['daemon'], {
-      cwd,
-      env,
-      detached: true,
-      stdio: 'ignore',
+  if (!existingDaemon) {
+    try {
+      child = childSpawn(runtime.binary_path, ['daemon'], {
+        cwd,
+        env,
+        detached: true,
+        stdio: 'ignore',
+      });
+    } catch (error) {
+      return {
+        status: 'failed',
+        exit_code: 2,
+        error: error.message,
+      };
+    }
+    child.once?.('error', (error) => { spawnError = error; });
+    child.once?.('exit', (code, signal) => {
+      childExited = true;
+      childExitCode = code;
+      childExitSignal = signal;
     });
-  } catch (error) {
-    return {
-      status: 'failed',
-      exit_code: 2,
-      error: error.message,
-    };
+    child.unref?.();
   }
-  child.once?.('error', (error) => { spawnError = error; });
-  child.once?.('exit', (code, signal) => {
-    childExited = true;
-    childExitCode = code;
-    childExitSignal = signal;
-  });
-  child.unref?.();
 
   let lastProbe = before;
   while (now() < deadline) {
@@ -302,7 +316,7 @@ export async function startVerifiedRuntimeDaemon(runtime, {
         error: spawnError.message,
       };
     }
-    if (childExited) {
+    if (!existingDaemon && childExited) {
       return {
         status: 'failed',
         exit_code: 2,
@@ -313,14 +327,16 @@ export async function startVerifiedRuntimeDaemon(runtime, {
     lastProbe = probe();
     if (daemonReady(lastProbe)) {
       return {
-        status: 'started',
+        status: existingDaemon ? 'already_running' : 'started',
         exit_code: 0,
         daemon_status: JSON.parse(lastProbe.stdout),
       };
     }
   }
 
-  child.kill?.('SIGTERM');
+  if (!existingDaemon && !daemonStarting(lastProbe)) {
+    child.kill?.('SIGTERM');
+  }
   return {
     status: 'failed',
     exit_code: 2,
