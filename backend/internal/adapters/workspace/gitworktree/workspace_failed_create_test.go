@@ -57,8 +57,7 @@ func TestCreateRollsBackInterruptedInitializingWorktree(t *testing.T) {
 			}
 			return nil, nil
 		case strings.Contains(joined, "worktree remove --force"):
-			return nil, nil
-		case strings.Contains(joined, "worktree prune"):
+			partial = false
 			return nil, nil
 		default:
 			t.Fatalf("unexpected git call: %v", args)
@@ -88,5 +87,51 @@ func TestCreateRollsBackInterruptedInitializingWorktree(t *testing.T) {
 	if !slices.ContainsFunc(joinedCalls, func(call string) bool { return strings.Contains(call, "worktree remove --force "+wantPath) }) {
 		t.Fatalf("calls %v did not remove interrupted worktree", joinedCalls)
 	}
+	if slices.ContainsFunc(joinedCalls, func(call string) bool { return strings.Contains(call, "worktree prune") }) {
+		t.Fatalf("calls %v pruned unrelated worktrees", joinedCalls)
+	}
 }
 
+func TestCreatePreservesUnregisteredDirectoryAfterAddFailure(t *testing.T) {
+	repo := t.TempDir()
+	managed := filepath.Join(t.TempDir(), "worktrees")
+	if err := os.MkdirAll(managed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w, err := New(Options{ManagedRoot: managed, RepoResolver: StaticRepoResolver{domain.ProjectID("project"): repo}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPath := filepath.Join(managed, "project", "project-1")
+	if err := os.MkdirAll(wantPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wantFile := filepath.Join(wantPath, "keep.txt")
+	if err := os.WriteFile(wantFile, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	w.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		joined := strings.Join(args, " ")
+		switch {
+		case strings.Contains(joined, "check-ref-format --branch"):
+			return nil, nil
+		case strings.Contains(joined, "worktree list --porcelain"):
+			return []byte("worktree " + repo + "\nHEAD abc\nbranch refs/heads/main\n\n"), nil
+		case strings.Contains(joined, "rev-parse --verify --quiet refs/heads/ao/project-1/root"):
+			return []byte("def\n"), nil
+		case strings.Contains(joined, "worktree add"):
+			return nil, errors.New("path already exists")
+		default:
+			return nil, nil
+		}
+	}
+
+	_, err = w.Create(context.Background(), ports.WorkspaceConfig{ProjectID: "project", SessionID: "project-1", Kind: domain.KindWorker, Branch: "ao/project-1/root"})
+	if err == nil || !strings.Contains(err.Error(), "path is not registered") {
+		t.Fatalf("Create error = %v, want preserved unregistered path", err)
+	}
+	data, readErr := os.ReadFile(wantFile)
+	if readErr != nil || string(data) != "keep" {
+		t.Fatalf("preserved file = %q, %v", data, readErr)
+	}
+}
