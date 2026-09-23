@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
@@ -83,14 +85,15 @@ type Options struct {
 // Workspace creates per-session git worktrees under a managed root. It
 // implements ports.Workspace.
 type Workspace struct {
-	binary        string
-	managedRoot   string
-	defaultBranch string
-	repos         RepoResolver
+	binary         string
+	managedRoot    string
+	defaultBranch  string
+	repos          RepoResolver
 	run            commandRunner
 	capacityPath   string
 	minFreeBytes   uint64
 	availableBytes func(string) (uint64, error)
+	materializeMu  sync.Mutex
 }
 
 type commandRunner func(ctx context.Context, binary string, args ...string) ([]byte, error)
@@ -130,9 +133,9 @@ func New(opts Options) (*Workspace, error) {
 		}
 	}
 	return &Workspace{
-		binary:        binary,
-		managedRoot:   filepath.Clean(root),
-		defaultBranch: branch,
+		binary:         binary,
+		managedRoot:    filepath.Clean(root),
+		defaultBranch:  branch,
 		repos:          opts.RepoResolver,
 		run:            runCommand,
 		capacityPath:   capacityPath,
@@ -158,12 +161,18 @@ func (w *Workspace) Create(ctx context.Context, cfg ports.WorkspaceConfig) (port
 	if err != nil {
 		return ports.WorkspaceInfo{}, err
 	}
+	w.materializeMu.Lock()
+	defer w.materializeMu.Unlock()
 	if info, ok, err := w.existingWorktree(ctx, repo, path, cfg); err != nil {
 		return ports.WorkspaceInfo{}, err
 	} else if ok {
 		return info, nil
 	}
-	if err := w.ensureCapacity(); err != nil {
+	requiredBytes, err := w.estimateCheckoutBytes(ctx, repo, cfg.Branch, cfg.BaseBranch)
+	if err != nil {
+		return ports.WorkspaceInfo{}, err
+	}
+	if err := w.ensureCapacity(requiredBytes); err != nil {
 		return ports.WorkspaceInfo{}, err
 	}
 	if err := w.addWorktree(ctx, repo, path, cfg.Branch, cfg.BaseBranch); err != nil {
@@ -223,6 +232,8 @@ func (w *Workspace) CreateWorkspaceProject(ctx context.Context, cfg ports.Worksp
 			baseBranch:   firstNonEmpty(child.BaseBranch, cfg.BaseBranch),
 		})
 	}
+	w.materializeMu.Lock()
+	defer w.materializeMu.Unlock()
 	branch, err := w.workspaceProjectBranch(ctx, repos, firstNonEmpty(cfg.Branch, defaultSessionBranchName(cfg.SessionID)))
 	if err != nil {
 		return ports.WorkspaceProjectInfo{}, err
@@ -230,18 +241,9 @@ func (w *Workspace) CreateWorkspaceProject(ctx context.Context, cfg ports.Worksp
 	created := make([]workspaceProjectRepo, 0, len(repos))
 	out := ports.WorkspaceProjectInfo{Worktrees: make([]ports.WorkspaceRepoInfo, 0, len(repos))}
 	for _, repo := range repos {
-		if err := w.ensureCapacity(); err != nil {
-			for i := len(created) - 1; i >= 0; i-- {
-				_ = w.forceDestroyPath(ctx, created[i].repoPath, created[i].outputPath)
-			}
-			return ports.WorkspaceProjectInfo{}, err
-		}
 		baseSHA, err := w.createWorkspaceProjectRepo(ctx, repo, branch)
 		if err != nil {
-			for i := len(created) - 1; i >= 0; i-- {
-				_ = w.forceDestroyPath(ctx, created[i].repoPath, created[i].outputPath)
-			}
-			return ports.WorkspaceProjectInfo{}, err
+			return ports.WorkspaceProjectInfo{}, errors.Join(err, w.rollbackWorkspaceProjectRepos(ctx, created, branch))
 		}
 		created = append(created, repo)
 		info := ports.WorkspaceRepoInfo{
@@ -648,6 +650,8 @@ func (w *Workspace) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (por
 	if err != nil {
 		return ports.WorkspaceInfo{}, err
 	}
+	w.materializeMu.Lock()
+	defer w.materializeMu.Unlock()
 	records, err := w.listRecords(ctx, repo)
 	if err != nil {
 		return ports.WorkspaceInfo{}, err
@@ -683,6 +687,16 @@ func (w *Workspace) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (por
 			recreateBranch = rec.Branch
 		}
 	}
+	if err := w.validateBranch(ctx, repo, recreateBranch); err != nil {
+		return ports.WorkspaceInfo{}, err
+	}
+	requiredBytes, err := w.estimateCheckoutBytes(ctx, repo, recreateBranch, cfg.BaseBranch)
+	if err != nil {
+		return ports.WorkspaceInfo{}, err
+	}
+	if err := w.ensureCapacity(requiredBytes); err != nil {
+		return ports.WorkspaceInfo{}, err
+	}
 	if nonEmpty, err := pathExistsNonEmpty(path); err != nil {
 		return ports.WorkspaceInfo{}, err
 	} else if nonEmpty {
@@ -693,19 +707,13 @@ func (w *Workspace) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (por
 			return ports.WorkspaceInfo{}, err
 		}
 	}
-	if err := w.validateBranch(ctx, repo, recreateBranch); err != nil {
-		return ports.WorkspaceInfo{}, err
-	}
-	if err := w.ensureCapacity(); err != nil {
-		return ports.WorkspaceInfo{}, err
-	}
 	if err := w.addWorktree(ctx, repo, path, recreateBranch, cfg.BaseBranch); err != nil {
 		return ports.WorkspaceInfo{}, err
 	}
 	return ports.WorkspaceInfo{Path: path, Branch: recreateBranch, SessionID: cfg.SessionID, ProjectID: cfg.ProjectID, RepoPath: repo}, nil
 }
 
-func (w *Workspace) ensureCapacity() error {
+func (w *Workspace) ensureCapacity(checkoutBytes uint64) error {
 	if w.minFreeBytes == 0 {
 		return nil
 	}
@@ -713,10 +721,61 @@ func (w *Workspace) ensureCapacity() error {
 	if err != nil {
 		return fmt.Errorf("gitworktree: inspect capacity path %q: %w", w.capacityPath, err)
 	}
-	if available < w.minFreeBytes {
-		return fmt.Errorf("%w: capacity path %q has %d bytes available; require at least %d bytes before creating another worktree", ports.ErrWorkspaceInsufficientSpace, w.capacityPath, available, w.minFreeBytes)
+	required := w.minFreeBytes
+	if checkoutBytes > ^uint64(0)-required {
+		required = ^uint64(0)
+	} else {
+		required += checkoutBytes
+	}
+	if available < required {
+		return fmt.Errorf("%w: capacity path %q has %d bytes available; require %d bytes (%d reserve + %d estimated checkout) before creating another worktree", ports.ErrWorkspaceInsufficientSpace, w.capacityPath, available, required, w.minFreeBytes, checkoutBytes)
 	}
 	return nil
+}
+
+const checkoutMetadataHeadroom = uint64(256 << 20)
+
+func (w *Workspace) estimateCheckoutBytes(ctx context.Context, repo, branch, baseBranch string) (uint64, error) {
+	if w.minFreeBytes == 0 {
+		return 0, nil
+	}
+	ref, err := w.resolveBaseRef(ctx, repo, branch, baseBranch)
+	if err != nil {
+		if errors.Is(err, errNoBaseRef) {
+			return 0, fmt.Errorf("%w: %q has no local head, no remote, and no tag — run `git fetch` then retry", ErrBranchNotFetched, branch)
+		}
+		return 0, err
+	}
+	out, err := w.run(ctx, w.binary, "-C", repo, "ls-tree", "-r", "-l", "-z", ref)
+	if err != nil {
+		return 0, fmt.Errorf("gitworktree: estimate checkout %q: %w", ref, err)
+	}
+	var total uint64
+	for _, record := range strings.Split(string(out), "\x00") {
+		meta, _, ok := strings.Cut(record, "\t")
+		if !ok {
+			continue
+		}
+		fields := strings.Fields(meta)
+		if len(fields) < 4 || fields[3] == "-" {
+			continue
+		}
+		size, parseErr := strconv.ParseUint(fields[3], 10, 64)
+		if parseErr != nil {
+			return 0, fmt.Errorf("gitworktree: parse checkout size %q: %w", fields[3], parseErr)
+		}
+		if size > ^uint64(0)-total {
+			return ^uint64(0), nil
+		}
+		total += size
+	}
+	// Allow for filesystem blocks, indexes, and checkout metadata beyond raw
+	// blob bytes. This keeps the configured reserve intact after materializing.
+	overhead := total/10 + checkoutMetadataHeadroom
+	if overhead > ^uint64(0)-total {
+		return ^uint64(0), nil
+	}
+	return total + overhead, nil
 }
 
 func (w *Workspace) existingWorktree(ctx context.Context, repo, path string, cfg ports.WorkspaceConfig) (ports.WorkspaceInfo, bool, error) {
@@ -992,6 +1051,13 @@ func (w *Workspace) createWorkspaceProjectRepo(ctx context.Context, repo workspa
 	if err != nil {
 		return "", err
 	}
+	requiredBytes, err := w.estimateCheckoutBytes(ctx, repo.repoPath, branch, repo.baseBranch)
+	if err != nil {
+		return "", err
+	}
+	if err := w.ensureCapacity(requiredBytes); err != nil {
+		return "", err
+	}
 	// Same up-front stale-registration check addWorktree does, so the ordinary
 	// #2775 shape (registration outlived its directory) is handled by the first
 	// add and never reaches the recovery below. Without it every recovery here
@@ -1013,6 +1079,21 @@ func (w *Workspace) createWorkspaceProjectRepo(ctx context.Context, repo workspa
 		return "", fmt.Errorf("gitworktree: workspace repo %q worktree add branch %q from %q: %w", repo.name, branch, baseRef, err)
 	}
 	return baseSHA, nil
+}
+
+func (w *Workspace) rollbackWorkspaceProjectRepos(ctx context.Context, created []workspaceProjectRepo, branch string) error {
+	var rollbackErr error
+	for i := len(created) - 1; i >= 0; i-- {
+		repo := created[i]
+		if err := w.forceDestroyPath(ctx, repo.repoPath, repo.outputPath); err != nil {
+			rollbackErr = errors.Join(rollbackErr, err)
+			continue
+		}
+		if _, err := w.run(ctx, w.binary, deleteRefArgs(repo.repoPath, "refs/heads/"+branch)...); err != nil {
+			rollbackErr = errors.Join(rollbackErr, fmt.Errorf("gitworktree: delete rolled-back branch %q in %q: %w", branch, repo.repoPath, err))
+		}
+	}
+	return rollbackErr
 }
 
 func (w *Workspace) forceDestroyPath(ctx context.Context, repo, path string) error {
