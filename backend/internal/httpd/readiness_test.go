@@ -6,11 +6,12 @@ import (
 	"testing"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/config"
+	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/controllers"
 )
 
 func TestReadinessAndRESTStayClosedDuringRecovery(t *testing.T) {
 	ready := false
-	router := NewRouterWithControl(config.Config{}, nil, nil, APIDeps{}, ControlDeps{
+	router := NewRouterWithControl(config.Config{}, nil, nil, APIDeps{Mobile: &controllers.MobileController{}}, ControlDeps{
 		IsReady: func() bool { return ready },
 	})
 
@@ -27,6 +28,13 @@ func TestReadinessAndRESTStayClosedDuringRecovery(t *testing.T) {
 	assertStatus("/healthz", http.StatusOK)
 	assertStatus("/readyz", http.StatusServiceUnavailable)
 	assertStatus("/api/v1/sessions", http.StatusServiceUnavailable)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/mobile/enable", nil)
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("POST /api/v1/mobile/enable status = %d, want %d; body=%s", res.Code, http.StatusServiceUnavailable, res.Body.String())
+	}
 
 	ready = true
 	assertStatus("/readyz", http.StatusOK)

@@ -335,18 +335,40 @@ type operation struct {
 
 func operations() []operation {
 	ops := append([]operation{}, eventOperations()...)
-	ops = append(ops, agentOperations()...)
-	ops = append(ops, projectOperations()...)
-	ops = append(ops, sessionOperations()...)
-	ops = append(ops, prOperations()...)
-	ops = append(ops, reviewOperations()...)
-	ops = append(ops, notificationOperations()...)
-	ops = append(ops, pushOperations()...)
-	ops = append(ops, importOperations()...)
-	ops = append(ops, devOperations()...)
-	ops = append(ops, mobileOperations()...)
-	ops = append(ops, browserOperations()...)
-	ops = append(ops, shellTerminalOperations()...)
+	ops = append(ops, startupGated(agentOperations(), nil)...)
+	ops = append(ops, startupGated(projectOperations(), nil)...)
+	ops = append(ops, startupGated(sessionOperations(), nil)...)
+	ops = append(ops, startupGated(prOperations(), nil)...)
+	ops = append(ops, startupGated(reviewOperations(), nil)...)
+	ops = append(ops, startupGated(notificationOperations(), func(op operation) bool { return op.id != "streamNotifications" })...)
+	ops = append(ops, startupGated(pushOperations(), nil)...)
+	ops = append(ops, startupGated(importOperations(), nil)...)
+	ops = append(ops, startupGated(devOperations(), nil)...)
+	ops = append(ops, startupGated(mobileOperations(), func(op operation) bool { return op.method != http.MethodGet })...)
+	ops = append(ops, startupGated(browserOperations(), nil)...)
+	ops = append(ops, startupGated(shellTerminalOperations(), nil)...)
+	return ops
+}
+
+// startupGated adds the common recovery response to operations wrapped by
+// requireReady. Long-lived streams, health probes, and mobile status remain
+// available during recovery and are excluded by their caller's predicate.
+func startupGated(ops []operation, include func(operation) bool) []operation {
+	for i := range ops {
+		if include != nil && !include(ops[i]) {
+			continue
+		}
+		has503 := false
+		for _, response := range ops[i].resps {
+			if response.status == http.StatusServiceUnavailable {
+				has503 = true
+				break
+			}
+		}
+		if !has503 {
+			ops[i].resps = append(ops[i].resps, respUnit{http.StatusServiceUnavailable, envelope.APIError{}})
+		}
+	}
 	return ops
 }
 

@@ -67,7 +67,7 @@ func NewRouterWithControl(cfg config.Config, log *slog.Logger, termMgr *terminal
 	mountTerminalMux(r, termMgr, log)
 	mountControl(r, control)
 	mountTelemetry(r, cfg, deps.Telemetry)
-	mountMobile(r, deps.Mobile)
+	mountMobile(r, deps.Mobile, control.IsReady)
 	api.Register(r, control.IsReady)
 
 	return r
@@ -134,14 +134,14 @@ func mountControl(r chi.Router, deps ControlDeps) {
 // the 0.0.0.0 socket the phone reaches — a transport-based check that cannot be
 // spoofed with a forged Host header. On the loopback listener these routes are
 // protected by the same CORS allowlist as every other app route.
-func mountMobile(r chi.Router, c *controllers.MobileController) {
+func mountMobile(r chi.Router, c *controllers.MobileController, isReady func() bool) {
 	if c == nil {
 		return
 	}
 	r.Get("/api/v1/mobile/status", c.Status)
-	r.Post("/api/v1/mobile/enable", c.Enable)
-	r.Post("/api/v1/mobile/disable", c.Disable)
-	r.Post("/api/v1/mobile/regenerate", c.Regenerate)
+	r.With(requireReady(isReady)).Post("/api/v1/mobile/enable", c.Enable)
+	r.With(requireReady(isReady)).Post("/api/v1/mobile/disable", c.Disable)
+	r.With(requireReady(isReady)).Post("/api/v1/mobile/regenerate", c.Regenerate)
 }
 
 type cliInvokedRequest struct {
