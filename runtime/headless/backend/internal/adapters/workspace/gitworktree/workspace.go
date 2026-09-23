@@ -1045,11 +1045,7 @@ func (w *Workspace) rollbackFailedCreate(parent context.Context, repo, path, bra
 }
 
 func failedCreateCleanupContext(parent context.Context) (context.Context, context.CancelFunc) {
-	detached := context.WithoutCancel(parent)
-	if deadline, ok := parent.Deadline(); ok {
-		return context.WithDeadline(detached, deadline)
-	}
-	return context.WithTimeout(detached, failedCreateCleanupTimeout)
+	return context.WithTimeout(context.WithoutCancel(parent), failedCreateCleanupTimeout)
 }
 
 func (w *Workspace) rollbackOwnedWorktree(ctx context.Context, repo, path, branch string) (bool, error) {

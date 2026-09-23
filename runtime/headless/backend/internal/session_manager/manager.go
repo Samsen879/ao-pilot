@@ -706,8 +706,14 @@ func (m *Manager) createSessionWorkspace(ctx context.Context, project domain.Pro
 		return info.Root, &info, saveErr
 	}
 
+	bookkeepingCtx := ctx
+	var cancelBookkeeping context.CancelFunc
+	if err != nil {
+		bookkeepingCtx, cancelBookkeeping = context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancelBookkeeping()
+	}
 	for _, wt := range info.Worktrees {
-		if recordErr := m.store.UpsertSessionWorktree(ctx, domain.SessionWorktreeRecord{
+		if recordErr := m.store.UpsertSessionWorktree(bookkeepingCtx, domain.SessionWorktreeRecord{
 			SessionID:    id,
 			RepoName:     wt.RepoName,
 			Branch:       wt.Branch,
