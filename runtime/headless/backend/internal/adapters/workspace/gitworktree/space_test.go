@@ -129,3 +129,64 @@ func TestEnsureCapacityIncludesEstimatedCheckout(t *testing.T) {
 		t.Fatalf("ensureCapacity error = %v, want checkout estimate to preserve reserve", err)
 	}
 }
+
+func TestEstimateCheckoutRejectsFiltersBeforeLsTree(t *testing.T) {
+	lsTreeCalled := false
+	w := &Workspace{
+		binary:       "git",
+		capacityPath: "/capacity",
+		minFreeBytes: 32,
+		availableBytes: func(string) (uint64, error) {
+			return 1 << 40, nil
+		},
+	}
+	w.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		joined := strings.Join(args, " ")
+		if strings.Contains(joined, " config --get-regexp ") {
+			return []byte("filter.lfs.process git-lfs filter-process\n"), nil
+		}
+		if strings.Contains(joined, " ls-tree ") {
+			lsTreeCalled = true
+		}
+		return nil, nil
+	}
+	_, err := w.estimateCheckoutBytes(context.Background(), "/repo", "feature", "main")
+	if !errors.Is(err, ports.ErrWorkspaceInsufficientSpace) {
+		t.Fatalf("estimateCheckoutBytes error = %v, want fail-closed capacity error", err)
+	}
+	if lsTreeCalled {
+		t.Fatal("ls-tree ran after checkout filter was detected")
+	}
+}
+
+func TestEstimateCheckoutPrefersExistingLocalBranch(t *testing.T) {
+	var estimatedRef string
+	w := &Workspace{
+		binary:       "git",
+		capacityPath: "/capacity",
+		minFreeBytes: 32,
+		availableBytes: func(string) (uint64, error) {
+			return 1 << 40, nil
+		},
+	}
+	w.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		joined := strings.Join(args, " ")
+		switch {
+		case strings.Contains(joined, "config --get-regexp"):
+			return nil, nil
+		case strings.Contains(joined, "rev-parse --verify --quiet refs/heads/feature"):
+			return []byte("abc\n"), nil
+		case strings.Contains(joined, "ls-tree"):
+			estimatedRef = args[len(args)-1]
+			return []byte("100644 blob abc 4\tfile\x00"), nil
+		default:
+			return nil, nil
+		}
+	}
+	if _, err := w.estimateCheckoutBytes(context.Background(), "/repo", "feature", "main"); err != nil {
+		t.Fatal(err)
+	}
+	if estimatedRef != "refs/heads/feature" {
+		t.Fatalf("estimated ref = %q, want local branch", estimatedRef)
+	}
+}

@@ -739,12 +739,26 @@ func (w *Workspace) estimateCheckoutBytes(ctx context.Context, repo, branch, bas
 	if w.minFreeBytes == 0 {
 		return 0, nil
 	}
-	ref, err := w.resolveBaseRef(ctx, repo, branch, baseBranch)
-	if err != nil {
-		if errors.Is(err, errNoBaseRef) {
-			return 0, fmt.Errorf("%w: %q has no local head, no remote, and no tag — run `git fetch` then retry", ErrBranchNotFetched, branch)
-		}
+	// Check the reserve before any command that could hydrate a partial clone.
+	if err := w.ensureCapacity(0); err != nil {
 		return 0, err
+	}
+	if err := w.rejectUnboundedCheckout(ctx, repo); err != nil {
+		return 0, err
+	}
+	ref := "refs/heads/" + branch
+	local, err := w.refExists(ctx, repo, ref)
+	if err != nil {
+		return 0, err
+	}
+	if !local {
+		ref, err = w.resolveBaseRef(ctx, repo, branch, baseBranch)
+		if err != nil {
+			if errors.Is(err, errNoBaseRef) {
+				return 0, fmt.Errorf("%w: %q has no local head, no remote, and no tag — run `git fetch` then retry", ErrBranchNotFetched, branch)
+			}
+			return 0, err
+		}
 	}
 	out, err := w.run(ctx, w.binary, "-C", repo, "ls-tree", "-r", "-l", "-z", ref)
 	if err != nil {
@@ -776,6 +790,21 @@ func (w *Workspace) estimateCheckoutBytes(ctx context.Context, repo, branch, bas
 		return ^uint64(0), nil
 	}
 	return total + overhead, nil
+}
+
+func (w *Workspace) rejectUnboundedCheckout(ctx context.Context, repo string) error {
+	out, err := w.run(ctx, w.binary, "-C", repo, "config", "--get-regexp", `^(filter\..*\.(smudge|process)|remote\..*\.promisor|extensions\.partialclone)$`)
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return nil
+		}
+		return fmt.Errorf("gitworktree: inspect checkout filters for %q: %w", repo, err)
+	}
+	if strings.TrimSpace(string(out)) != "" {
+		return fmt.Errorf("%w: cannot safely estimate checkout for %q because a smudge/process filter or partial-clone promisor is configured", ports.ErrWorkspaceInsufficientSpace, repo)
+	}
+	return nil
 }
 
 func (w *Workspace) existingWorktree(ctx context.Context, repo, path string, cfg ports.WorkspaceConfig) (ports.WorkspaceInfo, bool, error) {
