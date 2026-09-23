@@ -743,7 +743,7 @@ func (w *Workspace) estimateCheckoutBytes(ctx context.Context, repo, branch, bas
 	if err := w.ensureCapacity(0); err != nil {
 		return 0, err
 	}
-	if err := w.rejectUnboundedCheckout(ctx, repo); err != nil {
+	if err := w.rejectPartialClone(ctx, repo); err != nil {
 		return 0, err
 	}
 	ref := "refs/heads/" + branch
@@ -759,6 +759,9 @@ func (w *Workspace) estimateCheckoutBytes(ctx context.Context, repo, branch, bas
 			}
 			return 0, err
 		}
+	}
+	if err := w.rejectCheckoutTransforms(ctx, repo, ref); err != nil {
+		return 0, err
 	}
 	out, err := w.run(ctx, w.binary, "-C", repo, "ls-tree", "-r", "-l", "-z", ref)
 	if err != nil {
@@ -792,8 +795,8 @@ func (w *Workspace) estimateCheckoutBytes(ctx context.Context, repo, branch, bas
 	return total + overhead, nil
 }
 
-func (w *Workspace) rejectUnboundedCheckout(ctx context.Context, repo string) error {
-	out, err := w.run(ctx, w.binary, "-C", repo, "config", "--get-regexp", `^(filter\..*\.(smudge|process)|remote\..*\.promisor|extensions\.partialclone)$`)
+func (w *Workspace) rejectPartialClone(ctx context.Context, repo string) error {
+	out, err := w.run(ctx, w.binary, "-C", repo, "config", "--get-regexp", `^(remote\..*\.promisor|extensions\.partialclone)$`)
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
@@ -802,7 +805,37 @@ func (w *Workspace) rejectUnboundedCheckout(ctx context.Context, repo string) er
 		return fmt.Errorf("gitworktree: inspect checkout filters for %q: %w", repo, err)
 	}
 	if strings.TrimSpace(string(out)) != "" {
-		return fmt.Errorf("%w: cannot safely estimate checkout for %q because a smudge/process filter or partial-clone promisor is configured", ports.ErrWorkspaceInsufficientSpace, repo)
+		return fmt.Errorf("%w: cannot safely estimate checkout for %q because a partial-clone promisor is configured", ports.ErrWorkspaceInsufficientSpace, repo)
+	}
+	return nil
+}
+
+func (w *Workspace) rejectCheckoutTransforms(ctx context.Context, repo, ref string) error {
+	for _, key := range []string{"core.autocrlf", "core.eol"} {
+		out, err := w.run(ctx, w.binary, "-C", repo, "config", "--get", key)
+		if err != nil {
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+				continue
+			}
+			return fmt.Errorf("gitworktree: inspect %s for %q: %w", key, repo, err)
+		}
+		value := strings.ToLower(strings.TrimSpace(string(out)))
+		if (key == "core.autocrlf" && value == "true") || (key == "core.eol" && value == "crlf") {
+			return fmt.Errorf("%w: cannot safely estimate checkout for %q because %s=%s may expand text files", ports.ErrWorkspaceInsufficientSpace, repo, key, value)
+		}
+	}
+	pattern := `(^|[[:space:]])(filter(=|[[:space:]])|eol=crlf|working-tree-encoding=|ident($|[[:space:]]))`
+	out, err := w.run(ctx, w.binary, "-C", repo, "grep", "-I", "-n", "-E", pattern, ref, "--", ".gitattributes", ":(glob)**/.gitattributes")
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return nil
+		}
+		return fmt.Errorf("gitworktree: inspect checkout attributes for %q at %q: %w", repo, ref, err)
+	}
+	if strings.TrimSpace(string(out)) != "" {
+		return fmt.Errorf("%w: cannot safely estimate checkout for %q because the selected tree uses a checkout-expanding attribute", ports.ErrWorkspaceInsufficientSpace, repo)
 	}
 	return nil
 }
