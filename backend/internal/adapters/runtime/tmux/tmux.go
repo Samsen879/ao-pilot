@@ -28,7 +28,7 @@ const (
 	// defaultEnterDelay mirrors conpty's ptyInputEnterDelay: a pause after pasting
 	// a non-empty message, before the trailing Enter, so a large multiline paste
 	// does not absorb the Enter and leave the prompt unsubmitted (issue #2342).
-	defaultEnterDelay = 300 * time.Millisecond
+	defaultEnterDelay = time.Second
 	// defaultReapGrace is how long Destroy waits between SIGTERM and SIGKILL when
 	// reaping a pane's leftover background processes, giving them a chance to
 	// exit cleanly (release ports) before being forced (issue #2523). It is a
