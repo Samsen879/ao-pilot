@@ -149,6 +149,8 @@ func startSession(cfg config.Config, runtime runtimeselect.Runtime, store *sqlit
 		// Per-session worktrees live under the data dir, so a single AO_DATA_DIR
 		// override moves all durable per-user state together.
 		ManagedRoot: filepath.Join(cfg.DataDir, "worktrees"),
+		CapacityPath: cfg.WorktreeCapacityPath,
+		MinFreeBytes: cfg.WorktreeMinFreeBytes,
 		// Resolve each project's source repo from the projects table, so a
 		// session spawned for a registered project materialises its worktree off
 		// that repo. Unregistered projects fail loudly.

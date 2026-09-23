@@ -72,6 +72,12 @@ type Options struct {
 	ManagedRoot   string
 	DefaultBranch string
 	RepoResolver  RepoResolver
+	// CapacityPath is the filesystem checked before a new checkout is
+	// materialized. It may differ from ManagedRoot under virtualized storage.
+	CapacityPath string
+	// MinFreeBytes is the operator reserve for CapacityPath. Zero disables the
+	// guard.
+	MinFreeBytes uint64
 }
 
 // Workspace creates per-session git worktrees under a managed root. It
@@ -81,7 +87,10 @@ type Workspace struct {
 	managedRoot   string
 	defaultBranch string
 	repos         RepoResolver
-	run           commandRunner
+	run            commandRunner
+	capacityPath   string
+	minFreeBytes   uint64
+	availableBytes func(string) (uint64, error)
 }
 
 type commandRunner func(ctx context.Context, binary string, args ...string) ([]byte, error)
@@ -110,12 +119,25 @@ func New(opts Options) (*Workspace, error) {
 	if err != nil {
 		return nil, fmt.Errorf("gitworktree: managed root: %w", err)
 	}
+	capacityPath := strings.TrimSpace(opts.CapacityPath)
+	if opts.MinFreeBytes > 0 {
+		if capacityPath == "" {
+			capacityPath = root
+		}
+		capacityPath, err = physicalAbs(capacityPath)
+		if err != nil {
+			return nil, fmt.Errorf("gitworktree: capacity path: %w", err)
+		}
+	}
 	return &Workspace{
 		binary:        binary,
 		managedRoot:   filepath.Clean(root),
 		defaultBranch: branch,
-		repos:         opts.RepoResolver,
-		run:           runCommand,
+		repos:          opts.RepoResolver,
+		run:            runCommand,
+		capacityPath:   capacityPath,
+		minFreeBytes:   opts.MinFreeBytes,
+		availableBytes: diskAvailableBytes,
 	}, nil
 }
 
@@ -140,6 +162,9 @@ func (w *Workspace) Create(ctx context.Context, cfg ports.WorkspaceConfig) (port
 		return ports.WorkspaceInfo{}, err
 	} else if ok {
 		return info, nil
+	}
+	if err := w.ensureCapacity(); err != nil {
+		return ports.WorkspaceInfo{}, err
 	}
 	if err := w.addWorktree(ctx, repo, path, cfg.Branch, cfg.BaseBranch); err != nil {
 		return ports.WorkspaceInfo{}, err
@@ -205,6 +230,12 @@ func (w *Workspace) CreateWorkspaceProject(ctx context.Context, cfg ports.Worksp
 	created := make([]workspaceProjectRepo, 0, len(repos))
 	out := ports.WorkspaceProjectInfo{Worktrees: make([]ports.WorkspaceRepoInfo, 0, len(repos))}
 	for _, repo := range repos {
+		if err := w.ensureCapacity(); err != nil {
+			for i := len(created) - 1; i >= 0; i-- {
+				_ = w.forceDestroyPath(ctx, created[i].repoPath, created[i].outputPath)
+			}
+			return ports.WorkspaceProjectInfo{}, err
+		}
 		baseSHA, err := w.createWorkspaceProjectRepo(ctx, repo, branch)
 		if err != nil {
 			for i := len(created) - 1; i >= 0; i-- {
@@ -665,10 +696,27 @@ func (w *Workspace) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (por
 	if err := w.validateBranch(ctx, repo, recreateBranch); err != nil {
 		return ports.WorkspaceInfo{}, err
 	}
+	if err := w.ensureCapacity(); err != nil {
+		return ports.WorkspaceInfo{}, err
+	}
 	if err := w.addWorktree(ctx, repo, path, recreateBranch, cfg.BaseBranch); err != nil {
 		return ports.WorkspaceInfo{}, err
 	}
 	return ports.WorkspaceInfo{Path: path, Branch: recreateBranch, SessionID: cfg.SessionID, ProjectID: cfg.ProjectID, RepoPath: repo}, nil
+}
+
+func (w *Workspace) ensureCapacity() error {
+	if w.minFreeBytes == 0 {
+		return nil
+	}
+	available, err := w.availableBytes(w.capacityPath)
+	if err != nil {
+		return fmt.Errorf("gitworktree: inspect capacity path %q: %w", w.capacityPath, err)
+	}
+	if available < w.minFreeBytes {
+		return fmt.Errorf("%w: capacity path %q has %d bytes available; require at least %d bytes before creating another worktree", ports.ErrWorkspaceInsufficientSpace, w.capacityPath, available, w.minFreeBytes)
+	}
+	return nil
 }
 
 func (w *Workspace) existingWorktree(ctx context.Context, repo, path string, cfg ports.WorkspaceConfig) (ports.WorkspaceInfo, bool, error) {

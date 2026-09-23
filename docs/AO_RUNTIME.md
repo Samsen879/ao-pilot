@@ -88,6 +88,24 @@ runtime's own `ao start` command is disabled and cannot discover, download, or
 open a desktop application. Verify the source boundary with
 `npm run verify:headless-runtime-source`.
 
+### Worktree capacity guard
+
+Large tracked repositories can materialize several gigabytes for every worker
+or reviewer. Set both variables on the runtime service to reject a new checkout
+before it consumes the operator's reserve:
+
+```text
+AO_WORKTREE_CAPACITY_PATH=/mnt/c
+AO_WORKTREE_MIN_FREE_BYTES=34359738368
+```
+
+The example keeps 32 GiB free on the Windows host volume used by WSL. Native
+Linux and macOS installations normally point the capacity path at the volume
+that contains `AO_DATA_DIR`. The guard is disabled when the byte threshold is
+unset. Existing worktrees and restores that do not need materialization remain
+accessible below the threshold; a rejected spawn reports
+`WORKSPACE_INSUFFICIENT_SPACE`.
+
 ## Deterministic managed bootstrap
 
 Run the formal entrypoint from a clone or installed package:
