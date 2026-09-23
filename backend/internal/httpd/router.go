@@ -27,6 +27,7 @@ import (
 // callback that requests a graceful shutdown.
 type ControlDeps struct {
 	RequestShutdown func()
+	IsReady         func() bool
 }
 
 // NewRouterWithControl builds the root router with the standard middleware
@@ -62,12 +63,12 @@ func NewRouterWithControl(cfg config.Config, log *slog.Logger, termMgr *terminal
 	r.NotFound(notFoundJSON)
 	r.MethodNotAllowed(methodNotAllowedJSON)
 
-	mountHealth(r, cfg)
+	mountHealth(r, cfg, control.IsReady)
 	mountTerminalMux(r, termMgr, log)
 	mountControl(r, control)
 	mountTelemetry(r, cfg, deps.Telemetry)
 	mountMobile(r, deps.Mobile)
-	api.Register(r)
+	api.Register(r, control.IsReady)
 
 	return r
 }
@@ -85,11 +86,15 @@ func previewOriginMiddleware(sessions *controllers.SessionsController) func(http
 
 // mountHealth registers the liveness and readiness probes the Electron
 // supervisor polls before letting the renderer connect.
-func mountHealth(r chi.Router, cfg config.Config) {
+func mountHealth(r chi.Router, cfg config.Config, isReady func() bool) {
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		envelope.WriteJSON(w, http.StatusOK, daemonProbePayload("ok", cfg))
 	})
 	r.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) {
+		if isReady != nil && !isReady() {
+			envelope.WriteJSON(w, http.StatusServiceUnavailable, daemonProbePayload("starting", cfg))
+			return
+		}
 		envelope.WriteJSON(w, http.StatusOK, daemonProbePayload("ready", cfg))
 	})
 }

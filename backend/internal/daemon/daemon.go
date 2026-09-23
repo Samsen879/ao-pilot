@@ -312,17 +312,6 @@ func Run() error {
 		log.Warn("restore mobile bridge on boot failed", "err", err)
 	}
 
-	// Reconcile sessions on boot: adopt crash-surviving runtimes, capture and
-	// terminate dead ones, reap leaked tmux, then restore shutdown-saved
-	// sessions. Best-effort: a failure is logged but never blocks boot. Placed
-	// before srv.Run so sessions are consistent before the server serves.
-	if reconcileErr := sessMgr.Reconcile(ctx); reconcileErr != nil {
-		log.Error("reconcile sessions on boot failed", "err", reconcileErr)
-	}
-	if reconcileErr := lcStack.ReconcileRuntime(ctx); reconcileErr != nil {
-		log.Error("reconcile agent processes on boot failed", "err", reconcileErr)
-	}
-
 	// ponytail: 5s tolerates a brief frontend restart; tune if dev hot-reload trips it.
 	const supervisorGrace = 5 * time.Second
 
@@ -340,6 +329,25 @@ func Run() error {
 		}()
 	}
 
+	// Publish the run-file and serve liveness immediately. Session restoration
+	// can take minutes when several native transcripts must cold-start, so it
+	// runs concurrently while /readyz and REST mutations remain gated. This lets
+	// supervisors and dashboards distinguish a live daemon that is still
+	// recovering from a stopped daemon.
+	reconcileDone := make(chan struct{})
+	go func() {
+		defer close(reconcileDone)
+		if reconcileErr := sessMgr.Reconcile(ctx); reconcileErr != nil {
+			log.Error("reconcile sessions on boot failed", "err", reconcileErr)
+		}
+		if reconcileErr := lcStack.ReconcileRuntime(ctx); reconcileErr != nil {
+			log.Error("reconcile agent processes on boot failed", "err", reconcileErr)
+		}
+		if ctx.Err() == nil {
+			srv.MarkReady()
+		}
+	}()
+
 	runErr := srv.Run(ctx)
 
 	// Both graceful shutdown paths (SIGTERM and POST /shutdown) funnel through
@@ -353,6 +361,7 @@ func Run() error {
 	// via defer) avoids the LIFO trap where a Stop() that blocks on ctx-cancel
 	// runs before the cancel: a non-signal exit path would hang otherwise.
 	stop()
+	<-reconcileDone
 	managedPreview.Close()
 	<-previewDone
 	lcStack.Stop()
