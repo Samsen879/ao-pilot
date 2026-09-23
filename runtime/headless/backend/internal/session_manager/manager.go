@@ -457,6 +457,10 @@ func (m *Manager) spawnWithAttempt(ctx context.Context, cfg ports.SpawnConfig, a
 	}
 	ws, workspaceProject, err := m.createSessionWorkspace(ctx, project, cfg, id, branch, attempt)
 	if err != nil {
+		if ws.Path == "" && workspaceProject != nil && len(workspaceProject.Worktrees) > 0 {
+			retained := workspaceProject.Worktrees[0]
+			ws = ports.WorkspaceInfo{Path: retained.Path, Branch: retained.Branch, SessionID: retained.SessionID, ProjectID: retained.ProjectID, RepoPath: retained.RepoPath}
+		}
 		if ws.Path != "" {
 			cleanup, cancel := rollbackContext(ctx)
 			defer cancel()
@@ -702,22 +706,21 @@ func (m *Manager) createSessionWorkspace(ctx context.Context, project domain.Pro
 		return info.Root, &info, saveErr
 	}
 
-	if err != nil {
-		return info.Root, &info, err
-	}
-
 	for _, wt := range info.Worktrees {
-		if err := m.store.UpsertSessionWorktree(ctx, domain.SessionWorktreeRecord{
+		if recordErr := m.store.UpsertSessionWorktree(ctx, domain.SessionWorktreeRecord{
 			SessionID:    id,
 			RepoName:     wt.RepoName,
 			Branch:       wt.Branch,
 			BaseSHA:      wt.BaseSHA,
 			WorktreePath: wt.Path,
 			State:        "active",
-		}); err != nil {
+		}); recordErr != nil {
 			// Keep known resource custody; failed bookkeeping is not deletion authority.
-			return info.Root, &info, fmt.Errorf("record workspace worktree %q: %w", wt.RepoName, err)
+			return info.Root, &info, errors.Join(err, fmt.Errorf("record workspace worktree %q: %w", wt.RepoName, recordErr))
 		}
+	}
+	if err != nil {
+		return info.Root, &info, err
 	}
 	return info.Root, &info, nil
 }

@@ -74,8 +74,8 @@ func TestCreateRollsBackInterruptedInitializingWorktree(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Create error = %v, want context.Canceled", err)
 	}
-	if info.Path != wantPath || info.RepoPath != repo {
-		t.Fatalf("Create returned custody %+v, want path %q repo %q", info, wantPath, repo)
+	if info.Path != "" {
+		t.Fatalf("Create returned custody %+v after successful rollback", info)
 	}
 	joinedCalls := make([]string, 0, len(calls))
 	for _, call := range calls {
@@ -89,6 +89,62 @@ func TestCreateRollsBackInterruptedInitializingWorktree(t *testing.T) {
 	}
 	if slices.ContainsFunc(joinedCalls, func(call string) bool { return strings.Contains(call, "worktree prune") }) {
 		t.Fatalf("calls %v pruned unrelated worktrees", joinedCalls)
+	}
+}
+
+func TestCreateReturnsCustodyWhenInterruptedWorktreeCleanupFails(t *testing.T) {
+	repo := t.TempDir()
+	managed := filepath.Join(t.TempDir(), "worktrees")
+	if err := os.MkdirAll(managed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w, err := New(Options{
+		ManagedRoot: managed,
+		RepoResolver: StaticRepoResolver{
+			domain.ProjectID("project"): repo,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantPath := filepath.Join(managed, "project", "project-1")
+	partial := false
+	w.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		joined := strings.Join(args, " ")
+		switch {
+		case strings.Contains(joined, "check-ref-format --branch"):
+			return nil, nil
+		case strings.Contains(joined, "worktree list --porcelain"):
+			out := "worktree " + repo + "\nHEAD abc\nbranch refs/heads/main\n\n"
+			if partial {
+				out += "worktree " + wantPath + "\nHEAD def\nbranch refs/heads/ao/project-1/root\nlocked initializing\n\n"
+			}
+			return []byte(out), nil
+		case strings.Contains(joined, "rev-parse --verify --quiet refs/heads/ao/project-1/root"):
+			return []byte("def\n"), nil
+		case strings.Contains(joined, "worktree add"):
+			partial = true
+			return nil, errors.New("checkout interrupted")
+		case strings.Contains(joined, "worktree unlock"):
+			return nil, errors.New("unlock failed")
+		default:
+			t.Fatalf("unexpected git call: %v", args)
+			return nil, nil
+		}
+	}
+
+	info, err := w.Create(context.Background(), ports.WorkspaceConfig{
+		ProjectID: "project",
+		SessionID: "project-1",
+		Kind:      domain.KindWorker,
+		Branch:    "ao/project-1/root",
+	})
+	if err == nil || !strings.Contains(err.Error(), "unlock failed") {
+		t.Fatalf("Create error = %v, want cleanup failure", err)
+	}
+	if info.Path != wantPath || info.Branch != "ao/project-1/root" {
+		t.Fatalf("Create custody = %+v, want retained worktree %q", info, wantPath)
 	}
 }
 
