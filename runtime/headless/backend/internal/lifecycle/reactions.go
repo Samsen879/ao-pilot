@@ -779,7 +779,9 @@ const (
 	sendOnceAttempted
 )
 
-func partialSendSignature(sig string) string { return "\x00pending-enter\x00" + sig }
+const partialSendPrefix = "\x00pending-enter\x00"
+
+func partialSendSignature(sig string) string { return partialSendPrefix + sig }
 
 func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key, sig, msg string, maxAttempts int) (sendOnceOutcome, error) {
 	if m.guard == nil {
@@ -798,9 +800,11 @@ func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key,
 	if m.react.seen[key] == sig {
 		return sendOnceAccounted, nil
 	}
-	if m.react.seen[key] == partialSendSignature(sig) {
+	if strings.HasPrefix(m.react.seen[key], partialSendPrefix) {
 		// The text is already in the pane. Once the guard says it is safe,
-		// submit that draft with Enter alone instead of pasting it again.
+		// submit that original draft with Enter alone, even if the latest
+		// observation changed signature while the pane was blocked.
+		originalSig := strings.TrimPrefix(m.react.seen[key], partialSendPrefix)
 		outcome, err := m.guard.Nudge(ctx, id, "")
 		if err != nil {
 			return sendOnceAttempted, err
@@ -808,11 +812,14 @@ func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key,
 		if outcome != sessionguard.Sent {
 			return sendOnceAttempted, nil
 		}
-		m.react.seen[key] = sig
+		m.react.seen[key] = originalSig
 		if prURL != "" {
 			if err := m.persistPRSignaturesLocked(ctx, prURL); err != nil {
 				return sendOnceAccounted, err
 			}
+		}
+		if originalSig != sig {
+			return sendOnceSuppressed, nil
 		}
 		return sendOnceAccounted, nil
 	}

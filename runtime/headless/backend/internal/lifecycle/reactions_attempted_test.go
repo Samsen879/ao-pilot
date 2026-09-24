@@ -38,3 +38,24 @@ func TestPartialPaneWriteIsNotRetriedOrClaimedDelivered(t *testing.T) {
 		t.Fatalf("pending draft was repasted: %#v", messenger.messages)
 	}
 }
+
+func TestChangedSignatureSubmitsOldDraftBeforeNewMessage(t *testing.T) {
+	messenger := &attemptedMessenger{}
+	m := &Manager{guard: sessionguard.New(attemptedSessionReader{}, messenger, nil), react: newReactionState()}
+	for i, input := range []struct {
+		sig, text string
+		want      sendOnceOutcome
+	}{
+		{"A", "old text", sendOnceAttempted},
+		{"B", "new text", sendOnceSuppressed},
+		{"B", "new text", sendOnceAccounted},
+	} {
+		outcome, err := m.sendOnce(context.Background(), "changed-signature", "", "review-key", input.sig, input.text, 0)
+		if err != nil || outcome != input.want {
+			t.Fatalf("call %d outcome=%v err=%v", i, outcome, err)
+		}
+	}
+	if got := messenger.messages; len(got) != 3 || got[0] != "old text" || got[1] != "" || got[2] != "new text" {
+		t.Fatalf("pane writes = %#v", got)
+	}
+}
