@@ -192,6 +192,11 @@ func TestRootOnlyWorkspaceCustodyPreservesExistingChildPath(t *testing.T) {
 	if _, _, err := m.workspaceProjectRows(ctx, rec); err == nil {
 		t.Fatal("root-only cleanup accepted an existing child without custody")
 	}
+	rec.Metadata.RuntimeHandleID = "legacy-running-pane"
+	rows, ok, err := m.workspaceProjectRows(ctx, rec)
+	if err != nil || !ok || len(rows) != 2 || rows[1].Path != child {
+		t.Fatalf("legacy root marker reconstruction: rows=%#v ok=%v err=%v", rows, ok, err)
+	}
 }
 func TestCommittedAttemptReplay(t *testing.T) {
 	m, s, rt, _, cfg := newSpawnFixture(t)
