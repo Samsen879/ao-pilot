@@ -308,7 +308,7 @@ export async function startVerifiedRuntimeDaemon(runtime, {
   }
 
   let existingDaemon = daemonStarting(before);
-  const existingPid = existingDaemon ? daemonPid(before) : null;
+  let existingPid = existingDaemon ? daemonPid(before) : null;
   let spawned = false;
 
   let spawnError = null;
@@ -377,6 +377,7 @@ export async function startVerifiedRuntimeDaemon(runtime, {
       if (daemonStarting(lastProbe)) {
         // Another owner won the restart race; wait for that daemon.
         existingDaemon = true;
+        existingPid = daemonPid(lastProbe);
         spawned = false;
       } else {
         return {

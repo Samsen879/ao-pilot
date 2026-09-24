@@ -264,6 +264,33 @@ describe('runtime control boundary', () => {
     expect(childSpawn).not.toHaveBeenCalled();
   });
 
+  it('tracks a competing daemon PID after losing the start race', async () => {
+    const syncSpawn = jest.fn()
+      .mockReturnValueOnce({ status: 1, stdout: '' })
+      .mockReturnValueOnce({ status: 0, stdout: '{"state":"not_ready","health":"ok","pid":73}' })
+      .mockReturnValueOnce({ status: 0, stdout: '{"state":"stopped"}' })
+      .mockReturnValueOnce({ status: 0, stdout: '{"state":"ready","pid":73}' });
+    const callbacks = {};
+    const childSpawn = jest.fn().mockReturnValue({
+      once: jest.fn((event, callback) => { callbacks[event] = callback; }),
+      unref: jest.fn(),
+    });
+    let delayed = false;
+    const isProcessAlive = jest.fn().mockReturnValue(true);
+    const result = await startVerifiedRuntimeDaemon(verified, {
+      syncSpawn, childSpawn, isProcessAlive,
+      delay: async () => {
+        if (!delayed) {
+          delayed = true;
+          callbacks.exit(1, null);
+        }
+      },
+    });
+    expect(result.status).toBe('already_running');
+    expect(isProcessAlive).toHaveBeenCalledWith(73);
+    expect(childSpawn).toHaveBeenCalledTimes(1);
+  });
+
   it('backs off status probes during a long recovery', async () => {
     const starting = { status: 0, stdout: '{"state":"not_ready","health":"ok","pid":42}' };
     const syncSpawn = jest.fn()
