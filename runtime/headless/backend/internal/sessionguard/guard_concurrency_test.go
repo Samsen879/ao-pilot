@@ -4,10 +4,38 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 )
+
+type waitingSignalDuringPaste struct{ store *guardedStateStore }
+
+func (m waitingSignalDuringPaste) Send(context.Context, domain.SessionID, string) error {
+	return nil
+}
+
+func (m waitingSignalDuringPaste) SendGuarded(ctx context.Context, _ domain.SessionID, _ string, check func(context.Context) error) error {
+	if err := check(ctx); err != nil {
+		return err
+	}
+	m.store.mu.Lock()
+	m.store.rec.Activity.LastActivityAt = m.store.rec.Activity.LastActivityAt.Add(time.Second)
+	m.store.mu.Unlock()
+	if err := check(ctx); err != nil {
+		return ports.ErrPaneDraftPending
+	}
+	return nil
+}
+
+func TestNewWaitingInputSignalWithholdsEnter(t *testing.T) {
+	store := &guardedStateStore{rec: domain.SessionRecord{Activity: domain.Activity{State: domain.ActivityWaitingInput, LastActivityAt: time.Now()}}}
+	guard := New(store, waitingSignalDuringPaste{store}, nil)
+	if outcome, err := guard.Deliver(context.Background(), "codex-waiting", "prompt"); err != nil || outcome != Attempted {
+		t.Fatalf("outcome=%s err=%v, want attempted without Enter", outcome, err)
+	}
+}
 
 type partialMessenger struct{ messages []string }
 
