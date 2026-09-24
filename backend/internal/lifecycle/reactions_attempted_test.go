@@ -15,23 +15,26 @@ func (attemptedSessionReader) GetSession(context.Context, domain.SessionID) (dom
 	return domain.SessionRecord{Activity: domain.Activity{State: domain.ActivityIdle}}, true, nil
 }
 
-type attemptedMessenger struct{ calls int }
+type attemptedMessenger struct{ messages []string }
 
-func (m *attemptedMessenger) Send(context.Context, domain.SessionID, string) error {
-	m.calls++
-	return ports.ErrPaneDraftPending
+func (m *attemptedMessenger) Send(_ context.Context, _ domain.SessionID, msg string) error {
+	m.messages = append(m.messages, msg)
+	if len(m.messages) == 1 {
+		return ports.ErrPaneDraftPending
+	}
+	return nil
 }
 
 func TestPartialPaneWriteIsNotRetriedOrClaimedDelivered(t *testing.T) {
 	messenger := &attemptedMessenger{}
 	m := &Manager{guard: sessionguard.New(attemptedSessionReader{}, messenger, nil), react: newReactionState()}
-	for i := 0; i < 2; i++ {
+	for i, want := range []sendOnceOutcome{sendOnceAttempted, sendOnceAccounted, sendOnceAccounted} {
 		outcome, err := m.sendOnce(context.Background(), "session", "", "review-key", "sha-and-review", "review text", 0)
-		if err != nil || outcome != sendOnceAttempted {
+		if err != nil || outcome != want {
 			t.Fatalf("call %d outcome=%v err=%v", i, outcome, err)
 		}
 	}
-	if messenger.calls != 1 {
-		t.Fatalf("partial write retried %d times", messenger.calls)
+	if len(messenger.messages) != 2 || messenger.messages[0] != "review text" || messenger.messages[1] != "" {
+		t.Fatalf("pending draft was repasted: %#v", messenger.messages)
 	}
 }
