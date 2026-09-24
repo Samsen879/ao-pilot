@@ -37,6 +37,7 @@ type Store interface {
 	MarkOrchestratorReengagementProgress(ctx context.Context, id domain.SessionID, now time.Time) error
 	ListDueOrchestratorReengagements(ctx context.Context, now time.Time) ([]domain.OrchestratorReengagement, error)
 	RecordOrchestratorReengagementAttempt(ctx context.Context, id domain.SessionID, next, now time.Time, maxAttempts int) (domain.OrchestratorReengagement, error)
+	GetOrchestratorReengagement(ctx context.Context, id domain.SessionID) (domain.OrchestratorReengagement, bool, error)
 	OrchestratorReengagementPendingEnter(ctx context.Context, id domain.SessionID) (bool, error)
 	DeferOrchestratorReengagementPendingEnter(ctx context.Context, id domain.SessionID, next, now time.Time) error
 	ListPendingOrchestratorAttention(ctx context.Context) ([]domain.OrchestratorReengagement, error)
@@ -126,6 +127,21 @@ func (m *Manager) ObserveActivity(ctx context.Context, before, after domain.Sess
 		return
 	}
 	now := m.clock().UTC()
+	if event == "user-prompt-submit" {
+		pending, err := m.store.OrchestratorReengagementPendingEnter(ctx, after.ID)
+		if err != nil {
+			m.logger.Error("orchestrator re-engagement: inspect submitted draft failed", "session", after.ID, "err", err)
+		} else if pending {
+			item, ok, err := m.store.GetOrchestratorReengagement(ctx, after.ID)
+			if err != nil {
+				m.logger.Error("orchestrator re-engagement: load submitted draft failed", "session", after.ID, "err", err)
+			} else if ok {
+				if _, err := m.store.RecordOrchestratorReengagementAttempt(ctx, after.ID, now.Add(m.backoff(item.AttemptCount+1)), now, m.maxAttempts); err != nil {
+					m.logger.Error("orchestrator re-engagement: record manual draft submission failed", "session", after.ID, "err", err)
+				}
+			}
+		}
+	}
 	if event == "post-tool-use" {
 		if err := m.store.MarkOrchestratorReengagementProgress(ctx, after.ID, now); err != nil {
 			m.logger.Error("orchestrator re-engagement: record progress failed", "session", after.ID, "err", err)

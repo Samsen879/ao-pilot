@@ -11,6 +11,20 @@ import (
 
 type partialMessenger struct{ messages []string }
 
+type durableDraftStore struct {
+	guardedStateStore
+	pending bool
+}
+
+func (s *durableDraftStore) PaneDraftPending(context.Context, domain.SessionID) (bool, error) {
+	return s.pending, nil
+}
+
+func (s *durableDraftStore) SetPaneDraftPending(_ context.Context, _ domain.SessionID, pending bool) error {
+	s.pending = pending
+	return nil
+}
+
 func (m *partialMessenger) Send(_ context.Context, _ domain.SessionID, msg string) error {
 	m.messages = append(m.messages, msg)
 	if len(m.messages) == 1 {
@@ -39,6 +53,28 @@ func TestPendingPaneDraftBlocksOtherMessagesAcrossGuards(t *testing.T) {
 	}
 	if got := messenger.messages; len(got) != 3 || got[0] != "first" || got[1] != "" || got[2] != "second" {
 		t.Fatalf("pane writes = %#v", got)
+	}
+}
+
+func TestManualPromptSubmissionClearsPendingPaneDraft(t *testing.T) {
+	store := &durableDraftStore{guardedStateStore: guardedStateStore{rec: domain.SessionRecord{Activity: domain.Activity{State: domain.ActivityIdle}}}}
+	messenger := &partialMessenger{}
+	id := domain.SessionID("manually-submitted-draft")
+	guard := New(store, messenger, nil)
+	if outcome, err := guard.Deliver(context.Background(), id, "first"); err != nil || outcome != Attempted || !store.pending {
+		t.Fatalf("partial outcome=%s pending=%v err=%v", outcome, store.pending, err)
+	}
+	sharedLocks.Lock()
+	delete(sharedLocks.pending, id) // simulate a fresh daemon with no process-local marker
+	sharedLocks.Unlock()
+	if outcome, err := New(store, messenger, nil).Deliver(context.Background(), id, "unsafe repaste"); err != nil || outcome != SuppressedDraftPending {
+		t.Fatalf("restarted outcome=%s err=%v", outcome, err)
+	}
+	if err := ClearPendingPaneDraft(context.Background(), store, id); err != nil || store.pending {
+		t.Fatalf("clear pending=%v err=%v", store.pending, err)
+	}
+	if outcome, err := guard.Deliver(context.Background(), id, "next"); err != nil || outcome != Sent {
+		t.Fatalf("next outcome=%s err=%v", outcome, err)
 	}
 }
 

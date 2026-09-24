@@ -59,3 +59,16 @@ func TestChangedSignatureSubmitsOldDraftBeforeNewMessage(t *testing.T) {
 		t.Fatalf("pane writes = %#v", got)
 	}
 }
+
+func TestPartialReviewDoesNotPressEnterInReplacementWorker(t *testing.T) {
+	messenger := &attemptedMessenger{}
+	m := &Manager{guard: sessionguard.New(attemptedSessionReader{}, messenger, nil), react: newReactionState()}
+	first, err := m.sendOnce(context.Background(), "old-worker", "", "review-key", "A", "old review", 0)
+	if err != nil || first != sendOnceAttempted {
+		t.Fatalf("first outcome=%v err=%v", first, err)
+	}
+	moved, err := m.sendOnce(context.Background(), "new-worker", "", "review-key", "A", "new review", 0)
+	if err != nil || moved != sendOnceSuppressed || len(messenger.messages) != 1 {
+		t.Fatalf("moved outcome=%v err=%v messages=%#v", moved, err, messenger.messages)
+	}
+}
