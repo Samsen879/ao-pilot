@@ -916,8 +916,8 @@ func (m *Manager) RollbackSpawn(ctx context.Context, id domain.SessionID) (delet
 // contents in place, including ignored and untracked files. The existing
 // session-worktree rows are marked unavailable so boot reconciliation will not
 // automatically restore these sessions after space becomes available again.
-// Workers stop before orchestrators, preventing the controller from assigning
-// more work while its workers are being stopped. A failed runtime destroy is
+// Orchestrators stop before workers so they cannot assign more work during
+// teardown. A failed runtime destroy is
 // retried on the next watchdog tick and is never marked terminal as if stopped.
 func (m *Manager) EmergencyStopAll(ctx context.Context) (int, error) {
 	m.emergencyStopMu.Lock()
@@ -928,7 +928,7 @@ func (m *Manager) EmergencyStopAll(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("capacity stop: list sessions: %w", err)
 	}
 	sort.SliceStable(recs, func(i, j int) bool {
-		return recs[i].Kind != domain.KindOrchestrator && recs[j].Kind == domain.KindOrchestrator
+		return recs[i].Kind == domain.KindOrchestrator && recs[j].Kind != domain.KindOrchestrator
 	})
 	var errs []error
 	stopped := 0
@@ -964,6 +964,13 @@ func (m *Manager) EmergencyStopAll(ctx context.Context) (int, error) {
 				errs = append(errs, fmt.Errorf("%s: clear restore marker: %w", rec.ID, deleteErr))
 			}
 		}
+		previewStopped := true
+		if m.preview != nil {
+			if err := m.preview.StopSession(ctx, rec.ID); err != nil {
+				errs = append(errs, fmt.Errorf("%s: stop preview: %w", rec.ID, err))
+				previewStopped = false
+			}
+		}
 		handle := runtimeHandle(rec.Metadata)
 		if handle.ID == "" {
 			errs = append(errs, fmt.Errorf("%s: runtime handle missing; cannot confirm agent stopped", rec.ID))
@@ -971,6 +978,11 @@ func (m *Manager) EmergencyStopAll(ctx context.Context) (int, error) {
 		}
 		if err := m.runtime.Destroy(ctx, handle); err != nil {
 			errs = append(errs, fmt.Errorf("%s: stop runtime: %w", rec.ID, err))
+			continue
+		}
+		if !previewStopped {
+			// Keep the session eligible for the next watchdog tick so the
+			// preview stop is retried instead of being hidden by terminal state.
 			continue
 		}
 		if err := m.lcm.MarkTerminated(ctx, rec.ID); err != nil {

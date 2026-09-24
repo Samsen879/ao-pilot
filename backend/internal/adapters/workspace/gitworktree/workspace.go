@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -161,8 +162,10 @@ func (w *Workspace) Create(ctx context.Context, cfg ports.WorkspaceConfig) (port
 	if err != nil {
 		return ports.WorkspaceInfo{}, err
 	}
-	w.materializeMu.Lock()
-	defer w.materializeMu.Unlock()
+	if w.minFreeBytes > 0 {
+		w.materializeMu.Lock()
+		defer w.materializeMu.Unlock()
+	}
 	if info, ok, err := w.existingWorktree(ctx, repo, path, cfg); err != nil {
 		return ports.WorkspaceInfo{}, err
 	} else if ok {
@@ -232,8 +235,10 @@ func (w *Workspace) CreateWorkspaceProject(ctx context.Context, cfg ports.Worksp
 			baseBranch:   firstNonEmpty(child.BaseBranch, cfg.BaseBranch),
 		})
 	}
-	w.materializeMu.Lock()
-	defer w.materializeMu.Unlock()
+	if w.minFreeBytes > 0 {
+		w.materializeMu.Lock()
+		defer w.materializeMu.Unlock()
+	}
 	branch, err := w.workspaceProjectBranch(ctx, repos, firstNonEmpty(cfg.Branch, defaultSessionBranchName(cfg.SessionID)))
 	if err != nil {
 		return ports.WorkspaceProjectInfo{}, err
@@ -650,8 +655,10 @@ func (w *Workspace) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (por
 	if err != nil {
 		return ports.WorkspaceInfo{}, err
 	}
-	w.materializeMu.Lock()
-	defer w.materializeMu.Unlock()
+	if w.minFreeBytes > 0 {
+		w.materializeMu.Lock()
+		defer w.materializeMu.Unlock()
+	}
 	records, err := w.listRecords(ctx, repo)
 	if err != nil {
 		return ports.WorkspaceInfo{}, err
@@ -778,6 +785,7 @@ func (w *Workspace) estimateCheckoutBytes(ctx context.Context, repo, branch, bas
 		return 0, fmt.Errorf("gitworktree: estimate checkout %q: %w", ref, err)
 	}
 	var total uint64
+	var entries uint64
 	for _, record := range strings.Split(string(out), "\x00") {
 		meta, _, ok := strings.Cut(record, "\t")
 		if !ok {
@@ -787,6 +795,7 @@ func (w *Workspace) estimateCheckoutBytes(ctx context.Context, repo, branch, bas
 		if len(fields) < 4 || fields[3] == "-" {
 			continue
 		}
+		entries++
 		size, parseErr := strconv.ParseUint(fields[3], 10, 64)
 		if parseErr != nil {
 			return 0, fmt.Errorf("gitworktree: parse checkout size %q: %w", fields[3], parseErr)
@@ -796,9 +805,17 @@ func (w *Workspace) estimateCheckoutBytes(ctx context.Context, repo, branch, bas
 		}
 		total += size
 	}
-	// Allow for filesystem blocks, indexes, and checkout metadata beyond raw
-	// blob bytes. This keeps the configured reserve intact after materializing.
-	overhead := total/10 + checkoutMetadataHeadroom
+	// Allow a conservative allocation unit for every file, in addition to
+	// content bytes. ls-tree reports blob bytes, not allocated disk blocks.
+	const perFileAllocation = uint64(64 << 10)
+	if entries > (^uint64(0)-checkoutMetadataHeadroom)/perFileAllocation {
+		return ^uint64(0), nil
+	}
+	overhead := checkoutMetadataHeadroom + entries*perFileAllocation
+	if total/10 > ^uint64(0)-overhead {
+		return ^uint64(0), nil
+	}
+	overhead += total / 10
 	if overhead > ^uint64(0)-total {
 		return ^uint64(0), nil
 	}
@@ -821,6 +838,31 @@ func (w *Workspace) rejectPartialClone(ctx context.Context, repo string) error {
 }
 
 func (w *Workspace) rejectCheckoutTransforms(ctx context.Context, repo, ref string) error {
+	// Git also reads attributes outside the selected tree. Refuse admission
+	// when those sources can alter checkout bytes without appearing in grep.
+	if out, err := w.run(ctx, w.binary, "-C", repo, "config", "--path", "--get", "core.attributesFile"); err == nil {
+		if strings.TrimSpace(string(out)) != "" {
+			return fmt.Errorf("%w: cannot safely estimate checkout for %q with core.attributesFile configured", ports.ErrWorkspaceInsufficientSpace, repo)
+		}
+	} else if !isGitConfigMissing(err) {
+		return fmt.Errorf("gitworktree: inspect core.attributesFile for %q: %w", repo, err)
+	}
+	infoPath, err := w.run(ctx, w.binary, "-C", repo, "rev-parse", "--git-path", "info/attributes")
+	if err != nil {
+		return fmt.Errorf("gitworktree: locate info/attributes for %q: %w", repo, err)
+	}
+	attributesPath := strings.TrimSpace(string(infoPath))
+	if !filepath.IsAbs(attributesPath) {
+		attributesPath = filepath.Join(repo, attributesPath)
+	}
+	if info, err := os.Stat(attributesPath); err == nil {
+		if info.Size() > 0 {
+			return fmt.Errorf("%w: cannot safely estimate checkout for %q with info/attributes", ports.ErrWorkspaceInsufficientSpace, repo)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("gitworktree: inspect info/attributes for %q: %w", repo, err)
+	}
+	var coreEOL string
 	for _, key := range []string{"core.autocrlf", "core.eol"} {
 		out, err := w.run(ctx, w.binary, "-C", repo, "config", "--get", key)
 		if err != nil {
@@ -831,11 +873,14 @@ func (w *Workspace) rejectCheckoutTransforms(ctx context.Context, repo, ref stri
 			return fmt.Errorf("gitworktree: inspect %s for %q: %w", key, repo, err)
 		}
 		value := strings.ToLower(strings.TrimSpace(string(out)))
+		if key == "core.eol" {
+			coreEOL = value
+		}
 		if (key == "core.autocrlf" && value == "true") || (key == "core.eol" && value == "crlf") {
 			return fmt.Errorf("%w: cannot safely estimate checkout for %q because %s=%s may expand text files", ports.ErrWorkspaceInsufficientSpace, repo, key, value)
 		}
 	}
-	pattern := `(^|[[:space:]])(filter(=|[[:space:]])|eol=crlf|working-tree-encoding=|ident($|[[:space:]]))`
+	pattern := checkoutExpandingAttributePattern(runtime.GOOS, coreEOL)
 	out, err := w.run(ctx, w.binary, "-C", repo, "grep", "-I", "-n", "-E", pattern, ref, "--", ".gitattributes", ":(glob)**/.gitattributes")
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -848,6 +893,19 @@ func (w *Workspace) rejectCheckoutTransforms(ctx context.Context, repo, ref stri
 		return fmt.Errorf("%w: cannot safely estimate checkout for %q because the selected tree uses a checkout-expanding attribute", ports.ErrWorkspaceInsufficientSpace, repo)
 	}
 	return nil
+}
+
+func checkoutExpandingAttributePattern(goos, coreEOL string) string {
+	pattern := `(^|[[:space:]])(filter(=|[[:space:]])|eol=crlf|working-tree-encoding=|ident($|[[:space:]])`
+	if goos == "windows" && (coreEOL == "" || coreEOL == "native") {
+		pattern += `|text($|[=[:space:]])`
+	}
+	return pattern + `)`
+}
+
+func isGitConfigMissing(err error) bool {
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr) && exitErr.ExitCode() == 1
 }
 
 func (w *Workspace) existingWorktree(ctx context.Context, repo, path string, cfg ports.WorkspaceConfig) (ports.WorkspaceInfo, bool, error) {

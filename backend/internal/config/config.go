@@ -198,8 +198,8 @@ func Load() (Config, error) {
 	}
 	if raw := strings.TrimSpace(os.Getenv("AO_WORKTREE_MIN_FREE_BYTES")); raw != "" {
 		bytes, err := strconv.ParseUint(raw, 10, 64)
-		if err != nil || bytes == 0 {
-			return Config{}, fmt.Errorf("invalid AO_WORKTREE_MIN_FREE_BYTES %q: expected a positive integer", raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid AO_WORKTREE_MIN_FREE_BYTES %q: expected a non-negative integer", raw)
 		}
 		cfg.WorktreeMinFreeBytes = bytes
 	}
