@@ -238,6 +238,13 @@ func (w *Workspace) CreateWorkspaceProject(ctx context.Context, cfg ports.Worksp
 			}
 			var cleanupErr error
 			for i := len(created) - 1; i >= 0; i-- {
+				if created[i].name == domain.RootWorkspaceRepoName && len(remaining) > 0 {
+					// Every child lives beneath rootPath. Removing the root while
+					// any child is retained would erase that child's files.
+					remaining = append(remaining, out.Worktrees[i])
+					out.Root = ports.WorkspaceInfo{Path: created[i].outputPath, Branch: branch, SessionID: cfg.SessionID, ProjectID: cfg.ProjectID, RepoPath: created[i].repoPath}
+					continue
+				}
 				retained, rollbackErr := w.rollbackOwnedWorktree(cleanupCtx, created[i].repoPath, created[i].outputPath, branch)
 				if rollbackErr != nil {
 					cleanupErr = errors.Join(cleanupErr, rollbackErr)
@@ -249,6 +256,9 @@ func (w *Workspace) CreateWorkspaceProject(ctx context.Context, cfg ports.Worksp
 					}
 				} else if out.Root.Path == created[i].outputPath {
 					out.Root = ports.WorkspaceInfo{}
+				}
+				if !retained && rollbackErr == nil {
+					cleanupErr = errors.Join(cleanupErr, w.deleteCreatedBranchRef(cleanupCtx, created[i].repoPath, branch, out.Worktrees[i].BaseSHA))
 				}
 			}
 			// Cleanup ran in reverse order; restore the public root-first order for
@@ -712,8 +722,13 @@ func (w *Workspace) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (por
 	if err := w.validateBranch(ctx, repo, recreateBranch); err != nil {
 		return ports.WorkspaceInfo{}, err
 	}
-	if err := w.addWorktree(ctx, repo, path, recreateBranch, cfg.BaseBranch, newWorktreeCreateToken()); err != nil {
-		return ports.WorkspaceInfo{}, err
+	createToken := newWorktreeCreateToken()
+	if err := w.addWorktree(ctx, repo, path, recreateBranch, cfg.BaseBranch, createToken); err != nil {
+		retained, cleanupErr := w.rollbackFailedCreate(ctx, repo, path, createToken)
+		if retained {
+			return ports.WorkspaceInfo{Path: path, Branch: recreateBranch, SessionID: cfg.SessionID, ProjectID: cfg.ProjectID, RepoPath: repo}, errors.Join(err, cleanupErr)
+		}
+		return ports.WorkspaceInfo{}, errors.Join(err, cleanupErr)
 	}
 	return ports.WorkspaceInfo{Path: path, Branch: recreateBranch, SessionID: cfg.SessionID, ProjectID: cfg.ProjectID, RepoPath: repo}, nil
 }
@@ -1026,12 +1041,32 @@ func (w *Workspace) createWorkspaceProjectRepo(ctx context.Context, repo workspa
 		if cleanupErr != nil {
 			return baseSHA, retained, errors.Join(createErr, cleanupErr)
 		}
+		if !retained {
+			cleanupCtx, cancel := failedCreateCleanupContext(ctx)
+			defer cancel()
+			createErr = errors.Join(createErr, w.deleteCreatedBranchRef(cleanupCtx, repo.repoPath, branch, baseSHA))
+		}
 		return baseSHA, false, createErr
 	}
 	if err := w.unlockCreatedWorktree(ctx, repo.repoPath, repo.outputPath); err != nil {
 		return baseSHA, true, err
 	}
 	return baseSHA, false, nil
+}
+
+func (w *Workspace) deleteCreatedBranchRef(ctx context.Context, repo, branch, baseSHA string) error {
+	if baseSHA == "" {
+		return nil
+	}
+	ref := "refs/heads/" + branch
+	exists, err := w.refExists(ctx, repo, ref)
+	if err != nil || !exists {
+		return err
+	}
+	if _, err := w.run(ctx, w.binary, "-C", repo, "update-ref", "-d", ref, baseSHA); err != nil {
+		return fmt.Errorf("gitworktree: preserve branch %q after rollback: %w", ref, err)
+	}
+	return nil
 }
 
 // rollbackFailedCreate removes a partially materialized worktree after git
