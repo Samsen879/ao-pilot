@@ -56,6 +56,22 @@ func (s *Store) UpdateSession(ctx context.Context, rec domain.SessionRecord) err
 	return s.qw.UpdateSession(ctx, recordToUpdate(rec))
 }
 
+// PaneDraftPending is a write-ahead marker for a pane that may contain an
+// unsubmitted paste. It survives daemon restarts and is independent of
+// activity state, which can change while a draft remains in the composer.
+func (s *Store) PaneDraftPending(ctx context.Context, id domain.SessionID) (bool, error) {
+	var pending bool
+	err := s.readDB.QueryRowContext(ctx, "SELECT pane_draft_pending FROM sessions WHERE id = ?", string(id)).Scan(&pending)
+	return pending, err
+}
+
+func (s *Store) SetPaneDraftPending(ctx context.Context, id domain.SessionID, pending bool) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	_, err := s.writeDB.ExecContext(ctx, "UPDATE sessions SET pane_draft_pending = ? WHERE id = ?", pending, string(id))
+	return err
+}
+
 // RenameSession updates only the user-facing display name for an existing
 // session. It returns ok=false when the session id does not exist. The
 // sessions_cdc_update trigger fans out a session_updated CDC event when the

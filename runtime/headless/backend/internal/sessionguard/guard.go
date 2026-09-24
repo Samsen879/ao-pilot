@@ -26,6 +26,11 @@ type SessionReader interface {
 	GetSession(ctx context.Context, id domain.SessionID) (domain.SessionRecord, bool, error)
 }
 
+type paneDraftStore interface {
+	PaneDraftPending(ctx context.Context, id domain.SessionID) (bool, error)
+	SetPaneDraftPending(ctx context.Context, id domain.SessionID, pending bool) error
+}
+
 // Outcome reports what a guarded write did. Attempted reached the pane without
 // Enter; suppressed outcomes did not reach it.
 type Outcome int
@@ -134,6 +139,42 @@ func (g *Guard) sessionLock(id domain.SessionID) *sync.Mutex {
 	return lock
 }
 
+func (g *Guard) pendingDraft(ctx context.Context, id domain.SessionID) (bool, error) {
+	if store, ok := g.store.(paneDraftStore); ok {
+		return store.PaneDraftPending(ctx, id)
+	}
+	sharedLocks.Lock()
+	defer sharedLocks.Unlock()
+	return sharedLocks.pending[id], nil
+}
+
+func (g *Guard) setPendingDraft(ctx context.Context, id domain.SessionID, pending bool) error {
+	if store, ok := g.store.(paneDraftStore); ok {
+		if err := store.SetPaneDraftPending(ctx, id, pending); err != nil {
+			return err
+		}
+	}
+	sharedLocks.Lock()
+	if pending {
+		sharedLocks.pending[id] = true
+	} else {
+		delete(sharedLocks.pending, id)
+	}
+	sharedLocks.Unlock()
+	return nil
+}
+
+// ClearPendingPaneDraft records a user-prompt-submit hook after the user
+// manually submitted the draft in the terminal. It shares the pane's send
+// lock so an in-flight paste cannot recreate a stale marker afterward.
+func ClearPendingPaneDraft(ctx context.Context, store SessionReader, id domain.SessionID) error {
+	g := &Guard{store: store}
+	lock := g.sessionLock(id)
+	lock.Lock()
+	defer lock.Unlock()
+	return g.setPendingDraft(ctx, id, false)
+}
+
 // Send satisfies ports.AgentMessenger so a Guard can sit in for the raw
 // messenger. It applies the Deliver policy but FOLDS a suppressed outcome into
 // nil: a caller that learns only "did Send error?" cannot tell that the write
@@ -201,9 +242,10 @@ func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, refus
 	lock := g.sessionLock(id)
 	lock.Lock()
 	defer lock.Unlock()
-	sharedLocks.Lock()
-	pending := sharedLocks.pending[id]
-	sharedLocks.Unlock()
+	pending, err := g.pendingDraft(ctx, id)
+	if err != nil {
+		return SuppressedUnknown, err
+	}
 	if pending && msg != "" {
 		return SuppressedDraftPending, nil
 	}
@@ -224,7 +266,13 @@ func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, refus
 		}
 		return SuppressedUnknown, err
 	}
-	var err error
+	if msg != "" {
+		// Write ahead: a daemon crash between paste and Enter must leave a
+		// durable marker that blocks every later sender from repasting.
+		if err := g.setPendingDraft(ctx, id, true); err != nil {
+			return SuppressedUnknown, err
+		}
+	}
 	if messenger, ok := g.messenger.(guardedMessenger); ok {
 		err = messenger.SendGuarded(ctx, id, msg, check)
 	} else {
@@ -232,21 +280,21 @@ func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, refus
 	}
 	if err != nil {
 		if errors.Is(err, ports.ErrPaneDraftPending) {
-			sharedLocks.Lock()
-			sharedLocks.pending[id] = true
-			sharedLocks.Unlock()
 			return Attempted, nil
 		}
 		var suppressed suppressedError
 		if errors.As(err, &suppressed) {
+			if msg != "" {
+				if clearErr := g.setPendingDraft(ctx, id, false); clearErr != nil {
+					return SuppressedUnknown, clearErr
+				}
+			}
 			return suppressed.outcome, nil
 		}
 		return Sent, fmt.Errorf("guard %s: send: %w", id, err)
 	}
-	if pending && msg == "" {
-		sharedLocks.Lock()
-		delete(sharedLocks.pending, id)
-		sharedLocks.Unlock()
+	if err := g.setPendingDraft(ctx, id, false); err != nil {
+		return Sent, err
 	}
 	return Sent, nil
 }

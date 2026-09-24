@@ -343,6 +343,9 @@ func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, 
 			rec.UpdatedAt = now
 			err := m.store.UpdateSession(ctx, rec)
 			m.mu.Unlock()
+			if err == nil && s.Event == "user-prompt-submit" {
+				err = sessionguard.ClearPendingPaneDraft(ctx, m.store, id)
+			}
 			if err == nil && m.reengagement != nil {
 				m.reengagement.ObserveActivity(ctx, rec, rec, s.Event)
 			}
@@ -387,6 +390,11 @@ func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, 
 	waitingEvents := m.waitingInputEvents(next, prevState, prevAt, now)
 	tracker := m.reengagement
 	m.mu.Unlock()
+	if s.Event == "user-prompt-submit" {
+		if err := sessionguard.ClearPendingPaneDraft(ctx, m.store, id); err != nil {
+			return err
+		}
+	}
 	if tracker != nil {
 		tracker.ObserveActivity(ctx, rec, next, s.Event)
 	}
