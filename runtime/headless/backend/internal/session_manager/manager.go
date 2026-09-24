@@ -2998,7 +2998,8 @@ func (m *Manager) deliverAfterStartPrompt(ctx context.Context, agent ports.Agent
 	case sessionguard.SuppressedAwaitingUser:
 		return fmt.Errorf("send %s: %w", id, ErrAwaitingDecision)
 	case sessionguard.Attempted:
-		return fmt.Errorf("send %s: %w", id, ErrDraftPending)
+		m.logger.Warn("startup prompt reached pane but Enter was withheld; preserving session", "sessionID", id)
+		return nil
 	case sessionguard.SuppressedUnknown:
 		return fmt.Errorf("send %s: pre-write session read failed", id)
 	default:

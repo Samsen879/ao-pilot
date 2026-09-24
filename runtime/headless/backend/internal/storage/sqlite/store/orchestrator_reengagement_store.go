@@ -43,6 +43,10 @@ func (s *Store) MarkOrchestratorReengagementProgress(ctx context.Context, id dom
 		SessionID: string(id),
 		UpdatedAt: now,
 	})
+	if err != nil {
+		return err
+	}
+	_, err = s.writeDB.ExecContext(ctx, "UPDATE orchestrator_reengagements SET pending_enter = 0 WHERE session_id = ?", string(id))
 	return err
 }
 
@@ -71,11 +75,31 @@ func (s *Store) GetOrchestratorReengagement(ctx context.Context, id domain.Sessi
 	return orchestratorReengagementFromRow(row), true, nil
 }
 
+// OrchestratorReengagementPendingEnter survives daemon restarts. A pending
+// draft must receive only Enter on the next safe attempt, never a second paste.
+func (s *Store) OrchestratorReengagementPendingEnter(ctx context.Context, id domain.SessionID) (bool, error) {
+	var pending bool
+	err := s.readDB.QueryRowContext(ctx, "SELECT pending_enter FROM orchestrator_reengagements WHERE session_id = ?", string(id)).Scan(&pending)
+	return pending, err
+}
+
+func (s *Store) DeferOrchestratorReengagementPendingEnter(ctx context.Context, id domain.SessionID, next, now time.Time) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	_, err := s.writeDB.ExecContext(ctx, "UPDATE orchestrator_reengagements SET pending_enter = 1, next_attempt_at = ?, updated_at = ? WHERE session_id = ? AND state = 'active'", next, now, string(id))
+	return err
+}
+
 // RecordOrchestratorReengagementAttempt advances the attempt count and retry state.
 func (s *Store) RecordOrchestratorReengagementAttempt(ctx context.Context, id domain.SessionID, next, now time.Time, maxAttempts int) (domain.OrchestratorReengagement, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	row, err := s.qw.RecordOrchestratorReengagementAttempt(ctx, gen.RecordOrchestratorReengagementAttemptParams{
+	tx, err := s.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		return domain.OrchestratorReengagement{}, err
+	}
+	defer tx.Rollback()
+	row, err := s.qw.WithTx(tx).RecordOrchestratorReengagementAttempt(ctx, gen.RecordOrchestratorReengagementAttemptParams{
 		SessionID:     string(id),
 		NextAttemptAt: next,
 		LastAttemptAt: sql.NullTime{Time: now, Valid: true},
@@ -84,6 +108,13 @@ func (s *Store) RecordOrchestratorReengagementAttempt(ctx context.Context, id do
 	})
 	if err != nil {
 		return domain.OrchestratorReengagement{}, fmt.Errorf("record orchestrator re-engagement attempt: %w", err)
+	}
+	// Clear the pending draft in the same transaction as its recorded Enter.
+	if _, err := tx.ExecContext(ctx, "UPDATE orchestrator_reengagements SET pending_enter = 0 WHERE session_id = ?", string(id)); err != nil {
+		return domain.OrchestratorReengagement{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.OrchestratorReengagement{}, err
 	}
 	return orchestratorReengagementFromRow(row), nil
 }

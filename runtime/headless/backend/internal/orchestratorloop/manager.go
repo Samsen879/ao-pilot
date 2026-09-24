@@ -37,6 +37,8 @@ type Store interface {
 	MarkOrchestratorReengagementProgress(ctx context.Context, id domain.SessionID, now time.Time) error
 	ListDueOrchestratorReengagements(ctx context.Context, now time.Time) ([]domain.OrchestratorReengagement, error)
 	RecordOrchestratorReengagementAttempt(ctx context.Context, id domain.SessionID, next, now time.Time, maxAttempts int) (domain.OrchestratorReengagement, error)
+	OrchestratorReengagementPendingEnter(ctx context.Context, id domain.SessionID) (bool, error)
+	DeferOrchestratorReengagementPendingEnter(ctx context.Context, id domain.SessionID, next, now time.Time) error
 	ListPendingOrchestratorAttention(ctx context.Context) ([]domain.OrchestratorReengagement, error)
 	MarkOrchestratorAttentionNotified(ctx context.Context, id domain.SessionID, now time.Time) (bool, error)
 	CompleteOrchestratorReengagement(ctx context.Context, id domain.SessionID, now time.Time) (bool, error)
@@ -192,11 +194,22 @@ func (m *Manager) attempt(ctx context.Context, item domain.OrchestratorReengagem
 	if m.guard == nil {
 		return nil
 	}
-	outcome, err := m.guard.NudgeCoordination(ctx, rec.ID, reengagementMessage(rec.ID), m.steersActive)
+	pendingEnter, err := m.store.OrchestratorReengagementPendingEnter(ctx, rec.ID)
 	if err != nil {
 		return err
 	}
-	if outcome != sessionguard.Sent && outcome != sessionguard.Attempted {
+	message := reengagementMessage(rec.ID)
+	if pendingEnter {
+		message = ""
+	}
+	outcome, err := m.guard.NudgeCoordination(ctx, rec.ID, message, m.steersActive)
+	if err != nil {
+		return err
+	}
+	if outcome == sessionguard.Attempted {
+		return m.store.DeferOrchestratorReengagementPendingEnter(ctx, rec.ID, now.Add(m.backoff(item.AttemptCount+1)), now)
+	}
+	if outcome != sessionguard.Sent {
 		return nil
 	}
 	next := now.Add(m.backoff(item.AttemptCount + 1))

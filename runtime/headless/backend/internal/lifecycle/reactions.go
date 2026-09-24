@@ -799,7 +799,22 @@ func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key,
 		return sendOnceAccounted, nil
 	}
 	if m.react.seen[key] == partialSendSignature(sig) {
-		return sendOnceAttempted, nil
+		// The text is already in the pane. Once the guard says it is safe,
+		// submit that draft with Enter alone instead of pasting it again.
+		outcome, err := m.guard.Nudge(ctx, id, "")
+		if err != nil {
+			return sendOnceAttempted, err
+		}
+		if outcome != sessionguard.Sent {
+			return sendOnceAttempted, nil
+		}
+		m.react.seen[key] = sig
+		if prURL != "" {
+			if err := m.persistPRSignaturesLocked(ctx, prURL); err != nil {
+				return sendOnceAccounted, err
+			}
+		}
+		return sendOnceAccounted, nil
 	}
 	attempts := m.react.attempts[key]
 	if maxAttempts > 0 && attempts >= maxAttempts {
