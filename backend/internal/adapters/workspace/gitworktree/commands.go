@@ -23,16 +23,16 @@ func revParseVerifyArgs(repo, ref string) []string {
 // is what keeps a lock an effective "do not touch" signal. Never pass it twice.
 const worktreeAddForce = "--force"
 
-func worktreeAddBranchArgs(repo, path, branch string, force bool) []string {
-	args := []string{"-C", repo, "worktree", "add"}
+func worktreeAddBranchArgs(repo, path, branch string, force bool, createToken string) []string {
+	args := []string{"-C", repo, "worktree", "add", "--lock", "--reason", createToken}
 	if force {
 		args = append(args, worktreeAddForce)
 	}
 	return append(args, path, branch)
 }
 
-func worktreeAddNewBranchArgs(repo, branch, path, baseRef string, force bool) []string {
-	args := []string{"-C", repo, "worktree", "add"}
+func worktreeAddNewBranchArgs(repo, branch, path, baseRef string, force bool, createToken string) []string {
+	args := []string{"-C", repo, "worktree", "add", "--lock", "--reason", createToken}
 	if force {
 		args = append(args, worktreeAddForce)
 	}
