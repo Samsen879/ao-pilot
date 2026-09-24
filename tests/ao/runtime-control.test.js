@@ -238,6 +238,34 @@ describe('runtime control boundary', () => {
     expect(syncSpawn).toHaveBeenCalledTimes(2);
   });
 
+  it('starts a replacement when the recovering daemon is confirmed gone', async () => {
+    const syncSpawn = jest.fn()
+      .mockReturnValueOnce({ status: 0, stdout: '{"state":"not_ready","health":"ok","pid":42}' })
+      .mockReturnValueOnce({ status: 0, stdout: '{"state":"stopped"}' })
+      .mockReturnValueOnce({ status: 0, stdout: '{"state":"ready","health":"ok","pid":43}' });
+    const childSpawn = jest.fn().mockReturnValue({ once: jest.fn(), unref: jest.fn() });
+    const result = await startVerifiedRuntimeDaemon(verified, {
+      syncSpawn, childSpawn, delay: async () => {},
+    });
+    expect(result).toMatchObject({ status: 'started', exit_code: 0, daemon_status: { pid: 43 } });
+    expect(childSpawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('backs off status probes during a long recovery', async () => {
+    const starting = { status: 0, stdout: '{"state":"not_ready","health":"ok","pid":42}' };
+    const syncSpawn = jest.fn()
+      .mockReturnValueOnce(starting)
+      .mockReturnValueOnce(starting)
+      .mockReturnValueOnce(starting)
+      .mockReturnValueOnce({ status: 0, stdout: '{"state":"ready","pid":42}' });
+    const delays = [];
+    const result = await startVerifiedRuntimeDaemon(verified, {
+      syncSpawn, childSpawn: jest.fn(), delay: async (ms) => { delays.push(ms); },
+    });
+    expect(result.status).toBe('already_running');
+    expect(delays).toEqual([250, 500, 1000]);
+  });
+
   it('bounds the initial status probe by the remaining startup timeout', async () => {
     const syncSpawn = jest.fn().mockReturnValue({
       status: null,

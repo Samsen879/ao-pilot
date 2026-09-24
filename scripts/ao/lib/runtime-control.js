@@ -226,6 +226,17 @@ function daemonStarting(result) {
   }
 }
 
+function daemonConfirmedGone(result) {
+  if (result?.status !== 0) return false;
+  try {
+    const parsed = JSON.parse(result.stdout || '{}');
+    return parsed?.state === 'stopped'
+      || (parsed?.state === 'stale' && parsed?.error === 'run-file points to a dead process');
+  } catch {
+    return false;
+  }
+}
+
 function statusProbe(runtime, {
   cwd,
   env,
@@ -247,7 +258,7 @@ export async function startVerifiedRuntimeDaemon(runtime, {
   childSpawn = spawn,
   syncSpawn = spawnSync,
   timeoutMs = 5 * 60_000,
-  pollIntervalMs = 100,
+  pollIntervalMs = 250,
   delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   now = () => Date.now(),
 } = {}) {
@@ -275,14 +286,15 @@ export async function startVerifiedRuntimeDaemon(runtime, {
     };
   }
 
-  const existingDaemon = daemonStarting(before);
+  let existingDaemon = daemonStarting(before);
+  let spawned = false;
 
   let spawnError = null;
   let childExited = false;
   let childExitCode = null;
   let childExitSignal = null;
   let child;
-  if (!existingDaemon) {
+  const spawnDaemon = () => {
     try {
       child = childSpawn(runtime.binary_path, ['daemon'], {
         cwd,
@@ -297,6 +309,9 @@ export async function startVerifiedRuntimeDaemon(runtime, {
         error: error.message,
       };
     }
+    spawned = true;
+    childExited = false;
+    spawnError = null;
     child.once?.('error', (error) => { spawnError = error; });
     child.once?.('exit', (code, signal) => {
       childExited = true;
@@ -304,11 +319,17 @@ export async function startVerifiedRuntimeDaemon(runtime, {
       childExitSignal = signal;
     });
     child.unref?.();
+    return null;
+  };
+  if (!existingDaemon) {
+    const failure = spawnDaemon();
+    if (failure) return failure;
   }
 
   let lastProbe = before;
+  let pollDelayMs = pollIntervalMs;
   while (now() < deadline) {
-    await delay(pollIntervalMs);
+    await delay(pollDelayMs);
     if (spawnError) {
       return {
         status: 'failed',
@@ -316,25 +337,35 @@ export async function startVerifiedRuntimeDaemon(runtime, {
         error: spawnError.message,
       };
     }
-    if (!existingDaemon && childExited) {
-      return {
-        status: 'failed',
-        exit_code: 2,
-        error: `verified runtime daemon exited before readiness (${childExitCode == null ? `signal ${childExitSignal ?? 'unknown'}` : `exit ${childExitCode}`})`,
-      };
-    }
     if (now() >= deadline) break;
     lastProbe = probe();
     if (daemonReady(lastProbe)) {
       return {
-        status: existingDaemon ? 'already_running' : 'started',
+        status: spawned ? 'started' : 'already_running',
         exit_code: 0,
         daemon_status: JSON.parse(lastProbe.stdout),
       };
     }
+    if (existingDaemon && daemonConfirmedGone(lastProbe)) {
+      existingDaemon = false;
+      const failure = spawnDaemon();
+      if (failure) return failure;
+    } else if (spawned && childExited) {
+      if (daemonStarting(lastProbe)) {
+        // Another owner won the restart race; wait for that daemon.
+        existingDaemon = true;
+        spawned = false;
+      } else {
+        return {
+          status: 'failed', exit_code: 2,
+          error: `verified runtime daemon exited before readiness (${childExitCode == null ? `signal ${childExitSignal ?? 'unknown'}` : `exit ${childExitCode}`})`,
+        };
+      }
+    }
+    pollDelayMs = Math.min(5_000, pollDelayMs * 2);
   }
 
-  if (!existingDaemon && !daemonStarting(lastProbe)) {
+  if (spawned && !daemonStarting(lastProbe)) {
     child.kill?.('SIGTERM');
   }
   return {
