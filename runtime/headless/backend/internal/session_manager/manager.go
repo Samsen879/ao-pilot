@@ -708,7 +708,7 @@ func (m *Manager) createSessionWorkspace(ctx context.Context, project domain.Pro
 
 	bookkeepingCtx := ctx
 	var cancelBookkeeping context.CancelFunc
-	if err != nil {
+	if err != nil || ctx.Err() != nil {
 		bookkeepingCtx, cancelBookkeeping = context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancelBookkeeping()
 	}
@@ -1979,16 +1979,14 @@ func (m *Manager) destroyWorkspaceProjectRows(ctx context.Context, rows []ports.
 		}
 		info := workspaceInfoFromRepoInfo(rows[i])
 		if err := m.workspace.Destroy(ctx, info); err != nil {
-			if errors.Is(err, ports.ErrWorkspaceDirty) {
-				return cleaned, err
-			}
 			if stateErr := m.upsertWorkspaceProjectRowState(ctx, rows[i], "retry_remove"); stateErr != nil && firstErr == nil {
 				firstErr = stateErr
 			}
 			if firstErr == nil {
 				firstErr = err
 			}
-			continue
+			// A failed child removal forbids removing any enclosing parent.
+			return cleaned, firstErr
 		}
 		if err := m.upsertWorkspaceProjectRowState(ctx, rows[i], "unavailable"); err != nil && firstErr == nil {
 			firstErr = err

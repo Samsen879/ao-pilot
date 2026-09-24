@@ -285,7 +285,8 @@ func (w *Workspace) CreateWorkspaceProject(ctx context.Context, cfg ports.Worksp
 			out.Root = ports.WorkspaceInfo{Path: repo.outputPath, Branch: branch, SessionID: cfg.SessionID, ProjectID: cfg.ProjectID, RepoPath: repo.repoPath}
 		}
 	}
-	for _, repo := range created {
+	for i := len(created) - 1; i >= 0; i-- {
+		repo := created[i]
 		if err := w.unlockCreatedWorktree(ctx, repo.repoPath, repo.outputPath); err != nil {
 			// All paths already have custody in out. Retain every remaining lock
 			// for explicit recovery instead of tearing down a completed checkout.
@@ -308,7 +309,6 @@ func workspaceProjectRepoInfo(cfg ports.WorkspaceProjectConfig, repo workspacePr
 // rollback because normal interactive cleanup still goes through Destroy and
 // the full dirty-preserve matrix is implemented separately.
 func (w *Workspace) DestroyWorkspaceProject(ctx context.Context, info ports.WorkspaceProjectInfo) error {
-	var firstErr error
 	for i := len(info.Worktrees) - 1; i >= 0; i-- {
 		wt := info.Worktrees[i]
 		if wt.Path == "" {
@@ -316,16 +316,14 @@ func (w *Workspace) DestroyWorkspaceProject(ctx context.Context, info ports.Work
 		}
 		repoPath := wt.RepoPath
 		if repoPath == "" {
-			if firstErr == nil {
-				firstErr = fmt.Errorf("gitworktree: missing repo path for worktree %q", wt.Path)
-			}
-			continue
+			return fmt.Errorf("gitworktree: missing repo path for worktree %q", wt.Path)
 		}
-		if err := w.forceDestroyPath(ctx, repoPath, wt.Path); err != nil && firstErr == nil {
-			firstErr = err
+		if err := w.forceDestroyPath(ctx, repoPath, wt.Path); err != nil {
+			// A retained child must keep its containing root on disk.
+			return err
 		}
 	}
-	return firstErr
+	return nil
 }
 
 // Destroy removes the session's worktree and prunes it from the repo, refusing
