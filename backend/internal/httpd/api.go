@@ -99,6 +99,9 @@ func (a *API) Register(root chi.Router, isReady func() bool) {
 	root.Route("/api/v1", func(r chi.Router) {
 		// Serve the OpenAPI document from the same origin as the routes it describes.
 		r.Get("/openapi.yaml", apispec.ServeYAML)
+		r.With(middleware.Timeout(timeout)).Group(func(r chi.Router) {
+			a.sessions.RegisterActivity(r)
+		})
 
 		r.Group(func(r chi.Router) {
 			r.Use(requireReady(isReady))

@@ -28,9 +28,15 @@ func TestReadinessAndRESTStayClosedDuringRecovery(t *testing.T) {
 	assertStatus("/healthz", http.StatusOK)
 	assertStatus("/readyz", http.StatusServiceUnavailable)
 	assertStatus("/api/v1/sessions", http.StatusServiceUnavailable)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/mobile/enable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/restored/activity", nil)
 	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code == http.StatusServiceUnavailable {
+		t.Fatalf("restored-agent activity hook was gated during recovery: %s", res.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/mobile/enable", nil)
+	res = httptest.NewRecorder()
 	router.ServeHTTP(res, req)
 	if res.Code != http.StatusServiceUnavailable {
 		t.Fatalf("POST /api/v1/mobile/enable status = %d, want %d; body=%s", res.Code, http.StatusServiceUnavailable, res.Body.String())
