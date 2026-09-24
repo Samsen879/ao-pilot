@@ -733,6 +733,16 @@ func (w *Workspace) ensureCapacity(checkoutBytes uint64) error {
 	return nil
 }
 
+// CapacityAvailable reports free bytes on the same filesystem used by the
+// checkout guard. The daemon polls this while agents are running: a checkout
+// can fit at creation time and later writes can still exhaust the host volume.
+func (w *Workspace) CapacityAvailable() (uint64, error) {
+	if w.minFreeBytes == 0 {
+		return 0, nil
+	}
+	return w.availableBytes(w.capacityPath)
+}
+
 const checkoutMetadataHeadroom = uint64(256 << 20)
 
 func (w *Workspace) estimateCheckoutBytes(ctx context.Context, repo, branch, baseBranch string) (uint64, error) {
