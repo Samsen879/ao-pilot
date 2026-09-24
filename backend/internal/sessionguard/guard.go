@@ -295,10 +295,23 @@ func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, requi
 	if pending && msg != "" {
 		return SuppressedDraftPending, nil
 	}
+	var beforePaste domain.SessionRecord
+	checkCount := 0
 	check := func(checkCtx context.Context) error {
-		outcome, err := g.check(checkCtx, id, refuse)
+		outcome, rec, err := g.check(checkCtx, id, refuse)
 		if err != nil {
 			return err
+		}
+		checkCount++
+		// Codex reports both an idle composer and a permission prompt as
+		// waiting_input. A new signal during the paste interval is therefore
+		// unsafe to submit automatically, even if the state name is unchanged.
+		if msg != "" && checkCount >= 3 && rec.Activity.State == domain.ActivityWaitingInput &&
+			!rec.Activity.LastActivityAt.Equal(beforePaste.Activity.LastActivityAt) {
+			return suppressedError{outcome: SuppressedAwaitingUser}
+		}
+		if checkCount <= 2 {
+			beforePaste = rec
 		}
 		if outcome != Sent {
 			return suppressedError{outcome: outcome}
@@ -350,26 +363,26 @@ func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, requi
 	return Sent, nil
 }
 
-func (g *Guard) check(ctx context.Context, id domain.SessionID, refuse func(domain.SessionRecord) (Outcome, bool)) (Outcome, error) {
+func (g *Guard) check(ctx context.Context, id domain.SessionID, refuse func(domain.SessionRecord) (Outcome, bool)) (Outcome, domain.SessionRecord, error) {
 	rec, ok, err := g.store.GetSession(ctx, id)
 	if err != nil {
-		return SuppressedUnknown, fmt.Errorf("guard %s: read session: %w", id, err)
+		return SuppressedUnknown, rec, fmt.Errorf("guard %s: read session: %w", id, err)
 	}
 	if !ok {
 		g.logger.Info("sessionguard: write suppressed", "sessionID", id, "reason", "not_found")
-		return SuppressedNotFound, nil
+		return SuppressedNotFound, rec, nil
 	}
 	if rec.IsTerminated {
 		g.logger.Info("sessionguard: write suppressed", "sessionID", id, "reason", "terminated")
-		return SuppressedTerminated, nil
+		return SuppressedTerminated, rec, nil
 	}
 	if rec.Activity.State == domain.ActivityExited {
 		g.logger.Info("sessionguard: write suppressed", "sessionID", id, "reason", "agent_exited")
-		return SuppressedExited, nil
+		return SuppressedExited, rec, nil
 	}
 	if outcome, deny := refuse(rec); deny {
 		g.logger.Info("sessionguard: write suppressed", "sessionID", id, "reason", outcome.String(), "state", string(rec.Activity.State))
-		return outcome, nil
+		return outcome, rec, nil
 	}
-	return Sent, nil
+	return Sent, rec, nil
 }
