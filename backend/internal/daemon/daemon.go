@@ -166,7 +166,7 @@ func Run() error {
 	// selected runtime, routed git/scratch workspaces, the per-session agent
 	// resolver (AO_AGENT validated here for compatibility), and the agent
 	// messenger, then mount it on the API.
-	sessionSvc, reviewSvc, sessMgr, err := startSession(cfg, runtimeAdapter, store, lcStack.LCM, lcStack.reengagement, messenger, telemetrySink, agents, managedPreview, browserBroker, browserAuthority, log)
+	sessionSvc, reviewSvc, sessMgr, capacityProbe, err := startSession(cfg, runtimeAdapter, store, lcStack.LCM, lcStack.reengagement, messenger, telemetrySink, agents, managedPreview, browserBroker, browserAuthority, log)
 	if err != nil {
 		stop()
 		lcStack.Stop()
@@ -312,6 +312,15 @@ func Run() error {
 		log.Warn("restore mobile bridge on boot failed", "err", err)
 	}
 
+	// Stop surviving agents before reconciliation if the backing host volume is
+	// already below its reserve. The watchdog stays active for the daemon's
+	// lifetime and does not remove worktrees when it stops a session.
+	var capacityWatchdog *capacityWatch
+	if cfg.WorktreeMinFreeBytes > 0 {
+		capacityWatchdog = &capacityWatch{reserve: cfg.WorktreeMinFreeBytes, probe: capacityProbe, stopper: sessMgr, logger: log}
+		capacityWatchdog.tick(ctx)
+	}
+
 	// Reconcile sessions on boot: adopt crash-surviving runtimes, capture and
 	// terminate dead ones, reap leaked tmux, then restore shutdown-saved
 	// sessions. Best-effort: a failure is logged but never blocks boot. Placed
@@ -321,6 +330,11 @@ func Run() error {
 	}
 	if reconcileErr := lcStack.ReconcileRuntime(ctx); reconcileErr != nil {
 		log.Error("reconcile agent processes on boot failed", "err", reconcileErr)
+	}
+	var capacityDone <-chan struct{}
+	if capacityWatchdog != nil {
+		capacityWatchdog.tick(ctx)
+		capacityDone = startCapacityWatch(ctx, capacityWatchdog)
 	}
 
 	// ponytail: 5s tolerates a brief frontend restart; tune if dev hot-reload trips it.
@@ -353,6 +367,9 @@ func Run() error {
 	// via defer) avoids the LIFO trap where a Stop() that blocks on ctx-cancel
 	// runs before the cancel: a non-signal exit path would hang otherwise.
 	stop()
+	if capacityDone != nil {
+		<-capacityDone
+	}
 	managedPreview.Close()
 	<-previewDone
 	lcStack.Stop()

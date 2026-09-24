@@ -209,10 +209,11 @@ type Manager struct {
 	// executable resolves the daemon's own binary (os.Executable in
 	// production); its directory is prepended to spawned sessions' PATH so the
 	// workspace hook commands resolve back to this daemon. Tests inject a stub.
-	executable  func() (string, error)
-	newLaunchID func() string
-	resumeMu    sync.Mutex
-	resuming    map[domain.SessionID]struct{}
+	executable      func() (string, error)
+	newLaunchID     func() string
+	resumeMu        sync.Mutex
+	resuming        map[domain.SessionID]struct{}
+	emergencyStopMu sync.Mutex
 	// sendConfirm bounds the best-effort post-send confirmation that the session
 	// actually became active (the agent accepted the prompt). New fills in the
 	// sendConfirm* defaults; tests in this package shrink the timings directly.
@@ -908,6 +909,78 @@ func (m *Manager) rollbackSpawn(ctx context.Context, id domain.SessionID) (delet
 // RollbackSpawn is the public surface of rollbackSpawn for service-layer callers.
 func (m *Manager) RollbackSpawn(ctx context.Context, id domain.SessionID) (deleted, killed bool, err error) {
 	return m.rollbackSpawn(ctx, id)
+}
+
+// EmergencyStopAll stops live AO agents when the configured backing filesystem
+// has crossed its reserve. It deliberately leaves every worktree and its
+// contents in place, including ignored and untracked files. The existing
+// session-worktree rows are marked unavailable so boot reconciliation will not
+// automatically restore these sessions after space becomes available again.
+// Workers stop before orchestrators, preventing the controller from assigning
+// more work while its workers are being stopped. A failed runtime destroy is
+// retried on the next watchdog tick and is never marked terminal as if stopped.
+func (m *Manager) EmergencyStopAll(ctx context.Context) (int, error) {
+	m.emergencyStopMu.Lock()
+	defer m.emergencyStopMu.Unlock()
+
+	recs, err := m.store.ListAllSessions(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("capacity stop: list sessions: %w", err)
+	}
+	sort.SliceStable(recs, func(i, j int) bool {
+		return recs[i].Kind != domain.KindOrchestrator && recs[j].Kind == domain.KindOrchestrator
+	})
+	var errs []error
+	stopped := 0
+	for _, rec := range recs {
+		if rec.IsTerminated {
+			continue
+		}
+		rows, err := m.store.ListSessionWorktrees(ctx, rec.ID)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: list worktrees: %w", rec.ID, err))
+			// A store read failure cannot be allowed to keep a writer running
+			// while the host filesystem is already below its reserve.
+			if deleteErr := m.store.DeleteSessionWorktrees(ctx, rec.ID); deleteErr != nil {
+				errs = append(errs, fmt.Errorf("%s: clear unknown restore markers: %w", rec.ID, deleteErr))
+			}
+		}
+		// Persist the no-auto-restore marker before killing the process. Keep
+		// every path and preserved ref for later inspection or manual recovery.
+		markerFailed := false
+		for _, row := range rows {
+			row.State = "unavailable"
+			if markErr := m.store.UpsertSessionWorktree(ctx, row); markErr != nil {
+				errs = append(errs, fmt.Errorf("%s: mark worktree unavailable: %w", rec.ID, markErr))
+				markerFailed = true
+				break
+			}
+		}
+		if markerFailed {
+			// If the row cannot be marked, removing only its restore marker
+			// is the safer fallback. The session row still records the worktree
+			// path, and neither operation touches workspace files.
+			if deleteErr := m.store.DeleteSessionWorktrees(ctx, rec.ID); deleteErr != nil {
+				errs = append(errs, fmt.Errorf("%s: clear restore marker: %w", rec.ID, deleteErr))
+			}
+		}
+		handle := runtimeHandle(rec.Metadata)
+		if handle.ID == "" {
+			errs = append(errs, fmt.Errorf("%s: runtime handle missing; cannot confirm agent stopped", rec.ID))
+			continue
+		}
+		if err := m.runtime.Destroy(ctx, handle); err != nil {
+			errs = append(errs, fmt.Errorf("%s: stop runtime: %w", rec.ID, err))
+			continue
+		}
+		if err := m.lcm.MarkTerminated(ctx, rec.ID); err != nil {
+			errs = append(errs, fmt.Errorf("%s: mark terminal: %w", rec.ID, err))
+			continue
+		}
+		stopped++
+		m.logger.Error("capacity stop: agent stopped; worktree preserved", "sessionID", rec.ID, "workspacePath", rec.Metadata.WorkspacePath)
+	}
+	return stopped, errors.Join(errs...)
 }
 
 // Kill tears down the runtime and workspace, then records terminal intent with
