@@ -265,9 +265,8 @@ func (w *Workspace) CreateWorkspaceProject(ctx context.Context, cfg ports.Worksp
 				} else if out.Root.Path == created[i].outputPath {
 					out.Root = ports.WorkspaceInfo{}
 				}
-				if !retained && rollbackErr == nil {
-					cleanupErr = errors.Join(cleanupErr, w.deleteCreatedBranchRef(cleanupCtx, created[i].repoPath, branch, out.Worktrees[i].BaseSHA))
-				}
+				// Leave the branch ref behind. A same-SHA compare-and-delete
+				// cannot prove that a concurrent creator has not claimed it.
 			}
 			// Cleanup ran in reverse order; restore the public root-first order for
 			// any worktrees whose removal failed so the caller retains custody.
@@ -1049,32 +1048,12 @@ func (w *Workspace) createWorkspaceProjectRepo(ctx context.Context, repo workspa
 		if cleanupErr != nil {
 			return baseSHA, retained, errors.Join(createErr, cleanupErr)
 		}
-		if !retained {
-			cleanupCtx, cancel := failedCreateCleanupContext(ctx)
-			defer cancel()
-			createErr = errors.Join(createErr, w.deleteCreatedBranchRef(cleanupCtx, repo.repoPath, branch, baseSHA))
-		}
 		return baseSHA, false, createErr
 	}
 	if err := w.unlockCreatedWorktree(ctx, repo.repoPath, repo.outputPath); err != nil {
 		return baseSHA, true, err
 	}
 	return baseSHA, false, nil
-}
-
-func (w *Workspace) deleteCreatedBranchRef(ctx context.Context, repo, branch, baseSHA string) error {
-	if baseSHA == "" {
-		return nil
-	}
-	ref := "refs/heads/" + branch
-	exists, err := w.refExists(ctx, repo, ref)
-	if err != nil || !exists {
-		return err
-	}
-	if _, err := w.run(ctx, w.binary, "-C", repo, "update-ref", "-d", ref, baseSHA); err != nil {
-		return fmt.Errorf("gitworktree: preserve branch %q after rollback: %w", ref, err)
-	}
-	return nil
 }
 
 // rollbackFailedCreate removes a partially materialized worktree after git
