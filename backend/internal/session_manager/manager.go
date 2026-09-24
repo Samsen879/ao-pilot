@@ -1870,6 +1870,15 @@ func (m *Manager) workspaceProjectRows(ctx context.Context, rec domain.SessionRe
 			if err != nil {
 				return nil, false, err
 			}
+			// A running legacy workspace-project session may have only the root
+			// marker. Its runtime handle proves spawn advanced past workspace
+			// bookkeeping; reconstruct the configured child rows for cleanup.
+			// A failed create has no runtime handle and must retain its parent
+			// whenever an unrecorded child path exists.
+			if rec.Metadata.RuntimeHandleID != "" {
+				infos, err := m.workspaceProjectRestoreRowsFromMarkers(ctx, project, rec, rows)
+				return infos, err == nil, err
+			}
 			for _, child := range childRepos {
 				childPath := filepath.Join(rec.Metadata.WorkspacePath, filepath.FromSlash(child.RelativePath))
 				if _, err := os.Lstat(childPath); err == nil {

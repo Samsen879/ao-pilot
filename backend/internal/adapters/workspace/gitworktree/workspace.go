@@ -285,9 +285,11 @@ func (w *Workspace) CreateWorkspaceProject(ctx context.Context, cfg ports.Worksp
 			out.Root = ports.WorkspaceInfo{Path: repo.outputPath, Branch: branch, SessionID: cfg.SessionID, ProjectID: cfg.ProjectID, RepoPath: repo.repoPath}
 		}
 	}
+	unlockCtx, cancelUnlock := failedCreateCleanupContext(ctx)
+	defer cancelUnlock()
 	for i := len(created) - 1; i >= 0; i-- {
 		repo := created[i]
-		if err := w.unlockCreatedWorktree(ctx, repo.repoPath, repo.outputPath); err != nil {
+		if err := w.unlockCreatedWorktreeWithContext(unlockCtx, repo.repoPath, repo.outputPath); err != nil {
 			// All paths already have custody in out. Retain every remaining lock
 			// for explicit recovery instead of tearing down a completed checkout.
 			return out, fmt.Errorf("gitworktree: unlock workspace repo %q: %w", repo.name, err)
@@ -888,7 +890,11 @@ func newWorktreeCreateToken() string { return "ao-create-" + uuid.NewString() }
 func (w *Workspace) unlockCreatedWorktree(parent context.Context, repo, path string) error {
 	cleanupCtx, cancel := failedCreateCleanupContext(parent)
 	defer cancel()
-	if _, err := w.run(cleanupCtx, w.binary, worktreeUnlockArgs(repo, path)...); err != nil {
+	return w.unlockCreatedWorktreeWithContext(cleanupCtx, repo, path)
+}
+
+func (w *Workspace) unlockCreatedWorktreeWithContext(ctx context.Context, repo, path string) error {
+	if _, err := w.run(ctx, w.binary, worktreeUnlockArgs(repo, path)...); err != nil {
 		return fmt.Errorf("gitworktree: unlock created worktree %q: %w", path, err)
 	}
 	return nil
