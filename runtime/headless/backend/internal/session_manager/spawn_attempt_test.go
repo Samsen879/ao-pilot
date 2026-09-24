@@ -49,6 +49,7 @@ type fakeRuntime struct {
 	creates, destroys            int
 	alive, destroyErr, createErr bool
 	onCreate                     func()
+	onDestroy                    func(ports.RuntimeHandle)
 }
 
 func (r *fakeRuntime) Create(ctx context.Context, cfg ports.RuntimeConfig) (ports.RuntimeHandle, error) {
@@ -62,8 +63,11 @@ func (r *fakeRuntime) Create(ctx context.Context, cfg ports.RuntimeConfig) (port
 	}
 	return ports.RuntimeHandle{ID: string(cfg.SessionID)}, nil
 }
-func (r *fakeRuntime) Destroy(ctx context.Context, _ ports.RuntimeHandle) error {
+func (r *fakeRuntime) Destroy(ctx context.Context, handle ports.RuntimeHandle) error {
 	r.destroys++
+	if r.onDestroy != nil {
+		r.onDestroy(handle)
+	}
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}

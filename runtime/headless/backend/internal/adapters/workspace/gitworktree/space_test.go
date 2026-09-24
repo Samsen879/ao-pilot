@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -214,6 +215,66 @@ func TestEstimateCheckoutRejectsAutoCRLFExpansion(t *testing.T) {
 	_, err := w.estimateCheckoutBytes(context.Background(), "/repo", "feature", "main")
 	if !errors.Is(err, ports.ErrWorkspaceInsufficientSpace) {
 		t.Fatalf("estimateCheckoutBytes error = %v, want autocrlf rejection", err)
+	}
+}
+
+func TestEstimateCheckoutAccountsForTinyFiles(t *testing.T) {
+	w := &Workspace{binary: "git", minFreeBytes: 1, availableBytes: func(string) (uint64, error) { return 1 << 40, nil }}
+	w.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		joined := strings.Join(args, " ")
+		switch {
+		case strings.Contains(joined, "rev-parse --verify --quiet refs/heads/feature"):
+			return []byte("abc\n"), nil
+		case strings.Contains(joined, "ls-tree"):
+			return []byte("100644 blob abc 1\ta\x00100644 blob def 1\tb\x00"), nil
+		default:
+			return nil, nil
+		}
+	}
+	estimate, err := w.estimateCheckoutBytes(context.Background(), "/missing", "feature", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := uint64(2 + 2*(64<<10) + checkoutMetadataHeadroom)
+	if estimate != want {
+		t.Fatalf("estimate=%d want=%d", estimate, want)
+	}
+}
+
+func TestRejectCheckoutTransformsChecksExternalAttributes(t *testing.T) {
+	repo := t.TempDir()
+	path := filepath.Join(repo, "attributes")
+	if err := os.WriteFile(path, []byte("*.txt filter=expand\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	w := &Workspace{binary: "git"}
+	w.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		joined := strings.Join(args, " ")
+		if strings.Contains(joined, "rev-parse --git-path info/attributes") {
+			return []byte(path + "\n"), nil
+		}
+		return nil, nil
+	}
+	if err := w.rejectCheckoutTransforms(context.Background(), repo, "HEAD"); !errors.Is(err, ports.ErrWorkspaceInsufficientSpace) {
+		t.Fatalf("external attributes error=%v", err)
+	}
+}
+
+func TestNativeWindowsEOLRejectsPlainTextAttributes(t *testing.T) {
+	line := "*.txt text"
+	for _, tc := range []struct {
+		goos, eol string
+		want      bool
+	}{
+		{"windows", "", true},
+		{"windows", "native", true},
+		{"windows", "lf", false},
+		{"linux", "", false},
+	} {
+		matched, err := regexp.MatchString(checkoutExpandingAttributePattern(tc.goos, tc.eol), line)
+		if err != nil || matched != tc.want {
+			t.Fatalf("%s/%s matched=%v want=%v err=%v", tc.goos, tc.eol, matched, tc.want, err)
+		}
 	}
 }
 
