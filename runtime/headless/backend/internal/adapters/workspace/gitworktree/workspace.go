@@ -225,6 +225,7 @@ func (w *Workspace) CreateWorkspaceProject(ctx context.Context, cfg ports.Worksp
 	created := make([]workspaceProjectRepo, 0, len(repos))
 	out := ports.WorkspaceProjectInfo{Worktrees: make([]ports.WorkspaceRepoInfo, 0, len(repos))}
 	for _, repo := range repos {
+		repo.createToken = newWorktreeCreateToken()
 		baseSHA, currentRetained, err := w.createWorkspaceProjectRepo(ctx, repo, branch)
 		if err != nil {
 			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), failedCreateCleanupTimeout)
@@ -253,7 +254,7 @@ func (w *Workspace) CreateWorkspaceProject(ctx context.Context, cfg ports.Worksp
 					out.Root = ports.WorkspaceInfo{Path: created[i].outputPath, Branch: branch, SessionID: cfg.SessionID, ProjectID: cfg.ProjectID, RepoPath: created[i].repoPath}
 					continue
 				}
-				retained, rollbackErr := w.rollbackOwnedWorktree(cleanupCtx, created[i].repoPath, created[i].outputPath, branch)
+				retained, rollbackErr := w.rollbackOwnedWorktree(cleanupCtx, created[i].repoPath, created[i].outputPath, branch, created[i].createToken)
 				if rollbackErr != nil {
 					cleanupErr = errors.Join(cleanupErr, rollbackErr)
 				}
@@ -282,6 +283,13 @@ func (w *Workspace) CreateWorkspaceProject(ctx context.Context, cfg ports.Worksp
 		out.Worktrees = append(out.Worktrees, info)
 		if repo.name == domain.RootWorkspaceRepoName {
 			out.Root = ports.WorkspaceInfo{Path: repo.outputPath, Branch: branch, SessionID: cfg.SessionID, ProjectID: cfg.ProjectID, RepoPath: repo.repoPath}
+		}
+	}
+	for _, repo := range created {
+		if err := w.unlockCreatedWorktree(ctx, repo.repoPath, repo.outputPath); err != nil {
+			// All paths already have custody in out. Retain every remaining lock
+			// for explicit recovery instead of tearing down a completed checkout.
+			return out, fmt.Errorf("gitworktree: unlock workspace repo %q: %w", repo.name, err)
 		}
 	}
 	return out, nil
@@ -966,6 +974,7 @@ type workspaceProjectRepo struct {
 	repoPath     string
 	outputPath   string
 	baseBranch   string
+	createToken  string
 }
 
 func (w *Workspace) workspaceProjectBranch(ctx context.Context, repos []workspaceProjectRepo, requested string) (string, error) {
@@ -1013,7 +1022,10 @@ func (w *Workspace) workspaceProjectBranchFree(ctx context.Context, repos []work
 }
 
 func (w *Workspace) createWorkspaceProjectRepo(ctx context.Context, repo workspaceProjectRepo, branch string) (string, bool, error) {
-	createToken := newWorktreeCreateToken()
+	createToken := repo.createToken
+	if createToken == "" {
+		createToken = newWorktreeCreateToken()
+	}
 	baseRef, err := w.resolveBaseRef(ctx, repo.repoPath, branch, repo.baseBranch)
 	if err != nil {
 		if errors.Is(err, errNoBaseRef) {
@@ -1049,9 +1061,6 @@ func (w *Workspace) createWorkspaceProjectRepo(ctx context.Context, repo workspa
 			return baseSHA, retained, errors.Join(createErr, cleanupErr)
 		}
 		return baseSHA, false, createErr
-	}
-	if err := w.unlockCreatedWorktree(ctx, repo.repoPath, repo.outputPath); err != nil {
-		return baseSHA, true, err
 	}
 	return baseSHA, false, nil
 }
@@ -1089,7 +1098,7 @@ func failedCreateCleanupContext(parent context.Context) (context.Context, contex
 	return context.WithTimeout(context.WithoutCancel(parent), failedCreateCleanupTimeout)
 }
 
-func (w *Workspace) rollbackOwnedWorktree(ctx context.Context, repo, path, branch string) (bool, error) {
+func (w *Workspace) rollbackOwnedWorktree(ctx context.Context, repo, path, branch, createToken string) (bool, error) {
 	records, err := w.listRecords(ctx, repo)
 	if err != nil {
 		return true, fmt.Errorf("gitworktree: inspect owned rollback %q: %w", path, err)
@@ -1106,10 +1115,10 @@ func (w *Workspace) rollbackOwnedWorktree(ctx context.Context, repo, path, branc
 	if rec.Branch != branch {
 		return true, fmt.Errorf("gitworktree: preserve owned rollback %q: registered branch %q differs from created branch %q", path, rec.Branch, branch)
 	}
-	if rec.Locked {
-		return true, fmt.Errorf("gitworktree: preserve owned rollback %q: worktree acquired a lock after creation", path)
+	if !rec.Locked || rec.LockReason != createToken {
+		return true, fmt.Errorf("gitworktree: preserve owned rollback %q: ownership lock differs from this creation", path)
 	}
-	return w.rollbackRegisteredWorktree(ctx, repo, path, false)
+	return w.rollbackRegisteredWorktree(ctx, repo, path, true)
 }
 
 func (w *Workspace) rollbackRegisteredWorktree(ctx context.Context, repo, path string, unlock bool) (bool, error) {

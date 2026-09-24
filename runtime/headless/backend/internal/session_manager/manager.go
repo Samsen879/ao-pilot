@@ -1860,6 +1860,26 @@ func (m *Manager) workspaceProjectRows(ctx context.Context, rec domain.SessionRe
 	if err != nil {
 		return nil, false, err
 	}
+	if len(rows) == 1 && rec.Metadata.WorkspacePath != "" {
+		project, err := m.loadProject(ctx, rec.ProjectID)
+		if err != nil {
+			return nil, false, err
+		}
+		if project.Kind.WithDefault() == domain.ProjectKindWorkspace {
+			childRepos, err := m.store.ListWorkspaceRepos(ctx, project.ID)
+			if err != nil {
+				return nil, false, err
+			}
+			for _, child := range childRepos {
+				childPath := filepath.Join(rec.Metadata.WorkspacePath, filepath.FromSlash(child.RelativePath))
+				if _, err := os.Lstat(childPath); err == nil {
+					return nil, false, fmt.Errorf("workspace project %s: preserve root while child path %q exists without custody", rec.ID, childPath)
+				} else if !errors.Is(err, os.ErrNotExist) {
+					return nil, false, fmt.Errorf("workspace project %s: inspect child path %q: %w", rec.ID, childPath, err)
+				}
+			}
+		}
+	}
 	if len(rows) <= 1 {
 		return nil, false, nil
 	}
