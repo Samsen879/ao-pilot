@@ -229,6 +229,14 @@ func (w *Workspace) CreateWorkspaceProject(ctx context.Context, cfg ports.Worksp
 		if err != nil {
 			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), failedCreateCleanupTimeout)
 			defer cancel()
+			// A failed child add may have lost a race to a different creator.
+			// Preserve its parent if any child path is still present, even when
+			// that foreign child is not ours to claim as cleanup custody.
+			childPathMayExist := false
+			if repo.name != domain.RootWorkspaceRepoName {
+				_, statErr := os.Lstat(repo.outputPath)
+				childPathMayExist = statErr == nil || !errors.Is(statErr, os.ErrNotExist)
+			}
 			remaining := make([]ports.WorkspaceRepoInfo, 0, len(out.Worktrees)+1)
 			if currentRetained {
 				remaining = append(remaining, workspaceProjectRepoInfo(cfg, repo, branch, baseSHA))
@@ -238,7 +246,7 @@ func (w *Workspace) CreateWorkspaceProject(ctx context.Context, cfg ports.Worksp
 			}
 			var cleanupErr error
 			for i := len(created) - 1; i >= 0; i-- {
-				if created[i].name == domain.RootWorkspaceRepoName && len(remaining) > 0 {
+				if created[i].name == domain.RootWorkspaceRepoName && (len(remaining) > 0 || childPathMayExist) {
 					// Every child lives beneath rootPath. Removing the root while
 					// any child is retained would erase that child's files.
 					remaining = append(remaining, out.Worktrees[i])
@@ -1080,7 +1088,8 @@ func (w *Workspace) rollbackFailedCreate(parent context.Context, repo, path, cre
 
 	records, err := w.listRecords(cleanupCtx, repo)
 	if err != nil {
-		return false, fmt.Errorf("gitworktree: inspect failed create %q: %w", path, err)
+		// Registration is unknown; return custody and keep ancestor worktrees.
+		return true, fmt.Errorf("gitworktree: inspect failed create %q: %w", path, err)
 	}
 	rec, registered := findWorktree(records, path)
 	if !registered {
@@ -1118,7 +1127,10 @@ func (w *Workspace) rollbackOwnedWorktree(ctx context.Context, repo, path, branc
 	if rec.Branch != branch {
 		return true, fmt.Errorf("gitworktree: preserve owned rollback %q: registered branch %q differs from created branch %q", path, rec.Branch, branch)
 	}
-	return w.rollbackRegisteredWorktree(ctx, repo, path, rec.Locked)
+	if rec.Locked {
+		return true, fmt.Errorf("gitworktree: preserve owned rollback %q: worktree acquired a lock after creation", path)
+	}
+	return w.rollbackRegisteredWorktree(ctx, repo, path, false)
 }
 
 func (w *Workspace) rollbackRegisteredWorktree(ctx context.Context, repo, path string, unlock bool) (bool, error) {
@@ -1138,8 +1150,12 @@ func (w *Workspace) rollbackRegisteredWorktree(ctx context.Context, repo, path s
 		}
 		return true, fmt.Errorf("gitworktree: rollback failed create %q: worktree remains registered", path)
 	}
-	if err := removeAllWithRetry(ctx, path); err != nil {
-		return true, fmt.Errorf("gitworktree: force remove path %q: %w", path, err)
+	// Git removes its own worktree directory. A path that reappears after the
+	// registration check may belong to a new creator, so never RemoveAll here.
+	if _, err := os.Lstat(path); err == nil {
+		return true, fmt.Errorf("gitworktree: preserve path %q after rollback: path still exists", path)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return true, fmt.Errorf("gitworktree: inspect path %q after rollback: %w", path, err)
 	}
 	return false, nil
 }

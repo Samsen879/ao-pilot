@@ -238,3 +238,63 @@ func TestFailedCreateNeverRemovesConcurrentCreator(t *testing.T) {
 		t.Fatalf("retained=%v err=%v", retained, err)
 	}
 }
+
+func TestFailedCreateInspectionFailureRetainsCustody(t *testing.T) {
+	w := &Workspace{binary: "git"}
+	w.run = func(context.Context, string, ...string) ([]byte, error) {
+		return nil, errors.New("worktree list unavailable")
+	}
+	retained, err := w.rollbackFailedCreate(context.Background(), t.TempDir(), filepath.Join(t.TempDir(), "partial"), "ao-create-test")
+	if !retained || err == nil {
+		t.Fatalf("retained=%v err=%v; want unknown registration retained", retained, err)
+	}
+}
+
+func TestOwnedRollbackPreservesLaterExternalLock(t *testing.T) {
+	repo := t.TempDir()
+	path := filepath.Join(t.TempDir(), "locked-worktree")
+	w := &Workspace{binary: "git"}
+	w.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		if strings.Contains(strings.Join(args, " "), "worktree list --porcelain") {
+			return []byte("worktree " + repo + "\nHEAD abc\nbranch refs/heads/main\n\nworktree " + path + "\nHEAD def\nbranch refs/heads/feature\nlocked operator-lock\n\n"), nil
+		}
+		t.Fatalf("external lock was mutated: %v", args)
+		return nil, nil
+	}
+	retained, err := w.rollbackOwnedWorktree(context.Background(), repo, path, "feature")
+	if !retained || err == nil || !strings.Contains(err.Error(), "acquired a lock") {
+		t.Fatalf("retained=%v err=%v", retained, err)
+	}
+}
+
+func TestRollbackDoesNotDeletePathAfterRegistrationDisappears(t *testing.T) {
+	repo := t.TempDir()
+	path := filepath.Join(t.TempDir(), "new-owner")
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wantFile := filepath.Join(path, "keep.txt")
+	if err := os.WriteFile(wantFile, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	w := &Workspace{binary: "git"}
+	w.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		joined := strings.Join(args, " ")
+		switch {
+		case strings.Contains(joined, "worktree remove --force"):
+			return nil, nil
+		case strings.Contains(joined, "worktree list --porcelain"):
+			return []byte("worktree " + repo + "\nHEAD abc\nbranch refs/heads/main\n\n"), nil
+		default:
+			t.Fatalf("unexpected git call: %v", args)
+			return nil, nil
+		}
+	}
+	retained, err := w.rollbackRegisteredWorktree(context.Background(), repo, path, false)
+	if !retained || err == nil {
+		t.Fatalf("retained=%v err=%v", retained, err)
+	}
+	if data, err := os.ReadFile(wantFile); err != nil || string(data) != "keep" {
+		t.Fatalf("racing path content=%q err=%v", data, err)
+	}
+}
