@@ -238,6 +238,18 @@ describe('runtime control boundary', () => {
     expect(syncSpawn).toHaveBeenCalledTimes(2);
   });
 
+  it('does not replace a live PID after an inconclusive health probe', async () => {
+    const syncSpawn = jest.fn()
+      .mockReturnValueOnce({ status: 0, stdout: '{"state":"unhealthy","pid":42}' })
+      .mockReturnValueOnce({ status: 0, stdout: '{"state":"ready","pid":42}' });
+    const childSpawn = jest.fn();
+    const result = await startVerifiedRuntimeDaemon(verified, {
+      syncSpawn, childSpawn, isProcessAlive: () => true, delay: async () => {},
+    });
+    expect(result.status).toBe('already_running');
+    expect(childSpawn).not.toHaveBeenCalled();
+  });
+
   it('starts a replacement when the recovering daemon is confirmed gone', async () => {
     const syncSpawn = jest.fn()
       .mockReturnValueOnce({ status: 0, stdout: '{"state":"not_ready","health":"ok","pid":42}' })

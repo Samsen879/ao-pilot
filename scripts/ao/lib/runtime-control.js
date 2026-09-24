@@ -307,8 +307,12 @@ export async function startVerifiedRuntimeDaemon(runtime, {
     };
   }
 
-  let existingDaemon = daemonStarting(before);
-  let existingPid = existingDaemon ? daemonPid(before) : null;
+  let existingPid = daemonPid(before);
+  // A live recorded PID is ownership evidence even when /healthz times out.
+  // Starting a replacement on an inconclusive probe can race the old daemon
+  // over its SQLite store and run file.
+  let existingDaemon = daemonStarting(before)
+    || (existingPid !== null && isProcessAlive(existingPid));
   let spawned = false;
   let spawnedObserved = false;
 

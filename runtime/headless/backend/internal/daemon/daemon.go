@@ -335,20 +335,27 @@ func Run() error {
 	// supervisors and dashboards distinguish a live daemon that is still
 	// recovering from a stopped daemon.
 	reconcileDone := make(chan struct{})
-	go func() {
-		defer close(reconcileDone)
-		if reconcileErr := sessMgr.Reconcile(ctx); reconcileErr != nil {
-			log.Error("reconcile sessions on boot failed", "err", reconcileErr)
-		}
-		if reconcileErr := lcStack.ReconcileRuntime(ctx); reconcileErr != nil {
-			log.Error("reconcile agent processes on boot failed", "err", reconcileErr)
-		}
-		if ctx.Err() == nil {
-			srv.MarkReady()
-		}
-	}()
-
-	runErr := srv.Run(ctx)
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- srv.Run(ctx) }()
+	var runErr error
+	select {
+	case <-srv.ServeStarted():
+		go func() {
+			defer close(reconcileDone)
+			if reconcileErr := sessMgr.Reconcile(ctx); reconcileErr != nil {
+				log.Error("reconcile sessions on boot failed", "err", reconcileErr)
+			}
+			if reconcileErr := lcStack.ReconcileRuntime(ctx); reconcileErr != nil {
+				log.Error("reconcile agent processes on boot failed", "err", reconcileErr)
+			}
+			if ctx.Err() == nil {
+				srv.MarkReady()
+			}
+		}()
+		runErr = <-serveDone
+	case runErr = <-serveDone:
+		close(reconcileDone)
+	}
 
 	// Both graceful shutdown paths (SIGTERM and POST /shutdown) funnel through
 	// srv.Run returning. We deliberately do NOT tear down sessions here: they
