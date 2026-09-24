@@ -43,10 +43,6 @@ func (s *Store) MarkOrchestratorReengagementProgress(ctx context.Context, id dom
 		SessionID: string(id),
 		UpdatedAt: now,
 	})
-	if err != nil {
-		return err
-	}
-	_, err = s.writeDB.ExecContext(ctx, "UPDATE orchestrator_reengagements SET pending_enter = 0 WHERE session_id = ?", string(id))
 	return err
 }
 

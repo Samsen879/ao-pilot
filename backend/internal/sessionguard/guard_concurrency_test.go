@@ -6,7 +6,41 @@ import (
 	"testing"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 )
+
+type partialMessenger struct{ messages []string }
+
+func (m *partialMessenger) Send(_ context.Context, _ domain.SessionID, msg string) error {
+	m.messages = append(m.messages, msg)
+	if len(m.messages) == 1 {
+		return ports.ErrPaneDraftPending
+	}
+	return nil
+}
+
+func TestPendingPaneDraftBlocksOtherMessagesAcrossGuards(t *testing.T) {
+	store := &guardedStateStore{rec: domain.SessionRecord{Activity: domain.Activity{State: domain.ActivityIdle}}}
+	messenger := &partialMessenger{}
+	id := domain.SessionID("pending-draft-cross-guard")
+	first := New(store, messenger, nil)
+	second := New(store, messenger, nil)
+	if outcome, err := first.Deliver(context.Background(), id, "first"); err != nil || outcome != Attempted {
+		t.Fatalf("first outcome=%s err=%v", outcome, err)
+	}
+	if outcome, err := second.Deliver(context.Background(), id, "second"); err != nil || outcome != SuppressedDraftPending {
+		t.Fatalf("second outcome=%s err=%v", outcome, err)
+	}
+	if outcome, err := second.Deliver(context.Background(), id, ""); err != nil || outcome != Sent {
+		t.Fatalf("enter outcome=%s err=%v", outcome, err)
+	}
+	if outcome, err := second.Deliver(context.Background(), id, "second"); err != nil || outcome != Sent {
+		t.Fatalf("resumed outcome=%s err=%v", outcome, err)
+	}
+	if got := messenger.messages; len(got) != 3 || got[0] != "first" || got[1] != "" || got[2] != "second" {
+		t.Fatalf("pane writes = %#v", got)
+	}
+}
 
 type guardedStateStore struct {
 	mu  sync.Mutex

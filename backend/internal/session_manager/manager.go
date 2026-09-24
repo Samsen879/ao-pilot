@@ -2066,6 +2066,8 @@ func (m *Manager) Send(ctx context.Context, id domain.SessionID, message string)
 		return fmt.Errorf("send %s: %w", id, ErrAwaitingDecision)
 	case sessionguard.Attempted:
 		return fmt.Errorf("send %s: %w", id, ErrDraftPending)
+	case sessionguard.SuppressedDraftPending:
+		return fmt.Errorf("send %s: %w", id, ErrDraftPending)
 	}
 	// confirmActive only helps — and is only SAFE — when the harness reports
 	// both a prompt-submit signal (so the loop can observe active) and a
@@ -3000,6 +3002,8 @@ func (m *Manager) deliverAfterStartPrompt(ctx context.Context, agent ports.Agent
 	case sessionguard.Attempted:
 		m.logger.Warn("startup prompt reached pane but Enter was withheld; preserving session", "sessionID", id)
 		return nil
+	case sessionguard.SuppressedDraftPending:
+		return fmt.Errorf("send %s: %w", id, ErrDraftPending)
 	case sessionguard.SuppressedUnknown:
 		return fmt.Errorf("send %s: pre-write session read failed", id)
 	default:

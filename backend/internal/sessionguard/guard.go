@@ -57,6 +57,9 @@ const (
 	// SuppressedBusy means the session is mid-turn on a harness that cannot
 	// safely steer an active turn (NudgeCoordination only).
 	SuppressedBusy
+	// SuppressedDraftPending means an earlier paste is still in this pane.
+	// A new message must wait until its Enter is safely sent.
+	SuppressedDraftPending
 )
 
 // String names the outcome for logs.
@@ -76,6 +79,8 @@ func (o Outcome) String() string {
 		return "suppressed_awaiting_user"
 	case SuppressedBusy:
 		return "suppressed_busy"
+	case SuppressedDraftPending:
+		return "suppressed_draft_pending"
 	default:
 		return "suppressed_unknown"
 	}
@@ -96,7 +101,8 @@ type Guard struct {
 var sharedLocks = struct {
 	sync.Mutex
 	bySession map[domain.SessionID]*sync.Mutex
-}{bySession: make(map[domain.SessionID]*sync.Mutex)}
+	pending   map[domain.SessionID]bool
+}{bySession: make(map[domain.SessionID]*sync.Mutex), pending: make(map[domain.SessionID]bool)}
 
 type guardedMessenger interface {
 	SendGuarded(context.Context, domain.SessionID, string, func(context.Context) error) error
@@ -139,7 +145,7 @@ func (g *Guard) sessionLock(id domain.SessionID) *sync.Mutex {
 // never delivered.
 func (g *Guard) Send(ctx context.Context, id domain.SessionID, msg string) error {
 	outcome, err := g.Deliver(ctx, id, msg)
-	if outcome == Attempted {
+	if outcome == Attempted || outcome == SuppressedDraftPending {
 		return ports.ErrPaneDraftPending
 	}
 	return err
@@ -195,6 +201,12 @@ func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, refus
 	lock := g.sessionLock(id)
 	lock.Lock()
 	defer lock.Unlock()
+	sharedLocks.Lock()
+	pending := sharedLocks.pending[id]
+	sharedLocks.Unlock()
+	if pending && msg != "" {
+		return SuppressedDraftPending, nil
+	}
 	check := func(checkCtx context.Context) error {
 		outcome, err := g.check(checkCtx, id, refuse)
 		if err != nil {
@@ -220,6 +232,9 @@ func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, refus
 	}
 	if err != nil {
 		if errors.Is(err, ports.ErrPaneDraftPending) {
+			sharedLocks.Lock()
+			sharedLocks.pending[id] = true
+			sharedLocks.Unlock()
 			return Attempted, nil
 		}
 		var suppressed suppressedError
@@ -227,6 +242,11 @@ func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, refus
 			return suppressed.outcome, nil
 		}
 		return Sent, fmt.Errorf("guard %s: send: %w", id, err)
+	}
+	if pending && msg == "" {
+		sharedLocks.Lock()
+		delete(sharedLocks.pending, id)
+		sharedLocks.Unlock()
 	}
 	return Sent, nil
 }
