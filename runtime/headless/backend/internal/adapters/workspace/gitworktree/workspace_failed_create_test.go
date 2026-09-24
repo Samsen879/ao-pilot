@@ -49,6 +49,7 @@ func TestCreateRollsBackInterruptedInitializingWorktree(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	wantPath := filepath.Join(managed, "project", "project-1")
 	partial := false
+	createToken := ""
 	var calls [][]string
 	w.run = func(runCtx context.Context, _ string, args ...string) ([]byte, error) {
 		calls = append(calls, slices.Clone(args))
@@ -59,12 +60,17 @@ func TestCreateRollsBackInterruptedInitializingWorktree(t *testing.T) {
 		case strings.Contains(joined, "worktree list --porcelain"):
 			out := "worktree " + repo + "\nHEAD abc\nbranch refs/heads/main\n\n"
 			if partial {
-				out += "worktree " + wantPath + "\nHEAD def\nbranch refs/heads/ao/project-1/root\nlocked initializing\n\n"
+				out += "worktree " + wantPath + "\nHEAD def\nbranch refs/heads/ao/project-1/root\nlocked " + createToken + "\n\n"
 			}
 			return []byte(out), nil
 		case strings.Contains(joined, "rev-parse --verify --quiet refs/heads/ao/project-1/root"):
 			return []byte("def\n"), nil
 		case strings.Contains(joined, "worktree add"):
+			for i, arg := range args {
+				if arg == "--reason" && i+1 < len(args) {
+					createToken = args[i+1]
+				}
+			}
 			partial = true
 			cancel()
 			return nil, context.Canceled
@@ -127,6 +133,7 @@ func TestCreateReturnsCustodyWhenInterruptedWorktreeCleanupFails(t *testing.T) {
 
 	wantPath := filepath.Join(managed, "project", "project-1")
 	partial := false
+	createToken := ""
 	w.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
 		joined := strings.Join(args, " ")
 		switch {
@@ -135,12 +142,17 @@ func TestCreateReturnsCustodyWhenInterruptedWorktreeCleanupFails(t *testing.T) {
 		case strings.Contains(joined, "worktree list --porcelain"):
 			out := "worktree " + repo + "\nHEAD abc\nbranch refs/heads/main\n\n"
 			if partial {
-				out += "worktree " + wantPath + "\nHEAD def\nbranch refs/heads/ao/project-1/root\nlocked initializing\n\n"
+				out += "worktree " + wantPath + "\nHEAD def\nbranch refs/heads/ao/project-1/root\nlocked " + createToken + "\n\n"
 			}
 			return []byte(out), nil
 		case strings.Contains(joined, "rev-parse --verify --quiet refs/heads/ao/project-1/root"):
 			return []byte("def\n"), nil
 		case strings.Contains(joined, "worktree add"):
+			for i, arg := range args {
+				if arg == "--reason" && i+1 < len(args) {
+					createToken = args[i+1]
+				}
+			}
 			partial = true
 			return nil, errors.New("checkout interrupted")
 		case strings.Contains(joined, "worktree unlock"):
@@ -206,5 +218,23 @@ func TestCreatePreservesUnregisteredDirectoryAfterAddFailure(t *testing.T) {
 	data, readErr := os.ReadFile(wantFile)
 	if readErr != nil || string(data) != "keep" {
 		t.Fatalf("preserved file = %q, %v", data, readErr)
+	}
+}
+
+func TestFailedCreateNeverRemovesConcurrentCreator(t *testing.T) {
+	repo := t.TempDir()
+	path := filepath.Join(t.TempDir(), "foreign-worktree")
+	w := &Workspace{binary: "git"}
+	w.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		joined := strings.Join(args, " ")
+		if strings.Contains(joined, "worktree list --porcelain") {
+			return []byte("worktree " + repo + "\nHEAD abc\nbranch refs/heads/main\n\nworktree " + path + "\nHEAD def\nbranch refs/heads/feature\nlocked ao-create-other-invocation\n\n"), nil
+		}
+		t.Fatalf("foreign registration was mutated: %v", args)
+		return nil, nil
+	}
+	retained, err := w.rollbackFailedCreate(context.Background(), repo, path, "ao-create-this-invocation")
+	if retained || err == nil || !strings.Contains(err.Error(), "ownership marker") {
+		t.Fatalf("retained=%v err=%v", retained, err)
 	}
 }
