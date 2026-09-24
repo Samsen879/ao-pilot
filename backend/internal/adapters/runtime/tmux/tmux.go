@@ -625,13 +625,16 @@ func (r *Runtime) SendMessageGuarded(ctx context.Context, handle ports.RuntimeHa
 		if r.enterDelay > 0 {
 			select {
 			case <-enterCtx.Done():
-				return enterCtx.Err()
+				return fmt.Errorf("%w: %v", ports.ErrPaneDraftPending, enterCtx.Err())
 			case <-time.After(r.enterDelay):
 			}
 		}
 	}
 	if check != nil {
 		if err := check(enterCtx); err != nil {
+			if message != "" {
+				return fmt.Errorf("%w: %v", ports.ErrPaneDraftPending, err)
+			}
 			return err
 		}
 	}

@@ -92,8 +92,8 @@ func TestSendMessageGuardedRechecksBeforeEnter(t *testing.T) {
 		}
 		return nil
 	})
-	if err == nil || err.Error() != "blocked" {
-		t.Fatalf("SendMessageGuarded error = %v, want blocked", err)
+	if !errors.Is(err, ports.ErrPaneDraftPending) {
+		t.Fatalf("SendMessageGuarded error = %v, want pending draft", err)
 	}
 	if runner.contains(" Enter") {
 		t.Fatal("Enter was sent after the guard rejected the post-settle state")

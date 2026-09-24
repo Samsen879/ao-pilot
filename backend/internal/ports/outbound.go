@@ -75,6 +75,10 @@ type AgentMessenger interface {
 	Send(ctx context.Context, id domain.SessionID, message string) error
 }
 
+// ErrPaneDraftPending means text reached an agent pane but Enter was withheld
+// after a fresh guard check. Retrying the text would duplicate the draft.
+var ErrPaneDraftPending = errors.New("pane draft pending; Enter was not sent")
+
 // ---- runtime / agent / workspace plugin ports ----
 
 // Runtime is the full runtime adapter contract: session creation/teardown plus
