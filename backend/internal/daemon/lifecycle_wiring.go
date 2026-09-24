@@ -258,17 +258,17 @@ func (m runtimeMessenger) SendGuarded(ctx context.Context, id domain.SessionID, 
 func (m runtimeMessenger) send(ctx context.Context, id domain.SessionID, message string, check func(context.Context) error) error {
 	rec, ok, err := m.store.GetSession(ctx, id)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", ports.ErrPaneWriteNotStarted, err)
 	}
 	if !ok {
-		return fmt.Errorf("session %s: %w", id, sessionmanager.ErrNotFound)
+		return fmt.Errorf("%w: session %s: %w", ports.ErrPaneWriteNotStarted, id, sessionmanager.ErrNotFound)
 	}
 	if rec.IsTerminated {
-		return fmt.Errorf("session %s: %w", id, sessionmanager.ErrTerminated)
+		return fmt.Errorf("%w: session %s: %w", ports.ErrPaneWriteNotStarted, id, sessionmanager.ErrTerminated)
 	}
 	handleID := rec.Metadata.RuntimeHandleID
 	if handleID == "" {
-		return fmt.Errorf("session %s: %w", id, sessionmanager.ErrIncompleteHandle)
+		return fmt.Errorf("%w: session %s: %w", ports.ErrPaneWriteNotStarted, id, sessionmanager.ErrIncompleteHandle)
 	}
 	handle := ports.RuntimeHandle{ID: handleID}
 	if guarded, ok := m.runtime.(guardedRuntimeMessageSender); ok && check != nil {
@@ -276,7 +276,7 @@ func (m runtimeMessenger) send(ctx context.Context, id domain.SessionID, message
 	}
 	if check != nil {
 		if err := check(ctx); err != nil {
-			return err
+			return fmt.Errorf("%w: %w", ports.ErrPaneWriteNotStarted, err)
 		}
 	}
 	return m.runtime.SendMessage(ctx, handle, message)

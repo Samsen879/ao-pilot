@@ -79,6 +79,10 @@ type AgentMessenger interface {
 // after a fresh guard check. Retrying the text would duplicate the draft.
 var ErrPaneDraftPending = errors.New("pane draft pending; Enter was not sent")
 
+// ErrPaneWriteNotStarted identifies a failure before any paste reached the
+// pane, so the write-ahead draft marker can be cleared safely.
+var ErrPaneWriteNotStarted = errors.New("pane write not started")
+
 // ---- runtime / agent / workspace plugin ports ----
 
 // Runtime is the full runtime adapter contract: session creation/teardown plus

@@ -820,11 +820,11 @@ func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key,
 		// submit that original draft with Enter alone, even if the latest
 		// observation changed signature while the pane was blocked.
 		originalSig := parts[1]
-		outcome, err := m.guard.Nudge(ctx, id, "")
+		outcome, err := m.guard.SubmitPendingNudge(ctx, id)
 		if err != nil {
 			return sendOnceAttempted, err
 		}
-		if outcome != sessionguard.Sent {
+		if outcome != sessionguard.Sent && outcome != sessionguard.AlreadySubmitted {
 			return sendOnceAttempted, nil
 		}
 		m.react.seen[key] = originalSig

@@ -56,12 +56,35 @@ func (s *Store) UpdateSession(ctx context.Context, rec domain.SessionRecord) err
 	return s.qw.UpdateSession(ctx, recordToUpdate(rec))
 }
 
+// UpdateSessionAndClearPaneDraft commits the manual submit activity and draft
+// clearance together. A crash must not leave a submitted prompt marked as an
+// unsent draft, or replay might press Enter on the next prompt.
+func (s *Store) UpdateSessionAndClearPaneDraft(ctx context.Context, rec domain.SessionRecord) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := s.qw.WithTx(tx).UpdateSession(ctx, recordToUpdate(rec)); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE sessions SET pane_draft_pending = 0 WHERE id = ?", string(rec.ID)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // PaneDraftPending is a write-ahead marker for a pane that may contain an
 // unsubmitted paste. It survives daemon restarts and is independent of
 // activity state, which can change while a draft remains in the composer.
 func (s *Store) PaneDraftPending(ctx context.Context, id domain.SessionID) (bool, error) {
 	var pending bool
 	err := s.readDB.QueryRowContext(ctx, "SELECT pane_draft_pending FROM sessions WHERE id = ?", string(id)).Scan(&pending)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
 	return pending, err
 }
 

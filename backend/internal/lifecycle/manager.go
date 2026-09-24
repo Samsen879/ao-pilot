@@ -314,13 +314,19 @@ func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, 
 		s = m.applyToolPrecedenceLocked(id, rec.Activity.State, s)
 	}
 	if !s.Valid && !metadataChanged {
+		if s.Event == "user-prompt-submit" {
+			rec.UpdatedAt = now
+			err := m.updateActivitySession(ctx, rec, s.Event)
+			m.mu.Unlock()
+			return err
+		}
 		m.mu.Unlock()
 		return nil
 	}
 	if !s.Valid {
 		rec.Metadata.AgentSessionID = s.AgentSessionID
 		rec.UpdatedAt = now
-		err := m.store.UpdateSession(ctx, rec)
+		err := m.updateActivitySession(ctx, rec, s.Event)
 		m.mu.Unlock()
 		return err
 	}
@@ -341,7 +347,7 @@ func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, 
 	if sameState && !rec.FirstSignalAt.IsZero() {
 		if metadataChanged || s.Event == "user-prompt-submit" {
 			rec.UpdatedAt = now
-			err := m.store.UpdateSession(ctx, rec)
+			err := m.updateActivitySession(ctx, rec, s.Event)
 			m.mu.Unlock()
 			if err == nil && s.Event == "user-prompt-submit" {
 				err = sessionguard.ClearPendingPaneDraft(ctx, m.store, id)
@@ -371,7 +377,7 @@ func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, 
 		delete(m.flights, id)
 	}
 	next.UpdatedAt = now
-	if err := m.store.UpdateSession(ctx, next); err != nil {
+	if err := m.updateActivitySession(ctx, next, s.Event); err != nil {
 		m.mu.Unlock()
 		return err
 	}
@@ -403,6 +409,17 @@ func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, 
 	}
 	m.emitNotification(ctx, intent)
 	return nil
+}
+
+func (m *Manager) updateActivitySession(ctx context.Context, rec domain.SessionRecord, event string) error {
+	if event == "user-prompt-submit" {
+		if store, ok := m.store.(interface {
+			UpdateSessionAndClearPaneDraft(context.Context, domain.SessionRecord) error
+		}); ok {
+			return store.UpdateSessionAndClearPaneDraft(ctx, rec)
+		}
+	}
+	return m.store.UpdateSession(ctx, rec)
 }
 
 // toolFlight tracks one session's in-flight tool executions and the pending

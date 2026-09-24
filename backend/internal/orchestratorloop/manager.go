@@ -123,6 +123,8 @@ func (m *Manager) Start(ctx context.Context) <-chan struct{} {
 
 // ObserveActivity records productive activity and schedules new idle periods.
 func (m *Manager) ObserveActivity(ctx context.Context, before, after domain.SessionRecord, event string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if after.Kind != domain.KindOrchestrator || after.IsTerminated {
 		return
 	}
@@ -214,18 +216,19 @@ func (m *Manager) attempt(ctx context.Context, item domain.OrchestratorReengagem
 	if err != nil {
 		return err
 	}
-	message := reengagementMessage(rec.ID)
+	var outcome sessionguard.Outcome
 	if pendingEnter {
-		message = ""
+		outcome, err = m.guard.SubmitPendingCoordination(ctx, rec.ID, m.steersActive)
+	} else {
+		outcome, err = m.guard.NudgeCoordination(ctx, rec.ID, reengagementMessage(rec.ID), m.steersActive)
 	}
-	outcome, err := m.guard.NudgeCoordination(ctx, rec.ID, message, m.steersActive)
 	if err != nil {
 		return err
 	}
 	if outcome == sessionguard.Attempted {
 		return m.store.DeferOrchestratorReengagementPendingEnter(ctx, rec.ID, now.Add(m.backoff(item.AttemptCount+1)), now)
 	}
-	if outcome != sessionguard.Sent {
+	if outcome != sessionguard.Sent && outcome != sessionguard.AlreadySubmitted {
 		return nil
 	}
 	next := now.Add(m.backoff(item.AttemptCount + 1))

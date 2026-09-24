@@ -317,7 +317,6 @@ func (r *Runtime) Create(ctx context.Context, cfg ports.RuntimeConfig) (ports.Ru
 	if err := validateEnvKeys(cfg.Env); err != nil {
 		return ports.RuntimeHandle{}, err
 	}
-
 	launchCmd := buildLaunchCommand(cfg)
 	args := newSessionArgs(id, cfg.WorkspacePath, r.shell, launchCmd)
 	if _, err := r.run(ctx, args...); err != nil {
@@ -387,6 +386,9 @@ func (r *Runtime) Restart(ctx context.Context, handle ports.RuntimeHandle, cfg p
 	if err := validateEnvKeys(cfg.Env); err != nil {
 		return ports.RuntimeHandle{}, err
 	}
+	lock := r.sendLock(id)
+	lock.Lock()
+	defer lock.Unlock()
 
 	launchCmd := buildLaunchCommand(cfg)
 	if _, err := r.run(ctx, respawnPaneArgs(id, cfg.WorkspacePath, r.shell, launchCmd)...); err != nil {
@@ -464,6 +466,9 @@ func (r *Runtime) Destroy(ctx context.Context, handle ports.RuntimeHandle) error
 	if err != nil {
 		return err
 	}
+	lock := r.sendLock(id)
+	lock.Lock()
+	defer lock.Unlock()
 	// Capture pane session ids while the session still exists; a missing
 	// session lists no panes and reaps nothing. Best-effort: failures here must
 	// not block the kill-session below.
@@ -575,7 +580,7 @@ func (r *Runtime) SendMessage(ctx context.Context, handle ports.RuntimeHandle, m
 func (r *Runtime) SendMessageGuarded(ctx context.Context, handle ports.RuntimeHandle, message string, check func(context.Context) error) error {
 	id, err := handleID(handle)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ports.ErrPaneWriteNotStarted, err)
 	}
 	// Keep the whole paste-delay-Enter sequence atomic per pane. HTTP handlers
 	// may call SendMessage concurrently; without this lock a second paste can
@@ -585,7 +590,7 @@ func (r *Runtime) SendMessageGuarded(ctx context.Context, handle ports.RuntimeHa
 	defer lock.Unlock()
 	if check != nil {
 		if err := check(ctx); err != nil {
-			return err
+			return fmt.Errorf("%w: %w", ports.ErrPaneWriteNotStarted, err)
 		}
 	}
 	enterCtx := ctx
@@ -639,7 +644,7 @@ func (r *Runtime) SendMessageGuarded(ctx context.Context, handle ports.RuntimeHa
 		}
 	}
 	if _, err := r.run(enterCtx, sendEnterArgs(id)...); err != nil {
-		return fmt.Errorf("tmux runtime: send enter %s: %w", id, err)
+		return fmt.Errorf("%w: tmux runtime: send enter %s: %v", ports.ErrPaneDraftPending, id, err)
 	}
 	return nil
 }
