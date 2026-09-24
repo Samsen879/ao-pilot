@@ -167,6 +167,32 @@ func newSpawnFixture(t *testing.T) (*Manager, *sqlite.Store, *fakeRuntime, *fake
 	m := New(Deps{Runtime: rt, Workspace: ws, Store: s, Agents: fakeResolver{}, Lifecycle: fakeLifecycle{s: s}, Messenger: fakeMessenger{}, DataDir: root, LookPath: func(n string) (string, error) { return "/fixture/" + n, nil }, Executable: func() (string, error) { return "/fixture/ao", nil }, NewLaunchID: func() string { return "fixture-generation" }})
 	return m, s, rt, ws, ports.SpawnConfig{AttemptID: uuid.NewString(), ProjectID: "fixture", Kind: domain.KindWorker, Harness: "codex"}
 }
+
+func TestRootOnlyWorkspaceCustodyPreservesExistingChildPath(t *testing.T) {
+	m, s, _, _, _ := newSpawnFixture(t)
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "root-worktree")
+	child := filepath.Join(root, "child")
+	if err := os.MkdirAll(child, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertWorkspaceProject(ctx,
+		domain.ProjectRecord{ID: "fixture", Path: t.TempDir(), Kind: domain.ProjectKindWorkspace},
+		[]domain.WorkspaceRepoRecord{{ProjectID: "fixture", Name: "child", RelativePath: "child"}}); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := s.CreateSession(ctx, domain.SessionRecord{ProjectID: "fixture", Kind: domain.KindWorker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.Metadata.WorkspacePath = root
+	if err := s.UpsertSessionWorktree(ctx, domain.SessionWorktreeRecord{SessionID: rec.ID, RepoName: domain.RootWorkspaceRepoName, WorktreePath: root, State: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := m.workspaceProjectRows(ctx, rec); err == nil {
+		t.Fatal("root-only cleanup accepted an existing child without custody")
+	}
+}
 func TestCommittedAttemptReplay(t *testing.T) {
 	m, s, rt, _, cfg := newSpawnFixture(t)
 	ctx := context.Background()

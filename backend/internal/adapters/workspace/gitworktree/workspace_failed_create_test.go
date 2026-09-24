@@ -261,8 +261,8 @@ func TestOwnedRollbackPreservesLaterExternalLock(t *testing.T) {
 		t.Fatalf("external lock was mutated: %v", args)
 		return nil, nil
 	}
-	retained, err := w.rollbackOwnedWorktree(context.Background(), repo, path, "feature")
-	if !retained || err == nil || !strings.Contains(err.Error(), "acquired a lock") {
+	retained, err := w.rollbackOwnedWorktree(context.Background(), repo, path, "feature", "ao-create-original")
+	if !retained || err == nil || !strings.Contains(err.Error(), "ownership lock differs") {
 		t.Fatalf("retained=%v err=%v", retained, err)
 	}
 }
