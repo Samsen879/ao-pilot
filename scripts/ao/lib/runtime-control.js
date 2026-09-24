@@ -237,6 +237,26 @@ function daemonConfirmedGone(result) {
   }
 }
 
+function daemonPid(result) {
+  if (result?.status !== 0) return null;
+  try {
+    const pid = JSON.parse(result.stdout || '{}')?.pid;
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function processAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM also means a process still occupies this PID.
+    return error?.code !== 'ESRCH';
+  }
+}
+
 function statusProbe(runtime, {
   cwd,
   env,
@@ -261,6 +281,7 @@ export async function startVerifiedRuntimeDaemon(runtime, {
   pollIntervalMs = 250,
   delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   now = () => Date.now(),
+  isProcessAlive = processAlive,
 } = {}) {
   const deadline = now() + timeoutMs;
   const probe = () => statusProbe(runtime, {
@@ -287,6 +308,7 @@ export async function startVerifiedRuntimeDaemon(runtime, {
   }
 
   let existingDaemon = daemonStarting(before);
+  const existingPid = existingDaemon ? daemonPid(before) : null;
   let spawned = false;
 
   let spawnError = null;
@@ -346,7 +368,8 @@ export async function startVerifiedRuntimeDaemon(runtime, {
         daemon_status: JSON.parse(lastProbe.stdout),
       };
     }
-    if (existingDaemon && daemonConfirmedGone(lastProbe)) {
+    if (existingDaemon && daemonConfirmedGone(lastProbe)
+      && (existingPid === null || !isProcessAlive(existingPid))) {
       existingDaemon = false;
       const failure = spawnDaemon();
       if (failure) return failure;
@@ -365,9 +388,6 @@ export async function startVerifiedRuntimeDaemon(runtime, {
     pollDelayMs = Math.min(5_000, pollDelayMs * 2);
   }
 
-  if (spawned && !daemonStarting(lastProbe)) {
-    child.kill?.('SIGTERM');
-  }
   return {
     status: 'failed',
     exit_code: 2,

@@ -245,10 +245,23 @@ describe('runtime control boundary', () => {
       .mockReturnValueOnce({ status: 0, stdout: '{"state":"ready","health":"ok","pid":43}' });
     const childSpawn = jest.fn().mockReturnValue({ once: jest.fn(), unref: jest.fn() });
     const result = await startVerifiedRuntimeDaemon(verified, {
-      syncSpawn, childSpawn, delay: async () => {},
+      syncSpawn, childSpawn, delay: async () => {}, isProcessAlive: () => false,
     });
     expect(result).toMatchObject({ status: 'started', exit_code: 0, daemon_status: { pid: 43 } });
     expect(childSpawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not spawn while the old PID lives after its run file disappears', async () => {
+    const syncSpawn = jest.fn()
+      .mockReturnValueOnce({ status: 0, stdout: '{"state":"not_ready","health":"ok","pid":42}' })
+      .mockReturnValueOnce({ status: 0, stdout: '{"state":"stopped"}' })
+      .mockReturnValueOnce({ status: 0, stdout: '{"state":"ready","pid":42}' });
+    const childSpawn = jest.fn();
+    const result = await startVerifiedRuntimeDaemon(verified, {
+      syncSpawn, childSpawn, delay: async () => {}, isProcessAlive: () => true,
+    });
+    expect(result.status).toBe('already_running');
+    expect(childSpawn).not.toHaveBeenCalled();
   });
 
   it('backs off status probes during a long recovery', async () => {
