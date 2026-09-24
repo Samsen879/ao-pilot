@@ -68,6 +68,7 @@ var (
 	// would answer it on the user's behalf. The API maps it to a 409; the
 	// caller retries once the user has answered in the terminal.
 	ErrAwaitingDecision = errors.New("session: awaiting a user decision")
+	ErrDraftPending     = errors.New("session: text reached the pane but Enter was not sent")
 )
 
 // Env vars a spawned process reads to learn who it is.
@@ -2063,6 +2064,8 @@ func (m *Manager) Send(ctx context.Context, id domain.SessionID, message string)
 		return fmt.Errorf("send %s: %w", id, ErrAgentExited)
 	case sessionguard.SuppressedAwaitingUser:
 		return fmt.Errorf("send %s: %w", id, ErrAwaitingDecision)
+	case sessionguard.Attempted:
+		return fmt.Errorf("send %s: %w", id, ErrDraftPending)
 	}
 	// confirmActive only helps — and is only SAFE — when the harness reports
 	// both a prompt-submit signal (so the loop can observe active) and a
@@ -2994,6 +2997,8 @@ func (m *Manager) deliverAfterStartPrompt(ctx context.Context, agent ports.Agent
 		return fmt.Errorf("send %s: %w", id, ErrAgentExited)
 	case sessionguard.SuppressedAwaitingUser:
 		return fmt.Errorf("send %s: %w", id, ErrAwaitingDecision)
+	case sessionguard.Attempted:
+		return fmt.Errorf("send %s: %w", id, ErrDraftPending)
 	case sessionguard.SuppressedUnknown:
 		return fmt.Errorf("send %s: pre-write session read failed", id)
 	default:

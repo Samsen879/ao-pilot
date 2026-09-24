@@ -196,7 +196,7 @@ func (m *Manager) attempt(ctx context.Context, item domain.OrchestratorReengagem
 	if err != nil {
 		return err
 	}
-	if outcome != sessionguard.Sent {
+	if outcome != sessionguard.Sent && outcome != sessionguard.Attempted {
 		return nil
 	}
 	next := now.Add(m.backoff(item.AttemptCount + 1))
@@ -204,7 +204,7 @@ func (m *Manager) attempt(ctx context.Context, item domain.OrchestratorReengagem
 	if err != nil {
 		return err
 	}
-	m.logger.Info("orchestrator re-engagement sent", "session", rec.ID, "attempt", updated.AttemptCount)
+	m.logger.Info("orchestrator re-engagement attempted", "session", rec.ID, "attempt", updated.AttemptCount, "outcome", outcome.String())
 	if updated.State == domain.OrchestratorReengagementExhausted {
 		m.logger.Warn("orchestrator re-engagement exhausted; human attention required", "session", rec.ID)
 	}

@@ -26,9 +26,8 @@ type SessionReader interface {
 	GetSession(ctx context.Context, id domain.SessionID) (domain.SessionRecord, bool, error)
 }
 
-// Outcome reports what a guarded write did. Anything other than Sent means the
-// message did NOT reach the pane; callers that record delivery must not stamp
-// a suppressed write as delivered.
+// Outcome reports what a guarded write did. Attempted reached the pane without
+// Enter; suppressed outcomes did not reach it.
 type Outcome int
 
 const (
@@ -39,6 +38,9 @@ const (
 	// Sent means the message was written to the session's pane (a messenger
 	// failure surfaces as Sent plus a non-nil error: the write was attempted).
 	Sent
+	// Attempted means text reached the pane, but Enter was withheld after a
+	// later guard check. Callers must not paste the same text again.
+	Attempted
 	// SuppressedNotFound means no session row exists for the id.
 	SuppressedNotFound
 	// SuppressedTerminated means the session is terminated; its pane is gone
@@ -62,6 +64,8 @@ func (o Outcome) String() string {
 	switch o {
 	case Sent:
 		return "sent"
+	case Attempted:
+		return "attempted_unsubmitted"
 	case SuppressedNotFound:
 		return "suppressed_not_found"
 	case SuppressedTerminated:
@@ -134,7 +138,10 @@ func (g *Guard) sessionLock(id domain.SessionID) *sync.Mutex {
 // before injection is reported as a successful spawn with a prompt that was
 // never delivered.
 func (g *Guard) Send(ctx context.Context, id domain.SessionID, msg string) error {
-	_, err := g.Deliver(ctx, id, msg)
+	outcome, err := g.Deliver(ctx, id, msg)
+	if outcome == Attempted {
+		return ports.ErrPaneDraftPending
+	}
 	return err
 }
 
@@ -212,6 +219,9 @@ func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, refus
 		err = g.messenger.Send(ctx, id, msg)
 	}
 	if err != nil {
+		if errors.Is(err, ports.ErrPaneDraftPending) {
+			return Attempted, nil
+		}
 		var suppressed suppressedError
 		if errors.As(err, &suppressed) {
 			return suppressed.outcome, nil

@@ -93,7 +93,7 @@ func (m *Manager) ApplyReviewBatch(ctx context.Context, workerID domain.SessionI
 	if err != nil {
 		return ReviewDeliveryNoop, err
 	}
-	if outcome == sendOnceSuppressed {
+	if outcome == sendOnceSuppressed || outcome == sendOnceAttempted {
 		// The worker went terminated/exited/needs-input between the entry guard and the
 		// paste: nothing reached it, so do NOT let the caller stamp the run
 		// delivered — it must re-fire once the session is workable again.
@@ -292,7 +292,7 @@ func (m *Manager) ApplyReviewResult(ctx context.Context, workerID domain.Session
 	if err != nil {
 		return ReviewDeliveryNoop, err
 	}
-	if outcome == sendOnceSuppressed {
+	if outcome == sendOnceSuppressed || outcome == sendOnceAttempted {
 		// Suppressed by the just-in-time guard (worker went terminated/exited/needs-
 		// input): the review feedback did not reach the worker, so leave the run
 		// undelivered to re-fire on the next observation.
@@ -774,7 +774,12 @@ const (
 	// message did NOT reach the worker; the caller must not mark it delivered so
 	// it re-fires on the next observation once the session is workable again.
 	sendOnceSuppressed
+	// sendOnceAttempted means text reached the pane but Enter was withheld.
+	// Do not retry the paste or claim that the review was delivered.
+	sendOnceAttempted
 )
+
+func partialSendSignature(sig string) string { return "\x00pending-enter\x00" + sig }
 
 func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key, sig, msg string, maxAttempts int) (sendOnceOutcome, error) {
 	if m.guard == nil {
@@ -793,6 +798,9 @@ func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key,
 	if m.react.seen[key] == sig {
 		return sendOnceAccounted, nil
 	}
+	if m.react.seen[key] == partialSendSignature(sig) {
+		return sendOnceAttempted, nil
+	}
 	attempts := m.react.attempts[key]
 	if maxAttempts > 0 && attempts >= maxAttempts {
 		return sendOnceAccounted, nil
@@ -808,12 +816,12 @@ func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key,
 	// behavior.
 	outcome, err := m.guard.Nudge(ctx, id, msg)
 	if err != nil {
-		if outcome != sessionguard.Sent {
+		if outcome != sessionguard.Sent && outcome != sessionguard.Attempted {
 			return sendOnceSuppressed, err
 		}
 		return sendOnceAccounted, err
 	}
-	if outcome != sessionguard.Sent {
+	if outcome != sessionguard.Sent && outcome != sessionguard.Attempted {
 		return sendOnceSuppressed, nil
 	}
 	// Order: Send → in-memory mutation → durable persist. Sending first means a
@@ -822,12 +830,19 @@ func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key,
 	// in-memory dedup). A persist failure that survives until a daemon restart
 	// degrades to one extra nudge — preferred over the inverse (persist before
 	// send, then crash mid-call) which would silently lose a real nudge.
-	m.react.seen[key] = sig
+	if outcome == sessionguard.Attempted {
+		m.react.seen[key] = partialSendSignature(sig)
+	} else {
+		m.react.seen[key] = sig
+	}
 	m.react.attempts[key] = attempts + 1
 	if prURL != "" {
 		if err := m.persistPRSignaturesLocked(ctx, prURL); err != nil {
 			return sendOnceAccounted, err
 		}
+	}
+	if outcome == sessionguard.Attempted {
+		return sendOnceAttempted, nil
 	}
 	return sendOnceAccounted, nil
 }
