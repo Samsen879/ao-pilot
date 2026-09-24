@@ -78,6 +78,36 @@ func TestManualPromptSubmissionClearsPendingPaneDraft(t *testing.T) {
 	}
 }
 
+func TestRecoveredEnterRequiresOriginalDraftMarker(t *testing.T) {
+	store := &durableDraftStore{guardedStateStore: guardedStateStore{rec: domain.SessionRecord{Activity: domain.Activity{State: domain.ActivityIdle}}}}
+	messenger := &partialMessenger{}
+	id := domain.SessionID("recovered-enter")
+	guard := New(store, messenger, nil)
+	if outcome, err := guard.Deliver(context.Background(), id, "first"); err != nil || outcome != Attempted {
+		t.Fatalf("initial send outcome=%s err=%v", outcome, err)
+	}
+	if err := ClearPendingPaneDraft(context.Background(), store, id); err != nil {
+		t.Fatal(err)
+	}
+	if outcome, err := guard.SubmitPendingNudge(context.Background(), id); err != nil || outcome != AlreadySubmitted {
+		t.Fatalf("recovery outcome=%s err=%v", outcome, err)
+	}
+	if len(messenger.messages) != 1 {
+		t.Fatalf("unexpected Enter after manual submission: %#v", messenger.messages)
+	}
+}
+
+func TestPaneReplacementInvalidatesOldDraft(t *testing.T) {
+	store := &durableDraftStore{guardedStateStore: guardedStateStore{rec: domain.SessionRecord{Activity: domain.Activity{State: domain.ActivityIdle}}}, pending: true}
+	id := domain.SessionID("replacement")
+	handle, err := ReplacePane(context.Background(), store, id, func() (ports.RuntimeHandle, error) {
+		return ports.RuntimeHandle{ID: string(id)}, nil
+	})
+	if err != nil || handle.ID != string(id) || store.pending {
+		t.Fatalf("replacement handle=%v pending=%v err=%v", handle, store.pending, err)
+	}
+}
+
 type guardedStateStore struct {
 	mu  sync.Mutex
 	rec domain.SessionRecord

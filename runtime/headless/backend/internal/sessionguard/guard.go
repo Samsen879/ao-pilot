@@ -65,6 +65,9 @@ const (
 	// SuppressedDraftPending means an earlier paste is still in this pane.
 	// A new message must wait until its Enter is safely sent.
 	SuppressedDraftPending
+	// AlreadySubmitted means the durable pane marker was cleared before an
+	// Enter-only recovery. Replaying Enter could submit unrelated pane input.
+	AlreadySubmitted
 )
 
 // String names the outcome for logs.
@@ -86,6 +89,8 @@ func (o Outcome) String() string {
 		return "suppressed_busy"
 	case SuppressedDraftPending:
 		return "suppressed_draft_pending"
+	case AlreadySubmitted:
+		return "already_submitted"
 	default:
 		return "suppressed_unknown"
 	}
@@ -175,6 +180,24 @@ func ClearPendingPaneDraft(ctx context.Context, store SessionReader, id domain.S
 	return g.setPendingDraft(ctx, id, false)
 }
 
+// ReplacePane serializes a runtime replacement with guarded sends. A pending
+// draft belongs to the previous pane generation and is invalidated only after
+// the replacement succeeds.
+func ReplacePane(ctx context.Context, store SessionReader, id domain.SessionID, replace func() (ports.RuntimeHandle, error)) (ports.RuntimeHandle, error) {
+	g := &Guard{store: store}
+	lock := g.sessionLock(id)
+	lock.Lock()
+	defer lock.Unlock()
+	handle, err := replace()
+	if err != nil {
+		return handle, err
+	}
+	if err := g.setPendingDraft(ctx, id, false); err != nil {
+		return handle, err
+	}
+	return handle, nil
+}
+
 // Send satisfies ports.AgentMessenger so a Guard can sit in for the raw
 // messenger. It applies the Deliver policy but FOLDS a suppressed outcome into
 // nil: a caller that learns only "did Send error?" cannot tell that the write
@@ -198,7 +221,7 @@ func (g *Guard) Send(ctx context.Context, id domain.SessionID, msg string) error
 // sitting at an idle prompt is exactly where a user message (or the Enter that
 // submits its unsent draft) belongs.
 func (g *Guard) Deliver(ctx context.Context, id domain.SessionID, msg string) (Outcome, error) {
-	return g.send(ctx, id, msg, func(rec domain.SessionRecord) (Outcome, bool) {
+	return g.send(ctx, id, msg, false, func(rec domain.SessionRecord) (Outcome, bool) {
 		return SuppressedAwaitingUser, rec.Activity.State == domain.ActivityBlocked
 	})
 }
@@ -208,7 +231,15 @@ func (g *Guard) Deliver(ctx context.Context, id domain.SessionID, msg string) (O
 // decision or waiting at the prompt — because an automated paste+Enter there
 // either answers a dialog or submits text the user never saw.
 func (g *Guard) Nudge(ctx context.Context, id domain.SessionID, msg string) (Outcome, error) {
-	return g.send(ctx, id, msg, func(rec domain.SessionRecord) (Outcome, bool) {
+	return g.send(ctx, id, msg, false, func(rec domain.SessionRecord) (Outcome, bool) {
+		return SuppressedAwaitingUser, rec.Activity.State.NeedsInput()
+	})
+}
+
+// SubmitPendingNudge presses Enter only while the original draft marker is
+// still present. Its marker check and pane write share the send lock.
+func (g *Guard) SubmitPendingNudge(ctx context.Context, id domain.SessionID) (Outcome, error) {
+	return g.send(ctx, id, "", true, func(rec domain.SessionRecord) (Outcome, bool) {
 		return SuppressedAwaitingUser, rec.Activity.State.NeedsInput()
 	})
 }
@@ -221,7 +252,19 @@ func (g *Guard) Nudge(ctx context.Context, id domain.SessionID, msg string) (Out
 // predicate is treated as "cannot steer", so an unknown harness never takes an
 // unsolicited write during a live turn.
 func (g *Guard) NudgeCoordination(ctx context.Context, id domain.SessionID, msg string, steersActiveTurn func(domain.AgentHarness) bool) (Outcome, error) {
-	return g.send(ctx, id, msg, func(rec domain.SessionRecord) (Outcome, bool) {
+	return g.send(ctx, id, msg, false, func(rec domain.SessionRecord) (Outcome, bool) {
+		if rec.Activity.State.NeedsInput() {
+			return SuppressedAwaitingUser, true
+		}
+		if rec.Activity.State == domain.ActivityActive {
+			return SuppressedBusy, steersActiveTurn == nil || !steersActiveTurn(rec.Harness)
+		}
+		return SuppressedUnknown, false
+	})
+}
+
+func (g *Guard) SubmitPendingCoordination(ctx context.Context, id domain.SessionID, steersActiveTurn func(domain.AgentHarness) bool) (Outcome, error) {
+	return g.send(ctx, id, "", true, func(rec domain.SessionRecord) (Outcome, bool) {
 		if rec.Activity.State.NeedsInput() {
 			return SuppressedAwaitingUser, true
 		}
@@ -238,13 +281,16 @@ func (g *Guard) NudgeCoordination(ctx context.Context, id domain.SessionID, msg 
 // appear mid-paste — but the just-in-time read is the strongest guarantee
 // available without scraping the terminal. Fail closed: a store error
 // suppresses the write rather than pressing Enter on an unknown state.
-func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, refuse func(domain.SessionRecord) (Outcome, bool)) (Outcome, error) {
+func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, requirePending bool, refuse func(domain.SessionRecord) (Outcome, bool)) (Outcome, error) {
 	lock := g.sessionLock(id)
 	lock.Lock()
 	defer lock.Unlock()
 	pending, err := g.pendingDraft(ctx, id)
 	if err != nil {
 		return SuppressedUnknown, err
+	}
+	if requirePending && !pending {
+		return AlreadySubmitted, nil
 	}
 	if pending && msg != "" {
 		return SuppressedDraftPending, nil
@@ -282,9 +328,14 @@ func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, refus
 		if errors.Is(err, ports.ErrPaneDraftPending) {
 			return Attempted, nil
 		}
+		if errors.Is(err, ports.ErrPaneWriteNotStarted) && msg != "" {
+			if clearErr := g.setPendingDraft(ctx, id, false); clearErr != nil {
+				return SuppressedUnknown, clearErr
+			}
+		}
 		var suppressed suppressedError
 		if errors.As(err, &suppressed) {
-			if msg != "" {
+			if msg != "" && !errors.Is(err, ports.ErrPaneWriteNotStarted) {
 				if clearErr := g.setPendingDraft(ctx, id, false); clearErr != nil {
 					return SuppressedUnknown, clearErr
 				}

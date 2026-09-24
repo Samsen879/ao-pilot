@@ -128,3 +128,32 @@ func TestInterruptWaitsForPendingSend(t *testing.T) {
 		t.Fatal("interrupt did not reach tmux after the send completed")
 	}
 }
+
+func TestDestroyWaitsForPendingSend(t *testing.T) {
+	runner := &recordingRunner{entered: make(chan struct{}), release: make(chan struct{})}
+	runtime := New(Options{Binary: "tmux", Shell: "/bin/sh"})
+	runtime.runner = runner
+	runtime.enterDelay = 0
+	sent := make(chan struct{})
+	go func() {
+		_ = runtime.SendMessage(context.Background(), ports.RuntimeHandle{ID: "session-a"}, "hello")
+		close(sent)
+	}()
+	<-runner.entered
+	destroyed := make(chan struct{})
+	go func() {
+		_ = runtime.Destroy(context.Background(), ports.RuntimeHandle{ID: "session-a"})
+		close(destroyed)
+	}()
+	select {
+	case <-destroyed:
+		t.Fatal("destroy bypassed a pending pane write")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(runner.release)
+	<-sent
+	<-destroyed
+	if !runner.contains("kill-session") {
+		t.Fatal("destroy did not reach tmux")
+	}
+}

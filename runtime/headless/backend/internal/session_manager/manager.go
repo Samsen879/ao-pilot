@@ -1319,12 +1319,16 @@ func (m *Manager) relaunchSession(ctx context.Context, operation string, rec dom
 		Env:           env,
 	}
 	var handle ports.RuntimeHandle
-	if restartHandle == nil {
-		handle, err = m.runtime.Create(ctx, runtimeCfg)
-	} else {
-		handle, err = m.restartRuntime(ctx, *restartHandle, runtimeCfg)
-	}
+	handle, err = sessionguard.ReplacePane(ctx, m.store, rec.ID, func() (ports.RuntimeHandle, error) {
+		if restartHandle == nil {
+			return m.runtime.Create(ctx, runtimeCfg)
+		}
+		return m.restartRuntime(ctx, *restartHandle, runtimeCfg)
+	})
 	if err != nil {
+		if handle.ID != "" {
+			_ = m.runtime.Destroy(context.Background(), handle)
+		}
 		m.cleanupSystemPromptDir(rec.ID)
 		return RestoreResult{}, fmt.Errorf("%s %s: runtime: %w", operation, rec.ID, err)
 	}
