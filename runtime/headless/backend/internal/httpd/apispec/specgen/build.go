@@ -337,7 +337,7 @@ func operations() []operation {
 	ops := append([]operation{}, eventOperations()...)
 	ops = append(ops, startupGated(agentOperations(), nil)...)
 	ops = append(ops, startupGated(projectOperations(), nil)...)
-	ops = append(ops, startupGated(sessionOperations(), nil)...)
+	ops = append(ops, startupGated(sessionOperations(), func(op operation) bool { return op.id != "setSessionActivity" })...)
 	ops = append(ops, startupGated(prOperations(), nil)...)
 	ops = append(ops, startupGated(reviewOperations(), nil)...)
 	ops = append(ops, startupGated(notificationOperations(), func(op operation) bool { return op.id != "streamNotifications" })...)

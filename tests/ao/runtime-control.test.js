@@ -347,4 +347,18 @@ describe('runtime control boundary', () => {
 
     expect(result).toMatchObject({ status: 'failed', exit_code: 2, error: 'spawn denied' });
   });
+
+  it('terminates its unobservable child after the startup deadline', async () => {
+    const child = { pid: 91, once: jest.fn(), unref: jest.fn(), kill: jest.fn() };
+    let clock = 0;
+    const result = await startVerifiedRuntimeDaemon(verified, {
+      syncSpawn: jest.fn().mockReturnValue({ status: 1, stdout: '' }),
+      childSpawn: jest.fn().mockReturnValue(child),
+      timeoutMs: 1000,
+      now: () => clock,
+      delay: async (ms) => { clock += ms; },
+    });
+    expect(result.status).toBe('failed');
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+  });
 });

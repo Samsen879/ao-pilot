@@ -310,6 +310,7 @@ export async function startVerifiedRuntimeDaemon(runtime, {
   let existingDaemon = daemonStarting(before);
   let existingPid = existingDaemon ? daemonPid(before) : null;
   let spawned = false;
+  let spawnedObserved = false;
 
   let spawnError = null;
   let childExited = false;
@@ -332,6 +333,7 @@ export async function startVerifiedRuntimeDaemon(runtime, {
       };
     }
     spawned = true;
+    spawnedObserved = false;
     childExited = false;
     spawnError = null;
     child.once?.('error', (error) => { spawnError = error; });
@@ -361,6 +363,10 @@ export async function startVerifiedRuntimeDaemon(runtime, {
     }
     if (now() >= deadline) break;
     lastProbe = probe();
+    if (spawned && daemonStarting(lastProbe)
+      && (child?.pid == null || daemonPid(lastProbe) === child.pid)) {
+      spawnedObserved = true;
+    }
     if (daemonReady(lastProbe)) {
       return {
         status: spawned ? 'started' : 'already_running',
@@ -389,6 +395,11 @@ export async function startVerifiedRuntimeDaemon(runtime, {
     pollDelayMs = Math.min(5_000, pollDelayMs * 2);
   }
 
+  if (spawned && !childExited && !spawnedObserved) {
+    // This invocation's detached child never published a run file or a
+    // healthy recovery probe. Stop it so a later start cannot race it.
+    child.kill?.('SIGTERM');
+  }
   return {
     status: 'failed',
     exit_code: 2,
