@@ -199,6 +199,7 @@ type Manager struct {
 	lcm                 lifecycleRecorder
 	preview             PreviewLifecycle
 	browser             BrowserLifecycle
+	reviewerStopper     func(context.Context, domain.SessionID) error
 	browserCapabilities BrowserCapabilityIssuer
 	dataDir             string
 	clock               func() time.Time
@@ -214,6 +215,9 @@ type Manager struct {
 	resumeMu        sync.Mutex
 	resuming        map[domain.SessionID]struct{}
 	emergencyStopMu sync.Mutex
+	spawnMu         sync.Mutex
+	spawnEpoch      uint64
+	inflightSpawns  map[domain.SessionID]context.CancelFunc
 	// sendConfirm bounds the best-effort post-send confirmation that the session
 	// actually became active (the agent accepted the prompt). New fills in the
 	// sendConfirm* defaults; tests in this package shrink the timings directly.
@@ -236,6 +240,12 @@ func (m *Manager) SetShellTerminalCloser(closer ShellTerminalCloser) {
 	m.shellTerminalsMu.Lock()
 	defer m.shellTerminalsMu.Unlock()
 	m.shellTerminals = closer
+}
+
+// SetReviewerStopper wires the reviewer pane that is distinct from the
+// worker's primary runtime handle into emergency capacity teardown.
+func (m *Manager) SetReviewerStopper(stop func(context.Context, domain.SessionID) error) {
+	m.reviewerStopper = stop
 }
 
 // beginShellTerminalTeardown starts the shell-terminal gate for id ahead of
@@ -382,6 +392,11 @@ func New(d Deps) *Manager {
 // materialization fails the still-seed row is deleted outright; a later failure
 // parks the row as terminated and rolls back what was built.
 func (m *Manager) spawnWithAttempt(ctx context.Context, cfg ports.SpawnConfig, attempt *spawnattempt.Attempt) (domain.SessionRecord, int, int, error) {
+	m.spawnMu.Lock()
+	spawnEpoch := m.spawnEpoch
+	m.spawnMu.Unlock()
+	ctx, cancelSpawn := context.WithCancel(ctx)
+	defer cancelSpawn()
 	project, err := m.loadProject(ctx, cfg.ProjectID)
 	if err != nil {
 		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn: %w", err)
@@ -437,6 +452,20 @@ func (m *Manager) spawnWithAttempt(ctx context.Context, cfg ports.SpawnConfig, a
 		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn: create: %w", err)
 	}
 	id := rec.ID
+	m.spawnMu.Lock()
+	if m.inflightSpawns == nil {
+		m.inflightSpawns = make(map[domain.SessionID]context.CancelFunc)
+	}
+	m.inflightSpawns[id] = cancelSpawn
+	if m.spawnEpoch != spawnEpoch {
+		cancelSpawn()
+	}
+	m.spawnMu.Unlock()
+	defer func() {
+		m.spawnMu.Lock()
+		delete(m.inflightSpawns, id)
+		m.spawnMu.Unlock()
+	}()
 	attempt.Record.SessionID = string(id)
 	attempt.Record.SessionBirth = rec.CreatedAt.Format(time.RFC3339Nano)
 	if err := attempt.Phase("system_prompt"); err != nil {
@@ -579,6 +608,14 @@ func (m *Manager) spawnWithAttempt(ctx context.Context, cfg ports.SpawnConfig, a
 		m.markSpawnFailedTerminated(cleanupCtx, id)
 		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn %s: runtime outcome unknown: %w", id, err)
 	}
+	if err := ctx.Err(); err != nil {
+		cleanupCtx, cleanupCancel := rollbackContext(ctx)
+		defer cleanupCancel()
+		runtimeDestroyed := m.runtime.Destroy(cleanupCtx, handle) == nil
+		m.rollbackPreparedSpawnWorkspace(cleanupCtx, rec, ws, workspaceProject, runtimeDestroyed)
+		m.markSpawnFailedTerminated(cleanupCtx, id)
+		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn %s: capacity stop during runtime creation: %w", id, err)
+	}
 
 	attempt.Record.Runtime = handle.ID
 	if err := attempt.Phase("commit"); err != nil {
@@ -599,6 +636,14 @@ func (m *Manager) spawnWithAttempt(ctx context.Context, cfg ports.SpawnConfig, a
 		m.rollbackPreparedSpawnWorkspace(cleanupCtx, rec, ws, workspaceProject, runtimeDestroyed)
 		m.markSpawnFailedTerminated(cleanupCtx, id)
 		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn %s: completed: %w", id, err)
+	}
+	if err := ctx.Err(); err != nil {
+		cleanupCtx, cleanupCancel := rollbackContext(ctx)
+		defer cleanupCancel()
+		runtimeDestroyed := m.runtime.Destroy(cleanupCtx, handle) == nil
+		m.rollbackPreparedSpawnWorkspace(cleanupCtx, rec, ws, workspaceProject, runtimeDestroyed)
+		m.markSpawnFailedTerminated(cleanupCtx, id)
+		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn %s: capacity stop during commit: %w", id, err)
 	}
 	if delivery == ports.PromptDeliveryAfterStart && prompt != "" {
 		if err := m.deliverAfterStartPrompt(ctx, agent, launchCfg, handle, id, prompt); err != nil {
@@ -922,6 +967,12 @@ func (m *Manager) RollbackSpawn(ctx context.Context, id domain.SessionID) (delet
 func (m *Manager) EmergencyStopAll(ctx context.Context) (int, error) {
 	m.emergencyStopMu.Lock()
 	defer m.emergencyStopMu.Unlock()
+	m.spawnMu.Lock()
+	m.spawnEpoch++
+	for _, cancel := range m.inflightSpawns {
+		cancel()
+	}
+	m.spawnMu.Unlock()
 
 	recs, err := m.store.ListAllSessions(ctx)
 	if err != nil {
@@ -980,9 +1031,25 @@ func (m *Manager) EmergencyStopAll(ctx context.Context) (int, error) {
 			errs = append(errs, fmt.Errorf("%s: stop runtime: %w", rec.ID, err))
 			continue
 		}
-		if !previewStopped {
+		reviewerStopped := true
+		if m.reviewerStopper != nil {
+			if err := m.reviewerStopper(ctx, rec.ID); err != nil {
+				errs = append(errs, fmt.Errorf("%s: stop reviewer: %w", rec.ID, err))
+				reviewerStopped = false
+			}
+		}
+		browserStopped := true
+		if m.browser != nil {
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			if err := m.browser.DestroySession(cleanupCtx, rec.ID); err != nil {
+				errs = append(errs, fmt.Errorf("%s: stop browser: %w", rec.ID, err))
+				browserStopped = false
+			}
+			cancel()
+		}
+		if !previewStopped || !browserStopped || !reviewerStopped {
 			// Keep the session eligible for the next watchdog tick so the
-			// preview stop is retried instead of being hidden by terminal state.
+			// auxiliary process stop is retried instead of being hidden by terminal state.
 			continue
 		}
 		if err := m.lcm.MarkTerminated(ctx, rec.ID); err != nil {

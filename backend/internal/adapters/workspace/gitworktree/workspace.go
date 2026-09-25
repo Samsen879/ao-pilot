@@ -94,6 +94,8 @@ type Workspace struct {
 	capacityPath   string
 	minFreeBytes   uint64
 	availableBytes func(string) (uint64, error)
+	capacityDevice uint64
+	deviceIdentity func(string) (uint64, error)
 	materializeMu  sync.Mutex
 }
 
@@ -133,6 +135,13 @@ func New(opts Options) (*Workspace, error) {
 			return nil, fmt.Errorf("gitworktree: capacity path: %w", err)
 		}
 	}
+	var capacityDevice uint64
+	if opts.MinFreeBytes > 0 {
+		capacityDevice, err = diskIdentity(capacityPath)
+		if err != nil {
+			return nil, fmt.Errorf("gitworktree: capacity filesystem: %w", err)
+		}
+	}
 	return &Workspace{
 		binary:         binary,
 		managedRoot:    filepath.Clean(root),
@@ -142,6 +151,8 @@ func New(opts Options) (*Workspace, error) {
 		capacityPath:   capacityPath,
 		minFreeBytes:   opts.MinFreeBytes,
 		availableBytes: diskAvailableBytes,
+		capacityDevice: capacityDevice,
+		deviceIdentity: diskIdentity,
 	}, nil
 }
 
@@ -724,7 +735,7 @@ func (w *Workspace) ensureCapacity(checkoutBytes uint64) error {
 	if w.minFreeBytes == 0 {
 		return nil
 	}
-	available, err := w.availableBytes(w.capacityPath)
+	available, err := w.availableCapacityBytes()
 	if err != nil {
 		return fmt.Errorf("gitworktree: inspect capacity path %q: %w", w.capacityPath, err)
 	}
@@ -746,6 +757,19 @@ func (w *Workspace) ensureCapacity(checkoutBytes uint64) error {
 func (w *Workspace) CapacityAvailable() (uint64, error) {
 	if w.minFreeBytes == 0 {
 		return 0, nil
+	}
+	return w.availableCapacityBytes()
+}
+
+func (w *Workspace) availableCapacityBytes() (uint64, error) {
+	if w.deviceIdentity != nil && w.capacityDevice != 0 {
+		device, err := w.deviceIdentity(w.capacityPath)
+		if err != nil {
+			return 0, err
+		}
+		if device != w.capacityDevice {
+			return 0, fmt.Errorf("configured capacity filesystem changed at %q", w.capacityPath)
+		}
 	}
 	return w.availableBytes(w.capacityPath)
 }
@@ -1020,7 +1044,7 @@ func (w *Workspace) addWorktree(ctx context.Context, repo, path, branch, baseBra
 		return err
 	}
 	if localBranch {
-		if _, err := w.run(ctx, w.binary, worktreeAddBranchArgs(repo, path, branch, force)...); err != nil {
+		if _, err := w.runGuardedWorktreeAdd(ctx, worktreeAddBranchArgs(repo, path, branch, force)...); err != nil {
 			return fmt.Errorf("gitworktree: worktree add existing branch %q: %w", branch, err)
 		}
 		return nil
@@ -1087,7 +1111,7 @@ func staleRegistrationForPath(records []worktreeRecord, path string) (bool, erro
 // addWorktree for it takes the existing-branch path, and workspaceProjectBranch
 // simply picks the next free candidate.
 func (w *Workspace) addNewBranchWorktree(ctx context.Context, repo, branch, path, baseRef string, force bool) error {
-	_, err := w.run(ctx, w.binary, worktreeAddNewBranchArgs(repo, branch, path, baseRef, force)...)
+	_, err := w.runGuardedWorktreeAdd(ctx, worktreeAddNewBranchArgs(repo, branch, path, baseRef, force)...)
 	if err == nil {
 		return nil
 	}
@@ -1111,10 +1135,26 @@ func (w *Workspace) addNewBranchWorktree(ctx context.Context, repo, branch, path
 	if created {
 		retryArgs = worktreeAddBranchArgs(repo, path, branch, true)
 	}
-	if _, retryErr := w.run(ctx, w.binary, retryArgs...); retryErr != nil {
+	if _, retryErr := w.runGuardedWorktreeAdd(ctx, retryArgs...); retryErr != nil {
 		return errors.Join(err, retryErr)
 	}
 	return nil
+}
+
+func (w *Workspace) runGuardedWorktreeAdd(ctx context.Context, args ...string) ([]byte, error) {
+	if w.minFreeBytes == 0 {
+		return w.run(ctx, w.binary, args...)
+	}
+	// A post-checkout hook can write arbitrarily more than the admitted tree
+	// size. Override hooks for this single materialization with a private empty
+	// directory, while leaving the repository's own configuration untouched.
+	emptyHooks, err := os.MkdirTemp("", "ao-empty-hooks-")
+	if err != nil {
+		return nil, fmt.Errorf("gitworktree: isolate checkout hooks: %w", err)
+	}
+	defer os.RemoveAll(emptyHooks)
+	guarded := append([]string{"-c", "core.hooksPath=" + emptyHooks}, args...)
+	return w.run(ctx, w.binary, guarded...)
 }
 
 type workspaceProjectRepo struct {

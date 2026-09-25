@@ -30,6 +30,45 @@ func TestEnsureCapacityRejectsCheckoutBelowReserve(t *testing.T) {
 	}
 }
 
+func TestCapacityProbeRejectsChangedBackingFilesystem(t *testing.T) {
+	w := &Workspace{
+		capacityPath: "/capacity", minFreeBytes: 32, capacityDevice: 7,
+		deviceIdentity: func(string) (uint64, error) { return 8, nil },
+		availableBytes: func(string) (uint64, error) {
+			t.Fatal("free-space probe must not trust a replacement mount")
+			return 0, nil
+		},
+	}
+	if _, err := w.CapacityAvailable(); err == nil {
+		t.Fatal("changed backing filesystem was treated as healthy")
+	}
+	if err := w.ensureCapacity(0); err == nil {
+		t.Fatal("checkout admitted after backing filesystem changed")
+	}
+}
+
+func TestGuardedCheckoutUsesTemporaryEmptyHooksDirectory(t *testing.T) {
+	var hooksPath string
+	w := &Workspace{binary: "git", minFreeBytes: 1}
+	w.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		if len(args) < 4 || args[0] != "-c" || !strings.HasPrefix(args[1], "core.hooksPath=") {
+			t.Fatalf("guarded add args = %v", args)
+		}
+		hooksPath = strings.TrimPrefix(args[1], "core.hooksPath=")
+		entries, err := os.ReadDir(hooksPath)
+		if err != nil || len(entries) != 0 {
+			t.Fatalf("isolated hooks dir entries=%v err=%v", entries, err)
+		}
+		return nil, nil
+	}
+	if _, err := w.runGuardedWorktreeAdd(context.Background(), "-C", "/repo", "worktree", "add"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(hooksPath); !os.IsNotExist(err) {
+		t.Fatalf("temporary hooks dir still exists: %v", err)
+	}
+}
+
 func TestRestoreChecksCapacityBeforeMovingStrayPath(t *testing.T) {
 	repo := t.TempDir()
 	managed := filepath.Join(t.TempDir(), "worktrees")
