@@ -711,6 +711,8 @@ func toAPIError(err error) error {
 		return apierr.Conflict("WORKSPACE_CWD_MISMATCH", err.Error(), nil)
 	case errors.Is(err, ports.ErrWorkspaceLocked):
 		return apierr.Conflict("WORKSPACE_LOCKED", err.Error(), nil)
+	case errors.Is(err, ports.ErrWorkspaceInsufficientSpace):
+		return apierr.Conflict("WORKSPACE_INSUFFICIENT_SPACE", err.Error(), nil)
 	default:
 		return err
 	}

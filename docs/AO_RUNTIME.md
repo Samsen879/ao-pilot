@@ -88,6 +88,22 @@ runtime's own `ao start` command is disabled and cannot discover, download, or
 open a desktop application. Verify the source boundary with
 `npm run verify:headless-runtime-source`.
 
+### Worktree capacity guard source status
+
+The headless source tree contains a candidate capacity guard. When
+`AO_WORKTREE_CAPACITY_PATH` and `AO_WORKTREE_MIN_FREE_BYTES` are configured, it
+checks the backing filesystem before creating a Git worktree and every five
+seconds while the daemon runs. If free space falls below the reserve, or the
+filesystem cannot be read, AO stops its managed agent sessions and preserves
+their worktrees. Stopped sessions do not automatically restart after free space
+recovers; an operator must inspect the worktrees and restore them deliberately.
+The reserve must leave enough room for writes that can occur between polls.
+
+The immutable managed runtime lock above still points to p0.4. That installed
+binary does not consume these capacity environment variables. A later release
+must publish and admit a runtime tag and binary digests containing this source
+change before managed installations can rely on it.
+
 ## Deterministic managed bootstrap
 
 Run the formal entrypoint from a clone or installed package:

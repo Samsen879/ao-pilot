@@ -8,8 +8,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
@@ -76,16 +79,28 @@ type Options struct {
 	ManagedRoot   string
 	DefaultBranch string
 	RepoResolver  RepoResolver
+	// CapacityPath is the filesystem checked before a new checkout is
+	// materialized. It may differ from ManagedRoot under virtualized storage.
+	CapacityPath string
+	// MinFreeBytes is the operator reserve for CapacityPath. Zero disables the
+	// guard.
+	MinFreeBytes uint64
 }
 
 // Workspace creates per-session git worktrees under a managed root. It
 // implements ports.Workspace.
 type Workspace struct {
-	binary        string
-	managedRoot   string
-	defaultBranch string
-	repos         RepoResolver
-	run           commandRunner
+	binary         string
+	managedRoot    string
+	defaultBranch  string
+	repos          RepoResolver
+	run            commandRunner
+	capacityPath   string
+	minFreeBytes   uint64
+	availableBytes func(string) (uint64, error)
+	capacityDevice uint64
+	deviceIdentity func(string) (uint64, error)
+	materializeMu  sync.Mutex
 }
 
 type commandRunner func(ctx context.Context, binary string, args ...string) ([]byte, error)
@@ -114,12 +129,34 @@ func New(opts Options) (*Workspace, error) {
 	if err != nil {
 		return nil, fmt.Errorf("gitworktree: managed root: %w", err)
 	}
+	capacityPath := strings.TrimSpace(opts.CapacityPath)
+	if opts.MinFreeBytes > 0 {
+		if capacityPath == "" {
+			capacityPath = root
+		}
+		capacityPath, err = physicalAbs(capacityPath)
+		if err != nil {
+			return nil, fmt.Errorf("gitworktree: capacity path: %w", err)
+		}
+	}
+	var capacityDevice uint64
+	if opts.MinFreeBytes > 0 {
+		capacityDevice, err = diskIdentity(capacityPath)
+		if err != nil {
+			return nil, fmt.Errorf("gitworktree: capacity filesystem: %w", err)
+		}
+	}
 	return &Workspace{
-		binary:        binary,
-		managedRoot:   filepath.Clean(root),
-		defaultBranch: branch,
-		repos:         opts.RepoResolver,
-		run:           runCommand,
+		binary:         binary,
+		managedRoot:    filepath.Clean(root),
+		defaultBranch:  branch,
+		repos:          opts.RepoResolver,
+		run:            runCommand,
+		capacityPath:   capacityPath,
+		minFreeBytes:   opts.MinFreeBytes,
+		availableBytes: diskAvailableBytes,
+		capacityDevice: capacityDevice,
+		deviceIdentity: diskIdentity,
 	}, nil
 }
 
@@ -140,10 +177,21 @@ func (w *Workspace) Create(ctx context.Context, cfg ports.WorkspaceConfig) (port
 	if err != nil {
 		return ports.WorkspaceInfo{}, err
 	}
+	if w.minFreeBytes > 0 {
+		w.materializeMu.Lock()
+		defer w.materializeMu.Unlock()
+	}
 	if info, ok, err := w.existingWorktree(ctx, repo, path, cfg); err != nil {
 		return ports.WorkspaceInfo{}, err
 	} else if ok {
 		return info, nil
+	}
+	requiredBytes, err := w.estimateCheckoutBytes(ctx, repo, cfg.Branch, cfg.BaseBranch)
+	if err != nil {
+		return ports.WorkspaceInfo{}, err
+	}
+	if err := w.ensureCapacity(requiredBytes); err != nil {
+		return ports.WorkspaceInfo{}, err
 	}
 	createToken := newWorktreeCreateToken()
 	if attempted, err := w.addWorktree(ctx, repo, path, cfg.Branch, cfg.BaseBranch, createToken); err != nil {
@@ -220,6 +268,10 @@ func (w *Workspace) CreateWorkspaceProject(ctx context.Context, cfg ports.Worksp
 			outputPath:   outPath,
 			baseBranch:   firstNonEmpty(child.BaseBranch, cfg.BaseBranch),
 		})
+	}
+	if w.minFreeBytes > 0 {
+		w.materializeMu.Lock()
+		defer w.materializeMu.Unlock()
 	}
 	branch, err := w.workspaceProjectBranch(ctx, repos, firstNonEmpty(cfg.Branch, defaultSessionBranchName(cfg.SessionID)))
 	if err != nil {
@@ -698,6 +750,10 @@ func (w *Workspace) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (por
 	if err != nil {
 		return ports.WorkspaceInfo{}, err
 	}
+	if w.minFreeBytes > 0 {
+		w.materializeMu.Lock()
+		defer w.materializeMu.Unlock()
+	}
 	records, err := w.listRecords(ctx, repo)
 	if err != nil {
 		return ports.WorkspaceInfo{}, err
@@ -733,6 +789,16 @@ func (w *Workspace) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (por
 			recreateBranch = rec.Branch
 		}
 	}
+	if err := w.validateBranch(ctx, repo, recreateBranch); err != nil {
+		return ports.WorkspaceInfo{}, err
+	}
+	requiredBytes, err := w.estimateCheckoutBytes(ctx, repo, recreateBranch, cfg.BaseBranch)
+	if err != nil {
+		return ports.WorkspaceInfo{}, err
+	}
+	if err := w.ensureCapacity(requiredBytes); err != nil {
+		return ports.WorkspaceInfo{}, err
+	}
 	if nonEmpty, err := pathExistsNonEmpty(path); err != nil {
 		return ports.WorkspaceInfo{}, err
 	} else if nonEmpty {
@@ -758,6 +824,207 @@ func (w *Workspace) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (por
 		return ports.WorkspaceInfo{}, errors.Join(err, cleanupErr)
 	}
 	return ports.WorkspaceInfo{Path: path, Branch: recreateBranch, SessionID: cfg.SessionID, ProjectID: cfg.ProjectID, RepoPath: repo}, nil
+}
+
+func (w *Workspace) ensureCapacity(checkoutBytes uint64) error {
+	if w.minFreeBytes == 0 {
+		return nil
+	}
+	available, err := w.availableCapacityBytes()
+	if err != nil {
+		return fmt.Errorf("gitworktree: inspect capacity path %q: %w", w.capacityPath, err)
+	}
+	required := w.minFreeBytes
+	if checkoutBytes > ^uint64(0)-required {
+		required = ^uint64(0)
+	} else {
+		required += checkoutBytes
+	}
+	if available < required {
+		return fmt.Errorf("%w: capacity path %q has %d bytes available; require %d bytes (%d reserve + %d estimated checkout) before creating another worktree", ports.ErrWorkspaceInsufficientSpace, w.capacityPath, available, required, w.minFreeBytes, checkoutBytes)
+	}
+	return nil
+}
+
+// CapacityAvailable reports free bytes on the same filesystem used by the
+// checkout guard. The daemon polls this while agents are running: a checkout
+// can fit at creation time and later writes can still exhaust the host volume.
+func (w *Workspace) CapacityAvailable() (uint64, error) {
+	if w.minFreeBytes == 0 {
+		return 0, nil
+	}
+	return w.availableCapacityBytes()
+}
+
+func (w *Workspace) availableCapacityBytes() (uint64, error) {
+	if w.deviceIdentity != nil && w.capacityDevice != 0 {
+		device, err := w.deviceIdentity(w.capacityPath)
+		if err != nil {
+			return 0, err
+		}
+		if device != w.capacityDevice {
+			return 0, fmt.Errorf("configured capacity filesystem changed at %q", w.capacityPath)
+		}
+	}
+	return w.availableBytes(w.capacityPath)
+}
+
+const checkoutMetadataHeadroom = uint64(256 << 20)
+
+func (w *Workspace) estimateCheckoutBytes(ctx context.Context, repo, branch, baseBranch string) (uint64, error) {
+	if w.minFreeBytes == 0 {
+		return 0, nil
+	}
+	// Check the reserve before any command that could hydrate a partial clone.
+	if err := w.ensureCapacity(0); err != nil {
+		return 0, err
+	}
+	if err := w.rejectPartialClone(ctx, repo); err != nil {
+		return 0, err
+	}
+	ref := "refs/heads/" + branch
+	local, err := w.refExists(ctx, repo, ref)
+	if err != nil {
+		return 0, err
+	}
+	if !local {
+		ref, err = w.resolveBaseRef(ctx, repo, branch, baseBranch)
+		if err != nil {
+			if errors.Is(err, errNoBaseRef) {
+				return 0, fmt.Errorf("%w: %q has no local head, no remote, and no tag — run `git fetch` then retry", ErrBranchNotFetched, branch)
+			}
+			return 0, err
+		}
+	}
+	if err := w.rejectCheckoutTransforms(ctx, repo, ref); err != nil {
+		return 0, err
+	}
+	out, err := w.run(ctx, w.binary, "-C", repo, "ls-tree", "-r", "-l", "-z", ref)
+	if err != nil {
+		return 0, fmt.Errorf("gitworktree: estimate checkout %q: %w", ref, err)
+	}
+	var total uint64
+	var entries uint64
+	for _, record := range strings.Split(string(out), "\x00") {
+		meta, _, ok := strings.Cut(record, "\t")
+		if !ok {
+			continue
+		}
+		fields := strings.Fields(meta)
+		if len(fields) < 4 || fields[3] == "-" {
+			continue
+		}
+		entries++
+		size, parseErr := strconv.ParseUint(fields[3], 10, 64)
+		if parseErr != nil {
+			return 0, fmt.Errorf("gitworktree: parse checkout size %q: %w", fields[3], parseErr)
+		}
+		if size > ^uint64(0)-total {
+			return ^uint64(0), nil
+		}
+		total += size
+	}
+	// Allow a conservative allocation unit for every file, in addition to
+	// content bytes. ls-tree reports blob bytes, not allocated disk blocks.
+	const perFileAllocation = uint64(64 << 10)
+	if entries > (^uint64(0)-checkoutMetadataHeadroom)/perFileAllocation {
+		return ^uint64(0), nil
+	}
+	overhead := checkoutMetadataHeadroom + entries*perFileAllocation
+	if total/10 > ^uint64(0)-overhead {
+		return ^uint64(0), nil
+	}
+	overhead += total / 10
+	if overhead > ^uint64(0)-total {
+		return ^uint64(0), nil
+	}
+	return total + overhead, nil
+}
+
+func (w *Workspace) rejectPartialClone(ctx context.Context, repo string) error {
+	out, err := w.run(ctx, w.binary, "-C", repo, "config", "--get-regexp", `^(remote\..*\.promisor|extensions\.partialclone)$`)
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return nil
+		}
+		return fmt.Errorf("gitworktree: inspect checkout filters for %q: %w", repo, err)
+	}
+	if strings.TrimSpace(string(out)) != "" {
+		return fmt.Errorf("%w: cannot safely estimate checkout for %q because a partial-clone promisor is configured", ports.ErrWorkspaceInsufficientSpace, repo)
+	}
+	return nil
+}
+
+func (w *Workspace) rejectCheckoutTransforms(ctx context.Context, repo, ref string) error {
+	// Git also reads attributes outside the selected tree. Refuse admission
+	// when those sources can alter checkout bytes without appearing in grep.
+	if out, err := w.run(ctx, w.binary, "-C", repo, "config", "--path", "--get", "core.attributesFile"); err == nil {
+		if strings.TrimSpace(string(out)) != "" {
+			return fmt.Errorf("%w: cannot safely estimate checkout for %q with core.attributesFile configured", ports.ErrWorkspaceInsufficientSpace, repo)
+		}
+	} else if !isGitConfigMissing(err) {
+		return fmt.Errorf("gitworktree: inspect core.attributesFile for %q: %w", repo, err)
+	}
+	infoPath, err := w.run(ctx, w.binary, "-C", repo, "rev-parse", "--git-path", "info/attributes")
+	if err != nil {
+		return fmt.Errorf("gitworktree: locate info/attributes for %q: %w", repo, err)
+	}
+	attributesPath := strings.TrimSpace(string(infoPath))
+	if !filepath.IsAbs(attributesPath) {
+		attributesPath = filepath.Join(repo, attributesPath)
+	}
+	if info, err := os.Stat(attributesPath); err == nil {
+		if info.Size() > 0 {
+			return fmt.Errorf("%w: cannot safely estimate checkout for %q with info/attributes", ports.ErrWorkspaceInsufficientSpace, repo)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("gitworktree: inspect info/attributes for %q: %w", repo, err)
+	}
+	var coreEOL string
+	for _, key := range []string{"core.autocrlf", "core.eol"} {
+		out, err := w.run(ctx, w.binary, "-C", repo, "config", "--get", key)
+		if err != nil {
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+				continue
+			}
+			return fmt.Errorf("gitworktree: inspect %s for %q: %w", key, repo, err)
+		}
+		value := strings.ToLower(strings.TrimSpace(string(out)))
+		if key == "core.eol" {
+			coreEOL = value
+		}
+		if (key == "core.autocrlf" && value == "true") || (key == "core.eol" && value == "crlf") {
+			return fmt.Errorf("%w: cannot safely estimate checkout for %q because %s=%s may expand text files", ports.ErrWorkspaceInsufficientSpace, repo, key, value)
+		}
+	}
+	pattern := checkoutExpandingAttributePattern(runtime.GOOS, coreEOL)
+	out, err := w.run(ctx, w.binary, "-C", repo, "grep", "-I", "-n", "-E", pattern, ref, "--", ".gitattributes", ":(glob)**/.gitattributes")
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return nil
+		}
+		return fmt.Errorf("gitworktree: inspect checkout attributes for %q at %q: %w", repo, ref, err)
+	}
+	if strings.TrimSpace(string(out)) != "" {
+		return fmt.Errorf("%w: cannot safely estimate checkout for %q because the selected tree uses a checkout-expanding attribute", ports.ErrWorkspaceInsufficientSpace, repo)
+	}
+	return nil
+}
+
+func checkoutExpandingAttributePattern(goos, coreEOL string) string {
+	pattern := `(^|[[:space:]])(filter(=|[[:space:]])|eol=crlf|working-tree-encoding=|ident($|[[:space:]])`
+	if goos == "windows" && (coreEOL == "" || coreEOL == "native") {
+		pattern += `|text($|[=[:space:]])`
+	}
+	return pattern + `)`
+}
+
+func isGitConfigMissing(err error) bool {
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr) && exitErr.ExitCode() == 1
 }
 
 func (w *Workspace) existingWorktree(ctx context.Context, repo, path string, cfg ports.WorkspaceConfig) (ports.WorkspaceInfo, bool, error) {
@@ -872,7 +1139,7 @@ func (w *Workspace) addWorktree(ctx context.Context, repo, path, branch, baseBra
 		return false, err
 	}
 	if localBranch {
-		if _, err := w.run(ctx, w.binary, worktreeAddBranchArgs(repo, path, branch, force, createToken)...); err != nil {
+		if _, err := w.runGuardedWorktreeAdd(ctx, worktreeAddBranchArgs(repo, path, branch, force, createToken)...); err != nil {
 			return true, fmt.Errorf("gitworktree: worktree add existing branch %q: %w", branch, err)
 		}
 		return true, w.unlockCreatedWorktree(ctx, repo, path, createToken)
@@ -966,7 +1233,7 @@ func staleRegistrationForPath(records []worktreeRecord, path string) (bool, erro
 // addWorktree for it takes the existing-branch path, and workspaceProjectBranch
 // simply picks the next free candidate.
 func (w *Workspace) addNewBranchWorktree(ctx context.Context, repo, branch, path, baseRef string, force bool, createToken string) error {
-	_, err := w.run(ctx, w.binary, worktreeAddNewBranchArgs(repo, branch, path, baseRef, force, createToken)...)
+	_, err := w.runGuardedWorktreeAdd(ctx, worktreeAddNewBranchArgs(repo, branch, path, baseRef, force, createToken)...)
 	if err == nil {
 		return nil
 	}
@@ -990,10 +1257,26 @@ func (w *Workspace) addNewBranchWorktree(ctx context.Context, repo, branch, path
 	if created {
 		retryArgs = worktreeAddBranchArgs(repo, path, branch, true, createToken)
 	}
-	if _, retryErr := w.run(ctx, w.binary, retryArgs...); retryErr != nil {
+	if _, retryErr := w.runGuardedWorktreeAdd(ctx, retryArgs...); retryErr != nil {
 		return errors.Join(err, retryErr)
 	}
 	return nil
+}
+
+func (w *Workspace) runGuardedWorktreeAdd(ctx context.Context, args ...string) ([]byte, error) {
+	if w.minFreeBytes == 0 {
+		return w.run(ctx, w.binary, args...)
+	}
+	// A post-checkout hook can write arbitrarily more than the admitted tree
+	// size. Override hooks for this single materialization with a private empty
+	// directory, while leaving the repository's own configuration untouched.
+	emptyHooks, err := os.MkdirTemp("", "ao-empty-hooks-")
+	if err != nil {
+		return nil, fmt.Errorf("gitworktree: isolate checkout hooks: %w", err)
+	}
+	defer os.RemoveAll(emptyHooks)
+	guarded := append([]string{"-c", "core.hooksPath=" + emptyHooks}, args...)
+	return w.run(ctx, w.binary, guarded...)
 }
 
 type workspaceProjectRepo struct {
@@ -1063,6 +1346,13 @@ func (w *Workspace) createWorkspaceProjectRepo(ctx context.Context, repo workspa
 	}
 	baseSHA, err := w.revParse(ctx, repo.repoPath, baseRef)
 	if err != nil {
+		return "", false, err
+	}
+	requiredBytes, err := w.estimateCheckoutBytes(ctx, repo.repoPath, branch, repo.baseBranch)
+	if err != nil {
+		return "", false, err
+	}
+	if err := w.ensureCapacity(requiredBytes); err != nil {
 		return "", false, err
 	}
 	// Same up-front stale-registration check addWorktree does, so the ordinary
@@ -1174,6 +1464,21 @@ func (w *Workspace) rollbackRegisteredWorktree(ctx context.Context, repo, path s
 		return false, fmt.Errorf("gitworktree: inspect path %q after rollback: %w", path, err)
 	}
 	return false, nil
+}
+
+func (w *Workspace) rollbackWorkspaceProjectRepos(ctx context.Context, created []workspaceProjectRepo, branch string) error {
+	var rollbackErr error
+	for i := len(created) - 1; i >= 0; i-- {
+		repo := created[i]
+		if err := w.forceDestroyPath(ctx, repo.repoPath, repo.outputPath); err != nil {
+			rollbackErr = errors.Join(rollbackErr, err)
+			continue
+		}
+		if _, err := w.run(ctx, w.binary, deleteRefArgs(repo.repoPath, "refs/heads/"+branch)...); err != nil {
+			rollbackErr = errors.Join(rollbackErr, fmt.Errorf("gitworktree: delete rolled-back branch %q in %q: %w", branch, repo.repoPath, err))
+		}
+	}
+	return rollbackErr
 }
 
 func (w *Workspace) forceDestroyPath(ctx context.Context, repo, path string) error {

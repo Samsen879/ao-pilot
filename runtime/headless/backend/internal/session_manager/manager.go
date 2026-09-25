@@ -202,6 +202,7 @@ type Manager struct {
 	lcm                 lifecycleRecorder
 	preview             PreviewLifecycle
 	browser             BrowserLifecycle
+	reviewerStopper     func(context.Context, domain.SessionID) error
 	browserCapabilities BrowserCapabilityIssuer
 	dataDir             string
 	clock               func() time.Time
@@ -212,10 +213,14 @@ type Manager struct {
 	// executable resolves the daemon's own binary (os.Executable in
 	// production); its directory is prepended to spawned sessions' PATH so the
 	// workspace hook commands resolve back to this daemon. Tests inject a stub.
-	executable  func() (string, error)
-	newLaunchID func() string
-	resumeMu    sync.Mutex
-	resuming    map[domain.SessionID]struct{}
+	executable      func() (string, error)
+	newLaunchID     func() string
+	resumeMu        sync.Mutex
+	resuming        map[domain.SessionID]struct{}
+	emergencyStopMu sync.Mutex
+	spawnMu         sync.Mutex
+	spawnEpoch      uint64
+	inflightSpawns  map[domain.SessionID]context.CancelFunc
 	// sendConfirm bounds the best-effort post-send confirmation that the session
 	// actually became active (the agent accepted the prompt). New fills in the
 	// sendConfirm* defaults; tests in this package shrink the timings directly.
@@ -238,6 +243,12 @@ func (m *Manager) SetShellTerminalCloser(closer ShellTerminalCloser) {
 	m.shellTerminalsMu.Lock()
 	defer m.shellTerminalsMu.Unlock()
 	m.shellTerminals = closer
+}
+
+// SetReviewerStopper wires the reviewer pane that is distinct from the
+// worker's primary runtime handle into emergency capacity teardown.
+func (m *Manager) SetReviewerStopper(stop func(context.Context, domain.SessionID) error) {
+	m.reviewerStopper = stop
 }
 
 // beginShellTerminalTeardown starts the shell-terminal gate for id ahead of
@@ -384,6 +395,11 @@ func New(d Deps) *Manager {
 // materialization fails the still-seed row is deleted outright; a later failure
 // parks the row as terminated and rolls back what was built.
 func (m *Manager) spawnWithAttempt(ctx context.Context, cfg ports.SpawnConfig, attempt *spawnattempt.Attempt) (domain.SessionRecord, int, int, error) {
+	m.spawnMu.Lock()
+	spawnEpoch := m.spawnEpoch
+	m.spawnMu.Unlock()
+	ctx, cancelSpawn := context.WithCancel(ctx)
+	defer cancelSpawn()
 	project, err := m.loadProject(ctx, cfg.ProjectID)
 	if err != nil {
 		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn: %w", err)
@@ -439,6 +455,20 @@ func (m *Manager) spawnWithAttempt(ctx context.Context, cfg ports.SpawnConfig, a
 		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn: create: %w", err)
 	}
 	id := rec.ID
+	m.spawnMu.Lock()
+	if m.inflightSpawns == nil {
+		m.inflightSpawns = make(map[domain.SessionID]context.CancelFunc)
+	}
+	m.inflightSpawns[id] = cancelSpawn
+	if m.spawnEpoch != spawnEpoch {
+		cancelSpawn()
+	}
+	m.spawnMu.Unlock()
+	defer func() {
+		m.spawnMu.Lock()
+		delete(m.inflightSpawns, id)
+		m.spawnMu.Unlock()
+	}()
 	attempt.Record.SessionID = string(id)
 	attempt.Record.SessionBirth = rec.CreatedAt.Format(time.RFC3339Nano)
 	if err := attempt.Phase("system_prompt"); err != nil {
@@ -585,6 +615,14 @@ func (m *Manager) spawnWithAttempt(ctx context.Context, cfg ports.SpawnConfig, a
 		m.markSpawnFailedTerminated(cleanupCtx, id)
 		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn %s: runtime outcome unknown: %w", id, err)
 	}
+	if err := ctx.Err(); err != nil {
+		cleanupCtx, cleanupCancel := rollbackContext(ctx)
+		defer cleanupCancel()
+		runtimeDestroyed := m.runtime.Destroy(cleanupCtx, handle) == nil
+		m.rollbackPreparedSpawnWorkspace(cleanupCtx, rec, ws, workspaceProject, runtimeDestroyed)
+		m.markSpawnFailedTerminated(cleanupCtx, id)
+		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn %s: capacity stop during runtime creation: %w", id, err)
+	}
 
 	attempt.Record.Runtime = handle.ID
 	if err := attempt.Phase("commit"); err != nil {
@@ -605,6 +643,14 @@ func (m *Manager) spawnWithAttempt(ctx context.Context, cfg ports.SpawnConfig, a
 		m.rollbackPreparedSpawnWorkspace(cleanupCtx, rec, ws, workspaceProject, runtimeDestroyed)
 		m.markSpawnFailedTerminated(cleanupCtx, id)
 		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn %s: completed: %w", id, err)
+	}
+	if err := ctx.Err(); err != nil {
+		cleanupCtx, cleanupCancel := rollbackContext(ctx)
+		defer cleanupCancel()
+		runtimeDestroyed := m.runtime.Destroy(cleanupCtx, handle) == nil
+		m.rollbackPreparedSpawnWorkspace(cleanupCtx, rec, ws, workspaceProject, runtimeDestroyed)
+		m.markSpawnFailedTerminated(cleanupCtx, id)
+		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn %s: capacity stop during commit: %w", id, err)
 	}
 	if delivery == ports.PromptDeliveryAfterStart && prompt != "" {
 		if err := m.deliverAfterStartPrompt(ctx, agent, launchCfg, handle, id, prompt); err != nil {
@@ -920,6 +966,112 @@ func (m *Manager) rollbackSpawn(ctx context.Context, id domain.SessionID) (delet
 // RollbackSpawn is the public surface of rollbackSpawn for service-layer callers.
 func (m *Manager) RollbackSpawn(ctx context.Context, id domain.SessionID) (deleted, killed bool, err error) {
 	return m.rollbackSpawn(ctx, id)
+}
+
+// EmergencyStopAll stops live AO agents when the configured backing filesystem
+// has crossed its reserve. It deliberately leaves every worktree and its
+// contents in place, including ignored and untracked files. The existing
+// session-worktree rows are marked unavailable so boot reconciliation will not
+// automatically restore these sessions after space becomes available again.
+// Orchestrators stop before workers so they cannot assign more work during
+// teardown. A failed runtime destroy is
+// retried on the next watchdog tick and is never marked terminal as if stopped.
+func (m *Manager) EmergencyStopAll(ctx context.Context) (int, error) {
+	m.emergencyStopMu.Lock()
+	defer m.emergencyStopMu.Unlock()
+	m.spawnMu.Lock()
+	m.spawnEpoch++
+	for _, cancel := range m.inflightSpawns {
+		cancel()
+	}
+	m.spawnMu.Unlock()
+
+	recs, err := m.store.ListAllSessions(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("capacity stop: list sessions: %w", err)
+	}
+	sort.SliceStable(recs, func(i, j int) bool {
+		return recs[i].Kind == domain.KindOrchestrator && recs[j].Kind != domain.KindOrchestrator
+	})
+	var errs []error
+	stopped := 0
+	for _, rec := range recs {
+		if rec.IsTerminated {
+			continue
+		}
+		rows, err := m.store.ListSessionWorktrees(ctx, rec.ID)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: list worktrees: %w", rec.ID, err))
+			// A store read failure cannot be allowed to keep a writer running
+			// while the host filesystem is already below its reserve.
+			if deleteErr := m.store.DeleteSessionWorktrees(ctx, rec.ID); deleteErr != nil {
+				errs = append(errs, fmt.Errorf("%s: clear unknown restore markers: %w", rec.ID, deleteErr))
+			}
+		}
+		// Persist the no-auto-restore marker before killing the process. Keep
+		// every path and preserved ref for later inspection or manual recovery.
+		markerFailed := false
+		for _, row := range rows {
+			row.State = "unavailable"
+			if markErr := m.store.UpsertSessionWorktree(ctx, row); markErr != nil {
+				errs = append(errs, fmt.Errorf("%s: mark worktree unavailable: %w", rec.ID, markErr))
+				markerFailed = true
+				break
+			}
+		}
+		if markerFailed {
+			// If the row cannot be marked, removing only its restore marker
+			// is the safer fallback. The session row still records the worktree
+			// path, and neither operation touches workspace files.
+			if deleteErr := m.store.DeleteSessionWorktrees(ctx, rec.ID); deleteErr != nil {
+				errs = append(errs, fmt.Errorf("%s: clear restore marker: %w", rec.ID, deleteErr))
+			}
+		}
+		previewStopped := true
+		if m.preview != nil {
+			if err := m.preview.StopSession(ctx, rec.ID); err != nil {
+				errs = append(errs, fmt.Errorf("%s: stop preview: %w", rec.ID, err))
+				previewStopped = false
+			}
+		}
+		handle := runtimeHandle(rec.Metadata)
+		if handle.ID == "" {
+			errs = append(errs, fmt.Errorf("%s: runtime handle missing; cannot confirm agent stopped", rec.ID))
+			continue
+		}
+		if err := m.runtime.Destroy(ctx, handle); err != nil {
+			errs = append(errs, fmt.Errorf("%s: stop runtime: %w", rec.ID, err))
+			continue
+		}
+		reviewerStopped := true
+		if m.reviewerStopper != nil {
+			if err := m.reviewerStopper(ctx, rec.ID); err != nil {
+				errs = append(errs, fmt.Errorf("%s: stop reviewer: %w", rec.ID, err))
+				reviewerStopped = false
+			}
+		}
+		browserStopped := true
+		if m.browser != nil {
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			if err := m.browser.DestroySession(cleanupCtx, rec.ID); err != nil {
+				errs = append(errs, fmt.Errorf("%s: stop browser: %w", rec.ID, err))
+				browserStopped = false
+			}
+			cancel()
+		}
+		if !previewStopped || !browserStopped || !reviewerStopped {
+			// Keep the session eligible for the next watchdog tick so the
+			// auxiliary process stop is retried instead of being hidden by terminal state.
+			continue
+		}
+		if err := m.lcm.MarkTerminated(ctx, rec.ID); err != nil {
+			errs = append(errs, fmt.Errorf("%s: mark terminal: %w", rec.ID, err))
+			continue
+		}
+		stopped++
+		m.logger.Error("capacity stop: agent stopped; worktree preserved", "sessionID", rec.ID, "workspacePath", rec.Metadata.WorkspacePath)
+	}
+	return stopped, errors.Join(errs...)
 }
 
 // Kill tears down the runtime and workspace, then records terminal intent with

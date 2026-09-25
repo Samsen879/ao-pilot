@@ -166,7 +166,7 @@ func Run() error {
 	// selected runtime, routed git/scratch workspaces, the per-session agent
 	// resolver (AO_AGENT validated here for compatibility), and the agent
 	// messenger, then mount it on the API.
-	sessionSvc, reviewSvc, sessMgr, err := startSession(cfg, runtimeAdapter, store, lcStack.LCM, lcStack.reengagement, messenger, telemetrySink, agents, managedPreview, browserBroker, browserAuthority, log)
+	sessionSvc, reviewSvc, sessMgr, capacityProbe, err := startSession(cfg, runtimeAdapter, store, lcStack.LCM, lcStack.reengagement, messenger, telemetrySink, agents, managedPreview, browserBroker, browserAuthority, log)
 	if err != nil {
 		stop()
 		lcStack.Stop()
@@ -312,6 +312,14 @@ func Run() error {
 		log.Warn("restore mobile bridge on boot failed", "err", err)
 	}
 
+	// Stop surviving agents before reconciliation if the backing host volume is
+	// already below its reserve. The watchdog stays active for the daemon's
+	// lifetime and does not remove worktrees when it stops a session.
+	var capacityWatchdog *capacityWatch
+	if cfg.WorktreeMinFreeBytes > 0 {
+		capacityWatchdog = &capacityWatch{reserve: cfg.WorktreeMinFreeBytes, probe: capacityProbe, stopper: sessMgr, logger: log}
+		capacityWatchdog.tick(ctx)
+	}
 	// ponytail: 5s tolerates a brief frontend restart; tune if dev hot-reload trips it.
 	const supervisorGrace = 5 * time.Second
 
@@ -335,26 +343,35 @@ func Run() error {
 	// supervisors and dashboards distinguish a live daemon that is still
 	// recovering from a stopped daemon.
 	reconcileDone := make(chan struct{})
+	capacityDone := make(chan struct{})
 	serveDone := make(chan error, 1)
 	go func() { serveDone <- srv.Run(ctx) }()
 	var runErr error
 	select {
 	case <-srv.ServeStarted():
 		go func() {
-			defer close(reconcileDone)
+			defer close(capacityDone)
 			if reconcileErr := sessMgr.Reconcile(ctx); reconcileErr != nil {
 				log.Error("reconcile sessions on boot failed", "err", reconcileErr)
 			}
 			if reconcileErr := lcStack.ReconcileRuntime(ctx); reconcileErr != nil {
 				log.Error("reconcile agent processes on boot failed", "err", reconcileErr)
 			}
+			if capacityWatchdog != nil {
+				capacityWatchdog.tick(ctx)
+			}
 			if ctx.Err() == nil {
 				srv.MarkReady()
+			}
+			close(reconcileDone)
+			if capacityWatchdog != nil {
+				<-startCapacityWatch(ctx, capacityWatchdog)
 			}
 		}()
 		runErr = <-serveDone
 	case runErr = <-serveDone:
 		close(reconcileDone)
+		close(capacityDone)
 	}
 
 	// Both graceful shutdown paths (SIGTERM and POST /shutdown) funnel through
@@ -369,6 +386,7 @@ func Run() error {
 	// runs before the cancel: a non-signal exit path would hang otherwise.
 	stop()
 	<-reconcileDone
+	<-capacityDone
 	managedPreview.Close()
 	<-previewDone
 	lcStack.Stop()
