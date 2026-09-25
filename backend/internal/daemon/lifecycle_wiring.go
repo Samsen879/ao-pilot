@@ -252,6 +252,10 @@ type runtimeMessageSender interface {
 	SendMessage(ctx context.Context, handle ports.RuntimeHandle, message string) error
 }
 
+type guardedRuntimeMessageSender interface {
+	SendMessageGuarded(ctx context.Context, handle ports.RuntimeHandle, message string, check func(context.Context) error) error
+}
+
 // runtimeMessenger sends the user's message directly to the session's live
 // runtime pane. The HTTP controller has already validated and sanitized the
 // message body; this adapter only resolves the stored runtime handle.
@@ -261,21 +265,38 @@ type runtimeMessenger struct {
 }
 
 func (m runtimeMessenger) Send(ctx context.Context, id domain.SessionID, message string) error {
+	return m.send(ctx, id, message, nil)
+}
+
+func (m runtimeMessenger) SendGuarded(ctx context.Context, id domain.SessionID, message string, check func(context.Context) error) error {
+	return m.send(ctx, id, message, check)
+}
+
+func (m runtimeMessenger) send(ctx context.Context, id domain.SessionID, message string, check func(context.Context) error) error {
 	rec, ok, err := m.store.GetSession(ctx, id)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", ports.ErrPaneWriteNotStarted, err)
 	}
 	if !ok {
-		return fmt.Errorf("session %s: %w", id, sessionmanager.ErrNotFound)
+		return fmt.Errorf("%w: session %s: %w", ports.ErrPaneWriteNotStarted, id, sessionmanager.ErrNotFound)
 	}
 	if rec.IsTerminated {
-		return fmt.Errorf("session %s: %w", id, sessionmanager.ErrTerminated)
+		return fmt.Errorf("%w: session %s: %w", ports.ErrPaneWriteNotStarted, id, sessionmanager.ErrTerminated)
 	}
 	handleID := rec.Metadata.RuntimeHandleID
 	if handleID == "" {
-		return fmt.Errorf("session %s: %w", id, sessionmanager.ErrIncompleteHandle)
+		return fmt.Errorf("%w: session %s: %w", ports.ErrPaneWriteNotStarted, id, sessionmanager.ErrIncompleteHandle)
 	}
-	return m.runtime.SendMessage(ctx, ports.RuntimeHandle{ID: handleID}, message)
+	handle := ports.RuntimeHandle{ID: handleID}
+	if guarded, ok := m.runtime.(guardedRuntimeMessageSender); ok && check != nil {
+		return guarded.SendMessageGuarded(ctx, handle, message, check)
+	}
+	if check != nil {
+		if err := check(ctx); err != nil {
+			return fmt.Errorf("%w: %w", ports.ErrPaneWriteNotStarted, err)
+		}
+	}
+	return m.runtime.SendMessage(ctx, handle, message)
 }
 
 // newSessionMessenger assembles the per-daemon agent messenger. For now, ao
