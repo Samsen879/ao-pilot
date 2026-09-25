@@ -312,17 +312,6 @@ func Run() error {
 		log.Warn("restore mobile bridge on boot failed", "err", err)
 	}
 
-	// Reconcile sessions on boot: adopt crash-surviving runtimes, capture and
-	// terminate dead ones, reap leaked tmux, then restore shutdown-saved
-	// sessions. Best-effort: a failure is logged but never blocks boot. Placed
-	// before srv.Run so sessions are consistent before the server serves.
-	if reconcileErr := sessMgr.Reconcile(ctx); reconcileErr != nil {
-		log.Error("reconcile sessions on boot failed", "err", reconcileErr)
-	}
-	if reconcileErr := lcStack.ReconcileRuntime(ctx); reconcileErr != nil {
-		log.Error("reconcile agent processes on boot failed", "err", reconcileErr)
-	}
-
 	// ponytail: 5s tolerates a brief frontend restart; tune if dev hot-reload trips it.
 	const supervisorGrace = 5 * time.Second
 
@@ -340,7 +329,33 @@ func Run() error {
 		}()
 	}
 
-	runErr := srv.Run(ctx)
+	// Publish the run-file and serve liveness immediately. Session restoration
+	// can take minutes when several native transcripts must cold-start, so it
+	// runs concurrently while /readyz and REST mutations remain gated. This lets
+	// supervisors and dashboards distinguish a live daemon that is still
+	// recovering from a stopped daemon.
+	reconcileDone := make(chan struct{})
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- srv.Run(ctx) }()
+	var runErr error
+	select {
+	case <-srv.ServeStarted():
+		go func() {
+			defer close(reconcileDone)
+			if reconcileErr := sessMgr.Reconcile(ctx); reconcileErr != nil {
+				log.Error("reconcile sessions on boot failed", "err", reconcileErr)
+			}
+			if reconcileErr := lcStack.ReconcileRuntime(ctx); reconcileErr != nil {
+				log.Error("reconcile agent processes on boot failed", "err", reconcileErr)
+			}
+			if ctx.Err() == nil {
+				srv.MarkReady()
+			}
+		}()
+		runErr = <-serveDone
+	case runErr = <-serveDone:
+		close(reconcileDone)
+	}
 
 	// Both graceful shutdown paths (SIGTERM and POST /shutdown) funnel through
 	// srv.Run returning. We deliberately do NOT tear down sessions here: they
@@ -353,6 +368,7 @@ func Run() error {
 	// via defer) avoids the LIFO trap where a Stop() that blocks on ctx-cancel
 	// runs before the cancel: a non-signal exit path would hang otherwise.
 	stop()
+	<-reconcileDone
 	managedPreview.Close()
 	<-previewDone
 	lcStack.Stop()

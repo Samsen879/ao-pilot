@@ -27,7 +27,10 @@ const (
 	DefaultPort = 3001
 	// DefaultRequestTimeout bounds a single REST request. Long-lived terminal mux
 	// connections are mounted outside this timeout.
-	DefaultRequestTimeout = 60 * time.Second
+	// Keep this below the CLI's two-minute mutation deadline so callers receive
+	// the daemon's definitive response. Large repository worktree creation can
+	// legitimately exceed one minute on WSL and network-backed filesystems.
+	DefaultRequestTimeout = 110 * time.Second
 	// DefaultShutdownTimeout is the hard cap on graceful shutdown. After this
 	// the process exits even if connections are still draining.
 	DefaultShutdownTimeout = 10 * time.Second
@@ -124,7 +127,7 @@ func (c Config) Addr() string {
 // Recognised variables:
 //
 //	AO_PORT              bind port           (default 3001)
-//	AO_REQUEST_TIMEOUT   per-request timeout (Go duration > 0, default 60s)
+//	AO_REQUEST_TIMEOUT   per-request timeout (Go duration > 0, default 110s)
 //	AO_SHUTDOWN_TIMEOUT  shutdown deadline   (Go duration > 0, default 10s)
 //	AO_RUN_FILE          running.json path   (default ~/.ao/running.json)
 //	AO_DATA_DIR          durable state dir   (default ~/.ao/data)
