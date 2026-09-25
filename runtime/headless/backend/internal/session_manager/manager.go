@@ -179,6 +179,7 @@ type Store interface {
 	// presence of any row is the marker; preserved_ref may be empty for clean
 	// worktrees.
 	ListSessionWorktrees(ctx context.Context, id domain.SessionID) ([]domain.SessionWorktreeRecord, error)
+	MarkSessionWorktreesNonRestorable(ctx context.Context, id domain.SessionID) error
 	// DeleteSessionWorktrees consumes stale shutdown-restore markers. Explicit
 	// Kill and successful RestoreAll must remove these rows to prevent
 	// resurrecting sessions the user intentionally terminated.
@@ -459,6 +460,10 @@ func (m *Manager) spawnWithAttempt(ctx context.Context, cfg ports.SpawnConfig, a
 	}
 	ws, workspaceProject, err := m.createSessionWorkspace(ctx, project, cfg, id, branch, attempt)
 	if err != nil {
+		if ws.Path == "" && workspaceProject != nil && len(workspaceProject.Worktrees) > 0 {
+			retained := workspaceProject.Worktrees[0]
+			ws = ports.WorkspaceInfo{Path: retained.Path, Branch: retained.Branch, SessionID: retained.SessionID, ProjectID: retained.ProjectID, RepoPath: retained.RepoPath}
+		}
 		if ws.Path != "" {
 			cleanup, cancel := rollbackContext(ctx)
 			defer cancel()
@@ -700,26 +705,31 @@ func (m *Manager) createSessionWorkspace(ctx context.Context, project domain.Pro
 	for _, wt := range info.Worktrees {
 		attempt.Record.Worktrees = append(attempt.Record.Worktrees, spawnattempt.Worktree{Path: wt.Path, Branch: wt.Branch, Repo: wt.RepoName})
 	}
-	if saveErr := attempt.Phase("workspace_bookkeeping"); saveErr != nil {
-		return info.Root, &info, saveErr
+	bookkeepingCtx := ctx
+	var cancelBookkeeping context.CancelFunc
+	if err != nil || ctx.Err() != nil {
+		bookkeepingCtx, cancelBookkeeping = context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancelBookkeeping()
 	}
-
-	if err != nil {
-		return info.Root, &info, err
-	}
-
 	for _, wt := range info.Worktrees {
-		if err := m.store.UpsertSessionWorktree(ctx, domain.SessionWorktreeRecord{
+		if recordErr := m.store.UpsertSessionWorktree(bookkeepingCtx, domain.SessionWorktreeRecord{
 			SessionID:    id,
 			RepoName:     wt.RepoName,
 			Branch:       wt.Branch,
 			BaseSHA:      wt.BaseSHA,
+			RepoPath:     wt.RepoPath,
 			WorktreePath: wt.Path,
 			State:        "active",
-		}); err != nil {
+		}); recordErr != nil {
 			// Keep known resource custody; failed bookkeeping is not deletion authority.
-			return info.Root, &info, fmt.Errorf("record workspace worktree %q: %w", wt.RepoName, err)
+			return info.Root, &info, errors.Join(err, fmt.Errorf("record workspace worktree %q: %w", wt.RepoName, recordErr))
 		}
+	}
+	if saveErr := attempt.Phase("workspace_bookkeeping"); saveErr != nil {
+		return info.Root, &info, errors.Join(err, saveErr)
+	}
+	if err != nil {
+		return info.Root, &info, err
 	}
 	return info.Root, &info, nil
 }
@@ -942,6 +952,14 @@ func (m *Manager) Kill(ctx context.Context, id domain.SessionID) (bool, error) {
 	} else if ok {
 		workspaceProjectRows = rows
 		workspaceProject = true
+		if ws.Path == "" {
+			for _, row := range rows {
+				if row.RepoName == domain.RootWorkspaceRepoName || row.RepoName == "" {
+					ws = workspaceInfoFromRepoInfo(row)
+					break
+				}
+			}
+		}
 	}
 
 	if handle.ID != "" {
@@ -959,12 +977,11 @@ func (m *Manager) Kill(ctx context.Context, id domain.SessionID) (bool, error) {
 	if ws.Path != "" {
 		release, err := m.beginShellTerminalTeardown(ctx, id)
 		if err != nil {
-			// Same shape as the dirty-workspace refusal below: the worktree is
-			// left alone, but the restore marker still must not survive a user
-			// kill, or the next boot's RestoreAll could resurrect a session the
-			// user explicitly terminated (#2319).
-			if err := m.store.DeleteSessionWorktrees(ctx, id); err != nil {
-				m.logger.Warn("kill: delete restore marker failed", "sessionID", id, "error", err)
+			// The rows are the only custody record when a failed spawn never
+			// persisted WorkspacePath. Keep the active rows for later cleanup;
+			// RestoreAll only accepts removed or legacy restore markers.
+			if err := m.store.MarkSessionWorktreesNonRestorable(ctx, id); err != nil {
+				return false, fmt.Errorf("kill %s: retain worktree custody: %w", id, err)
 			}
 			if err := m.lcm.MarkTerminated(ctx, id); err != nil {
 				return false, fmt.Errorf("kill %s: %w", id, err)
@@ -1469,6 +1486,7 @@ func (m *Manager) saveAndTeardownOne(ctx context.Context, rec domain.SessionReco
 		SessionID:    rec.ID,
 		RepoName:     domain.RootWorkspaceRepoName,
 		Branch:       rec.Metadata.Branch,
+		RepoPath:     rec.Metadata.WorkspaceRepoPath,
 		WorktreePath: rec.Metadata.WorkspacePath,
 		PreservedRef: ref,
 		State:        "removed",
@@ -1821,17 +1839,22 @@ func (m *Manager) workspaceProjectRestoreRowsFromMarkers(ctx context.Context, pr
 	if err != nil {
 		return nil, err
 	}
+	if len(rows) == 1 && rows[0].RepoPath != "" && (rec.Metadata.RuntimeHandleID == "" || len(childRepos) == 0) {
+		return m.sessionWorktreeRowsToRepoInfos(ctx, project, rec, rows)
+	}
 	rootPath := rec.Metadata.WorkspacePath
 	rootBranch := rec.Metadata.Branch
+	rootRepoPath := project.Path
 	var rootBaseSHA string
 	if len(rows) == 1 && (rows[0].RepoName == "" || rows[0].RepoName == domain.RootWorkspaceRepoName) {
 		rootPath = firstNonEmptyString(rows[0].WorktreePath, rootPath)
 		rootBranch = firstNonEmptyString(rows[0].Branch, rootBranch)
 		rootBaseSHA = rows[0].BaseSHA
+		rootRepoPath = firstNonEmptyString(rows[0].RepoPath, rootRepoPath)
 	}
 	out := []ports.WorkspaceRepoInfo{{
 		RepoName:  domain.RootWorkspaceRepoName,
-		RepoPath:  project.Path,
+		RepoPath:  rootRepoPath,
 		Path:      rootPath,
 		Branch:    rootBranch,
 		BaseSHA:   rootBaseSHA,
@@ -1857,7 +1880,7 @@ func (m *Manager) workspaceProjectRows(ctx context.Context, rec domain.SessionRe
 	if err != nil {
 		return nil, false, err
 	}
-	if len(rows) <= 1 {
+	if len(rows) == 0 && rec.Metadata.WorkspacePath == "" {
 		return nil, false, nil
 	}
 	project, err := m.loadProject(ctx, rec.ProjectID)
@@ -1866,6 +1889,49 @@ func (m *Manager) workspaceProjectRows(ctx context.Context, rec domain.SessionRe
 	}
 	if project.Kind.WithDefault() != domain.ProjectKindWorkspace {
 		return nil, false, nil
+	}
+	if len(rows) == 0 {
+		if rec.Metadata.RuntimeHandleID != "" {
+			infos, err := m.workspaceProjectRestoreRowsFromMarkers(ctx, project, rec, rows)
+			return infos, err == nil, err
+		}
+		return nil, false, fmt.Errorf("workspace project %s: preserve root without any repository custody rows", rec.ID)
+	}
+	rootPath := rec.Metadata.WorkspacePath
+	owned := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		owned[row.RepoName] = true
+		if row.RepoName == "" || row.RepoName == domain.RootWorkspaceRepoName {
+			rootPath = firstNonEmptyString(row.WorktreePath, rootPath)
+		}
+	}
+	if owned[""] {
+		owned[domain.RootWorkspaceRepoName] = true
+	}
+	if !owned[domain.RootWorkspaceRepoName] || rootPath == "" {
+		return nil, false, fmt.Errorf("workspace project %s: root path exists without custody", rec.ID)
+	}
+	// A live runtime proves the legacy root-only marker was written after
+	// creating its configured children. Reconstruct them even if a later
+	// attempt to upgrade that root marker wrote RepoPath first.
+	if len(rows) == 1 && rec.Metadata.RuntimeHandleID != "" {
+		infos, err := m.workspaceProjectRestoreRowsFromMarkers(ctx, project, rec, rows)
+		return infos, err == nil, err
+	}
+	childRepos, err := m.store.ListWorkspaceRepos(ctx, project.ID)
+	if err != nil {
+		return nil, false, err
+	}
+	for _, child := range childRepos {
+		if owned[child.Name] {
+			continue
+		}
+		childPath := filepath.Join(rootPath, filepath.FromSlash(child.RelativePath))
+		if _, err := os.Lstat(childPath); err == nil {
+			return nil, false, fmt.Errorf("workspace project %s: preserve root while child path %q exists without custody", rec.ID, childPath)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, false, fmt.Errorf("workspace project %s: inspect child path %q: %w", rec.ID, childPath, err)
+		}
 	}
 	infos, err := m.sessionWorktreeRowsToRepoInfos(ctx, project, rec, rows)
 	if err != nil {
@@ -1887,7 +1953,7 @@ func (m *Manager) sessionWorktreeRowsToRepoInfos(ctx context.Context, project do
 	}
 	out := make([]ports.WorkspaceRepoInfo, 0, len(rows))
 	for _, row := range rows {
-		repoPath := repoPaths[row.RepoName]
+		repoPath := firstNonEmptyString(row.RepoPath, repoPaths[row.RepoName])
 		if repoPath == "" {
 			return nil, fmt.Errorf("session worktree row %q no longer matches workspace registry", row.RepoName)
 		}
@@ -1916,6 +1982,7 @@ func (m *Manager) saveAndTeardownWorkspaceProject(ctx context.Context, rec domai
 			RepoName:     row.RepoName,
 			Branch:       row.Branch,
 			BaseSHA:      row.BaseSHA,
+			RepoPath:     row.RepoPath,
 			WorktreePath: row.Path,
 			PreservedRef: ref,
 			State:        "removed",
@@ -1956,16 +2023,14 @@ func (m *Manager) destroyWorkspaceProjectRows(ctx context.Context, rows []ports.
 		}
 		info := workspaceInfoFromRepoInfo(rows[i])
 		if err := m.workspace.Destroy(ctx, info); err != nil {
-			if errors.Is(err, ports.ErrWorkspaceDirty) {
-				return cleaned, err
-			}
 			if stateErr := m.upsertWorkspaceProjectRowState(ctx, rows[i], "retry_remove"); stateErr != nil && firstErr == nil {
 				firstErr = stateErr
 			}
 			if firstErr == nil {
 				firstErr = err
 			}
-			continue
+			// A failed child removal forbids removing any enclosing parent.
+			return cleaned, firstErr
 		}
 		if err := m.upsertWorkspaceProjectRowState(ctx, rows[i], "unavailable"); err != nil && firstErr == nil {
 			firstErr = err
@@ -1981,6 +2046,7 @@ func (m *Manager) upsertWorkspaceProjectRowState(ctx context.Context, row ports.
 		RepoName:     row.RepoName,
 		Branch:       row.Branch,
 		BaseSHA:      row.BaseSHA,
+		RepoPath:     row.RepoPath,
 		WorktreePath: row.Path,
 		State:        state,
 	})
@@ -2279,8 +2345,27 @@ func (m *Manager) Cleanup(ctx context.Context, project domain.ProjectID) (Cleanu
 		}
 		ws := workspaceInfo(rec)
 		if ws.Path == "" {
-			m.cleanupSystemPromptDir(rec.ID)
-			continue
+			rows, rowErr := m.store.ListSessionWorktrees(ctx, rec.ID)
+			if rowErr != nil {
+				return result, fmt.Errorf("cleanup %s: inspect retained worktrees for %s: %w", project, rec.ID, rowErr)
+			}
+			if len(rows) == 0 {
+				m.cleanupSystemPromptDir(rec.ID)
+				continue
+			}
+			for _, row := range rows {
+				if row.RepoName == domain.RootWorkspaceRepoName || row.RepoName == "" {
+					ws = ports.WorkspaceInfo{Path: row.WorktreePath, Branch: row.Branch, RepoPath: row.RepoPath, SessionID: rec.ID, ProjectID: rec.ProjectID}
+					rec.Metadata.WorkspacePath = row.WorktreePath
+					rec.Metadata.WorkspaceRepoPath = row.RepoPath
+					rec.Metadata.Branch = row.Branch
+					break
+				}
+			}
+			if ws.Path == "" || ws.RepoPath == "" {
+				result.Skipped = append(result.Skipped, CleanupSkip{SessionID: rec.ID, Reason: "workspace custody requires manual recovery"})
+				continue
+			}
 		}
 		if h := runtimeHandle(rec.Metadata); h.ID != "" {
 			_ = m.runtime.Destroy(ctx, h) // best effort; usually already gone

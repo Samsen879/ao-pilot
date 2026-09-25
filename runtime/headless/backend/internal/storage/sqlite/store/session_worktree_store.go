@@ -29,6 +29,7 @@ func (s *Store) UpsertSessionWorktree(ctx context.Context, row domain.SessionWor
 		RepoName:     row.RepoName,
 		Branch:       row.Branch,
 		BaseSha:      row.BaseSHA,
+		RepoPath:     row.RepoPath,
 		WorktreePath: row.WorktreePath,
 		PreservedRef: row.PreservedRef,
 		State:        state,
@@ -67,12 +68,22 @@ func (s *Store) DeleteSessionWorktrees(ctx context.Context, sessionID domain.Ses
 	return s.qw.DeleteSessionWorktrees(ctx, sessionID)
 }
 
+// MarkSessionWorktreesNonRestorable retains every repository path while
+// atomically preventing a later RestoreAll from relaunching a killed session.
+func (s *Store) MarkSessionWorktreesNonRestorable(ctx context.Context, sessionID domain.SessionID) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	_, err := s.writeDB.ExecContext(ctx, "UPDATE session_worktrees SET state = 'active' WHERE session_id = ?", string(sessionID))
+	return err
+}
+
 func sessionWorktreeFromGen(row gen.SessionWorktree) domain.SessionWorktreeRecord {
 	return domain.SessionWorktreeRecord{
 		SessionID:    row.SessionID,
 		RepoName:     row.RepoName,
 		Branch:       row.Branch,
 		BaseSHA:      row.BaseSha,
+		RepoPath:     row.RepoPath,
 		WorktreePath: row.WorktreePath,
 		PreservedRef: row.PreservedRef,
 		// ponytail: state is read back from the DB but no caller uses it;

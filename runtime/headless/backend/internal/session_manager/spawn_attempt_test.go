@@ -167,6 +167,205 @@ func newSpawnFixture(t *testing.T) (*Manager, *sqlite.Store, *fakeRuntime, *fake
 	m := New(Deps{Runtime: rt, Workspace: ws, Store: s, Agents: fakeResolver{}, Lifecycle: fakeLifecycle{s: s}, Messenger: fakeMessenger{}, DataDir: root, LookPath: func(n string) (string, error) { return "/fixture/" + n, nil }, Executable: func() (string, error) { return "/fixture/ao", nil }, NewLaunchID: func() string { return "fixture-generation" }})
 	return m, s, rt, ws, ports.SpawnConfig{AttemptID: uuid.NewString(), ProjectID: "fixture", Kind: domain.KindWorker, Harness: "codex"}
 }
+
+func TestRootOnlyWorkspaceCustodyPreservesExistingChildPath(t *testing.T) {
+	m, s, _, _, _ := newSpawnFixture(t)
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "root-worktree")
+	child := filepath.Join(root, "child")
+	if err := os.MkdirAll(child, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertWorkspaceProject(ctx,
+		domain.ProjectRecord{ID: "fixture", Path: t.TempDir(), Kind: domain.ProjectKindWorkspace},
+		[]domain.WorkspaceRepoRecord{{ProjectID: "fixture", Name: "child", RelativePath: "child"}}); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := s.CreateSession(ctx, domain.SessionRecord{ProjectID: "fixture", Kind: domain.KindWorker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.Metadata.WorkspacePath = root
+	if _, _, err := m.workspaceProjectRows(ctx, rec); err == nil {
+		t.Fatal("zero-row cleanup accepted a workspace project without custody")
+	}
+	if err := s.UpsertSessionWorktree(ctx, domain.SessionWorktreeRecord{SessionID: rec.ID, RepoName: domain.RootWorkspaceRepoName, WorktreePath: root, State: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := m.workspaceProjectRows(ctx, rec); err == nil {
+		t.Fatal("root-only cleanup accepted an existing child without custody")
+	}
+	rec.Metadata.RuntimeHandleID = "legacy-running-pane"
+	rows, ok, err := m.workspaceProjectRows(ctx, rec)
+	if err != nil || !ok || len(rows) != 2 || rows[1].Path != child {
+		t.Fatalf("legacy root marker reconstruction: rows=%#v ok=%v err=%v", rows, ok, err)
+	}
+}
+
+func TestKillRecoversRootOnlyCustodyWithoutMetadata(t *testing.T) {
+	m, s, _, workspace, _ := newSpawnFixture(t)
+	ctx := context.Background()
+	projectPath := t.TempDir()
+	if err := s.UpsertWorkspaceProject(ctx,
+		domain.ProjectRecord{ID: "fixture", Path: projectPath, Kind: domain.ProjectKindWorkspace},
+		[]domain.WorkspaceRepoRecord{{ProjectID: "fixture", Name: "child", RelativePath: "child"}}); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := s.CreateSession(ctx, domain.SessionRecord{ProjectID: "fixture", Kind: domain.KindWorker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(t.TempDir(), "retained-root")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertSessionWorktree(ctx, domain.SessionWorktreeRecord{
+		SessionID: rec.ID, RepoName: domain.RootWorkspaceRepoName, RepoPath: projectPath, WorktreePath: root,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Kill(ctx, rec.ID); err != nil || workspace.destroys != 1 {
+		t.Fatalf("Kill destroys=%d err=%v", workspace.destroys, err)
+	}
+}
+
+type refusingShellTeardown struct{}
+
+func (refusingShellTeardown) BeginSessionTeardown(context.Context, domain.SessionID) (func(), error) {
+	return nil, errors.New("shell still open")
+}
+
+func TestKillKeepsCustodyWhenShellTeardownRefuses(t *testing.T) {
+	m, s, _, workspace, _ := newSpawnFixture(t)
+	ctx := context.Background()
+	projectPath := t.TempDir()
+	if err := s.UpsertWorkspaceProject(ctx, domain.ProjectRecord{ID: "fixture", Path: projectPath, Kind: domain.ProjectKindWorkspace},
+		[]domain.WorkspaceRepoRecord{{ProjectID: "fixture", Name: "child", RelativePath: "child"}}); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := s.CreateSession(ctx, domain.SessionRecord{ProjectID: "fixture", Kind: domain.KindWorker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(t.TempDir(), "retained-root")
+	if err := s.UpsertSessionWorktree(ctx, domain.SessionWorktreeRecord{
+		SessionID: rec.ID, RepoName: domain.RootWorkspaceRepoName, RepoPath: projectPath, WorktreePath: root, State: "removed",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertSessionWorktree(ctx, domain.SessionWorktreeRecord{
+		SessionID: rec.ID, RepoName: "child", RepoPath: filepath.Join(projectPath, "child"), WorktreePath: filepath.Join(root, "child"), State: "removed",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m.SetShellTerminalCloser(refusingShellTeardown{})
+	if _, err := m.Kill(ctx, rec.ID); err != nil || workspace.destroys != 0 {
+		t.Fatalf("Kill destroys=%d err=%v", workspace.destroys, err)
+	}
+	rows, err := s.ListSessionWorktrees(ctx, rec.ID)
+	if err != nil || len(rows) != 2 || rows[0].WorktreePath != root || rows[0].State != "active" || rows[1].State != "active" {
+		t.Fatalf("retained custody rows=%#v err=%v", rows, err)
+	}
+}
+
+func TestPartiallyUpgradedRootMarkerReconstructsChildren(t *testing.T) {
+	m, s, _, _, _ := newSpawnFixture(t)
+	ctx := context.Background()
+	projectPath := t.TempDir()
+	if err := s.UpsertWorkspaceProject(ctx,
+		domain.ProjectRecord{ID: "fixture", Path: projectPath, Kind: domain.ProjectKindWorkspace},
+		[]domain.WorkspaceRepoRecord{{ProjectID: "fixture", Name: "child", RelativePath: "child"}}); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := s.CreateSession(ctx, domain.SessionRecord{ProjectID: "fixture", Kind: domain.KindWorker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(t.TempDir(), "root")
+	rec.Metadata.WorkspacePath = root
+	rec.Metadata.RuntimeHandleID = "running-pane"
+	if err := s.UpsertSessionWorktree(ctx, domain.SessionWorktreeRecord{
+		SessionID: rec.ID, RepoName: domain.RootWorkspaceRepoName, RepoPath: projectPath, WorktreePath: root,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rows, ok, err := m.workspaceProjectRows(ctx, rec)
+	if err != nil || !ok || len(rows) != 2 || rows[0].RepoPath != projectPath || rows[1].Path != filepath.Join(root, "child") {
+		t.Fatalf("partial marker rows=%#v ok=%v err=%v", rows, ok, err)
+	}
+}
+
+func TestPartialWorkspaceCustodyPreservesUnrecordedChild(t *testing.T) {
+	m, s, _, _, _ := newSpawnFixture(t)
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "root-worktree")
+	for _, name := range []string{"owned", "foreign"} {
+		if err := os.MkdirAll(filepath.Join(root, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.UpsertWorkspaceProject(ctx,
+		domain.ProjectRecord{ID: "fixture", Path: t.TempDir(), Kind: domain.ProjectKindWorkspace},
+		[]domain.WorkspaceRepoRecord{
+			{ProjectID: "fixture", Name: "owned", RelativePath: "owned"},
+			{ProjectID: "fixture", Name: "foreign", RelativePath: "foreign"},
+		}); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := s.CreateSession(ctx, domain.SessionRecord{ProjectID: "fixture", Kind: domain.KindWorker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.Metadata.WorkspacePath = root
+	for _, row := range []domain.SessionWorktreeRecord{
+		{SessionID: rec.ID, RepoName: domain.RootWorkspaceRepoName, WorktreePath: root},
+		{SessionID: rec.ID, RepoName: "owned", WorktreePath: filepath.Join(root, "owned")},
+	} {
+		if err := s.UpsertSessionWorktree(ctx, row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := m.workspaceProjectRows(ctx, rec); err == nil {
+		t.Fatal("partial cleanup accepted an unrecorded child path")
+	}
+}
+
+func TestCleanupRecoversRootFromCustodyWhenMetadataWriteFailed(t *testing.T) {
+	m, s, _, workspace, _ := newSpawnFixture(t)
+	ctx := context.Background()
+	projectPath := t.TempDir()
+	if err := s.UpsertWorkspaceProject(ctx,
+		domain.ProjectRecord{ID: "fixture", Path: projectPath, Kind: domain.ProjectKindWorkspace},
+		[]domain.WorkspaceRepoRecord{{ProjectID: "fixture", Name: "child", RelativePath: "child"}}); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := s.CreateSession(ctx, domain.SessionRecord{ProjectID: "fixture", Kind: domain.KindWorker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.IsTerminated = true
+	if err := s.UpdateSession(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(t.TempDir(), "retained-root")
+	child := filepath.Join(root, "child")
+	if err := os.MkdirAll(child, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []domain.SessionWorktreeRecord{
+		{SessionID: rec.ID, RepoName: domain.RootWorkspaceRepoName, RepoPath: projectPath, WorktreePath: root},
+		{SessionID: rec.ID, RepoName: "child", RepoPath: filepath.Join(projectPath, "child"), WorktreePath: child},
+	} {
+		if err := s.UpsertSessionWorktree(ctx, row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := m.Cleanup(ctx, "fixture")
+	if err != nil || len(result.Cleaned) != 1 || result.Cleaned[0] != rec.ID || workspace.destroys != 2 {
+		t.Fatalf("cleanup result=%#v destroys=%d err=%v", result, workspace.destroys, err)
+	}
+}
+
 func TestCommittedAttemptReplay(t *testing.T) {
 	m, s, rt, _, cfg := newSpawnFixture(t)
 	ctx := context.Background()
@@ -365,6 +564,41 @@ func (w fakeMultiWorkspace) CreateWorkspaceProject(ctx context.Context, cfg port
 func (w fakeMultiWorkspace) DestroyWorkspaceProject(context.Context, ports.WorkspaceProjectInfo) error {
 	w.destroys++
 	return errors.New("dirty child")
+}
+
+type canceledMultiWorkspace struct {
+	fakeMultiWorkspace
+	cancel context.CancelFunc
+}
+
+func (w canceledMultiWorkspace) CreateWorkspaceProject(ctx context.Context, cfg ports.WorkspaceProjectConfig) (ports.WorkspaceProjectInfo, error) {
+	info, err := w.fakeMultiWorkspace.CreateWorkspaceProject(ctx, cfg)
+	if err != nil {
+		return info, err
+	}
+	w.cancel()
+	return info, context.Canceled
+}
+
+func TestCanceledWorkspaceProjectRecordsRetainedCustody(t *testing.T) {
+	m, s, _, ws, cfg := newSpawnFixture(t)
+	project, _, _ := s.GetProject(context.Background(), "fixture")
+	project.Kind = domain.ProjectKindWorkspace
+	if err := s.UpsertProject(context.Background(), project); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.workspace = canceledMultiWorkspace{fakeMultiWorkspace: fakeMultiWorkspace{ws}, cancel: cancel}
+	if _, _, _, err := m.Spawn(ctx, cfg); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Spawn error = %v, want context.Canceled", err)
+	}
+	rows, err := s.ListSessionWorktrees(context.Background(), "fixture-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("retained custody rows = %d, want 2", len(rows))
+	}
 }
 
 type failingWorktreeStore struct{ *sqlite.Store }

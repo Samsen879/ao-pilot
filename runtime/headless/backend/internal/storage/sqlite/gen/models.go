@@ -217,6 +217,7 @@ type SessionWorktree struct {
 	RepoName     string
 	Branch       string
 	BaseSha      string
+	RepoPath     string
 	WorktreePath string
 	PreservedRef string
 	State        string
