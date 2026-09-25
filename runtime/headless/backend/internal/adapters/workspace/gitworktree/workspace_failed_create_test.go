@@ -291,7 +291,7 @@ func TestRollbackDoesNotDeletePathAfterRegistrationDisappears(t *testing.T) {
 		}
 	}
 	retained, err := w.rollbackRegisteredWorktree(context.Background(), repo, path, false)
-	if !retained || err == nil {
+	if retained || err == nil {
 		t.Fatalf("retained=%v err=%v", retained, err)
 	}
 	if data, err := os.ReadFile(wantFile); err != nil || string(data) != "keep" {
