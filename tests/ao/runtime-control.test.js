@@ -440,5 +440,6 @@ describe('runtime control boundary', () => {
     });
     expect(result.status).toBe('already_running');
     expect(delays).toEqual([250, 50]);
+    expect(syncSpawn.mock.calls[2][2].timeout).toBe(5_000);
   });
 });

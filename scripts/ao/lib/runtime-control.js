@@ -309,11 +309,11 @@ export async function startVerifiedRuntimeDaemon(runtime, {
   isDaemonPid = daemonPidMatchesBinary,
 } = {}) {
   const deadline = now() + timeoutMs;
-  const probe = () => statusProbe(runtime, {
+  const probe = (minimumTimeoutMs = 1) => statusProbe(runtime, {
     cwd,
     env,
     syncSpawn,
-    timeoutMs: Math.max(1, deadline - now()),
+    timeoutMs: Math.max(minimumTimeoutMs, deadline - now()),
   });
   const before = probe();
   if (daemonReady(before)) {
@@ -397,7 +397,7 @@ export async function startVerifiedRuntimeDaemon(runtime, {
     }
     // One final bounded probe is still useful at the deadline: recovery may
     // have completed during the last backoff interval.
-    lastProbe = probe();
+    lastProbe = probe(now() >= deadline ? 5_000 : 1);
     if (spawned && daemonStarting(lastProbe)
       && (child?.pid == null || daemonPid(lastProbe) === child.pid)) {
       spawnedObserved = true;
