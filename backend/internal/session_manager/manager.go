@@ -1860,7 +1860,7 @@ func (m *Manager) workspaceProjectRows(ctx context.Context, rec domain.SessionRe
 	if err != nil {
 		return nil, false, err
 	}
-	if len(rows) == 1 && rec.Metadata.WorkspacePath != "" {
+	if len(rows) > 0 && rec.Metadata.WorkspacePath != "" {
 		project, err := m.loadProject(ctx, rec.ProjectID)
 		if err != nil {
 			return nil, false, err
@@ -1875,11 +1875,24 @@ func (m *Manager) workspaceProjectRows(ctx context.Context, rec domain.SessionRe
 			// bookkeeping; reconstruct the configured child rows for cleanup.
 			// A failed create has no runtime handle and must retain its parent
 			// whenever an unrecorded child path exists.
-			if rec.Metadata.RuntimeHandleID != "" {
+			if len(rows) == 1 && (rows[0].RepoName == "" || rows[0].RepoName == domain.RootWorkspaceRepoName) && rec.Metadata.RuntimeHandleID != "" {
 				infos, err := m.workspaceProjectRestoreRowsFromMarkers(ctx, project, rec, rows)
 				return infos, err == nil, err
 			}
+			owned := make(map[string]bool, len(rows))
+			for _, row := range rows {
+				owned[row.RepoName] = true
+			}
+			if owned[""] {
+				owned[domain.RootWorkspaceRepoName] = true
+			}
+			if !owned[domain.RootWorkspaceRepoName] {
+				return nil, false, fmt.Errorf("workspace project %s: root path exists without custody", rec.ID)
+			}
 			for _, child := range childRepos {
+				if owned[child.Name] {
+					continue
+				}
 				childPath := filepath.Join(rec.Metadata.WorkspacePath, filepath.FromSlash(child.RelativePath))
 				if _, err := os.Lstat(childPath); err == nil {
 					return nil, false, fmt.Errorf("workspace project %s: preserve root while child path %q exists without custody", rec.ID, childPath)

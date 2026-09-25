@@ -1110,9 +1110,9 @@ func (w *Workspace) rollbackOwnedWorktree(ctx context.Context, repo, path, branc
 	rec, registered := findWorktree(records, path)
 	if !registered {
 		if _, statErr := os.Lstat(path); statErr == nil {
-			return true, fmt.Errorf("gitworktree: owned rollback %q lost registration but path remains", path)
+			return false, fmt.Errorf("gitworktree: preserve unregistered path %q without claiming cleanup custody", path)
 		} else if !errors.Is(statErr, os.ErrNotExist) {
-			return true, fmt.Errorf("gitworktree: inspect owned rollback path %q: %w", path, statErr)
+			return false, fmt.Errorf("gitworktree: inspect owned rollback path %q: %w", path, statErr)
 		}
 		return false, nil
 	}
@@ -1145,9 +1145,9 @@ func (w *Workspace) rollbackRegisteredWorktree(ctx context.Context, repo, path s
 	// Git removes its own worktree directory. A path that reappears after the
 	// registration check may belong to a new creator, so never RemoveAll here.
 	if _, err := os.Lstat(path); err == nil {
-		return true, fmt.Errorf("gitworktree: preserve path %q after rollback: path still exists", path)
+		return false, fmt.Errorf("gitworktree: preserve unregistered path %q after rollback without claiming cleanup custody", path)
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return true, fmt.Errorf("gitworktree: inspect path %q after rollback: %w", path, err)
+		return false, fmt.Errorf("gitworktree: inspect path %q after rollback: %w", path, err)
 	}
 	return false, nil
 }

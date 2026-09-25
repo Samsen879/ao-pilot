@@ -198,6 +198,42 @@ func TestRootOnlyWorkspaceCustodyPreservesExistingChildPath(t *testing.T) {
 		t.Fatalf("legacy root marker reconstruction: rows=%#v ok=%v err=%v", rows, ok, err)
 	}
 }
+
+func TestPartialWorkspaceCustodyPreservesUnrecordedChild(t *testing.T) {
+	m, s, _, _, _ := newSpawnFixture(t)
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "root-worktree")
+	for _, name := range []string{"owned", "foreign"} {
+		if err := os.MkdirAll(filepath.Join(root, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.UpsertWorkspaceProject(ctx,
+		domain.ProjectRecord{ID: "fixture", Path: t.TempDir(), Kind: domain.ProjectKindWorkspace},
+		[]domain.WorkspaceRepoRecord{
+			{ProjectID: "fixture", Name: "owned", RelativePath: "owned"},
+			{ProjectID: "fixture", Name: "foreign", RelativePath: "foreign"},
+		}); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := s.CreateSession(ctx, domain.SessionRecord{ProjectID: "fixture", Kind: domain.KindWorker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.Metadata.WorkspacePath = root
+	for _, row := range []domain.SessionWorktreeRecord{
+		{SessionID: rec.ID, RepoName: domain.RootWorkspaceRepoName, WorktreePath: root},
+		{SessionID: rec.ID, RepoName: "owned", WorktreePath: filepath.Join(root, "owned")},
+	} {
+		if err := s.UpsertSessionWorktree(ctx, row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := m.workspaceProjectRows(ctx, rec); err == nil {
+		t.Fatal("partial cleanup accepted an unrecorded child path")
+	}
+}
+
 func TestCommittedAttemptReplay(t *testing.T) {
 	m, s, rt, _, cfg := newSpawnFixture(t)
 	ctx := context.Background()
