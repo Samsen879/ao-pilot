@@ -90,7 +90,7 @@ func NewAPI(cfg config.Config, deps APIDeps) *API {
 
 // Register mounts the bounded /api/v1 REST surface. Long-lived surfaces such
 // as muxed terminal streams stay outside this timeout group.
-func (a *API) Register(root chi.Router) {
+func (a *API) Register(root chi.Router, isReady func() bool) {
 	timeout := a.cfg.RequestTimeout
 	if timeout <= 0 {
 		timeout = config.DefaultRequestTimeout
@@ -99,8 +99,12 @@ func (a *API) Register(root chi.Router) {
 	root.Route("/api/v1", func(r chi.Router) {
 		// Serve the OpenAPI document from the same origin as the routes it describes.
 		r.Get("/openapi.yaml", apispec.ServeYAML)
+		r.With(middleware.Timeout(timeout)).Group(func(r chi.Router) {
+			a.sessions.RegisterActivity(r)
+		})
 
 		r.Group(func(r chi.Router) {
+			r.Use(requireReady(isReady))
 			r.Use(middleware.Timeout(timeout))
 			a.agents.Register(r)
 			a.projects.Register(r)
@@ -119,6 +123,18 @@ func (a *API) Register(root chi.Router) {
 		a.notifications.RegisterStream(r)
 		a.events.Register(r)
 	})
+}
+
+func requireReady(isReady func() bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if isReady != nil && !isReady() {
+				envelope.WriteAPIError(w, r, http.StatusServiceUnavailable, "unavailable", "DAEMON_STARTING", "daemon session recovery is still in progress", nil)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // notFoundJSON returns the locked envelope for unmatched routes. Chi's default
