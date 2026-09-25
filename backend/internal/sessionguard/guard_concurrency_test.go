@@ -75,7 +75,17 @@ type ownedDraftStore struct {
 
 type failingEnterClearStore struct {
 	ownedDraftStore
-	failClear bool
+	failClear   bool
+	failAttempt bool
+}
+
+func (s *failingEnterClearStore) SetPaneDraftOwned(_ context.Context, _ domain.SessionID, owner string) error {
+	if s.failAttempt && len(owner) >= len("enter-attempted\x00") && owner[:len("enter-attempted\x00")] == "enter-attempted\x00" {
+		return fmt.Errorf("store attempt failed")
+	}
+	s.pending = true
+	s.owner = owner
+	return nil
 }
 
 func (s *failingEnterClearStore) SetPaneDraftPending(_ context.Context, _ domain.SessionID, pending bool) error {
@@ -92,27 +102,67 @@ func TestOwnedEnterDoesNotWriteBeforeDurableClear(t *testing.T) {
 			guardedStateStore: guardedStateStore{rec: domain.SessionRecord{Activity: domain.Activity{State: domain.ActivityIdle}}},
 			pending:           true,
 		}, owner: "review",
-	}, failClear: true}
-	messenger := &partialMessenger{}
+	}, failAttempt: true}
+	messenger := &successfulEnterMessenger{}
 	guard := New(store, messenger, nil)
 	generation := int64(0)
 	if _, err := guard.SubmitPendingNudgeOwnedForGeneration(context.Background(), "clear-failure", &generation, "review"); err == nil || len(messenger.messages) != 0 || !store.pending {
 		t.Fatalf("clear failure wrote pane: messages=%#v pending=%v err=%v", messenger.messages, store.pending, err)
 	}
-	store.failClear = false
-	_, _ = guard.SubmitPendingNudgeOwnedForGeneration(context.Background(), "clear-failure", &generation, "review")
-	if store.pending || len(messenger.messages) != 1 {
-		t.Fatalf("enter not durably retired: messages=%#v pending=%v", messenger.messages, store.pending)
+	store.failAttempt = false
+	store.failClear = true
+	if outcome, err := guard.SubmitPendingNudgeOwnedForGeneration(context.Background(), "clear-failure", &generation, "review"); err == nil || outcome != Sent || !store.pending || store.owner != "enter-attempted\x00review" || len(messenger.messages) != 1 {
+		t.Fatalf("uncertain enter receipt lost: outcome=%s messages=%#v pending=%v owner=%q err=%v", outcome, messenger.messages, store.pending, store.owner, err)
 	}
-	if outcome, err := guard.SubmitPendingNudgeOwnedForGeneration(context.Background(), "clear-failure", &generation, "review"); err != nil || outcome != AlreadySubmitted || len(messenger.messages) != 1 {
+	if outcome, err := guard.SubmitPendingNudgeOwnedForGeneration(context.Background(), "clear-failure", &generation, "review"); err != nil || outcome != SuppressedDraftPending || len(messenger.messages) != 1 {
 		t.Fatalf("enter replayed: outcome=%s err=%v messages=%#v", outcome, err, messenger.messages)
+	}
+}
+
+type successfulEnterMessenger struct{ messages []string }
+
+func (m *successfulEnterMessenger) Send(_ context.Context, _ domain.SessionID, msg string) error {
+	m.messages = append(m.messages, msg)
+	return nil
+}
+
+type rejectFinalEnterMessenger struct{ store *ownedDraftStore }
+
+func (m rejectFinalEnterMessenger) Send(context.Context, domain.SessionID, string) error { return nil }
+func (m rejectFinalEnterMessenger) SendGuarded(ctx context.Context, _ domain.SessionID, _ string, check func(context.Context) error) error {
+	m.store.block()
+	return check(ctx)
+}
+
+func TestOwnedEnterRestoresDraftAfterFinalGuardRejects(t *testing.T) {
+	store := &ownedDraftStore{durableDraftStore: durableDraftStore{
+		guardedStateStore: guardedStateStore{rec: domain.SessionRecord{Activity: domain.Activity{State: domain.ActivityIdle}}},
+		pending:           true,
+	}, owner: "review"}
+	guard := New(store, rejectFinalEnterMessenger{store}, nil)
+	generation := int64(0)
+	if outcome, err := guard.SubmitPendingNudgeOwnedForGeneration(context.Background(), "guard-reject", &generation, "review"); err != nil || outcome != SuppressedAwaitingUser {
+		t.Fatalf("outcome=%s err=%v", outcome, err)
+	}
+	if !store.pending || store.owner != "review" {
+		t.Fatalf("draft not restored: pending=%v owner=%q", store.pending, store.owner)
+	}
+	store.mu.Lock()
+	store.rec.Activity.State = domain.ActivityIdle
+	store.mu.Unlock()
+	messenger := &successfulEnterMessenger{}
+	guard.messenger = messenger
+	if outcome, err := guard.SubmitPendingNudgeOwnedForGeneration(context.Background(), "guard-reject", &generation, "review"); err != nil || outcome != Sent || len(messenger.messages) != 1 || store.pending {
+		t.Fatalf("retry outcome=%s err=%v messages=%#v pending=%v", outcome, err, messenger.messages, store.pending)
 	}
 }
 
 func (s *ownedDraftStore) PaneDraftReceipt(context.Context, domain.SessionID) (bool, string, bool, int64, error) {
 	return s.pending, s.owner, true, s.generation, nil
 }
-func (s *ownedDraftStore) SetPaneDraftOwned(context.Context, domain.SessionID, string) error {
+func (s *ownedDraftStore) SetPaneDraftOwned(_ context.Context, _ domain.SessionID, owner string) error {
+	s.pending = true
+	s.owner = owner
 	return nil
 }
 func (s *ownedDraftStore) MarkPaneDraftComplete(context.Context, domain.SessionID, string) error {

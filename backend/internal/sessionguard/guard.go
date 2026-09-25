@@ -518,13 +518,33 @@ func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, requi
 		if err := g.setPendingDraftOwned(ctx, id, owner); err != nil {
 			return SuppressedUnknown, err
 		}
-	} else if pending {
-		// Retire automatic Enter eligibility before touching the pane. An Enter
-		// can succeed even when the subsequent store write fails, so clearing
-		// afterwards would allow recovery to press Enter a second time.
-		if err := g.setPendingDraft(ctx, id, false); err != nil {
+	} else if pending && requirePending && owner != "" {
+		// Preserve an uncertain Enter as a pending draft with a distinct owner.
+		// Recovery must not submit it again if Enter succeeds but the final
+		// receipt clear fails (or the daemon exits before that clear).
+		attemptedOwner := "enter-attempted\x00" + owner
+		if err := g.setPendingDraftOwned(ctx, id, attemptedOwner); err != nil {
 			return SuppressedUnknown, err
 		}
+		if store, ok := g.store.(paneReceiptStore); ok {
+			if err := store.MarkPaneDraftComplete(ctx, id, attemptedOwner); err != nil {
+				return SuppressedUnknown, err
+			}
+		}
+	}
+	restoreUnsentEnter := func() error {
+		if msg != "" || !pending || !requirePending || owner == "" {
+			return nil
+		}
+		restoreCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if err := g.setPendingDraftOwned(restoreCtx, id, owner); err != nil {
+			return err
+		}
+		if store, ok := g.store.(paneReceiptStore); ok {
+			return store.MarkPaneDraftComplete(restoreCtx, id, owner)
+		}
+		return nil
 	}
 	if messenger, ok := g.messenger.(guardedMessenger); ok {
 		err = messenger.SendGuarded(ctx, id, msg, check)
@@ -543,7 +563,15 @@ func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, requi
 			return Incomplete, nil
 		}
 		if errors.Is(err, ports.ErrPaneDraftPending) {
+			if restoreErr := restoreUnsentEnter(); restoreErr != nil {
+				return SuppressedUnknown, errors.Join(err, restoreErr)
+			}
 			return Attempted, nil
+		}
+		if msg == "" && errors.Is(err, ports.ErrPaneWriteNotStarted) {
+			if restoreErr := restoreUnsentEnter(); restoreErr != nil {
+				return SuppressedUnknown, errors.Join(err, restoreErr)
+			}
 		}
 		if errors.Is(err, ports.ErrPaneWriteNotStarted) && msg != "" {
 			if clearErr := g.setPendingDraft(ctx, id, false); clearErr != nil {
@@ -552,6 +580,9 @@ func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, requi
 		}
 		var suppressed suppressedError
 		if errors.As(err, &suppressed) {
+			if restoreErr := restoreUnsentEnter(); restoreErr != nil {
+				return SuppressedUnknown, errors.Join(err, restoreErr)
+			}
 			if msg != "" && !errors.Is(err, ports.ErrPaneWriteNotStarted) {
 				if clearErr := g.setPendingDraft(ctx, id, false); clearErr != nil {
 					return SuppressedUnknown, clearErr
