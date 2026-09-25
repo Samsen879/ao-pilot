@@ -1861,12 +1861,19 @@ func (m *Manager) workspaceProjectRows(ctx context.Context, rec domain.SessionRe
 	if err != nil {
 		return nil, false, err
 	}
-	if len(rows) > 0 && rec.Metadata.WorkspacePath != "" {
+	if rec.Metadata.WorkspacePath != "" {
 		project, err := m.loadProject(ctx, rec.ProjectID)
 		if err != nil {
 			return nil, false, err
 		}
 		if project.Kind.WithDefault() == domain.ProjectKindWorkspace {
+			if len(rows) == 0 {
+				if rec.Metadata.RuntimeHandleID != "" {
+					infos, err := m.workspaceProjectRestoreRowsFromMarkers(ctx, project, rec, rows)
+					return infos, err == nil, err
+				}
+				return nil, false, fmt.Errorf("workspace project %s: preserve root without any repository custody rows", rec.ID)
+			}
 			childRepos, err := m.store.ListWorkspaceRepos(ctx, project.ID)
 			if err != nil {
 				return nil, false, err
