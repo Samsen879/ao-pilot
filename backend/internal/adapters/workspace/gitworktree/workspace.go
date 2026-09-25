@@ -146,7 +146,10 @@ func (w *Workspace) Create(ctx context.Context, cfg ports.WorkspaceConfig) (port
 		return info, nil
 	}
 	createToken := newWorktreeCreateToken()
-	if err := w.addWorktree(ctx, repo, path, cfg.Branch, cfg.BaseBranch, createToken); err != nil {
+	if attempted, err := w.addWorktree(ctx, repo, path, cfg.Branch, cfg.BaseBranch, createToken); err != nil {
+		if !attempted {
+			return ports.WorkspaceInfo{}, err
+		}
 		// git can materialize most or all of a large checkout before the request
 		// context expires. In that case it leaves a locked "initializing"
 		// registration and a multi-gigabyte directory behind. Return custody of
@@ -744,7 +747,10 @@ func (w *Workspace) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (por
 		return ports.WorkspaceInfo{}, err
 	}
 	createToken := newWorktreeCreateToken()
-	if err := w.addWorktree(ctx, repo, path, recreateBranch, cfg.BaseBranch, createToken); err != nil {
+	if attempted, err := w.addWorktree(ctx, repo, path, recreateBranch, cfg.BaseBranch, createToken); err != nil {
+		if !attempted {
+			return ports.WorkspaceInfo{}, err
+		}
 		retained, cleanupErr := w.rollbackFailedCreate(ctx, repo, path, createToken)
 		if retained {
 			return ports.WorkspaceInfo{Path: path, Branch: recreateBranch, SessionID: cfg.SessionID, ProjectID: cfg.ProjectID, RepoPath: repo}, errors.Join(err, cleanupErr)
@@ -840,16 +846,16 @@ func registeredWorktreeDirMissing(rec worktreeRecord) (bool, error) {
 	return false, nil
 }
 
-func (w *Workspace) addWorktree(ctx context.Context, repo, path, branch, baseBranch, createToken string) error {
+func (w *Workspace) addWorktree(ctx context.Context, repo, path, branch, baseBranch, createToken string) (bool, error) {
 	// Refuse early if the branch is already checked out in another worktree:
 	// `git worktree add` will fail, but its stderr leaks through as an opaque
 	// 500. A typed sentinel lets the HTTP layer surface a 409.
 	records, err := w.listRecords(ctx, repo)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if conflict, ok := findWorktreeByBranch(records, branch); ok && filepath.Clean(conflict.Path) != filepath.Clean(path) {
-		return fmt.Errorf("%w: %q is checked out at %q", ErrBranchCheckedOutElsewhere, branch, conflict.Path)
+		return false, fmt.Errorf("%w: %q is checked out at %q", ErrBranchCheckedOutElsewhere, branch, conflict.Path)
 	}
 	// A registration at path whose directory is gone makes a plain add fail
 	// ("is a missing but already registered worktree; use 'add -f' to
@@ -858,18 +864,18 @@ func (w *Workspace) addWorktree(ctx context.Context, repo, path, branch, baseBra
 	// it feeds are as close together as git allows.
 	force, err := staleRegistrationForPath(records, path)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	localBranch, err := w.refExists(ctx, repo, "refs/heads/"+branch)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if localBranch {
 		if _, err := w.run(ctx, w.binary, worktreeAddBranchArgs(repo, path, branch, force, createToken)...); err != nil {
-			return fmt.Errorf("gitworktree: worktree add existing branch %q: %w", branch, err)
+			return true, fmt.Errorf("gitworktree: worktree add existing branch %q: %w", branch, err)
 		}
-		return w.unlockCreatedWorktree(ctx, repo, path)
+		return true, w.unlockCreatedWorktree(ctx, repo, path)
 	}
 
 	// `worktree add -b <branch> <path> <base>` creates a fresh local branch from
@@ -881,14 +887,14 @@ func (w *Workspace) addWorktree(ctx context.Context, repo, path, branch, baseBra
 	baseRef, err := w.resolveBaseRef(ctx, repo, branch, baseBranch)
 	if err != nil {
 		if errors.Is(err, errNoBaseRef) {
-			return fmt.Errorf("%w: %q has no local head, no remote, and no tag — run `git fetch` then retry", ErrBranchNotFetched, branch)
+			return false, fmt.Errorf("%w: %q has no local head, no remote, and no tag — run `git fetch` then retry", ErrBranchNotFetched, branch)
 		}
-		return err
+		return false, err
 	}
 	if err := w.addNewBranchWorktree(ctx, repo, branch, path, baseRef, force, createToken); err != nil {
-		return fmt.Errorf("gitworktree: worktree add branch %q from %q: %w", branch, baseRef, err)
+		return true, fmt.Errorf("gitworktree: worktree add branch %q from %q: %w", branch, baseRef, err)
 	}
-	return w.unlockCreatedWorktree(ctx, repo, path)
+	return true, w.unlockCreatedWorktree(ctx, repo, path)
 }
 
 func newWorktreeCreateToken() string { return "ao-create-" + uuid.NewString() }

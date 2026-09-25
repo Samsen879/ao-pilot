@@ -115,6 +115,38 @@ func TestCreateRollsBackInterruptedInitializingWorktree(t *testing.T) {
 	}
 }
 
+func TestCreatePreAddInspectionFailureDoesNotClaimForeignWorktree(t *testing.T) {
+	repo := t.TempDir()
+	managed := filepath.Join(t.TempDir(), "worktrees")
+	w, err := New(Options{ManagedRoot: managed, RepoResolver: StaticRepoResolver{domain.ProjectID("project"): repo}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lists := 0
+	w.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		joined := strings.Join(args, " ")
+		switch {
+		case strings.Contains(joined, "check-ref-format --branch"):
+			return nil, nil
+		case strings.Contains(joined, "worktree list --porcelain"):
+			lists++
+			if lists == 1 {
+				return []byte("worktree " + repo + "\nHEAD abc\nbranch refs/heads/main\n\n"), nil
+			}
+			return nil, errors.New("inspection unavailable")
+		default:
+			t.Fatalf("pre-add failure attempted mutation: %v", args)
+			return nil, nil
+		}
+	}
+	info, err := w.Create(context.Background(), ports.WorkspaceConfig{
+		ProjectID: "project", SessionID: "project-1", Kind: domain.KindWorker, Branch: "ao/project-1/root",
+	})
+	if err == nil || !strings.Contains(err.Error(), "inspection unavailable") || info.Path != "" || lists != 2 {
+		t.Fatalf("Create info=%+v lists=%d err=%v", info, lists, err)
+	}
+}
+
 func TestCreateReturnsCustodyWhenInterruptedWorktreeCleanupFails(t *testing.T) {
 	repo := t.TempDir()
 	managed := filepath.Join(t.TempDir(), "worktrees")

@@ -237,6 +237,42 @@ func TestPartialWorkspaceCustodyPreservesUnrecordedChild(t *testing.T) {
 	}
 }
 
+func TestCleanupRecoversRootFromCustodyWhenMetadataWriteFailed(t *testing.T) {
+	m, s, _, workspace, _ := newSpawnFixture(t)
+	ctx := context.Background()
+	projectPath := t.TempDir()
+	if err := s.UpsertWorkspaceProject(ctx,
+		domain.ProjectRecord{ID: "fixture", Path: projectPath, Kind: domain.ProjectKindWorkspace},
+		[]domain.WorkspaceRepoRecord{{ProjectID: "fixture", Name: "child", RelativePath: "child"}}); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := s.CreateSession(ctx, domain.SessionRecord{ProjectID: "fixture", Kind: domain.KindWorker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.IsTerminated = true
+	if err := s.UpdateSession(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(t.TempDir(), "retained-root")
+	child := filepath.Join(root, "child")
+	if err := os.MkdirAll(child, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []domain.SessionWorktreeRecord{
+		{SessionID: rec.ID, RepoName: domain.RootWorkspaceRepoName, RepoPath: projectPath, WorktreePath: root},
+		{SessionID: rec.ID, RepoName: "child", RepoPath: filepath.Join(projectPath, "child"), WorktreePath: child},
+	} {
+		if err := s.UpsertSessionWorktree(ctx, row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := m.Cleanup(ctx, "fixture")
+	if err != nil || len(result.Cleaned) != 1 || result.Cleaned[0] != rec.ID || workspace.destroys != 2 {
+		t.Fatalf("cleanup result=%#v destroys=%d err=%v", result, workspace.destroys, err)
+	}
+}
+
 func TestCommittedAttemptReplay(t *testing.T) {
 	m, s, rt, _, cfg := newSpawnFixture(t)
 	ctx := context.Background()
