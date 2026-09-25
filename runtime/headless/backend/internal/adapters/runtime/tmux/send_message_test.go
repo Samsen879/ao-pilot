@@ -18,6 +18,30 @@ type recordingRunner struct {
 	release chan struct{}
 }
 
+type failLaterChunkRunner struct{ literals int }
+
+func (r *failLaterChunkRunner) Run(_ context.Context, _ []string, _ string, args ...string) ([]byte, error) {
+	if strings.Contains(strings.Join(args, " "), " -l ") {
+		r.literals++
+		if r.literals == 2 {
+			return nil, errors.New("second chunk failed")
+		}
+	}
+	return nil, nil
+}
+
+func TestLaterChunkFailureLeavesPendingDraft(t *testing.T) {
+	runner := &failLaterChunkRunner{}
+	runtime := New(Options{Binary: "tmux", Shell: "/bin/sh"})
+	runtime.runner = runner
+	runtime.chunkSize = 2
+	runtime.enterDelay = 0
+	err := runtime.SendMessage(context.Background(), ports.RuntimeHandle{ID: "session-a"}, "long message")
+	if !errors.Is(err, ports.ErrPaneDraftPending) || runner.literals != 2 {
+		t.Fatalf("error=%v literals=%d, want pending after two chunks", err, runner.literals)
+	}
+}
+
 func (r *recordingRunner) Run(_ context.Context, _ []string, _ string, args ...string) ([]byte, error) {
 	call := strings.Join(args, " ")
 	r.mu.Lock()

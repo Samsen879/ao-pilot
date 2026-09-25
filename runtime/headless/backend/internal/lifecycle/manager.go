@@ -349,9 +349,6 @@ func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, 
 			rec.UpdatedAt = now
 			err := m.updateActivitySession(ctx, rec, s.Event)
 			m.mu.Unlock()
-			if err == nil && s.Event == "user-prompt-submit" {
-				err = sessionguard.ClearPendingPaneDraft(ctx, m.store, id)
-			}
 			if err == nil && m.reengagement != nil {
 				m.reengagement.ObserveActivity(ctx, rec, rec, s.Event)
 			}
@@ -396,11 +393,6 @@ func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, 
 	waitingEvents := m.waitingInputEvents(next, prevState, prevAt, now)
 	tracker := m.reengagement
 	m.mu.Unlock()
-	if s.Event == "user-prompt-submit" {
-		if err := sessionguard.ClearPendingPaneDraft(ctx, m.store, id); err != nil {
-			return err
-		}
-	}
 	if tracker != nil {
 		tracker.ObserveActivity(ctx, rec, next, s.Event)
 	}
@@ -413,11 +405,14 @@ func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, 
 
 func (m *Manager) updateActivitySession(ctx context.Context, rec domain.SessionRecord, event string) error {
 	if event == "user-prompt-submit" {
-		if store, ok := m.store.(interface {
-			UpdateSessionAndClearPaneDraft(context.Context, domain.SessionRecord) error
-		}); ok {
-			return store.UpdateSessionAndClearPaneDraft(ctx, rec)
-		}
+		return sessionguard.RecordManualSubmission(ctx, m.store, rec.ID, func() error {
+			if store, ok := m.store.(interface {
+				UpdateSessionAndClearPaneDraft(context.Context, domain.SessionRecord) error
+			}); ok {
+				return store.UpdateSessionAndClearPaneDraft(ctx, rec)
+			}
+			return m.store.UpdateSession(ctx, rec)
+		})
 	}
 	return m.store.UpdateSession(ctx, rec)
 }

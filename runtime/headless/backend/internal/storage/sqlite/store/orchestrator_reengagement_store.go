@@ -73,16 +73,24 @@ func (s *Store) GetOrchestratorReengagement(ctx context.Context, id domain.Sessi
 
 // OrchestratorReengagementPendingEnter survives daemon restarts. A pending
 // draft must receive only Enter on the next safe attempt, never a second paste.
-func (s *Store) OrchestratorReengagementPendingEnter(ctx context.Context, id domain.SessionID) (bool, error) {
+func (s *Store) OrchestratorReengagementPendingEnter(ctx context.Context, id domain.SessionID) (bool, int64, error) {
 	var pending bool
-	err := s.readDB.QueryRowContext(ctx, "SELECT pending_enter FROM orchestrator_reengagements WHERE session_id = ?", string(id)).Scan(&pending)
-	return pending, err
+	var generation int64
+	err := s.readDB.QueryRowContext(ctx, "SELECT pending_enter, pending_enter_generation FROM orchestrator_reengagements WHERE session_id = ?", string(id)).Scan(&pending, &generation)
+	return pending, generation, err
 }
 
-func (s *Store) DeferOrchestratorReengagementPendingEnter(ctx context.Context, id domain.SessionID, next, now time.Time) error {
+func (s *Store) DeferOrchestratorReengagementPendingEnter(ctx context.Context, id domain.SessionID, generation int64, next, now time.Time) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	_, err := s.writeDB.ExecContext(ctx, "UPDATE orchestrator_reengagements SET pending_enter = 1, next_attempt_at = ?, updated_at = ? WHERE session_id = ? AND state = 'active'", next, now, string(id))
+	_, err := s.writeDB.ExecContext(ctx, "UPDATE orchestrator_reengagements SET pending_enter = 1, pending_enter_generation = ?, next_attempt_at = ?, updated_at = ? WHERE session_id = ? AND state = 'active'", generation, next, now, string(id))
+	return err
+}
+
+func (s *Store) ClearOrchestratorReengagementPendingEnter(ctx context.Context, id domain.SessionID) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	_, err := s.writeDB.ExecContext(ctx, "UPDATE orchestrator_reengagements SET pending_enter = 0 WHERE session_id = ?", string(id))
 	return err
 }
 

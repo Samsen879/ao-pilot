@@ -31,6 +31,11 @@ type paneDraftStore interface {
 	SetPaneDraftPending(ctx context.Context, id domain.SessionID, pending bool) error
 }
 
+type paneGenerationStore interface {
+	PaneGeneration(context.Context, domain.SessionID) (int64, error)
+	AdvancePaneGenerationAndClearDraft(context.Context, domain.SessionID) error
+}
+
 // Outcome reports what a guarded write did. Attempted reached the pane without
 // Enter; suppressed outcomes did not reach it.
 type Outcome int
@@ -68,6 +73,8 @@ const (
 	// AlreadySubmitted means the durable pane marker was cleared before an
 	// Enter-only recovery. Replaying Enter could submit unrelated pane input.
 	AlreadySubmitted
+	// PaneReplaced means the pending text belonged to an older pane process.
+	PaneReplaced
 )
 
 // String names the outcome for logs.
@@ -91,6 +98,8 @@ func (o Outcome) String() string {
 		return "suppressed_draft_pending"
 	case AlreadySubmitted:
 		return "already_submitted"
+	case PaneReplaced:
+		return "pane_replaced"
 	default:
 		return "suppressed_unknown"
 	}
@@ -169,6 +178,20 @@ func (g *Guard) setPendingDraft(ctx context.Context, id domain.SessionID, pendin
 	return nil
 }
 
+func (g *Guard) paneGeneration(ctx context.Context, id domain.SessionID) (int64, error) {
+	if store, ok := g.store.(paneGenerationStore); ok {
+		return store.PaneGeneration(ctx, id)
+	}
+	return 0, nil
+}
+
+// PaneGeneration identifies the current pane process for durable recovery
+// receipts. A caller passes the returned value back to a guarded send, which
+// checks it again under the per-session lock before writing.
+func (g *Guard) PaneGeneration(ctx context.Context, id domain.SessionID) (int64, error) {
+	return g.paneGeneration(ctx, id)
+}
+
 // ClearPendingPaneDraft records a user-prompt-submit hook after the user
 // manually submitted the draft in the terminal. It shares the pane's send
 // lock so an in-flight paste cannot recreate a stale marker afterward.
@@ -177,6 +200,20 @@ func ClearPendingPaneDraft(ctx context.Context, store SessionReader, id domain.S
 	lock := g.sessionLock(id)
 	lock.Lock()
 	defer lock.Unlock()
+	return g.setPendingDraft(ctx, id, false)
+}
+
+// RecordManualSubmission keeps the activity update and draft clearance under
+// the same per-session lock used by guarded pane sends. The update callback
+// should commit activity and durable marker clearance in one transaction.
+func RecordManualSubmission(ctx context.Context, store SessionReader, id domain.SessionID, update func() error) error {
+	g := &Guard{store: store}
+	lock := g.sessionLock(id)
+	lock.Lock()
+	defer lock.Unlock()
+	if err := update(); err != nil {
+		return err
+	}
 	return g.setPendingDraft(ctx, id, false)
 }
 
@@ -192,7 +229,14 @@ func ReplacePane(ctx context.Context, store SessionReader, id domain.SessionID, 
 	if err != nil {
 		return handle, err
 	}
-	if err := g.setPendingDraft(ctx, id, false); err != nil {
+	if store, ok := store.(paneGenerationStore); ok {
+		if err := store.AdvancePaneGenerationAndClearDraft(ctx, id); err != nil {
+			return handle, err
+		}
+		sharedLocks.Lock()
+		delete(sharedLocks.pending, id)
+		sharedLocks.Unlock()
+	} else if err := g.setPendingDraft(ctx, id, false); err != nil {
 		return handle, err
 	}
 	return handle, nil
@@ -221,7 +265,7 @@ func (g *Guard) Send(ctx context.Context, id domain.SessionID, msg string) error
 // sitting at an idle prompt is exactly where a user message (or the Enter that
 // submits its unsent draft) belongs.
 func (g *Guard) Deliver(ctx context.Context, id domain.SessionID, msg string) (Outcome, error) {
-	return g.send(ctx, id, msg, false, func(rec domain.SessionRecord) (Outcome, bool) {
+	return g.send(ctx, id, msg, false, nil, func(rec domain.SessionRecord) (Outcome, bool) {
 		return SuppressedAwaitingUser, rec.Activity.State == domain.ActivityBlocked
 	})
 }
@@ -231,7 +275,7 @@ func (g *Guard) Deliver(ctx context.Context, id domain.SessionID, msg string) (O
 // decision or waiting at the prompt — because an automated paste+Enter there
 // either answers a dialog or submits text the user never saw.
 func (g *Guard) Nudge(ctx context.Context, id domain.SessionID, msg string) (Outcome, error) {
-	return g.send(ctx, id, msg, false, func(rec domain.SessionRecord) (Outcome, bool) {
+	return g.send(ctx, id, msg, false, nil, func(rec domain.SessionRecord) (Outcome, bool) {
 		return SuppressedAwaitingUser, rec.Activity.State.NeedsInput()
 	})
 }
@@ -239,7 +283,17 @@ func (g *Guard) Nudge(ctx context.Context, id domain.SessionID, msg string) (Out
 // SubmitPendingNudge presses Enter only while the original draft marker is
 // still present. Its marker check and pane write share the send lock.
 func (g *Guard) SubmitPendingNudge(ctx context.Context, id domain.SessionID) (Outcome, error) {
-	return g.send(ctx, id, "", true, func(rec domain.SessionRecord) (Outcome, bool) {
+	return g.SubmitPendingNudgeForGeneration(ctx, id, nil)
+}
+
+func (g *Guard) NudgeForGeneration(ctx context.Context, id domain.SessionID, msg string, generation int64) (Outcome, error) {
+	return g.send(ctx, id, msg, false, &generation, func(rec domain.SessionRecord) (Outcome, bool) {
+		return SuppressedAwaitingUser, rec.Activity.State.NeedsInput()
+	})
+}
+
+func (g *Guard) SubmitPendingNudgeForGeneration(ctx context.Context, id domain.SessionID, generation *int64) (Outcome, error) {
+	return g.send(ctx, id, "", true, generation, func(rec domain.SessionRecord) (Outcome, bool) {
 		return SuppressedAwaitingUser, rec.Activity.State.NeedsInput()
 	})
 }
@@ -252,7 +306,7 @@ func (g *Guard) SubmitPendingNudge(ctx context.Context, id domain.SessionID) (Ou
 // predicate is treated as "cannot steer", so an unknown harness never takes an
 // unsolicited write during a live turn.
 func (g *Guard) NudgeCoordination(ctx context.Context, id domain.SessionID, msg string, steersActiveTurn func(domain.AgentHarness) bool) (Outcome, error) {
-	return g.send(ctx, id, msg, false, func(rec domain.SessionRecord) (Outcome, bool) {
+	return g.send(ctx, id, msg, false, nil, func(rec domain.SessionRecord) (Outcome, bool) {
 		if rec.Activity.State.NeedsInput() {
 			return SuppressedAwaitingUser, true
 		}
@@ -264,7 +318,23 @@ func (g *Guard) NudgeCoordination(ctx context.Context, id domain.SessionID, msg 
 }
 
 func (g *Guard) SubmitPendingCoordination(ctx context.Context, id domain.SessionID, steersActiveTurn func(domain.AgentHarness) bool) (Outcome, error) {
-	return g.send(ctx, id, "", true, func(rec domain.SessionRecord) (Outcome, bool) {
+	return g.SubmitPendingCoordinationForGeneration(ctx, id, nil, steersActiveTurn)
+}
+
+func (g *Guard) NudgeCoordinationForGeneration(ctx context.Context, id domain.SessionID, msg string, generation int64, steersActiveTurn func(domain.AgentHarness) bool) (Outcome, error) {
+	return g.send(ctx, id, msg, false, &generation, func(rec domain.SessionRecord) (Outcome, bool) {
+		if rec.Activity.State.NeedsInput() {
+			return SuppressedAwaitingUser, true
+		}
+		if rec.Activity.State == domain.ActivityActive {
+			return SuppressedBusy, steersActiveTurn == nil || !steersActiveTurn(rec.Harness)
+		}
+		return SuppressedUnknown, false
+	})
+}
+
+func (g *Guard) SubmitPendingCoordinationForGeneration(ctx context.Context, id domain.SessionID, generation *int64, steersActiveTurn func(domain.AgentHarness) bool) (Outcome, error) {
+	return g.send(ctx, id, "", true, generation, func(rec domain.SessionRecord) (Outcome, bool) {
 		if rec.Activity.State.NeedsInput() {
 			return SuppressedAwaitingUser, true
 		}
@@ -281,13 +351,22 @@ func (g *Guard) SubmitPendingCoordination(ctx context.Context, id domain.Session
 // appear mid-paste — but the just-in-time read is the strongest guarantee
 // available without scraping the terminal. Fail closed: a store error
 // suppresses the write rather than pressing Enter on an unknown state.
-func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, requirePending bool, refuse func(domain.SessionRecord) (Outcome, bool)) (Outcome, error) {
+func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, requirePending bool, expectedGeneration *int64, refuse func(domain.SessionRecord) (Outcome, bool)) (Outcome, error) {
 	lock := g.sessionLock(id)
 	lock.Lock()
 	defer lock.Unlock()
 	pending, err := g.pendingDraft(ctx, id)
 	if err != nil {
 		return SuppressedUnknown, err
+	}
+	if expectedGeneration != nil {
+		generation, err := g.paneGeneration(ctx, id)
+		if err != nil {
+			return SuppressedUnknown, err
+		}
+		if generation != *expectedGeneration {
+			return PaneReplaced, nil
+		}
 	}
 	if requirePending && !pending {
 		return AlreadySubmitted, nil

@@ -11,6 +11,30 @@ import (
 
 type attemptedSessionReader struct{}
 
+type generatedAttemptReader struct {
+	generation int64
+	pending    bool
+}
+
+func (s *generatedAttemptReader) GetSession(ctx context.Context, id domain.SessionID) (domain.SessionRecord, bool, error) {
+	return attemptedSessionReader{}.GetSession(ctx, id)
+}
+func (s *generatedAttemptReader) PaneDraftPending(context.Context, domain.SessionID) (bool, error) {
+	return s.pending, nil
+}
+func (s *generatedAttemptReader) SetPaneDraftPending(_ context.Context, _ domain.SessionID, pending bool) error {
+	s.pending = pending
+	return nil
+}
+func (s *generatedAttemptReader) PaneGeneration(context.Context, domain.SessionID) (int64, error) {
+	return s.generation, nil
+}
+func (s *generatedAttemptReader) AdvancePaneGenerationAndClearDraft(context.Context, domain.SessionID) error {
+	s.generation++
+	s.pending = false
+	return nil
+}
+
 func (attemptedSessionReader) GetSession(context.Context, domain.SessionID) (domain.SessionRecord, bool, error) {
 	return domain.SessionRecord{Activity: domain.Activity{State: domain.ActivityIdle}}, true, nil
 }
@@ -70,5 +94,32 @@ func TestPartialReviewDoesNotPressEnterInReplacementWorker(t *testing.T) {
 	moved, err := m.sendOnce(context.Background(), "new-worker", "", "review-key", "A", "new review", 0)
 	if err != nil || moved != sendOnceSuppressed || len(messenger.messages) != 1 {
 		t.Fatalf("moved outcome=%v err=%v messages=%#v", moved, err, messenger.messages)
+	}
+}
+
+func TestPaneReplacementRetriesPartialReviewText(t *testing.T) {
+	store := &generatedAttemptReader{}
+	messenger := &attemptedMessenger{}
+	m := &Manager{guard: sessionguard.New(store, messenger, nil), react: newReactionState()}
+	id := domain.SessionID("replaced-review-pane")
+	if outcome, err := m.sendOnce(context.Background(), id, "", "review-key", "A", "review text", 0); err != nil || outcome != sendOnceAttempted {
+		t.Fatalf("first outcome=%v err=%v", outcome, err)
+	}
+	if _, err := sessionguard.ReplacePane(context.Background(), store, id, func() (ports.RuntimeHandle, error) {
+		return ports.RuntimeHandle{ID: string(id)}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if outcome, err := m.sendOnce(context.Background(), id, "", "review-key", "A", "review text", 0); err != nil || outcome != sendOnceSuppressed {
+		t.Fatalf("replacement reconciliation outcome=%v err=%v", outcome, err)
+	}
+	if len(messenger.messages) != 1 {
+		t.Fatalf("unexpected Enter into new pane: %#v", messenger.messages)
+	}
+	if outcome, err := m.sendOnce(context.Background(), id, "", "review-key", "A", "review text", 0); err != nil || outcome != sendOnceAccounted {
+		t.Fatalf("retry outcome=%v err=%v", outcome, err)
+	}
+	if len(messenger.messages) != 2 || messenger.messages[1] != "review text" {
+		t.Fatalf("review was not repasted into new pane: %#v", messenger.messages)
 	}
 }

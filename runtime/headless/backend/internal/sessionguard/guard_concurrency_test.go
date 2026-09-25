@@ -41,7 +41,18 @@ type partialMessenger struct{ messages []string }
 
 type durableDraftStore struct {
 	guardedStateStore
-	pending bool
+	pending    bool
+	generation int64
+}
+
+func (s *durableDraftStore) PaneGeneration(context.Context, domain.SessionID) (int64, error) {
+	return s.generation, nil
+}
+
+func (s *durableDraftStore) AdvancePaneGenerationAndClearDraft(context.Context, domain.SessionID) error {
+	s.generation++
+	s.pending = false
+	return nil
 }
 
 func (s *durableDraftStore) PaneDraftPending(context.Context, domain.SessionID) (bool, error) {
@@ -131,8 +142,13 @@ func TestPaneReplacementInvalidatesOldDraft(t *testing.T) {
 	handle, err := ReplacePane(context.Background(), store, id, func() (ports.RuntimeHandle, error) {
 		return ports.RuntimeHandle{ID: string(id)}, nil
 	})
-	if err != nil || handle.ID != string(id) || store.pending {
-		t.Fatalf("replacement handle=%v pending=%v err=%v", handle, store.pending, err)
+	if err != nil || handle.ID != string(id) || store.pending || store.generation != 1 {
+		t.Fatalf("replacement handle=%v pending=%v generation=%d err=%v", handle, store.pending, store.generation, err)
+	}
+	old := int64(0)
+	guard := New(store, &partialMessenger{}, nil)
+	if outcome, err := guard.SubmitPendingNudgeForGeneration(context.Background(), id, &old); err != nil || outcome != PaneReplaced {
+		t.Fatalf("old pane recovery outcome=%s err=%v", outcome, err)
 	}
 }
 
@@ -188,5 +204,36 @@ func TestQueuedNudgeRechecksStateAfterPriorSend(t *testing.T) {
 	<-firstDone
 	if outcome := <-result; outcome != SuppressedAwaitingUser {
 		t.Fatalf("queued nudge outcome = %s, want %s", outcome, SuppressedAwaitingUser)
+	}
+}
+
+func TestManualSubmissionWaitsForPaneSend(t *testing.T) {
+	store := &guardedStateStore{rec: domain.SessionRecord{Activity: domain.Activity{State: domain.ActivityIdle}}}
+	messenger := &blockingMessenger{store: store, entered: make(chan struct{}), release: make(chan struct{})}
+	id := domain.SessionID("manual-during-send")
+	guard := New(store, messenger, nil)
+	sent := make(chan struct{})
+	go func() {
+		_, _ = guard.Deliver(context.Background(), id, "draft")
+		close(sent)
+	}()
+	<-messenger.entered
+	updated := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- RecordManualSubmission(context.Background(), store, id, func() error {
+			close(updated)
+			return nil
+		})
+	}()
+	select {
+	case <-updated:
+		t.Fatal("manual submit updated state before in-flight pane send completed")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(messenger.release)
+	<-sent
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }
