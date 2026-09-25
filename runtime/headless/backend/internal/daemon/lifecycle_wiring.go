@@ -228,6 +228,20 @@ func startSession(cfg config.Config, runtime runtimeselect.Runtime, store *sqlit
 		Projects: store,
 		Launcher: reviewcore.NewLauncher(reviewers, runtime, cfg.DataDir),
 	})
+	mgr.SetReviewerStopper(func(ctx context.Context, id domain.SessionID) error {
+		review, ok, err := store.GetReviewBySession(ctx, id)
+		if err != nil {
+			return err
+		}
+		if !ok || review.ReviewerHandleID == "" {
+			return nil
+		}
+		if err := runtime.Destroy(ctx, ports.RuntimeHandle{ID: review.ReviewerHandleID}); err != nil {
+			return err
+		}
+		_, err = store.CancelRunningReviewRunsBySession(ctx, id, "cancelled by capacity stop")
+		return err
+	})
 	reviewSvc := reviewsvc.New(reviewEngine, store, reviewsvc.WithLifecycleReducer(lcm))
 	return sessionSvc, reviewSvc, mgr, gitWS.CapacityAvailable, nil
 }

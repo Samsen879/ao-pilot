@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
@@ -15,6 +16,19 @@ import (
 type capacityPreview struct {
 	stops int
 	fail  bool
+}
+
+type capacityBrowser struct {
+	stops int
+	fail  bool
+}
+
+func (b *capacityBrowser) DestroySession(context.Context, domain.SessionID) error {
+	b.stops++
+	if b.fail {
+		return errors.New("browser still running")
+	}
+	return nil
 }
 
 func (p *capacityPreview) StopSession(context.Context, domain.SessionID) error {
@@ -71,6 +85,55 @@ func TestEmergencyStopPreservesWorkspaceAndPreventsAutomaticRestore(t *testing.T
 	}
 }
 
+func TestEmergencyStopCancelsInflightSpawnBeforeRuntimeLaunch(t *testing.T) {
+	m, _, runtime, workspace, cfg := newSpawnFixture(t)
+	created := make(chan struct{})
+	release := make(chan struct{})
+	workspace.onCreate = func() {
+		close(created)
+		<-release
+	}
+	spawnDone := make(chan error, 1)
+	go func() {
+		_, _, _, err := m.Spawn(context.Background(), cfg)
+		spawnDone <- err
+	}()
+	select {
+	case <-created:
+	case <-time.After(5 * time.Second):
+		close(release)
+		t.Fatal("spawn did not reach workspace creation")
+	}
+	// The seed row has no runtime handle yet. The emergency stop must still
+	// cancel its preparation so it cannot launch after this snapshot.
+	_, _ = m.EmergencyStopAll(context.Background())
+	close(release)
+	select {
+	case err := <-spawnDone:
+		if err == nil {
+			t.Fatal("inflight spawn committed after capacity stop")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("inflight spawn did not stop")
+	}
+	if runtime.creates != 0 {
+		t.Fatalf("runtime launched after capacity stop: %d", runtime.creates)
+	}
+}
+
+func TestEmergencyStopDuringRuntimeCreateDestroysNewHandle(t *testing.T) {
+	m, _, runtime, _, cfg := newSpawnFixture(t)
+	runtime.onCreate = func() {
+		_, _ = m.EmergencyStopAll(context.Background())
+	}
+	if _, _, _, err := m.Spawn(context.Background(), cfg); err == nil {
+		t.Fatal("spawn committed after emergency stop")
+	}
+	if runtime.creates != 1 || runtime.destroys != 1 || runtime.alive {
+		t.Fatalf("runtime creates=%d destroys=%d alive=%v", runtime.creates, runtime.destroys, runtime.alive)
+	}
+}
+
 func TestEmergencyStopRetriesFailedRuntimeDestroy(t *testing.T) {
 	m, store, runtime, workspace, cfg := newSpawnFixture(t)
 	ctx := context.Background()
@@ -91,6 +154,59 @@ func TestEmergencyStopRetriesFailedRuntimeDestroy(t *testing.T) {
 	stopped, err = m.EmergencyStopAll(ctx)
 	if err != nil || stopped != 1 {
 		t.Fatalf("retry stopped=%d err=%v", stopped, err)
+	}
+}
+
+func TestEmergencyStopRetriesManagedBrowser(t *testing.T) {
+	m, store, _, _, cfg := newSpawnFixture(t)
+	ctx := context.Background()
+	rec, _, _, err := m.Spawn(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	browser := &capacityBrowser{fail: true}
+	m.browser = browser
+	stopped, err := m.EmergencyStopAll(ctx)
+	if err == nil || stopped != 0 || browser.stops != 1 {
+		t.Fatalf("failed browser stop=%d calls=%d err=%v", stopped, browser.stops, err)
+	}
+	stored, _, err := store.GetSession(ctx, rec.ID)
+	if err != nil || stored.IsTerminated {
+		t.Fatalf("browser failure terminal=%v err=%v", stored.IsTerminated, err)
+	}
+	browser.fail = false
+	stopped, err = m.EmergencyStopAll(ctx)
+	if err != nil || stopped != 1 || browser.stops != 2 {
+		t.Fatalf("browser retry stop=%d calls=%d err=%v", stopped, browser.stops, err)
+	}
+}
+
+func TestEmergencyStopRetriesReviewerRuntime(t *testing.T) {
+	m, store, _, _, cfg := newSpawnFixture(t)
+	ctx := context.Background()
+	rec, _, _, err := m.Spawn(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	m.SetReviewerStopper(func(context.Context, domain.SessionID) error {
+		calls++
+		if calls == 1 {
+			return errors.New("reviewer still running")
+		}
+		return nil
+	})
+	stopped, err := m.EmergencyStopAll(ctx)
+	if err == nil || stopped != 0 || calls != 1 {
+		t.Fatalf("failed reviewer stop=%d calls=%d err=%v", stopped, calls, err)
+	}
+	stored, _, err := store.GetSession(ctx, rec.ID)
+	if err != nil || stored.IsTerminated {
+		t.Fatalf("reviewer failure terminal=%v err=%v", stored.IsTerminated, err)
+	}
+	stopped, err = m.EmergencyStopAll(ctx)
+	if err != nil || stopped != 1 || calls != 2 {
+		t.Fatalf("reviewer retry stop=%d calls=%d err=%v", stopped, calls, err)
 	}
 }
 
