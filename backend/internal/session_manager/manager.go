@@ -69,6 +69,7 @@ var (
 	// caller retries once the user has answered in the terminal.
 	ErrAwaitingDecision = errors.New("session: awaiting a user decision")
 	ErrDraftPending     = errors.New("session: text reached the pane but Enter was not sent")
+	ErrDraftIncomplete  = errors.New("session: only part of the text reached the pane")
 )
 
 // Env vars a spawned process reads to learn who it is.
@@ -2070,6 +2071,8 @@ func (m *Manager) Send(ctx context.Context, id domain.SessionID, message string)
 		return fmt.Errorf("send %s: %w", id, ErrAwaitingDecision)
 	case sessionguard.Attempted:
 		return fmt.Errorf("send %s: %w", id, ErrDraftPending)
+	case sessionguard.Incomplete:
+		return fmt.Errorf("send %s: %w", id, ErrDraftIncomplete)
 	case sessionguard.SuppressedDraftPending:
 		return fmt.Errorf("send %s: %w", id, ErrDraftPending)
 	}
@@ -3006,6 +3009,8 @@ func (m *Manager) deliverAfterStartPrompt(ctx context.Context, agent ports.Agent
 	case sessionguard.Attempted:
 		m.logger.Warn("startup prompt reached pane but Enter was withheld; preserving session", "sessionID", id)
 		return nil
+	case sessionguard.Incomplete:
+		return fmt.Errorf("send %s: %w", id, ErrDraftIncomplete)
 	case sessionguard.SuppressedDraftPending:
 		return fmt.Errorf("send %s: %w", id, ErrDraftPending)
 	case sessionguard.SuppressedUnknown:

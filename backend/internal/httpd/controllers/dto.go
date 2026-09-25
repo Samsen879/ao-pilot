@@ -598,6 +598,7 @@ type SetActivityRequest struct {
 	ToolUseID      string `json:"toolUseId,omitempty" description:"Native tool-use id, for tool-use hook events."`
 	AgentSessionID string `json:"agentSessionId,omitempty" description:"Native agent session identifier used to resume its transcript."`
 	LaunchID       string `json:"launchId,omitempty" description:"AO process generation that produced the signal."`
+	HookObservedAt string `json:"hookObservedAt,omitempty" description:"Time when the native hook callback began, used to reject stale submit signals."`
 }
 
 // SetActivityResponse is the body of POST /api/v1/sessions/{sessionId}/activity.
