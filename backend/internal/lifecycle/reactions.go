@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -781,8 +782,8 @@ const (
 
 const partialSendPrefix = "\x00pending-enter\x00"
 
-func partialSendSignature(id domain.SessionID, sig string) string {
-	return partialSendPrefix + string(id) + "\x00" + sig
+func partialSendSignature(id domain.SessionID, generation int64, sig string) string {
+	return partialSendPrefix + string(id) + "\x00" + strconv.FormatInt(generation, 10) + "\x00" + sig
 }
 
 func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key, sig, msg string, maxAttempts int) (sendOnceOutcome, error) {
@@ -803,8 +804,8 @@ func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key,
 		return sendOnceAccounted, nil
 	}
 	if strings.HasPrefix(m.react.seen[key], partialSendPrefix) {
-		parts := strings.SplitN(strings.TrimPrefix(m.react.seen[key], partialSendPrefix), "\x00", 2)
-		if len(parts) != 2 || parts[0] != string(id) {
+		parts := strings.SplitN(strings.TrimPrefix(m.react.seen[key], partialSendPrefix), "\x00", 3)
+		if len(parts) < 2 || parts[0] != string(id) {
 			// A PR can move to another worker. A pending draft belongs to
 			// its original pane, so never press Enter in the new worker.
 			delete(m.react.seen, key)
@@ -819,10 +820,29 @@ func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key,
 		// The text is already in the pane. Once the guard says it is safe,
 		// submit that original draft with Enter alone, even if the latest
 		// observation changed signature while the pane was blocked.
+		generation := int64(0)
 		originalSig := parts[1]
-		outcome, err := m.guard.SubmitPendingNudge(ctx, id)
+		if len(parts) == 3 {
+			var parseErr error
+			generation, parseErr = strconv.ParseInt(parts[1], 10, 64)
+			if parseErr != nil {
+				return sendOnceSuppressed, parseErr
+			}
+			originalSig = parts[2]
+		}
+		outcome, err := m.guard.SubmitPendingNudgeForGeneration(ctx, id, &generation)
 		if err != nil {
 			return sendOnceAttempted, err
+		}
+		if outcome == sessionguard.PaneReplaced {
+			delete(m.react.seen, key)
+			delete(m.react.attempts, key)
+			if prURL != "" {
+				if err := m.persistPRSignaturesLocked(ctx, prURL); err != nil {
+					return sendOnceSuppressed, err
+				}
+			}
+			return sendOnceSuppressed, nil
 		}
 		if outcome != sessionguard.Sent && outcome != sessionguard.AlreadySubmitted {
 			return sendOnceAttempted, nil
@@ -851,7 +871,11 @@ func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key,
 	// suppresses (fail closed, nothing was written); a messenger failure means
 	// the write was attempted and stays accounted, matching the pre-guard
 	// behavior.
-	outcome, err := m.guard.Nudge(ctx, id, msg)
+	generation, err := m.guard.PaneGeneration(ctx, id)
+	if err != nil {
+		return sendOnceSuppressed, err
+	}
+	outcome, err := m.guard.NudgeForGeneration(ctx, id, msg, generation)
 	if err != nil {
 		if outcome != sessionguard.Sent && outcome != sessionguard.Attempted {
 			return sendOnceSuppressed, err
@@ -868,7 +892,7 @@ func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key,
 	// degrades to one extra nudge — preferred over the inverse (persist before
 	// send, then crash mid-call) which would silently lose a real nudge.
 	if outcome == sessionguard.Attempted {
-		m.react.seen[key] = partialSendSignature(id, sig)
+		m.react.seen[key] = partialSendSignature(id, generation, sig)
 	} else {
 		m.react.seen[key] = sig
 	}

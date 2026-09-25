@@ -38,8 +38,9 @@ type Store interface {
 	ListDueOrchestratorReengagements(ctx context.Context, now time.Time) ([]domain.OrchestratorReengagement, error)
 	RecordOrchestratorReengagementAttempt(ctx context.Context, id domain.SessionID, next, now time.Time, maxAttempts int) (domain.OrchestratorReengagement, error)
 	GetOrchestratorReengagement(ctx context.Context, id domain.SessionID) (domain.OrchestratorReengagement, bool, error)
-	OrchestratorReengagementPendingEnter(ctx context.Context, id domain.SessionID) (bool, error)
-	DeferOrchestratorReengagementPendingEnter(ctx context.Context, id domain.SessionID, next, now time.Time) error
+	OrchestratorReengagementPendingEnter(ctx context.Context, id domain.SessionID) (bool, int64, error)
+	DeferOrchestratorReengagementPendingEnter(ctx context.Context, id domain.SessionID, generation int64, next, now time.Time) error
+	ClearOrchestratorReengagementPendingEnter(ctx context.Context, id domain.SessionID) error
 	ListPendingOrchestratorAttention(ctx context.Context) ([]domain.OrchestratorReengagement, error)
 	MarkOrchestratorAttentionNotified(ctx context.Context, id domain.SessionID, now time.Time) (bool, error)
 	CompleteOrchestratorReengagement(ctx context.Context, id domain.SessionID, now time.Time) (bool, error)
@@ -130,10 +131,18 @@ func (m *Manager) ObserveActivity(ctx context.Context, before, after domain.Sess
 	}
 	now := m.clock().UTC()
 	if event == "user-prompt-submit" {
-		pending, err := m.store.OrchestratorReengagementPendingEnter(ctx, after.ID)
+		pending, generation, err := m.store.OrchestratorReengagementPendingEnter(ctx, after.ID)
 		if err != nil {
 			m.logger.Error("orchestrator re-engagement: inspect submitted draft failed", "session", after.ID, "err", err)
 		} else if pending {
+			if m.guard == nil {
+				return
+			}
+			current, genErr := m.guard.PaneGeneration(ctx, after.ID)
+			if genErr != nil || current != generation {
+				m.logger.Warn("orchestrator re-engagement: submitted draft belonged to replaced pane", "session", after.ID, "err", genErr)
+				return
+			}
 			item, ok, err := m.store.GetOrchestratorReengagement(ctx, after.ID)
 			if err != nil {
 				m.logger.Error("orchestrator re-engagement: load submitted draft failed", "session", after.ID, "err", err)
@@ -212,21 +221,28 @@ func (m *Manager) attempt(ctx context.Context, item domain.OrchestratorReengagem
 	if m.guard == nil {
 		return nil
 	}
-	pendingEnter, err := m.store.OrchestratorReengagementPendingEnter(ctx, rec.ID)
+	pendingEnter, generation, err := m.store.OrchestratorReengagementPendingEnter(ctx, rec.ID)
 	if err != nil {
 		return err
 	}
 	var outcome sessionguard.Outcome
 	if pendingEnter {
-		outcome, err = m.guard.SubmitPendingCoordination(ctx, rec.ID, m.steersActive)
+		outcome, err = m.guard.SubmitPendingCoordinationForGeneration(ctx, rec.ID, &generation, m.steersActive)
 	} else {
-		outcome, err = m.guard.NudgeCoordination(ctx, rec.ID, reengagementMessage(rec.ID), m.steersActive)
+		generation, err = m.guard.PaneGeneration(ctx, rec.ID)
+		if err != nil {
+			return err
+		}
+		outcome, err = m.guard.NudgeCoordinationForGeneration(ctx, rec.ID, reengagementMessage(rec.ID), generation, m.steersActive)
 	}
 	if err != nil {
 		return err
 	}
+	if outcome == sessionguard.PaneReplaced && pendingEnter {
+		return m.store.ClearOrchestratorReengagementPendingEnter(ctx, rec.ID)
+	}
 	if outcome == sessionguard.Attempted {
-		return m.store.DeferOrchestratorReengagementPendingEnter(ctx, rec.ID, now.Add(m.backoff(item.AttemptCount+1)), now)
+		return m.store.DeferOrchestratorReengagementPendingEnter(ctx, rec.ID, generation, now.Add(m.backoff(item.AttemptCount+1)), now)
 	}
 	if outcome != sessionguard.Sent && outcome != sessionguard.AlreadySubmitted {
 		return nil

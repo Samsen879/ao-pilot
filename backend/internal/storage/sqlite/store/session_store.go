@@ -95,6 +95,25 @@ func (s *Store) SetPaneDraftPending(ctx context.Context, id domain.SessionID, pe
 	return err
 }
 
+func (s *Store) PaneGeneration(ctx context.Context, id domain.SessionID) (int64, error) {
+	var generation int64
+	err := s.readDB.QueryRowContext(ctx, "SELECT pane_generation FROM sessions WHERE id = ?", string(id)).Scan(&generation)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return generation, err
+}
+
+// AdvancePaneGenerationAndClearDraft makes a replaced pane distinguishable
+// from a manually submitted draft after a daemon crash.
+func (s *Store) AdvancePaneGenerationAndClearDraft(ctx context.Context, id domain.SessionID) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	_, err := s.writeDB.ExecContext(ctx,
+		"UPDATE sessions SET pane_generation = pane_generation + 1, pane_draft_pending = 0 WHERE id = ?", string(id))
+	return err
+}
+
 // RenameSession updates only the user-facing display name for an existing
 // session. It returns ok=false when the session id does not exist. The
 // sessions_cdc_update trigger fans out a session_updated CDC event when the
