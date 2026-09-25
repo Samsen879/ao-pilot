@@ -1818,7 +1818,7 @@ func (m *Manager) workspaceProjectRestoreRows(ctx context.Context, project domai
 }
 
 func (m *Manager) workspaceProjectRestoreRowsFromMarkers(ctx context.Context, project domain.ProjectRecord, rec domain.SessionRecord, rows []domain.SessionWorktreeRecord) ([]ports.WorkspaceRepoInfo, error) {
-	if len(rows) > 1 {
+	if len(rows) > 1 || (len(rows) == 1 && rows[0].RepoPath != "") {
 		return m.sessionWorktreeRowsToRepoInfos(ctx, project, rec, rows)
 	}
 	childRepos, err := m.store.ListWorkspaceRepos(ctx, project.ID)
@@ -2326,8 +2326,27 @@ func (m *Manager) Cleanup(ctx context.Context, project domain.ProjectID) (Cleanu
 		}
 		ws := workspaceInfo(rec)
 		if ws.Path == "" {
-			m.cleanupSystemPromptDir(rec.ID)
-			continue
+			rows, rowErr := m.store.ListSessionWorktrees(ctx, rec.ID)
+			if rowErr != nil {
+				return result, fmt.Errorf("cleanup %s: inspect retained worktrees for %s: %w", project, rec.ID, rowErr)
+			}
+			if len(rows) == 0 {
+				m.cleanupSystemPromptDir(rec.ID)
+				continue
+			}
+			for _, row := range rows {
+				if row.RepoName == domain.RootWorkspaceRepoName || row.RepoName == "" {
+					ws = ports.WorkspaceInfo{Path: row.WorktreePath, Branch: row.Branch, RepoPath: row.RepoPath, SessionID: rec.ID, ProjectID: rec.ProjectID}
+					rec.Metadata.WorkspacePath = row.WorktreePath
+					rec.Metadata.WorkspaceRepoPath = row.RepoPath
+					rec.Metadata.Branch = row.Branch
+					break
+				}
+			}
+			if ws.Path == "" || ws.RepoPath == "" {
+				result.Skipped = append(result.Skipped, CleanupSkip{SessionID: rec.ID, Reason: "workspace custody requires manual recovery"})
+				continue
+			}
 		}
 		if h := runtimeHandle(rec.Metadata); h.ID != "" {
 			_ = m.runtime.Destroy(ctx, h) // best effort; usually already gone
