@@ -875,7 +875,7 @@ func (w *Workspace) addWorktree(ctx context.Context, repo, path, branch, baseBra
 		if _, err := w.run(ctx, w.binary, worktreeAddBranchArgs(repo, path, branch, force, createToken)...); err != nil {
 			return true, fmt.Errorf("gitworktree: worktree add existing branch %q: %w", branch, err)
 		}
-		return true, w.unlockCreatedWorktree(ctx, repo, path)
+		return true, w.unlockCreatedWorktree(ctx, repo, path, createToken)
 	}
 
 	// `worktree add -b <branch> <path> <base>` creates a fresh local branch from
@@ -894,15 +894,15 @@ func (w *Workspace) addWorktree(ctx context.Context, repo, path, branch, baseBra
 	if err := w.addNewBranchWorktree(ctx, repo, branch, path, baseRef, force, createToken); err != nil {
 		return true, fmt.Errorf("gitworktree: worktree add branch %q from %q: %w", branch, baseRef, err)
 	}
-	return true, w.unlockCreatedWorktree(ctx, repo, path)
+	return true, w.unlockCreatedWorktree(ctx, repo, path, createToken)
 }
 
 func newWorktreeCreateToken() string { return "ao-create-" + uuid.NewString() }
 
-func (w *Workspace) unlockCreatedWorktree(parent context.Context, repo, path string) error {
+func (w *Workspace) unlockCreatedWorktree(parent context.Context, repo, path, createToken string) error {
 	cleanupCtx, cancel := failedCreateCleanupContext(parent)
 	defer cancel()
-	return w.unlockCreatedWorktreeWithContext(cleanupCtx, repo, path)
+	return w.unlockCreatedWorktreeIfOwned(cleanupCtx, repo, path, createToken)
 }
 
 func (w *Workspace) unlockCreatedWorktreeWithContext(ctx context.Context, repo, path string) error {

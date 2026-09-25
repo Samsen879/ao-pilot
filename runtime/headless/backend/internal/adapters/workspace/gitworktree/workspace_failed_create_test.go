@@ -147,6 +147,44 @@ func TestCreatePreAddInspectionFailureDoesNotClaimForeignWorktree(t *testing.T) 
 	}
 }
 
+func TestCreatePreservesPostCheckoutOperatorLock(t *testing.T) {
+	repo := t.TempDir()
+	managed := filepath.Join(t.TempDir(), "worktrees")
+	w, err := New(Options{ManagedRoot: managed, RepoResolver: StaticRepoResolver{domain.ProjectID("project"): repo}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(managed, "project", "project-1")
+	added := false
+	w.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		joined := strings.Join(args, " ")
+		switch {
+		case strings.Contains(joined, "check-ref-format --branch"):
+			return nil, nil
+		case strings.Contains(joined, "worktree list --porcelain"):
+			out := "worktree " + repo + "\nHEAD abc\nbranch refs/heads/main\n\n"
+			if added {
+				out += "worktree " + path + "\nHEAD def\nbranch refs/heads/ao/project-1/root\nlocked operator\n\n"
+			}
+			return []byte(out), nil
+		case strings.Contains(joined, "rev-parse --verify --quiet refs/heads/ao/project-1/root"):
+			return []byte("def\n"), nil
+		case strings.Contains(joined, "worktree add"):
+			added = true
+			return nil, nil
+		default:
+			t.Fatalf("operator lock was mutated: %v", args)
+			return nil, nil
+		}
+	}
+	info, err := w.Create(context.Background(), ports.WorkspaceConfig{
+		ProjectID: "project", SessionID: "project-1", Kind: domain.KindWorker, Branch: "ao/project-1/root",
+	})
+	if err == nil || !strings.Contains(err.Error(), "creation lock no longer belongs") || info.Path != "" {
+		t.Fatalf("Create custody=%+v err=%v", info, err)
+	}
+}
+
 func TestCreateReturnsCustodyWhenInterruptedWorktreeCleanupFails(t *testing.T) {
 	repo := t.TempDir()
 	managed := filepath.Join(t.TempDir(), "worktrees")
