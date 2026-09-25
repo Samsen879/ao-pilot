@@ -22,8 +22,8 @@ const (
 	ptyInputChunkRunes = 512
 	// ptyInputChunkDelay is the inter-chunk delay. Mirrors PTY_INPUT_CHUNK_DELAY_MS.
 	ptyInputChunkDelay = 15 * time.Millisecond
-	// ptyInputEnterDelay is the pause before sending Enter. Mirrors PTY_INPUT_ENTER_DELAY_MS.
-	ptyInputEnterDelay = 300 * time.Millisecond
+	// Let Codex consume the pasted text before Enter, as on tmux.
+	ptyInputEnterDelay = time.Second
 
 	dialTimeout      = 3 * time.Second
 	getOutputTimeout = 3 * time.Second
