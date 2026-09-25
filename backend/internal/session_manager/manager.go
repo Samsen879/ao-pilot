@@ -702,10 +702,6 @@ func (m *Manager) createSessionWorkspace(ctx context.Context, project domain.Pro
 	for _, wt := range info.Worktrees {
 		attempt.Record.Worktrees = append(attempt.Record.Worktrees, spawnattempt.Worktree{Path: wt.Path, Branch: wt.Branch, Repo: wt.RepoName})
 	}
-	if saveErr := attempt.Phase("workspace_bookkeeping"); saveErr != nil {
-		return info.Root, &info, saveErr
-	}
-
 	bookkeepingCtx := ctx
 	var cancelBookkeeping context.CancelFunc
 	if err != nil || ctx.Err() != nil {
@@ -718,12 +714,16 @@ func (m *Manager) createSessionWorkspace(ctx context.Context, project domain.Pro
 			RepoName:     wt.RepoName,
 			Branch:       wt.Branch,
 			BaseSHA:      wt.BaseSHA,
+			RepoPath:     wt.RepoPath,
 			WorktreePath: wt.Path,
 			State:        "active",
 		}); recordErr != nil {
 			// Keep known resource custody; failed bookkeeping is not deletion authority.
 			return info.Root, &info, errors.Join(err, fmt.Errorf("record workspace worktree %q: %w", wt.RepoName, recordErr))
 		}
+	}
+	if saveErr := attempt.Phase("workspace_bookkeeping"); saveErr != nil {
+		return info.Root, &info, errors.Join(err, saveErr)
 	}
 	if err != nil {
 		return info.Root, &info, err
@@ -1472,6 +1472,7 @@ func (m *Manager) saveAndTeardownOne(ctx context.Context, rec domain.SessionReco
 		SessionID:    rec.ID,
 		RepoName:     domain.RootWorkspaceRepoName,
 		Branch:       rec.Metadata.Branch,
+		RepoPath:     rec.Metadata.WorkspaceRepoPath,
 		WorktreePath: rec.Metadata.WorkspacePath,
 		PreservedRef: ref,
 		State:        "removed",
@@ -1932,7 +1933,7 @@ func (m *Manager) sessionWorktreeRowsToRepoInfos(ctx context.Context, project do
 	}
 	out := make([]ports.WorkspaceRepoInfo, 0, len(rows))
 	for _, row := range rows {
-		repoPath := repoPaths[row.RepoName]
+		repoPath := firstNonEmptyString(row.RepoPath, repoPaths[row.RepoName])
 		if repoPath == "" {
 			return nil, fmt.Errorf("session worktree row %q no longer matches workspace registry", row.RepoName)
 		}
@@ -1961,6 +1962,7 @@ func (m *Manager) saveAndTeardownWorkspaceProject(ctx context.Context, rec domai
 			RepoName:     row.RepoName,
 			Branch:       row.Branch,
 			BaseSHA:      row.BaseSHA,
+			RepoPath:     row.RepoPath,
 			WorktreePath: row.Path,
 			PreservedRef: ref,
 			State:        "removed",
@@ -2024,6 +2026,7 @@ func (m *Manager) upsertWorkspaceProjectRowState(ctx context.Context, row ports.
 		RepoName:     row.RepoName,
 		Branch:       row.Branch,
 		BaseSHA:      row.BaseSHA,
+		RepoPath:     row.RepoPath,
 		WorktreePath: row.Path,
 		State:        state,
 	})

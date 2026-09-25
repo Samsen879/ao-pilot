@@ -267,6 +267,22 @@ func TestOwnedRollbackPreservesLaterExternalLock(t *testing.T) {
 	}
 }
 
+func TestFinalUnlockPreservesChangedLockOwner(t *testing.T) {
+	repo := t.TempDir()
+	path := filepath.Join(t.TempDir(), "locked-worktree")
+	w := &Workspace{binary: "git"}
+	w.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		if strings.Contains(strings.Join(args, " "), "worktree list --porcelain") {
+			return []byte("worktree " + repo + "\nHEAD abc\nbranch refs/heads/main\n\nworktree " + path + "\nHEAD def\nbranch refs/heads/feature\nlocked operator-lock\n\n"), nil
+		}
+		t.Fatalf("external lock was changed: %v", args)
+		return nil, nil
+	}
+	if err := w.unlockCreatedWorktreeIfOwned(context.Background(), repo, path, "ao-create-original"); err == nil {
+		t.Fatal("finalization unlocked a worktree whose lock owner changed")
+	}
+}
+
 func TestRollbackDoesNotDeletePathAfterRegistrationDisappears(t *testing.T) {
 	repo := t.TempDir()
 	path := filepath.Join(t.TempDir(), "new-owner")
