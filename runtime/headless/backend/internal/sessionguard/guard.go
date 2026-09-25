@@ -369,7 +369,11 @@ func (g *Guard) NudgeOwnedForGeneration(ctx context.Context, id domain.SessionID
 }
 
 func (g *Guard) SubmitPendingNudgeForGeneration(ctx context.Context, id domain.SessionID, generation *int64) (Outcome, error) {
-	return g.send(ctx, id, "", true, generation, "", func(rec domain.SessionRecord) (Outcome, bool) {
+	return g.SubmitPendingNudgeOwnedForGeneration(ctx, id, generation, "")
+}
+
+func (g *Guard) SubmitPendingNudgeOwnedForGeneration(ctx context.Context, id domain.SessionID, generation *int64, owner string) (Outcome, error) {
+	return g.send(ctx, id, "", true, generation, owner, func(rec domain.SessionRecord) (Outcome, bool) {
 		return SuppressedAwaitingUser, rec.Activity.State.NeedsInput()
 	})
 }
@@ -414,7 +418,11 @@ func (g *Guard) NudgeCoordinationOwnedForGeneration(ctx context.Context, id doma
 }
 
 func (g *Guard) SubmitPendingCoordinationForGeneration(ctx context.Context, id domain.SessionID, generation *int64, steersActiveTurn func(domain.AgentHarness) bool) (Outcome, error) {
-	return g.send(ctx, id, "", true, generation, "", func(rec domain.SessionRecord) (Outcome, bool) {
+	return g.SubmitPendingCoordinationOwnedForGeneration(ctx, id, generation, "", steersActiveTurn)
+}
+
+func (g *Guard) SubmitPendingCoordinationOwnedForGeneration(ctx context.Context, id domain.SessionID, generation *int64, owner string, steersActiveTurn func(domain.AgentHarness) bool) (Outcome, error) {
+	return g.send(ctx, id, "", true, generation, owner, func(rec domain.SessionRecord) (Outcome, bool) {
 		if rec.Activity.State.NeedsInput() {
 			return SuppressedAwaitingUser, true
 		}
@@ -448,6 +456,19 @@ func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, requi
 	}
 	if requirePending && !pending {
 		return AlreadySubmitted, nil
+	}
+	if requirePending && pending && owner != "" {
+		store, ok := g.store.(paneReceiptStore)
+		if !ok {
+			return SuppressedUnknown, fmt.Errorf("guard %s: draft ownership unavailable", id)
+		}
+		receiptPending, receiptOwner, complete, _, err := store.PaneDraftReceipt(ctx, id)
+		if err != nil {
+			return SuppressedUnknown, err
+		}
+		if !receiptPending || receiptOwner != owner || !complete {
+			return SuppressedDraftPending, nil
+		}
 	}
 	if pending && msg != "" {
 		return SuppressedDraftPending, nil

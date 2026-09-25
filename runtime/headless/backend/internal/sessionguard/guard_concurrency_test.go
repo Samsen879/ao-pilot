@@ -68,6 +68,35 @@ type durableDraftStore struct {
 	generation int64
 }
 
+type ownedDraftStore struct {
+	durableDraftStore
+	owner string
+}
+
+func (s *ownedDraftStore) PaneDraftReceipt(context.Context, domain.SessionID) (bool, string, bool, int64, error) {
+	return s.pending, s.owner, true, s.generation, nil
+}
+func (s *ownedDraftStore) SetPaneDraftOwned(context.Context, domain.SessionID, string) error {
+	return nil
+}
+func (s *ownedDraftStore) MarkPaneDraftComplete(context.Context, domain.SessionID, string) error {
+	return nil
+}
+
+func TestOwnedPendingEnterRefusesDifferentDraftUnderLock(t *testing.T) {
+	store := &ownedDraftStore{durableDraftStore: durableDraftStore{
+		guardedStateStore: guardedStateStore{rec: domain.SessionRecord{Activity: domain.Activity{State: domain.ActivityIdle}}},
+		pending:           true,
+	}, owner: "later-user"}
+	messenger := &partialMessenger{}
+	guard := New(store, messenger, nil)
+	generation := int64(0)
+	outcome, err := guard.SubmitPendingNudgeOwnedForGeneration(context.Background(), "owner-race", &generation, "original-review")
+	if err != nil || outcome != SuppressedDraftPending || len(messenger.messages) != 0 {
+		t.Fatalf("outcome=%s err=%v messages=%#v", outcome, err, messenger.messages)
+	}
+}
+
 func (s *durableDraftStore) PaneGeneration(context.Context, domain.SessionID) (int64, error) {
 	return s.generation, nil
 }

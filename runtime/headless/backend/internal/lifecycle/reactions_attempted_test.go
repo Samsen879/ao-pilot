@@ -83,11 +83,15 @@ func (m *attemptedMessenger) Send(_ context.Context, _ domain.SessionID, msg str
 
 func TestPartialPaneWriteIsNotRetriedOrClaimedDelivered(t *testing.T) {
 	messenger := &attemptedMessenger{}
-	m := &Manager{guard: sessionguard.New(&generatedAttemptReader{}, messenger, nil), react: newReactionState()}
+	store := &generatedAttemptReader{}
+	m := &Manager{guard: sessionguard.New(store, messenger, nil), react: newReactionState()}
 	for i, want := range []sendOnceOutcome{sendOnceAttempted, sendOnceAccounted, sendOnceAccounted} {
 		outcome, err := m.sendOnce(context.Background(), "session", "", "review-key", "sha-and-review", "review text", 0)
 		if err != nil || outcome != want {
 			t.Fatalf("call %d outcome=%v err=%v", i, outcome, err)
+		}
+		if i == 0 {
+			store.complete = true // the first paste completed; only Enter was withheld
 		}
 	}
 	if len(messenger.messages) != 2 || messenger.messages[0] != "review text" || messenger.messages[1] != "" {
@@ -97,7 +101,8 @@ func TestPartialPaneWriteIsNotRetriedOrClaimedDelivered(t *testing.T) {
 
 func TestChangedSignatureSubmitsOldDraftBeforeNewMessage(t *testing.T) {
 	messenger := &attemptedMessenger{}
-	m := &Manager{guard: sessionguard.New(&generatedAttemptReader{}, messenger, nil), react: newReactionState()}
+	store := &generatedAttemptReader{}
+	m := &Manager{guard: sessionguard.New(store, messenger, nil), react: newReactionState()}
 	for i, input := range []struct {
 		sig, text string
 		want      sendOnceOutcome
@@ -109,6 +114,9 @@ func TestChangedSignatureSubmitsOldDraftBeforeNewMessage(t *testing.T) {
 		outcome, err := m.sendOnce(context.Background(), "changed-signature", "", "review-key", input.sig, input.text, 0)
 		if err != nil || outcome != input.want {
 			t.Fatalf("call %d outcome=%v err=%v", i, outcome, err)
+		}
+		if i == 0 {
+			store.complete = true
 		}
 	}
 	if got := messenger.messages; len(got) != 3 || got[0] != "old text" || got[1] != "" || got[2] != "new text" {

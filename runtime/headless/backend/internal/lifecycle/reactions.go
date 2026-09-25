@@ -850,7 +850,7 @@ func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key,
 			}
 			return sendOnceSuppressed, nil
 		}
-		outcome, err := m.guard.SubmitPendingNudgeForGeneration(ctx, id, &generation)
+		outcome, err := m.guard.SubmitPendingNudgeOwnedForGeneration(ctx, id, &generation, reviewDraftOwner(id, key, originalSig))
 		if err != nil {
 			return sendOnceAttempted, err
 		}
@@ -890,7 +890,7 @@ func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key,
 			return sendOnceSuppressed, nil
 		}
 		if receipt.Complete && receipt.Pending {
-			outcome, err := m.guard.SubmitPendingNudgeForGeneration(ctx, id, &receipt.Generation)
+			outcome, err := m.guard.SubmitPendingNudgeOwnedForGeneration(ctx, id, &receipt.Generation, owner)
 			if err != nil {
 				return sendOnceSuppressed, err
 			}

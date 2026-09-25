@@ -251,7 +251,7 @@ func (m *Manager) attempt(ctx context.Context, item domain.OrchestratorReengagem
 	}
 	var outcome sessionguard.Outcome
 	if pendingEnter {
-		outcome, err = m.guard.SubmitPendingCoordinationForGeneration(ctx, rec.ID, &generation, m.steersActive)
+		outcome, err = m.guard.SubmitPendingCoordinationOwnedForGeneration(ctx, rec.ID, &generation, owner, m.steersActive)
 	} else {
 		generation, err = m.guard.PaneGeneration(ctx, rec.ID)
 		if err != nil {
