@@ -25,6 +25,12 @@ func TestPendingPaneDraftSurvivesStoreReopen(t *testing.T) {
 	if err := first.SetPaneDraftPending(ctx, rec.ID, true); err != nil {
 		t.Fatal(err)
 	}
+	if err := first.SetPaneDraftOwned(ctx, rec.ID, "review-receipt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.MarkPaneDraftComplete(ctx, rec.ID, "review-receipt"); err != nil {
+		t.Fatal(err)
+	}
 	if err := first.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -36,5 +42,16 @@ func TestPendingPaneDraftSurvivesStoreReopen(t *testing.T) {
 	pending, err := reopened.PaneDraftPending(ctx, rec.ID)
 	if err != nil || !pending {
 		t.Fatalf("reopened pending=%v err=%v", pending, err)
+	}
+	pending, owner, complete, generation, err := reopened.PaneDraftReceipt(ctx, rec.ID)
+	if err != nil || !pending || owner != "review-receipt" || !complete || generation != 0 {
+		t.Fatalf("reopened receipt pending=%v owner=%q complete=%v generation=%d err=%v", pending, owner, complete, generation, err)
+	}
+	if err := reopened.AdvancePaneGenerationAndClearDraft(ctx, rec.ID); err != nil {
+		t.Fatal(err)
+	}
+	pending, owner, complete, generation, err = reopened.PaneDraftReceipt(ctx, rec.ID)
+	if err != nil || pending || owner != "" || complete || generation != 1 {
+		t.Fatalf("replacement receipt pending=%v owner=%q complete=%v generation=%d err=%v", pending, owner, complete, generation, err)
 	}
 }
