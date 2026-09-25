@@ -75,6 +75,51 @@ func Write(path string, info Info) error {
 	return nil
 }
 
+// RestoreIfMissing rewrites the daemon handshake only when no record exists.
+// It deliberately leaves an observed existing record untouched, including one
+// owned by another PID, so the normal overlapping-restart path is preserved.
+func RestoreIfMissing(path string, info Info) (bool, error) {
+	current, err := Read(path)
+	if err != nil {
+		return false, err
+	}
+	if current != nil {
+		return false, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return false, fmt.Errorf("create run-file dir: %w", err)
+	}
+	data, err := json.MarshalIndent(info, "", "  ")
+	if err != nil {
+		return false, fmt.Errorf("marshal run-file: %w", err)
+	}
+	data = append(data, '\n')
+
+	// Publish a complete file with an atomic, no-replace operation. A replacement
+	// daemon may create path after Read observes it missing; atomicCreate then
+	// returns os.ErrExist and preserves that newer daemon's handshake.
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".running-restore-*.json")
+	if err != nil {
+		return false, fmt.Errorf("create temp run-file: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return false, fmt.Errorf("write temp run-file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return false, fmt.Errorf("close temp run-file: %w", err)
+	}
+	if err := atomicCreate(tmpName, path); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("publish restored run-file: %w", err)
+	}
+	return true, nil
+}
+
 // Read loads running.json. A missing file returns (nil, nil) — that is the
 // normal "no daemon recorded" state, not an error.
 func Read(path string) (*Info, error) {
