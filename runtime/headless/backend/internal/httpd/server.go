@@ -17,6 +17,8 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/terminal"
 )
 
+const runFileRepairInterval = 5 * time.Second
+
 // Server is the daemon's HTTP server together with its lifecycle: bind the
 // loopback port, publish the running.json handshake, serve until the context
 // is cancelled, then shut down gracefully and clean up the handshake file.
@@ -124,7 +126,12 @@ func (s *Server) Run(ctx context.Context) error {
 		_ = s.listen.Close()
 		return fmt.Errorf("write run-file: %w", err)
 	}
+	repairCtx, cancelRepair := context.WithCancel(ctx)
+	repairDone := make(chan struct{})
+	go s.maintainRunFile(repairCtx, repairDone, info)
 	defer func() {
+		cancelRepair()
+		<-repairDone
 		if err := runfile.RemoveIfOwned(s.cfg.RunFilePath, info.PID); err != nil {
 			s.log.Warn("failed to remove run-file", "path", s.cfg.RunFilePath, "err", err)
 		}
@@ -164,6 +171,27 @@ func (s *Server) Run(ctx context.Context) error {
 
 	s.log.Info("daemon stopped cleanly")
 	return <-serveErr
+}
+
+func (s *Server) maintainRunFile(ctx context.Context, done chan<- struct{}, info runfile.Info) {
+	defer close(done)
+	ticker := time.NewTicker(runFileRepairInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			restored, err := runfile.RestoreIfMissing(s.cfg.RunFilePath, info)
+			if err != nil {
+				s.log.Warn("failed to inspect daemon run-file", "path", s.cfg.RunFilePath, "err", err)
+				continue
+			}
+			if restored {
+				s.log.Warn("restored missing daemon run-file", "path", s.cfg.RunFilePath, "pid", info.PID)
+			}
+		}
+	}
 }
 
 func (s *Server) boundPort() int {
