@@ -38,8 +38,10 @@ type Options struct {
 type Runtime struct {
 	spawner hostSpawner
 
-	mu       sync.Mutex
-	sessions map[string]*hostSession // sessionID -> live session
+	mu        sync.Mutex
+	sessions  map[string]*hostSession // sessionID -> live session
+	sendMu    sync.Mutex
+	sendLocks map[string]*sync.Mutex
 }
 
 // New creates a Runtime with the given options.
@@ -49,9 +51,21 @@ func New(opts Options) *Runtime {
 		sp = defaultSpawnHost
 	}
 	return &Runtime{
-		spawner:  sp,
-		sessions: make(map[string]*hostSession),
+		spawner:   sp,
+		sessions:  make(map[string]*hostSession),
+		sendLocks: make(map[string]*sync.Mutex),
 	}
+}
+
+func (r *Runtime) sendLock(id string) *sync.Mutex {
+	r.sendMu.Lock()
+	defer r.sendMu.Unlock()
+	lock := r.sendLocks[id]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		r.sendLocks[id] = lock
+	}
+	return lock
 }
 
 // Create spawns a detached pty-host for the session, waits for READY, stores
@@ -108,6 +122,9 @@ func (r *Runtime) Create(ctx context.Context, cfg ports.RuntimeConfig) (ports.Ru
 // exit, then force-kills it. Removes the session from the map and the registry.
 // Idempotent: unknown/already-gone session returns nil.
 func (r *Runtime) Destroy(ctx context.Context, handle ports.RuntimeHandle) error {
+	lock := r.sendLock(handle.ID)
+	lock.Lock()
+	defer lock.Unlock()
 	sess := r.resolve(handle.ID)
 	if sess == nil {
 		return nil // unknown or already gone
@@ -182,15 +199,25 @@ func (r *Runtime) IsSupervisedProcessAlive(ctx context.Context, handle ports.Run
 
 // SendMessage chunks message and writes it to the pty-host followed by Enter.
 func (r *Runtime) SendMessage(ctx context.Context, handle ports.RuntimeHandle, message string) error {
+	return r.SendMessageGuarded(ctx, handle, message, nil)
+}
+
+func (r *Runtime) SendMessageGuarded(ctx context.Context, handle ports.RuntimeHandle, message string, check func(context.Context) error) error {
+	lock := r.sendLock(handle.ID)
+	lock.Lock()
+	defer lock.Unlock()
 	sess := r.resolve(handle.ID)
 	if sess == nil {
-		return fmt.Errorf("conpty: session %q not found", handle.ID)
+		return fmt.Errorf("%w: conpty: session %q not found", ports.ErrPaneWriteNotStarted, handle.ID)
 	}
-	return clientSendMessage(sess.addr, message)
+	return clientSendMessageGuarded(ctx, sess.addr, message, check)
 }
 
 // Interrupt sends Ctrl-C to the PTY without tearing down the terminal host.
 func (r *Runtime) Interrupt(ctx context.Context, handle ports.RuntimeHandle) error {
+	lock := r.sendLock(handle.ID)
+	lock.Lock()
+	defer lock.Unlock()
 	sess := r.resolve(handle.ID)
 	if sess == nil {
 		return fmt.Errorf("conpty: session %q not found", handle.ID)

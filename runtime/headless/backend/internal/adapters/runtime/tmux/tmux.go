@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -28,7 +29,7 @@ const (
 	// defaultEnterDelay mirrors conpty's ptyInputEnterDelay: a pause after pasting
 	// a non-empty message, before the trailing Enter, so a large multiline paste
 	// does not absorb the Enter and leave the prompt unsubmitted (issue #2342).
-	defaultEnterDelay = 300 * time.Millisecond
+	defaultEnterDelay = time.Second
 	// defaultReapGrace is how long Destroy waits between SIGTERM and SIGKILL when
 	// reaping a pane's leftover background processes, giving them a chance to
 	// exit cleanly (release ports) before being forced (issue #2523). It is a
@@ -68,6 +69,8 @@ type Runtime struct {
 	reapGrace    time.Duration
 	runner       runner
 	reapSessions func(ctx context.Context, pids []int, grace time.Duration)
+	sendLocksMu  sync.Mutex
+	sendLocks    map[string]*sync.Mutex
 }
 
 var _ ports.Runtime = (*Runtime)(nil)
@@ -280,7 +283,22 @@ func New(opts Options) *Runtime {
 		reapGrace:    reapGrace,
 		runner:       execRunner{},
 		reapSessions: killSessionsByPID,
+		sendLocks:    make(map[string]*sync.Mutex),
 	}
+}
+
+func (r *Runtime) sendLock(id string) *sync.Mutex {
+	r.sendLocksMu.Lock()
+	defer r.sendLocksMu.Unlock()
+	if r.sendLocks == nil {
+		r.sendLocks = make(map[string]*sync.Mutex)
+	}
+	lock := r.sendLocks[id]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		r.sendLocks[id] = lock
+	}
+	return lock
 }
 
 // Create starts a new tmux session in the workspace, running the agent's
@@ -299,7 +317,6 @@ func (r *Runtime) Create(ctx context.Context, cfg ports.RuntimeConfig) (ports.Ru
 	if err := validateEnvKeys(cfg.Env); err != nil {
 		return ports.RuntimeHandle{}, err
 	}
-
 	launchCmd := buildLaunchCommand(cfg)
 	args := newSessionArgs(id, cfg.WorkspacePath, r.shell, launchCmd)
 	if _, err := r.run(ctx, args...); err != nil {
@@ -369,6 +386,9 @@ func (r *Runtime) Restart(ctx context.Context, handle ports.RuntimeHandle, cfg p
 	if err := validateEnvKeys(cfg.Env); err != nil {
 		return ports.RuntimeHandle{}, err
 	}
+	lock := r.sendLock(id)
+	lock.Lock()
+	defer lock.Unlock()
 
 	launchCmd := buildLaunchCommand(cfg)
 	if _, err := r.run(ctx, respawnPaneArgs(id, cfg.WorkspacePath, r.shell, launchCmd)...); err != nil {
@@ -446,6 +466,9 @@ func (r *Runtime) Destroy(ctx context.Context, handle ports.RuntimeHandle) error
 	if err != nil {
 		return err
 	}
+	lock := r.sendLock(id)
+	lock.Lock()
+	defer lock.Unlock()
 	// Capture pane session ids while the session still exists; a missing
 	// session lists no panes and reaps nothing. Best-effort: failures here must
 	// not block the kill-session below.
@@ -548,9 +571,27 @@ func (r *Runtime) IsSupervisedProcessAlive(ctx context.Context, handle ports.Run
 // ceiling is very large messages may be slower, but chunk size defaults to 16 KB
 // which is ample for agent prompts.
 func (r *Runtime) SendMessage(ctx context.Context, handle ports.RuntimeHandle, message string) error {
+	return r.SendMessageGuarded(ctx, handle, message, nil)
+}
+
+// SendMessageGuarded holds the pane write lock while calling check immediately
+// before paste and again before Enter. The second check can suppress Enter if
+// the agent reaches a permission dialog during the paste settle delay.
+func (r *Runtime) SendMessageGuarded(ctx context.Context, handle ports.RuntimeHandle, message string, check func(context.Context) error) error {
 	id, err := handleID(handle)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ports.ErrPaneWriteNotStarted, err)
+	}
+	// Keep the whole paste-delay-Enter sequence atomic per pane. HTTP handlers
+	// may call SendMessage concurrently; without this lock a second paste can
+	// land before the first Enter and merge two prompts.
+	lock := r.sendLock(id)
+	lock.Lock()
+	defer lock.Unlock()
+	if check != nil {
+		if err := check(ctx); err != nil {
+			return fmt.Errorf("%w: %w", ports.ErrPaneWriteNotStarted, err)
+		}
 	}
 	enterCtx := ctx
 	if message != "" {
@@ -562,7 +603,10 @@ func (r *Runtime) SendMessage(ctx context.Context, handle ports.RuntimeHandle, m
 				if finishCancel != nil {
 					finishCancel()
 				}
-				return fmt.Errorf("tmux runtime: send message %s: %w", id, err)
+				// tmux may apply a chunk before reporting a command error; after
+				// earlier chunks, text is certainly stranded in the pane.
+				// Never invite callers to repaste the whole message.
+				return fmt.Errorf("%w: tmux runtime: send message %s: %v", ports.ErrPaneDraftIncomplete, id, err)
 			}
 			if i == 0 {
 				completionBudget := sendCompletionBudget(len(messageChunks), r.timeout, r.enterDelay)
@@ -589,13 +633,21 @@ func (r *Runtime) SendMessage(ctx context.Context, handle ports.RuntimeHandle, m
 		if r.enterDelay > 0 {
 			select {
 			case <-enterCtx.Done():
-				return enterCtx.Err()
+				return fmt.Errorf("%w: %v", ports.ErrPaneDraftPending, enterCtx.Err())
 			case <-time.After(r.enterDelay):
 			}
 		}
 	}
+	if check != nil {
+		if err := check(enterCtx); err != nil {
+			if message != "" {
+				return fmt.Errorf("%w: %v", ports.ErrPaneDraftPending, err)
+			}
+			return err
+		}
+	}
 	if _, err := r.run(enterCtx, sendEnterArgs(id)...); err != nil {
-		return fmt.Errorf("tmux runtime: send enter %s: %w", id, err)
+		return fmt.Errorf("%w: tmux runtime: send enter %s: %v", ports.ErrPaneDraftPending, id, err)
 	}
 	return nil
 }
@@ -611,6 +663,9 @@ func (r *Runtime) Interrupt(ctx context.Context, handle ports.RuntimeHandle) err
 	if err != nil {
 		return err
 	}
+	lock := r.sendLock(id)
+	lock.Lock()
+	defer lock.Unlock()
 	if _, err := r.run(ctx, sendInterruptArgs(id)...); err != nil {
 		return fmt.Errorf("tmux runtime: interrupt session %s: %w", id, err)
 	}

@@ -68,6 +68,8 @@ var (
 	// would answer it on the user's behalf. The API maps it to a 409; the
 	// caller retries once the user has answered in the terminal.
 	ErrAwaitingDecision = errors.New("session: awaiting a user decision")
+	ErrDraftPending     = errors.New("session: text reached the pane but Enter was not sent")
+	ErrDraftIncomplete  = errors.New("session: only part of the text reached the pane")
 )
 
 // Env vars a spawned process reads to learn who it is.
@@ -1335,12 +1337,16 @@ func (m *Manager) relaunchSession(ctx context.Context, operation string, rec dom
 		Env:           env,
 	}
 	var handle ports.RuntimeHandle
-	if restartHandle == nil {
-		handle, err = m.runtime.Create(ctx, runtimeCfg)
-	} else {
-		handle, err = m.restartRuntime(ctx, *restartHandle, runtimeCfg)
-	}
+	handle, err = sessionguard.ReplacePane(ctx, m.store, rec.ID, func() (ports.RuntimeHandle, error) {
+		if restartHandle == nil {
+			return m.runtime.Create(ctx, runtimeCfg)
+		}
+		return m.restartRuntime(ctx, *restartHandle, runtimeCfg)
+	})
 	if err != nil {
+		if handle.ID != "" {
+			_ = m.runtime.Destroy(context.Background(), handle)
+		}
 		m.cleanupSystemPromptDir(rec.ID)
 		return RestoreResult{}, fmt.Errorf("%s %s: runtime: %w", operation, rec.ID, err)
 	}
@@ -2129,6 +2135,12 @@ func (m *Manager) Send(ctx context.Context, id domain.SessionID, message string)
 		return fmt.Errorf("send %s: %w", id, ErrAgentExited)
 	case sessionguard.SuppressedAwaitingUser:
 		return fmt.Errorf("send %s: %w", id, ErrAwaitingDecision)
+	case sessionguard.Attempted:
+		return fmt.Errorf("send %s: %w", id, ErrDraftPending)
+	case sessionguard.Incomplete:
+		return fmt.Errorf("send %s: %w", id, ErrDraftIncomplete)
+	case sessionguard.SuppressedDraftPending:
+		return fmt.Errorf("send %s: %w", id, ErrDraftPending)
 	}
 	// confirmActive only helps — and is only SAFE — when the harness reports
 	// both a prompt-submit signal (so the loop can observe active) and a
@@ -3079,6 +3091,13 @@ func (m *Manager) deliverAfterStartPrompt(ctx context.Context, agent ports.Agent
 		return fmt.Errorf("send %s: %w", id, ErrAgentExited)
 	case sessionguard.SuppressedAwaitingUser:
 		return fmt.Errorf("send %s: %w", id, ErrAwaitingDecision)
+	case sessionguard.Attempted:
+		m.logger.Warn("startup prompt reached pane but Enter was withheld; preserving session", "sessionID", id)
+		return nil
+	case sessionguard.Incomplete:
+		return fmt.Errorf("send %s: %w", id, ErrDraftIncomplete)
+	case sessionguard.SuppressedDraftPending:
+		return fmt.Errorf("send %s: %w", id, ErrDraftPending)
 	case sessionguard.SuppressedUnknown:
 		return fmt.Errorf("send %s: pre-write session read failed", id)
 	default:
