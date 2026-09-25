@@ -252,12 +252,21 @@ func (m *Manager) ApplyRuntimeObservation(ctx context.Context, id domain.Session
 // existing activity and first-signal facts untouched.
 func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, s ports.ActivitySignal) error {
 	if s.Event == "user-prompt-submit" {
-		return sessionguard.WithSessionLock(id, func() error { return m.applyActivitySignal(ctx, id, s) })
+		var afterUnlock []func()
+		err := sessionguard.WithSessionLock(id, func() error {
+			return m.applyActivitySignal(ctx, id, s, func(callback func()) {
+				afterUnlock = append(afterUnlock, callback)
+			})
+		})
+		for _, callback := range afterUnlock {
+			callback()
+		}
+		return err
 	}
-	return m.applyActivitySignal(ctx, id, s)
+	return m.applyActivitySignal(ctx, id, s, nil)
 }
 
-func (m *Manager) applyActivitySignal(ctx context.Context, id domain.SessionID, s ports.ActivitySignal) error {
+func (m *Manager) applyActivitySignal(ctx context.Context, id domain.SessionID, s ports.ActivitySignal, deferTracker func(func())) error {
 	s.AgentSessionID = strings.TrimSpace(s.AgentSessionID)
 	s.LaunchID = strings.TrimSpace(s.LaunchID)
 	if !s.Valid && s.AgentSessionID == "" {
@@ -357,14 +366,25 @@ func (m *Manager) applyActivitySignal(ctx context.Context, id domain.SessionID, 
 			applied, err := m.updateActivitySession(ctx, rec, s.Event, s.HookObservedAt)
 			m.mu.Unlock()
 			if err == nil && applied && m.reengagement != nil {
-				m.reengagement.ObserveActivity(ctx, rec, rec, s.Event)
+				tracker := m.reengagement
+				observe := func() { tracker.ObserveActivity(ctx, rec, rec, s.Event) }
+				if deferTracker != nil {
+					deferTracker(observe)
+				} else {
+					observe()
+				}
 			}
 			return err
 		}
 		tracker := m.reengagement
 		m.mu.Unlock()
 		if tracker != nil {
-			tracker.ObserveActivity(ctx, rec, rec, s.Event)
+			observe := func() { tracker.ObserveActivity(ctx, rec, rec, s.Event) }
+			if deferTracker != nil {
+				deferTracker(observe)
+			} else {
+				observe()
+			}
 		}
 		return nil
 	}
@@ -406,7 +426,12 @@ func (m *Manager) applyActivitySignal(ctx context.Context, id domain.SessionID, 
 	tracker := m.reengagement
 	m.mu.Unlock()
 	if tracker != nil {
-		tracker.ObserveActivity(ctx, rec, next, s.Event)
+		observe := func() { tracker.ObserveActivity(ctx, rec, next, s.Event) }
+		if deferTracker != nil {
+			deferTracker(observe)
+		} else {
+			observe()
+		}
 	}
 	for _, ev := range waitingEvents {
 		m.emitTelemetry(ctx, ev)
