@@ -11,8 +11,11 @@ package sessionguard
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
@@ -24,9 +27,31 @@ type SessionReader interface {
 	GetSession(ctx context.Context, id domain.SessionID) (domain.SessionRecord, bool, error)
 }
 
-// Outcome reports what a guarded write did. Anything other than Sent means the
-// message did NOT reach the pane; callers that record delivery must not stamp
-// a suppressed write as delivered.
+type paneDraftStore interface {
+	PaneDraftPending(ctx context.Context, id domain.SessionID) (bool, error)
+	SetPaneDraftPending(ctx context.Context, id domain.SessionID, pending bool) error
+}
+
+type paneGenerationStore interface {
+	PaneGeneration(context.Context, domain.SessionID) (int64, error)
+	AdvancePaneGenerationAndClearDraft(context.Context, domain.SessionID) error
+}
+
+type paneReceiptStore interface {
+	SetPaneDraftOwned(context.Context, domain.SessionID, string) error
+	MarkPaneDraftComplete(context.Context, domain.SessionID, string) error
+	PaneDraftReceipt(context.Context, domain.SessionID) (bool, string, bool, int64, error)
+}
+
+type DraftReceipt struct {
+	Pending    bool
+	Owner      string
+	Complete   bool
+	Generation int64
+}
+
+// Outcome reports what a guarded write did. Attempted reached the pane without
+// Enter; suppressed outcomes did not reach it.
 type Outcome int
 
 const (
@@ -37,6 +62,12 @@ const (
 	// Sent means the message was written to the session's pane (a messenger
 	// failure surfaces as Sent plus a non-nil error: the write was attempted).
 	Sent
+	// Attempted means text reached the pane, but Enter was withheld after a
+	// later guard check. Callers must not paste the same text again.
+	Attempted
+	// Incomplete means a paste failed before all text reached the pane.
+	// No automated Enter may submit the truncated instruction.
+	Incomplete
 	// SuppressedNotFound means no session row exists for the id.
 	SuppressedNotFound
 	// SuppressedTerminated means the session is terminated; its pane is gone
@@ -53,6 +84,14 @@ const (
 	// SuppressedBusy means the session is mid-turn on a harness that cannot
 	// safely steer an active turn (NudgeCoordination only).
 	SuppressedBusy
+	// SuppressedDraftPending means an earlier paste is still in this pane.
+	// A new message must wait until its Enter is safely sent.
+	SuppressedDraftPending
+	// AlreadySubmitted means the durable pane marker was cleared before an
+	// Enter-only recovery. Replaying Enter could submit unrelated pane input.
+	AlreadySubmitted
+	// PaneReplaced means the pending text belonged to an older pane process.
+	PaneReplaced
 )
 
 // String names the outcome for logs.
@@ -60,6 +99,10 @@ func (o Outcome) String() string {
 	switch o {
 	case Sent:
 		return "sent"
+	case Attempted:
+		return "attempted_unsubmitted"
+	case Incomplete:
+		return "incomplete_unsubmitted"
 	case SuppressedNotFound:
 		return "suppressed_not_found"
 	case SuppressedTerminated:
@@ -70,14 +113,21 @@ func (o Outcome) String() string {
 		return "suppressed_awaiting_user"
 	case SuppressedBusy:
 		return "suppressed_busy"
+	case SuppressedDraftPending:
+		return "suppressed_draft_pending"
+	case AlreadySubmitted:
+		return "already_submitted"
+	case PaneReplaced:
+		return "pane_replaced"
 	default:
 		return "suppressed_unknown"
 	}
 }
 
 // Guard is the guarded pane-write primitive shared by the session manager and
-// lifecycle. It takes no locks of its own, so callers may hold theirs across a
-// call (lifecycle's sendOnce calls it under react.mu). It implements
+// lifecycle. It serializes each session before the just-in-time state read so
+// a queued write cannot use state that changed while another send completed.
+// It implements
 // ports.AgentMessenger (via Send) so it can transparently replace a raw
 // messenger wherever only the error matters.
 type Guard struct {
@@ -85,6 +135,25 @@ type Guard struct {
 	messenger ports.AgentMessenger
 	logger    *slog.Logger
 }
+
+var sharedLocks = struct {
+	sync.Mutex
+	bySession map[domain.SessionID]*sessionLockEntry
+	pending   map[domain.SessionID]bool
+}{bySession: make(map[domain.SessionID]*sessionLockEntry), pending: make(map[domain.SessionID]bool)}
+
+type sessionLockEntry struct {
+	mu    sync.Mutex
+	users int
+}
+
+type guardedMessenger interface {
+	SendGuarded(context.Context, domain.SessionID, string, func(context.Context) error) error
+}
+
+type suppressedError struct{ outcome Outcome }
+
+func (e suppressedError) Error() string { return e.outcome.String() }
 
 var _ ports.AgentMessenger = (*Guard)(nil)
 
@@ -97,6 +166,154 @@ func New(store SessionReader, messenger ports.AgentMessenger, logger *slog.Logge
 	return &Guard{store: store, messenger: messenger, logger: logger}
 }
 
+func (g *Guard) lockSession(id domain.SessionID) func() {
+	sharedLocks.Lock()
+	entry := sharedLocks.bySession[id]
+	if entry == nil {
+		entry = &sessionLockEntry{}
+		sharedLocks.bySession[id] = entry
+	}
+	entry.users++ // includes goroutines waiting on entry.mu
+	sharedLocks.Unlock()
+	entry.mu.Lock()
+	return func() {
+		entry.mu.Unlock()
+		sharedLocks.Lock()
+		entry.users--
+		if entry.users == 0 && sharedLocks.bySession[id] == entry {
+			delete(sharedLocks.bySession, id)
+		}
+		sharedLocks.Unlock()
+	}
+}
+
+func (g *Guard) pendingDraft(ctx context.Context, id domain.SessionID) (bool, error) {
+	if store, ok := g.store.(paneDraftStore); ok {
+		return store.PaneDraftPending(ctx, id)
+	}
+	sharedLocks.Lock()
+	defer sharedLocks.Unlock()
+	return sharedLocks.pending[id], nil
+}
+
+func (g *Guard) setPendingDraft(ctx context.Context, id domain.SessionID, pending bool) error {
+	if store, ok := g.store.(paneDraftStore); ok {
+		return store.SetPaneDraftPending(ctx, id, pending)
+	}
+	sharedLocks.Lock()
+	if pending {
+		sharedLocks.pending[id] = true
+	} else {
+		delete(sharedLocks.pending, id)
+	}
+	sharedLocks.Unlock()
+	return nil
+}
+
+func (g *Guard) setPendingDraftOwned(ctx context.Context, id domain.SessionID, owner string) error {
+	if owner != "" {
+		if store, ok := g.store.(paneReceiptStore); ok {
+			return store.SetPaneDraftOwned(ctx, id, owner)
+		}
+	}
+	return g.setPendingDraft(ctx, id, true)
+}
+
+func (g *Guard) paneGeneration(ctx context.Context, id domain.SessionID) (int64, error) {
+	if store, ok := g.store.(paneGenerationStore); ok {
+		return store.PaneGeneration(ctx, id)
+	}
+	return 0, nil
+}
+
+// PaneGeneration identifies the current pane process for durable recovery
+// receipts. A caller passes the returned value back to a guarded send, which
+// checks it again under the per-session lock before writing.
+func (g *Guard) PaneGeneration(ctx context.Context, id domain.SessionID) (int64, error) {
+	return g.paneGeneration(ctx, id)
+}
+
+func (g *Guard) PaneDraftReceipt(ctx context.Context, id domain.SessionID) (DraftReceipt, error) {
+	if store, ok := g.store.(paneReceiptStore); ok {
+		pending, owner, complete, generation, err := store.PaneDraftReceipt(ctx, id)
+		return DraftReceipt{Pending: pending, Owner: owner, Complete: complete, Generation: generation}, err
+	}
+	pending, err := g.pendingDraft(ctx, id)
+	return DraftReceipt{Pending: pending}, err
+}
+
+// ClearPendingPaneDraft records a user-prompt-submit hook after the user
+// manually submitted the draft in the terminal. It shares the pane's send
+// lock so an in-flight paste cannot recreate a stale marker afterward.
+func ClearPendingPaneDraft(ctx context.Context, store SessionReader, id domain.SessionID) error {
+	g := &Guard{store: store}
+	defer g.lockSession(id)()
+	return g.setPendingDraft(ctx, id, false)
+}
+
+// RecordManualSubmission keeps the activity update and draft clearance under
+// the same per-session lock used by guarded pane sends. The update callback
+// should commit activity and durable marker clearance in one transaction.
+func RecordManualSubmission(ctx context.Context, store SessionReader, id domain.SessionID, observedAt time.Time, update func() error) (bool, error) {
+	g := &Guard{store: store}
+	defer g.lockSession(id)()
+	return RecordManualSubmissionLocked(ctx, store, id, observedAt, update)
+}
+
+// WithSessionLock gives a submit hook the pane lock before it enters the
+// lifecycle reducer. Permission callbacks can then update lifecycle state
+// while this hook waits for a guarded paste to finish.
+func WithSessionLock(id domain.SessionID, apply func() error) error {
+	g := &Guard{}
+	defer g.lockSession(id)()
+	return apply()
+}
+
+// RecordManualSubmissionLocked requires the caller to hold the pane lock.
+func RecordManualSubmissionLocked(ctx context.Context, store SessionReader, id domain.SessionID, observedAt time.Time, update func() error) (bool, error) {
+	g := &Guard{store: store}
+	if marked, ok := store.(interface {
+		PaneDraftMarkedAt(context.Context, domain.SessionID) (bool, bool, time.Time, error)
+	}); ok {
+		pending, complete, markedAt, err := marked.PaneDraftMarkedAt(ctx, id)
+		if err != nil {
+			return false, err
+		}
+		// An older hook may arrive after another paste. Without an occurrence
+		// timestamp, it cannot prove that it submitted the current draft.
+		if pending && (!complete || observedAt.IsZero() || observedAt.Before(markedAt)) {
+			return false, nil
+		}
+	}
+	if err := update(); err != nil {
+		return false, err
+	}
+	return true, g.setPendingDraft(ctx, id, false)
+}
+
+// ReplacePane serializes a runtime replacement with guarded sends. A pending
+// draft belongs to the previous pane generation and is invalidated only after
+// the replacement succeeds.
+func ReplacePane(ctx context.Context, store SessionReader, id domain.SessionID, replace func() (ports.RuntimeHandle, error)) (ports.RuntimeHandle, error) {
+	g := &Guard{store: store}
+	defer g.lockSession(id)()
+	handle, err := replace()
+	if err != nil {
+		return handle, err
+	}
+	if store, ok := store.(paneGenerationStore); ok {
+		if err := store.AdvancePaneGenerationAndClearDraft(ctx, id); err != nil {
+			return handle, err
+		}
+		sharedLocks.Lock()
+		delete(sharedLocks.pending, id)
+		sharedLocks.Unlock()
+	} else if err := g.setPendingDraft(ctx, id, false); err != nil {
+		return handle, err
+	}
+	return handle, nil
+}
+
 // Send satisfies ports.AgentMessenger so a Guard can sit in for the raw
 // messenger. It applies the Deliver policy but FOLDS a suppressed outcome into
 // nil: a caller that learns only "did Send error?" cannot tell that the write
@@ -107,7 +324,10 @@ func New(store SessionReader, messenger ports.AgentMessenger, logger *slog.Logge
 // before injection is reported as a successful spawn with a prompt that was
 // never delivered.
 func (g *Guard) Send(ctx context.Context, id domain.SessionID, msg string) error {
-	_, err := g.Deliver(ctx, id, msg)
+	outcome, err := g.Deliver(ctx, id, msg)
+	if outcome == Attempted || outcome == Incomplete || outcome == SuppressedDraftPending {
+		return ports.ErrPaneDraftPending
+	}
 	return err
 }
 
@@ -117,7 +337,7 @@ func (g *Guard) Send(ctx context.Context, id domain.SessionID, msg string) error
 // sitting at an idle prompt is exactly where a user message (or the Enter that
 // submits its unsent draft) belongs.
 func (g *Guard) Deliver(ctx context.Context, id domain.SessionID, msg string) (Outcome, error) {
-	return g.send(ctx, id, msg, func(rec domain.SessionRecord) (Outcome, bool) {
+	return g.send(ctx, id, msg, false, nil, "", func(rec domain.SessionRecord) (Outcome, bool) {
 		return SuppressedAwaitingUser, rec.Activity.State == domain.ActivityBlocked
 	})
 }
@@ -127,7 +347,33 @@ func (g *Guard) Deliver(ctx context.Context, id domain.SessionID, msg string) (O
 // decision or waiting at the prompt — because an automated paste+Enter there
 // either answers a dialog or submits text the user never saw.
 func (g *Guard) Nudge(ctx context.Context, id domain.SessionID, msg string) (Outcome, error) {
-	return g.send(ctx, id, msg, func(rec domain.SessionRecord) (Outcome, bool) {
+	return g.send(ctx, id, msg, false, nil, "", func(rec domain.SessionRecord) (Outcome, bool) {
+		return SuppressedAwaitingUser, rec.Activity.State.NeedsInput()
+	})
+}
+
+// SubmitPendingNudge presses Enter only while the original draft marker is
+// still present. Its marker check and pane write share the send lock.
+func (g *Guard) SubmitPendingNudge(ctx context.Context, id domain.SessionID) (Outcome, error) {
+	return g.SubmitPendingNudgeForGeneration(ctx, id, nil)
+}
+
+func (g *Guard) NudgeForGeneration(ctx context.Context, id domain.SessionID, msg string, generation int64) (Outcome, error) {
+	return g.NudgeOwnedForGeneration(ctx, id, msg, generation, "")
+}
+
+func (g *Guard) NudgeOwnedForGeneration(ctx context.Context, id domain.SessionID, msg string, generation int64, owner string) (Outcome, error) {
+	return g.send(ctx, id, msg, false, &generation, owner, func(rec domain.SessionRecord) (Outcome, bool) {
+		return SuppressedAwaitingUser, rec.Activity.State.NeedsInput()
+	})
+}
+
+func (g *Guard) SubmitPendingNudgeForGeneration(ctx context.Context, id domain.SessionID, generation *int64) (Outcome, error) {
+	return g.SubmitPendingNudgeOwnedForGeneration(ctx, id, generation, "")
+}
+
+func (g *Guard) SubmitPendingNudgeOwnedForGeneration(ctx context.Context, id domain.SessionID, generation *int64, owner string) (Outcome, error) {
+	return g.send(ctx, id, "", true, generation, owner, func(rec domain.SessionRecord) (Outcome, bool) {
 		return SuppressedAwaitingUser, rec.Activity.State.NeedsInput()
 	})
 }
@@ -140,7 +386,43 @@ func (g *Guard) Nudge(ctx context.Context, id domain.SessionID, msg string) (Out
 // predicate is treated as "cannot steer", so an unknown harness never takes an
 // unsolicited write during a live turn.
 func (g *Guard) NudgeCoordination(ctx context.Context, id domain.SessionID, msg string, steersActiveTurn func(domain.AgentHarness) bool) (Outcome, error) {
-	return g.send(ctx, id, msg, func(rec domain.SessionRecord) (Outcome, bool) {
+	return g.send(ctx, id, msg, false, nil, "", func(rec domain.SessionRecord) (Outcome, bool) {
+		if rec.Activity.State.NeedsInput() {
+			return SuppressedAwaitingUser, true
+		}
+		if rec.Activity.State == domain.ActivityActive {
+			return SuppressedBusy, steersActiveTurn == nil || !steersActiveTurn(rec.Harness)
+		}
+		return SuppressedUnknown, false
+	})
+}
+
+func (g *Guard) SubmitPendingCoordination(ctx context.Context, id domain.SessionID, steersActiveTurn func(domain.AgentHarness) bool) (Outcome, error) {
+	return g.SubmitPendingCoordinationForGeneration(ctx, id, nil, steersActiveTurn)
+}
+
+func (g *Guard) NudgeCoordinationForGeneration(ctx context.Context, id domain.SessionID, msg string, generation int64, steersActiveTurn func(domain.AgentHarness) bool) (Outcome, error) {
+	return g.NudgeCoordinationOwnedForGeneration(ctx, id, msg, generation, "", steersActiveTurn)
+}
+
+func (g *Guard) NudgeCoordinationOwnedForGeneration(ctx context.Context, id domain.SessionID, msg string, generation int64, owner string, steersActiveTurn func(domain.AgentHarness) bool) (Outcome, error) {
+	return g.send(ctx, id, msg, false, &generation, owner, func(rec domain.SessionRecord) (Outcome, bool) {
+		if rec.Activity.State.NeedsInput() {
+			return SuppressedAwaitingUser, true
+		}
+		if rec.Activity.State == domain.ActivityActive {
+			return SuppressedBusy, steersActiveTurn == nil || !steersActiveTurn(rec.Harness)
+		}
+		return SuppressedUnknown, false
+	})
+}
+
+func (g *Guard) SubmitPendingCoordinationForGeneration(ctx context.Context, id domain.SessionID, generation *int64, steersActiveTurn func(domain.AgentHarness) bool) (Outcome, error) {
+	return g.SubmitPendingCoordinationOwnedForGeneration(ctx, id, generation, "", steersActiveTurn)
+}
+
+func (g *Guard) SubmitPendingCoordinationOwnedForGeneration(ctx context.Context, id domain.SessionID, generation *int64, owner string, steersActiveTurn func(domain.AgentHarness) bool) (Outcome, error) {
+	return g.send(ctx, id, "", true, generation, owner, func(rec domain.SessionRecord) (Outcome, bool) {
 		if rec.Activity.State.NeedsInput() {
 			return SuppressedAwaitingUser, true
 		}
@@ -157,29 +439,185 @@ func (g *Guard) NudgeCoordination(ctx context.Context, id domain.SessionID, msg 
 // appear mid-paste — but the just-in-time read is the strongest guarantee
 // available without scraping the terminal. Fail closed: a store error
 // suppresses the write rather than pressing Enter on an unknown state.
-func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, refuse func(domain.SessionRecord) (Outcome, bool)) (Outcome, error) {
+func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, requirePending bool, expectedGeneration *int64, owner string, refuse func(domain.SessionRecord) (Outcome, bool)) (Outcome, error) {
+	defer g.lockSession(id)()
+	pending, err := g.pendingDraft(ctx, id)
+	if err != nil {
+		return SuppressedUnknown, err
+	}
+	if expectedGeneration != nil {
+		generation, err := g.paneGeneration(ctx, id)
+		if err != nil {
+			return SuppressedUnknown, err
+		}
+		if generation != *expectedGeneration {
+			return PaneReplaced, nil
+		}
+	}
+	if requirePending && !pending {
+		return AlreadySubmitted, nil
+	}
+	if requirePending && pending && owner != "" {
+		store, ok := g.store.(paneReceiptStore)
+		if !ok {
+			return SuppressedUnknown, fmt.Errorf("guard %s: draft ownership unavailable", id)
+		}
+		receiptPending, receiptOwner, complete, _, err := store.PaneDraftReceipt(ctx, id)
+		if err != nil {
+			return SuppressedUnknown, err
+		}
+		if !receiptPending || receiptOwner != owner || !complete {
+			return SuppressedDraftPending, nil
+		}
+	}
+	if pending && msg != "" {
+		return SuppressedDraftPending, nil
+	}
+	var beforePaste domain.SessionRecord
+	checkCount := 0
+	completeMarked := false
+	check := func(checkCtx context.Context) error {
+		outcome, rec, err := g.check(checkCtx, id, refuse)
+		if err != nil {
+			return err
+		}
+		checkCount++
+		if msg != "" && checkCount >= 3 && !completeMarked {
+			if store, ok := g.store.(paneReceiptStore); ok {
+				if err := store.MarkPaneDraftComplete(checkCtx, id, owner); err != nil {
+					return err
+				}
+			}
+			completeMarked = true
+		}
+		// Codex reports both an idle composer and a permission prompt as
+		// waiting_input. A new signal during the paste interval is therefore
+		// unsafe to submit automatically, even if the state name is unchanged.
+		if msg != "" && checkCount >= 3 && rec.Activity.State == domain.ActivityWaitingInput &&
+			!rec.Activity.LastActivityAt.Equal(beforePaste.Activity.LastActivityAt) {
+			return suppressedError{outcome: SuppressedAwaitingUser}
+		}
+		if checkCount <= 2 {
+			beforePaste = rec
+		}
+		if outcome != Sent {
+			return suppressedError{outcome: outcome}
+		}
+		return nil
+	}
+	if err := check(ctx); err != nil {
+		var suppressed suppressedError
+		if errors.As(err, &suppressed) {
+			return suppressed.outcome, nil
+		}
+		return SuppressedUnknown, err
+	}
+	if msg != "" {
+		// Write ahead: a daemon crash between paste and Enter must leave a
+		// durable marker that blocks every later sender from repasting.
+		if err := g.setPendingDraftOwned(ctx, id, owner); err != nil {
+			return SuppressedUnknown, err
+		}
+	} else if pending && requirePending && owner != "" {
+		// Preserve an uncertain Enter as a pending draft with a distinct owner.
+		// Recovery must not submit it again if Enter succeeds but the final
+		// receipt clear fails (or the daemon exits before that clear).
+		attemptedOwner := "enter-attempted\x00" + owner
+		if err := g.setPendingDraftOwned(ctx, id, attemptedOwner); err != nil {
+			return SuppressedUnknown, err
+		}
+		if store, ok := g.store.(paneReceiptStore); ok {
+			if err := store.MarkPaneDraftComplete(ctx, id, attemptedOwner); err != nil {
+				return SuppressedUnknown, err
+			}
+		}
+	}
+	restoreUnsentEnter := func() error {
+		if msg != "" || !pending || !requirePending || owner == "" {
+			return nil
+		}
+		restoreCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if err := g.setPendingDraftOwned(restoreCtx, id, owner); err != nil {
+			return err
+		}
+		if store, ok := g.store.(paneReceiptStore); ok {
+			return store.MarkPaneDraftComplete(restoreCtx, id, owner)
+		}
+		return nil
+	}
+	if messenger, ok := g.messenger.(guardedMessenger); ok {
+		err = messenger.SendGuarded(ctx, id, msg, check)
+	} else {
+		err = g.messenger.Send(ctx, id, msg)
+	}
+	if err == nil && msg != "" && !completeMarked {
+		if store, ok := g.store.(paneReceiptStore); ok {
+			if markErr := store.MarkPaneDraftComplete(ctx, id, owner); markErr != nil {
+				return SuppressedUnknown, markErr
+			}
+		}
+	}
+	if err != nil {
+		if errors.Is(err, ports.ErrPaneDraftIncomplete) {
+			return Incomplete, nil
+		}
+		if errors.Is(err, ports.ErrPaneDraftPending) {
+			if restoreErr := restoreUnsentEnter(); restoreErr != nil {
+				return SuppressedUnknown, errors.Join(err, restoreErr)
+			}
+			return Attempted, nil
+		}
+		if msg == "" && errors.Is(err, ports.ErrPaneWriteNotStarted) {
+			if restoreErr := restoreUnsentEnter(); restoreErr != nil {
+				return SuppressedUnknown, errors.Join(err, restoreErr)
+			}
+		}
+		if errors.Is(err, ports.ErrPaneWriteNotStarted) && msg != "" {
+			if clearErr := g.setPendingDraft(ctx, id, false); clearErr != nil {
+				return SuppressedUnknown, clearErr
+			}
+		}
+		var suppressed suppressedError
+		if errors.As(err, &suppressed) {
+			if restoreErr := restoreUnsentEnter(); restoreErr != nil {
+				return SuppressedUnknown, errors.Join(err, restoreErr)
+			}
+			if msg != "" && !errors.Is(err, ports.ErrPaneWriteNotStarted) {
+				if clearErr := g.setPendingDraft(ctx, id, false); clearErr != nil {
+					return SuppressedUnknown, clearErr
+				}
+			}
+			return suppressed.outcome, nil
+		}
+		return Sent, fmt.Errorf("guard %s: send: %w", id, err)
+	}
+	if err := g.setPendingDraft(ctx, id, false); err != nil {
+		return Sent, err
+	}
+	return Sent, nil
+}
+
+func (g *Guard) check(ctx context.Context, id domain.SessionID, refuse func(domain.SessionRecord) (Outcome, bool)) (Outcome, domain.SessionRecord, error) {
 	rec, ok, err := g.store.GetSession(ctx, id)
 	if err != nil {
-		return SuppressedUnknown, fmt.Errorf("guard %s: read session: %w", id, err)
+		return SuppressedUnknown, rec, fmt.Errorf("guard %s: read session: %w", id, err)
 	}
 	if !ok {
 		g.logger.Info("sessionguard: write suppressed", "sessionID", id, "reason", "not_found")
-		return SuppressedNotFound, nil
+		return SuppressedNotFound, rec, nil
 	}
 	if rec.IsTerminated {
 		g.logger.Info("sessionguard: write suppressed", "sessionID", id, "reason", "terminated")
-		return SuppressedTerminated, nil
+		return SuppressedTerminated, rec, nil
 	}
 	if rec.Activity.State == domain.ActivityExited {
 		g.logger.Info("sessionguard: write suppressed", "sessionID", id, "reason", "agent_exited")
-		return SuppressedExited, nil
+		return SuppressedExited, rec, nil
 	}
 	if outcome, deny := refuse(rec); deny {
 		g.logger.Info("sessionguard: write suppressed", "sessionID", id, "reason", outcome.String(), "state", string(rec.Activity.State))
-		return outcome, nil
+		return outcome, rec, nil
 	}
-	if err := g.messenger.Send(ctx, id, msg); err != nil {
-		return Sent, fmt.Errorf("guard %s: send: %w", id, err)
-	}
-	return Sent, nil
+	return Sent, rec, nil
 }

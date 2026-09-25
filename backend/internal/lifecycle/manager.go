@@ -251,6 +251,22 @@ func (m *Manager) ApplyRuntimeObservation(ctx context.Context, id domain.Session
 // native agent session id carried alongside it. Metadata-only hooks leave the
 // existing activity and first-signal facts untouched.
 func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, s ports.ActivitySignal) error {
+	if s.Event == "user-prompt-submit" {
+		var afterUnlock []func()
+		err := sessionguard.WithSessionLock(id, func() error {
+			return m.applyActivitySignal(ctx, id, s, func(callback func()) {
+				afterUnlock = append(afterUnlock, callback)
+			})
+		})
+		for _, callback := range afterUnlock {
+			callback()
+		}
+		return err
+	}
+	return m.applyActivitySignal(ctx, id, s, nil)
+}
+
+func (m *Manager) applyActivitySignal(ctx context.Context, id domain.SessionID, s ports.ActivitySignal, deferTracker func(func())) error {
 	s.AgentSessionID = strings.TrimSpace(s.AgentSessionID)
 	s.LaunchID = strings.TrimSpace(s.LaunchID)
 	if !s.Valid && s.AgentSessionID == "" {
@@ -314,13 +330,19 @@ func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, 
 		s = m.applyToolPrecedenceLocked(id, rec.Activity.State, s)
 	}
 	if !s.Valid && !metadataChanged {
+		if s.Event == "user-prompt-submit" {
+			rec.UpdatedAt = now
+			_, err := m.updateActivitySession(ctx, rec, s.Event, s.HookObservedAt)
+			m.mu.Unlock()
+			return err
+		}
 		m.mu.Unlock()
 		return nil
 	}
 	if !s.Valid {
 		rec.Metadata.AgentSessionID = s.AgentSessionID
 		rec.UpdatedAt = now
-		err := m.store.UpdateSession(ctx, rec)
+		_, err := m.updateActivitySession(ctx, rec, s.Event, s.HookObservedAt)
 		m.mu.Unlock()
 		return err
 	}
@@ -341,17 +363,28 @@ func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, 
 	if sameState && !rec.FirstSignalAt.IsZero() {
 		if metadataChanged || s.Event == "user-prompt-submit" {
 			rec.UpdatedAt = now
-			err := m.store.UpdateSession(ctx, rec)
+			applied, err := m.updateActivitySession(ctx, rec, s.Event, s.HookObservedAt)
 			m.mu.Unlock()
-			if err == nil && m.reengagement != nil {
-				m.reengagement.ObserveActivity(ctx, rec, rec, s.Event)
+			if err == nil && applied && m.reengagement != nil {
+				tracker := m.reengagement
+				observe := func() { tracker.ObserveActivity(ctx, rec, rec, s.Event) }
+				if deferTracker != nil {
+					deferTracker(observe)
+				} else {
+					observe()
+				}
 			}
 			return err
 		}
 		tracker := m.reengagement
 		m.mu.Unlock()
 		if tracker != nil {
-			tracker.ObserveActivity(ctx, rec, rec, s.Event)
+			observe := func() { tracker.ObserveActivity(ctx, rec, rec, s.Event) }
+			if deferTracker != nil {
+				deferTracker(observe)
+			} else {
+				observe()
+			}
 		}
 		return nil
 	}
@@ -368,9 +401,14 @@ func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, 
 		delete(m.flights, id)
 	}
 	next.UpdatedAt = now
-	if err := m.store.UpdateSession(ctx, next); err != nil {
+	applied, err := m.updateActivitySession(ctx, next, s.Event, s.HookObservedAt)
+	if err != nil {
 		m.mu.Unlock()
 		return err
+	}
+	if !applied {
+		m.mu.Unlock()
+		return nil
 	}
 	// Transition into the needs-input family (waiting_input or blocked) pings
 	// the user; an in-family escalation (waiting_input -> blocked) does not
@@ -388,13 +426,32 @@ func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, 
 	tracker := m.reengagement
 	m.mu.Unlock()
 	if tracker != nil {
-		tracker.ObserveActivity(ctx, rec, next, s.Event)
+		observe := func() { tracker.ObserveActivity(ctx, rec, next, s.Event) }
+		if deferTracker != nil {
+			deferTracker(observe)
+		} else {
+			observe()
+		}
 	}
 	for _, ev := range waitingEvents {
 		m.emitTelemetry(ctx, ev)
 	}
 	m.emitNotification(ctx, intent)
 	return nil
+}
+
+func (m *Manager) updateActivitySession(ctx context.Context, rec domain.SessionRecord, event string, observedAt time.Time) (bool, error) {
+	if event == "user-prompt-submit" {
+		return sessionguard.RecordManualSubmissionLocked(ctx, m.store, rec.ID, observedAt, func() error {
+			if store, ok := m.store.(interface {
+				UpdateSessionAndClearPaneDraft(context.Context, domain.SessionRecord) error
+			}); ok {
+				return store.UpdateSessionAndClearPaneDraft(ctx, rec)
+			}
+			return m.store.UpdateSession(ctx, rec)
+		})
+	}
+	return true, m.store.UpdateSession(ctx, rec)
 }
 
 // toolFlight tracks one session's in-flight tool executions and the pending

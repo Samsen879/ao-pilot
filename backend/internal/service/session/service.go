@@ -678,6 +678,12 @@ func toAPIError(err error) error {
 	case errors.Is(err, sessionmanager.ErrAwaitingDecision):
 		return apierr.Conflict("SESSION_AWAITING_DECISION",
 			"Session is paused on a permission decision; answer it in the session terminal first", nil)
+	case errors.Is(err, sessionmanager.ErrDraftPending):
+		return apierr.Conflict("SESSION_DRAFT_PENDING",
+			"Text reached the session terminal but Enter was withheld; inspect the draft before sending again", nil)
+	case errors.Is(err, sessionmanager.ErrDraftIncomplete):
+		return apierr.Conflict("SESSION_DRAFT_INCOMPLETE",
+			"Only part of the text reached the session terminal; inspect the draft before retrying", nil)
 	case errors.Is(err, sessionmanager.ErrIncompleteHandle):
 		return apierr.Conflict("SESSION_INCOMPLETE_HANDLE", "Session is missing runtime or workspace handles", nil)
 	case errors.Is(err, sessionmanager.ErrNotResumable):

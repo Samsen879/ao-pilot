@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -93,7 +94,7 @@ func (m *Manager) ApplyReviewBatch(ctx context.Context, workerID domain.SessionI
 	if err != nil {
 		return ReviewDeliveryNoop, err
 	}
-	if outcome == sendOnceSuppressed {
+	if outcome == sendOnceSuppressed || outcome == sendOnceAttempted {
 		// The worker went terminated/exited/needs-input between the entry guard and the
 		// paste: nothing reached it, so do NOT let the caller stamp the run
 		// delivered — it must re-fire once the session is workable again.
@@ -292,7 +293,7 @@ func (m *Manager) ApplyReviewResult(ctx context.Context, workerID domain.Session
 	if err != nil {
 		return ReviewDeliveryNoop, err
 	}
-	if outcome == sendOnceSuppressed {
+	if outcome == sendOnceSuppressed || outcome == sendOnceAttempted {
 		// Suppressed by the just-in-time guard (worker went terminated/exited/needs-
 		// input): the review feedback did not reach the worker, so leave the run
 		// undelivered to re-fire on the next observation.
@@ -774,7 +775,20 @@ const (
 	// message did NOT reach the worker; the caller must not mark it delivered so
 	// it re-fires on the next observation once the session is workable again.
 	sendOnceSuppressed
+	// sendOnceAttempted means text reached the pane but Enter was withheld.
+	// Do not retry the paste or claim that the review was delivered.
+	sendOnceAttempted
 )
+
+const partialSendPrefix = "\x00pending-enter\x00"
+
+func partialSendSignature(id domain.SessionID, generation int64, sig string) string {
+	return partialSendPrefix + string(id) + "\x00" + strconv.FormatInt(generation, 10) + "\x00" + sig
+}
+
+func reviewDraftOwner(id domain.SessionID, key, sig string) string {
+	return "review\x00" + string(id) + "\x00" + key + "\x00" + sig
+}
 
 func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key, sig, msg string, maxAttempts int) (sendOnceOutcome, error) {
 	if m.guard == nil {
@@ -793,6 +807,108 @@ func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key,
 	if m.react.seen[key] == sig {
 		return sendOnceAccounted, nil
 	}
+	if strings.HasPrefix(m.react.seen[key], partialSendPrefix) {
+		parts := strings.SplitN(strings.TrimPrefix(m.react.seen[key], partialSendPrefix), "\x00", 3)
+		if len(parts) < 2 || parts[0] != string(id) {
+			// A PR can move to another worker. A pending draft belongs to
+			// its original pane, so never press Enter in the new worker.
+			delete(m.react.seen, key)
+			delete(m.react.attempts, key)
+			if prURL != "" {
+				if err := m.persistPRSignaturesLocked(ctx, prURL); err != nil {
+					return sendOnceSuppressed, err
+				}
+			}
+			return sendOnceSuppressed, nil
+		}
+		// The text is already in the pane. Once the guard says it is safe,
+		// submit that original draft with Enter alone, even if the latest
+		// observation changed signature while the pane was blocked.
+		generation := int64(0)
+		originalSig := parts[1]
+		if len(parts) == 3 {
+			var parseErr error
+			generation, parseErr = strconv.ParseInt(parts[1], 10, 64)
+			if parseErr != nil {
+				return sendOnceSuppressed, parseErr
+			}
+			originalSig = parts[2]
+		}
+		receipt, err := m.guard.PaneDraftReceipt(ctx, id)
+		if err != nil {
+			return sendOnceSuppressed, err
+		}
+		if receipt.Pending && receipt.Owner != reviewDraftOwner(id, key, originalSig) {
+			// Another send owns the current draft, even when the pane generation
+			// has not changed. Never submit it as this review's retry.
+			delete(m.react.seen, key)
+			delete(m.react.attempts, key)
+			if prURL != "" {
+				if err := m.persistPRSignaturesLocked(ctx, prURL); err != nil {
+					return sendOnceSuppressed, err
+				}
+			}
+			return sendOnceSuppressed, nil
+		}
+		outcome, err := m.guard.SubmitPendingNudgeOwnedForGeneration(ctx, id, &generation, reviewDraftOwner(id, key, originalSig))
+		if err != nil {
+			return sendOnceAttempted, err
+		}
+		if outcome == sessionguard.PaneReplaced {
+			delete(m.react.seen, key)
+			delete(m.react.attempts, key)
+			if prURL != "" {
+				if err := m.persistPRSignaturesLocked(ctx, prURL); err != nil {
+					return sendOnceSuppressed, err
+				}
+			}
+			return sendOnceSuppressed, nil
+		}
+		if outcome != sessionguard.Sent && outcome != sessionguard.AlreadySubmitted {
+			return sendOnceAttempted, nil
+		}
+		m.react.seen[key] = originalSig
+		if prURL != "" {
+			if err := m.persistPRSignaturesLocked(ctx, prURL); err != nil {
+				return sendOnceAccounted, err
+			}
+		}
+		if originalSig != sig {
+			return sendOnceSuppressed, nil
+		}
+		return sendOnceAccounted, nil
+	}
+	owner := reviewDraftOwner(id, key, sig)
+	receipt, err := m.guard.PaneDraftReceipt(ctx, id)
+	if err != nil {
+		return sendOnceSuppressed, err
+	}
+	if receipt.Owner == owner {
+		if receipt.Pending && !receipt.Complete {
+			// A failed chunk or crash during paste may have left only a prefix.
+			// Wait for explicit terminal action or pane replacement.
+			return sendOnceSuppressed, nil
+		}
+		if receipt.Complete && receipt.Pending {
+			outcome, err := m.guard.SubmitPendingNudgeOwnedForGeneration(ctx, id, &receipt.Generation, owner)
+			if err != nil {
+				return sendOnceSuppressed, err
+			}
+			if outcome != sessionguard.Sent && outcome != sessionguard.AlreadySubmitted {
+				return sendOnceSuppressed, nil
+			}
+		}
+		if receipt.Complete {
+			m.react.seen[key] = sig
+			m.react.attempts[key]++
+			if prURL != "" {
+				if err := m.persistPRSignaturesLocked(ctx, prURL); err != nil {
+					return sendOnceAccounted, err
+				}
+			}
+			return sendOnceAccounted, nil
+		}
+	}
 	attempts := m.react.attempts[key]
 	if maxAttempts > 0 && attempts >= maxAttempts {
 		return sendOnceAccounted, nil
@@ -806,14 +922,18 @@ func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key,
 	// suppresses (fail closed, nothing was written); a messenger failure means
 	// the write was attempted and stays accounted, matching the pre-guard
 	// behavior.
-	outcome, err := m.guard.Nudge(ctx, id, msg)
+	generation, err := m.guard.PaneGeneration(ctx, id)
 	if err != nil {
-		if outcome != sessionguard.Sent {
+		return sendOnceSuppressed, err
+	}
+	outcome, err := m.guard.NudgeOwnedForGeneration(ctx, id, msg, generation, owner)
+	if err != nil {
+		if outcome != sessionguard.Sent && outcome != sessionguard.Attempted {
 			return sendOnceSuppressed, err
 		}
 		return sendOnceAccounted, err
 	}
-	if outcome != sessionguard.Sent {
+	if outcome != sessionguard.Sent && outcome != sessionguard.Attempted {
 		return sendOnceSuppressed, nil
 	}
 	// Order: Send → in-memory mutation → durable persist. Sending first means a
@@ -822,12 +942,19 @@ func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key,
 	// in-memory dedup). A persist failure that survives until a daemon restart
 	// degrades to one extra nudge — preferred over the inverse (persist before
 	// send, then crash mid-call) which would silently lose a real nudge.
-	m.react.seen[key] = sig
+	if outcome == sessionguard.Attempted {
+		m.react.seen[key] = partialSendSignature(id, generation, sig)
+	} else {
+		m.react.seen[key] = sig
+	}
 	m.react.attempts[key] = attempts + 1
 	if prURL != "" {
 		if err := m.persistPRSignaturesLocked(ctx, prURL); err != nil {
 			return sendOnceAccounted, err
 		}
+	}
+	if outcome == sessionguard.Attempted {
+		return sendOnceAttempted, nil
 	}
 	return sendOnceAccounted, nil
 }

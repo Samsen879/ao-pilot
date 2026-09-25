@@ -4,11 +4,16 @@
 package conpty
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net"
 	"syscall"
 	"time"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 )
 
 const (
@@ -17,8 +22,8 @@ const (
 	ptyInputChunkRunes = 512
 	// ptyInputChunkDelay is the inter-chunk delay. Mirrors PTY_INPUT_CHUNK_DELAY_MS.
 	ptyInputChunkDelay = 15 * time.Millisecond
-	// ptyInputEnterDelay is the pause before sending Enter. Mirrors PTY_INPUT_ENTER_DELAY_MS.
-	ptyInputEnterDelay = 300 * time.Millisecond
+	// Let Codex consume the pasted text before Enter, as on tmux.
+	ptyInputEnterDelay = time.Second
 
 	dialTimeout      = 3 * time.Second
 	getOutputTimeout = 3 * time.Second
@@ -34,11 +39,24 @@ func dialHost(addr string, timeout time.Duration) (net.Conn, error) {
 // MsgTerminalInput frame with 15ms gaps, then pauses 300ms and sends "\r".
 // Mirrors ptyHostSendMessage from pty-client.ts.
 func clientSendMessage(addr, message string) error {
+	return clientSendMessageGuarded(context.Background(), addr, message, nil)
+}
+
+func clientSendMessageGuarded(ctx context.Context, addr, message string, check func(context.Context) error) error {
 	conn, err := dialHost(addr, dialTimeout)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: conpty dial: %v", ports.ErrPaneWriteNotStarted, err)
 	}
 	defer func() { _ = conn.Close() }()
+	return sendMessageOnConn(ctx, conn, message, check)
+}
+
+func sendMessageOnConn(ctx context.Context, conn net.Conn, message string, check func(context.Context) error) error {
+	if check != nil {
+		if err := check(ctx); err != nil {
+			return fmt.Errorf("%w: %w", ports.ErrPaneWriteNotStarted, err)
+		}
+	}
 
 	runes := []rune(message)
 	for i := 0; i < len(runes); i += ptyInputChunkRunes {
@@ -49,10 +67,17 @@ func clientSendMessage(addr, message string) error {
 		chunk := string(runes[i:end])
 		frame, err := EncodeMessage(MsgTerminalInput, []byte(chunk))
 		if err != nil {
-			return err
+			if i == 0 {
+				return fmt.Errorf("%w: %w", ports.ErrPaneWriteNotStarted, err)
+			}
+			return fmt.Errorf("%w: %w", ports.ErrPaneDraftIncomplete, err)
 		}
-		if _, err := conn.Write(frame); err != nil {
-			return err
+		n, err := conn.Write(frame)
+		if err != nil || n != len(frame) {
+			if err == nil {
+				err = io.ErrShortWrite
+			}
+			return fmt.Errorf("%w: %w", ports.ErrPaneDraftIncomplete, err)
 		}
 		// Inter-chunk delay only between chunks, not after the last one.
 		if end < len(runes) {
@@ -67,12 +92,23 @@ func clientSendMessage(addr, message string) error {
 	if len(runes) > 0 {
 		time.Sleep(ptyInputEnterDelay)
 	}
+	if check != nil {
+		if err := check(ctx); err != nil {
+			if len(runes) > 0 {
+				return fmt.Errorf("%w: %v", ports.ErrPaneDraftPending, err)
+			}
+			return fmt.Errorf("%w: %w", ports.ErrPaneWriteNotStarted, err)
+		}
+	}
 	frame, err := EncodeMessage(MsgTerminalInput, []byte("\r"))
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", ports.ErrPaneDraftPending, err)
 	}
 	_, err = conn.Write(frame)
-	return err
+	if err != nil {
+		return fmt.Errorf("%w: %w", ports.ErrPaneDraftPending, err)
+	}
+	return nil
 }
 
 func clientSendInput(addr, input string) error {

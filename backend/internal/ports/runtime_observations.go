@@ -42,6 +42,7 @@ type ActivitySignal struct {
 	Valid             bool
 	State             domain.ActivityState
 	Timestamp         time.Time
+	HookObservedAt    time.Time
 	ExpectedUpdatedAt time.Time
 	Event             string
 	ToolName          string
