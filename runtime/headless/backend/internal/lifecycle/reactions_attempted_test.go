@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
@@ -14,6 +15,8 @@ type attemptedSessionReader struct{}
 type generatedAttemptReader struct {
 	generation int64
 	pending    bool
+	owner      string
+	complete   bool
 }
 
 func (s *generatedAttemptReader) GetSession(ctx context.Context, id domain.SessionID) (domain.SessionRecord, bool, error) {
@@ -24,7 +27,27 @@ func (s *generatedAttemptReader) PaneDraftPending(context.Context, domain.Sessio
 }
 func (s *generatedAttemptReader) SetPaneDraftPending(_ context.Context, _ domain.SessionID, pending bool) error {
 	s.pending = pending
+	if pending {
+		s.owner = ""
+		s.complete = false
+	}
 	return nil
+}
+func (s *generatedAttemptReader) SetPaneDraftOwned(_ context.Context, _ domain.SessionID, owner string) error {
+	s.pending = true
+	s.owner = owner
+	s.complete = false
+	return nil
+}
+func (s *generatedAttemptReader) MarkPaneDraftComplete(_ context.Context, _ domain.SessionID, owner string) error {
+	if s.owner != owner {
+		return errors.New("wrong owner")
+	}
+	s.complete = true
+	return nil
+}
+func (s *generatedAttemptReader) PaneDraftReceipt(context.Context, domain.SessionID) (bool, string, bool, int64, error) {
+	return s.pending, s.owner, s.complete, s.generation, nil
 }
 func (s *generatedAttemptReader) PaneGeneration(context.Context, domain.SessionID) (int64, error) {
 	return s.generation, nil
@@ -32,6 +55,8 @@ func (s *generatedAttemptReader) PaneGeneration(context.Context, domain.SessionI
 func (s *generatedAttemptReader) AdvancePaneGenerationAndClearDraft(context.Context, domain.SessionID) error {
 	s.generation++
 	s.pending = false
+	s.owner = ""
+	s.complete = false
 	return nil
 }
 
@@ -40,6 +65,13 @@ func (attemptedSessionReader) GetSession(context.Context, domain.SessionID) (dom
 }
 
 type attemptedMessenger struct{ messages []string }
+
+type recordingMessenger struct{ messages []string }
+
+func (m *recordingMessenger) Send(_ context.Context, _ domain.SessionID, msg string) error {
+	m.messages = append(m.messages, msg)
+	return nil
+}
 
 func (m *attemptedMessenger) Send(_ context.Context, _ domain.SessionID, msg string) error {
 	m.messages = append(m.messages, msg)
@@ -121,5 +153,28 @@ func TestPaneReplacementRetriesPartialReviewText(t *testing.T) {
 	}
 	if len(messenger.messages) != 2 || messenger.messages[1] != "review text" {
 		t.Fatalf("review was not repasted into new pane: %#v", messenger.messages)
+	}
+}
+
+func TestDurableOwnerRecoversReviewAfterSignatureCrash(t *testing.T) {
+	id := domain.SessionID("review-recovery")
+	owner := reviewDraftOwner(id, "review-key", "A")
+	store := &generatedAttemptReader{pending: true, owner: owner, complete: true}
+	messenger := &recordingMessenger{}
+	m := &Manager{guard: sessionguard.New(store, messenger, nil), react: newReactionState()}
+	outcome, err := m.sendOnce(context.Background(), id, "", "review-key", "A", "full review", 0)
+	if err != nil || outcome != sendOnceAccounted || len(messenger.messages) != 1 || messenger.messages[0] != "" {
+		t.Fatalf("outcome=%v err=%v messages=%#v", outcome, err, messenger.messages)
+	}
+}
+
+func TestIncompleteOwnedReviewNeverSubmitsTruncatedText(t *testing.T) {
+	id := domain.SessionID("incomplete-review")
+	store := &generatedAttemptReader{pending: true, owner: reviewDraftOwner(id, "review-key", "A"), complete: false}
+	messenger := &recordingMessenger{}
+	m := &Manager{guard: sessionguard.New(store, messenger, nil), react: newReactionState()}
+	outcome, err := m.sendOnce(context.Background(), id, "", "review-key", "A", "full review", 0)
+	if err != nil || outcome != sendOnceSuppressed || len(messenger.messages) != 0 {
+		t.Fatalf("outcome=%v err=%v messages=%#v", outcome, err, messenger.messages)
 	}
 }

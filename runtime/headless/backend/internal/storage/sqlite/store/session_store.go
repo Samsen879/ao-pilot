@@ -91,8 +91,46 @@ func (s *Store) PaneDraftPending(ctx context.Context, id domain.SessionID) (bool
 func (s *Store) SetPaneDraftPending(ctx context.Context, id domain.SessionID, pending bool) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	_, err := s.writeDB.ExecContext(ctx, "UPDATE sessions SET pane_draft_pending = ? WHERE id = ?", pending, string(id))
+	_, err := s.writeDB.ExecContext(ctx, `UPDATE sessions SET pane_draft_pending = ?,
+		pane_draft_owner = CASE WHEN ? THEN '' ELSE pane_draft_owner END,
+		pane_draft_complete = CASE WHEN ? THEN 0 ELSE pane_draft_complete END
+		WHERE id = ?`, pending, pending, pending, string(id))
 	return err
+}
+
+func (s *Store) SetPaneDraftOwned(ctx context.Context, id domain.SessionID, owner string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	_, err := s.writeDB.ExecContext(ctx, "UPDATE sessions SET pane_draft_pending = 1, pane_draft_owner = ?, pane_draft_complete = 0 WHERE id = ?", owner, string(id))
+	return err
+}
+
+func (s *Store) MarkPaneDraftComplete(ctx context.Context, id domain.SessionID, owner string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	result, err := s.writeDB.ExecContext(ctx, "UPDATE sessions SET pane_draft_complete = 1 WHERE id = ? AND pane_draft_pending = 1 AND pane_draft_owner = ?", string(id), owner)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return fmt.Errorf("pane draft %s owner changed before completion", id)
+	}
+	return nil
+}
+
+func (s *Store) PaneDraftReceipt(ctx context.Context, id domain.SessionID) (bool, string, bool, int64, error) {
+	var pending, complete bool
+	var owner string
+	var generation int64
+	err := s.readDB.QueryRowContext(ctx, "SELECT pane_draft_pending, pane_draft_owner, pane_draft_complete, pane_generation FROM sessions WHERE id = ?", string(id)).Scan(&pending, &owner, &complete, &generation)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, "", false, 0, nil
+	}
+	return pending, owner, complete, generation, err
 }
 
 func (s *Store) PaneGeneration(ctx context.Context, id domain.SessionID) (int64, error) {
@@ -110,7 +148,7 @@ func (s *Store) AdvancePaneGenerationAndClearDraft(ctx context.Context, id domai
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	_, err := s.writeDB.ExecContext(ctx,
-		"UPDATE sessions SET pane_generation = pane_generation + 1, pane_draft_pending = 0 WHERE id = ?", string(id))
+		"UPDATE sessions SET pane_generation = pane_generation + 1, pane_draft_pending = 0, pane_draft_owner = '', pane_draft_complete = 0 WHERE id = ?", string(id))
 	return err
 }
 

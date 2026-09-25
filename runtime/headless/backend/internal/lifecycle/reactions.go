@@ -786,6 +786,10 @@ func partialSendSignature(id domain.SessionID, generation int64, sig string) str
 	return partialSendPrefix + string(id) + "\x00" + strconv.FormatInt(generation, 10) + "\x00" + sig
 }
 
+func reviewDraftOwner(id domain.SessionID, key, sig string) string {
+	return "review\x00" + string(id) + "\x00" + key + "\x00" + sig
+}
+
 func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key, sig, msg string, maxAttempts int) (sendOnceOutcome, error) {
 	if m.guard == nil {
 		return sendOnceAccounted, nil
@@ -858,6 +862,37 @@ func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key,
 		}
 		return sendOnceAccounted, nil
 	}
+	owner := reviewDraftOwner(id, key, sig)
+	receipt, err := m.guard.PaneDraftReceipt(ctx, id)
+	if err != nil {
+		return sendOnceSuppressed, err
+	}
+	if receipt.Owner == owner {
+		if receipt.Pending && !receipt.Complete {
+			// A failed chunk or crash during paste may have left only a prefix.
+			// Wait for explicit terminal action or pane replacement.
+			return sendOnceSuppressed, nil
+		}
+		if receipt.Complete && receipt.Pending {
+			outcome, err := m.guard.SubmitPendingNudgeForGeneration(ctx, id, &receipt.Generation)
+			if err != nil {
+				return sendOnceSuppressed, err
+			}
+			if outcome != sessionguard.Sent && outcome != sessionguard.AlreadySubmitted {
+				return sendOnceSuppressed, nil
+			}
+		}
+		if receipt.Complete {
+			m.react.seen[key] = sig
+			m.react.attempts[key]++
+			if prURL != "" {
+				if err := m.persistPRSignaturesLocked(ctx, prURL); err != nil {
+					return sendOnceAccounted, err
+				}
+			}
+			return sendOnceAccounted, nil
+		}
+	}
 	attempts := m.react.attempts[key]
 	if maxAttempts > 0 && attempts >= maxAttempts {
 		return sendOnceAccounted, nil
@@ -875,7 +910,7 @@ func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key,
 	if err != nil {
 		return sendOnceSuppressed, err
 	}
-	outcome, err := m.guard.NudgeForGeneration(ctx, id, msg, generation)
+	outcome, err := m.guard.NudgeOwnedForGeneration(ctx, id, msg, generation, owner)
 	if err != nil {
 		if outcome != sessionguard.Sent && outcome != sessionguard.Attempted {
 			return sendOnceSuppressed, err
