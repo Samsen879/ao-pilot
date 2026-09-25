@@ -202,6 +202,60 @@ func TestRootOnlyWorkspaceCustodyPreservesExistingChildPath(t *testing.T) {
 	}
 }
 
+func TestKillRecoversRootOnlyCustodyWithoutMetadata(t *testing.T) {
+	m, s, _, workspace, _ := newSpawnFixture(t)
+	ctx := context.Background()
+	projectPath := t.TempDir()
+	if err := s.UpsertWorkspaceProject(ctx,
+		domain.ProjectRecord{ID: "fixture", Path: projectPath, Kind: domain.ProjectKindWorkspace},
+		[]domain.WorkspaceRepoRecord{{ProjectID: "fixture", Name: "child", RelativePath: "child"}}); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := s.CreateSession(ctx, domain.SessionRecord{ProjectID: "fixture", Kind: domain.KindWorker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(t.TempDir(), "retained-root")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertSessionWorktree(ctx, domain.SessionWorktreeRecord{
+		SessionID: rec.ID, RepoName: domain.RootWorkspaceRepoName, RepoPath: projectPath, WorktreePath: root,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Kill(ctx, rec.ID); err != nil || workspace.destroys != 1 {
+		t.Fatalf("Kill destroys=%d err=%v", workspace.destroys, err)
+	}
+}
+
+func TestPartiallyUpgradedRootMarkerReconstructsChildren(t *testing.T) {
+	m, s, _, _, _ := newSpawnFixture(t)
+	ctx := context.Background()
+	projectPath := t.TempDir()
+	if err := s.UpsertWorkspaceProject(ctx,
+		domain.ProjectRecord{ID: "fixture", Path: projectPath, Kind: domain.ProjectKindWorkspace},
+		[]domain.WorkspaceRepoRecord{{ProjectID: "fixture", Name: "child", RelativePath: "child"}}); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := s.CreateSession(ctx, domain.SessionRecord{ProjectID: "fixture", Kind: domain.KindWorker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(t.TempDir(), "root")
+	rec.Metadata.WorkspacePath = root
+	rec.Metadata.RuntimeHandleID = "running-pane"
+	if err := s.UpsertSessionWorktree(ctx, domain.SessionWorktreeRecord{
+		SessionID: rec.ID, RepoName: domain.RootWorkspaceRepoName, RepoPath: projectPath, WorktreePath: root,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rows, ok, err := m.workspaceProjectRows(ctx, rec)
+	if err != nil || !ok || len(rows) != 2 || rows[0].RepoPath != projectPath || rows[1].Path != filepath.Join(root, "child") {
+		t.Fatalf("partial marker rows=%#v ok=%v err=%v", rows, ok, err)
+	}
+}
+
 func TestPartialWorkspaceCustodyPreservesUnrecordedChild(t *testing.T) {
 	m, s, _, _, _ := newSpawnFixture(t)
 	ctx := context.Background()
