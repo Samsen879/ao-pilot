@@ -257,6 +257,30 @@ function processAlive(pid) {
   }
 }
 
+// PID reuse makes a live PID in running.json insufficient evidence of AO
+// ownership. Return null when the operating system cannot establish identity.
+function daemonPidMatchesBinary(pid, binaryPath) {
+  try {
+    let executable;
+    if (process.platform === 'win32') {
+      const result = spawnSync('powershell.exe', [
+        '-NoProfile', '-NonInteractive', '-Command',
+        `(Get-Process -Id ${pid} -ErrorAction Stop).Path`,
+      ], { encoding: 'utf8', timeout: 2_000, windowsHide: true });
+      if (result.status !== 0) return null;
+      executable = String(result.stdout || '').trim();
+    } else if (process.platform === 'linux') {
+      executable = fs.readlinkSync(`/proc/${pid}/exe`);
+    } else {
+      return null;
+    }
+    if (!executable) return null;
+    return path.normalize(executable).toLowerCase() === path.normalize(fs.realpathSync(binaryPath)).toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
 function statusProbe(runtime, {
   cwd,
   env,
@@ -282,6 +306,7 @@ export async function startVerifiedRuntimeDaemon(runtime, {
   delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   now = () => Date.now(),
   isProcessAlive = processAlive,
+  isDaemonPid = daemonPidMatchesBinary,
 } = {}) {
   const deadline = now() + timeoutMs;
   const probe = () => statusProbe(runtime, {
@@ -308,11 +333,16 @@ export async function startVerifiedRuntimeDaemon(runtime, {
   }
 
   let existingPid = daemonPid(before);
-  // A live recorded PID is ownership evidence even when /healthz times out.
-  // Starting a replacement on an inconclusive probe can race the old daemon
-  // over its SQLite store and run file.
+  const initialIdentity = daemonStarting(before) ? true
+    : existingPid !== null && isProcessAlive(existingPid)
+      ? isDaemonPid(existingPid, runtime.binary_path) : false;
+  // A healthy probe or matching executable proves ownership. For an
+  // inconclusive identity, wait briefly for an owned health response; do not
+  // let a recycled foreign PID block startup for the full recovery deadline.
   let existingDaemon = daemonStarting(before)
-    || (existingPid !== null && isProcessAlive(existingPid));
+    || initialIdentity !== false;
+  let unverifiedPidUntil = existingDaemon && !daemonStarting(before) && initialIdentity === null
+    ? now() + Math.min(10_000, Math.max(0, deadline - now())) : null;
   let spawned = false;
   let spawnedObserved = false;
 
@@ -357,7 +387,7 @@ export async function startVerifiedRuntimeDaemon(runtime, {
   let lastProbe = before;
   let pollDelayMs = pollIntervalMs;
   while (now() < deadline) {
-    await delay(pollDelayMs);
+    await delay(Math.min(pollDelayMs, Math.max(0, deadline - now())));
     if (spawnError) {
       return {
         status: 'failed',
@@ -365,7 +395,8 @@ export async function startVerifiedRuntimeDaemon(runtime, {
         error: spawnError.message,
       };
     }
-    if (now() >= deadline) break;
+    // One final bounded probe is still useful at the deadline: recovery may
+    // have completed during the last backoff interval.
     lastProbe = probe();
     if (spawned && daemonStarting(lastProbe)
       && (child?.pid == null || daemonPid(lastProbe) === child.pid)) {
@@ -378,9 +409,25 @@ export async function startVerifiedRuntimeDaemon(runtime, {
         daemon_status: JSON.parse(lastProbe.stdout),
       };
     }
+    if (existingDaemon && daemonStarting(lastProbe)) {
+      unverifiedPidUntil = null;
+      existingPid = daemonPid(lastProbe);
+    }
+    if (unverifiedPidUntil !== null && existingPid !== null && isProcessAlive(existingPid)) {
+      const identity = isDaemonPid(existingPid, runtime.binary_path);
+      if (identity === true) {
+        unverifiedPidUntil = null;
+      } else if (identity === false) {
+        existingDaemon = false;
+        unverifiedPidUntil = null;
+        const failure = spawnDaemon();
+        if (failure) return failure;
+      }
+    }
     if (existingDaemon && daemonConfirmedGone(lastProbe)
       && (existingPid === null || !isProcessAlive(existingPid))) {
       existingDaemon = false;
+      unverifiedPidUntil = null;
       const failure = spawnDaemon();
       if (failure) return failure;
     } else if (spawned && childExited) {
@@ -396,13 +443,32 @@ export async function startVerifiedRuntimeDaemon(runtime, {
         };
       }
     }
+    if (unverifiedPidUntil !== null && now() >= unverifiedPidUntil) {
+      return {
+        status: 'failed', exit_code: 2,
+        error: `recorded PID ${existingPid} is live but daemon ownership could not be verified`,
+      };
+    }
     pollDelayMs = Math.min(5_000, pollDelayMs * 2);
   }
 
   if (spawned && !childExited && !spawnedObserved) {
     // This invocation's detached child never published a run file or a
-    // healthy recovery probe. Stop it so a later start cannot race it.
+    // healthy recovery probe. Wait for the child to exit before allowing a
+    // retry; SIGTERM alone does not release SQLite or its listener.
     child.kill?.('SIGTERM');
+    const gone = () => childExited || (child?.pid != null && !isProcessAlive(child.pid));
+    for (let i = 0; i < 10 && !gone(); i += 1) await delay(200);
+    if (!gone()) {
+      child.kill?.('SIGKILL');
+      for (let i = 0; i < 5 && !gone(); i += 1) await delay(200);
+    }
+    if (!gone()) {
+      return {
+        status: 'failed', exit_code: 2,
+        error: `unobservable daemon child ${child?.pid ?? 'unknown'} did not exit after termination`,
+      };
+    }
   }
   return {
     status: 'failed',

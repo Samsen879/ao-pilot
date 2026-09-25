@@ -244,9 +244,35 @@ describe('runtime control boundary', () => {
       .mockReturnValueOnce({ status: 0, stdout: '{"state":"ready","pid":42}' });
     const childSpawn = jest.fn();
     const result = await startVerifiedRuntimeDaemon(verified, {
-      syncSpawn, childSpawn, isProcessAlive: () => true, delay: async () => {},
+      syncSpawn, childSpawn, isProcessAlive: () => true, isDaemonPid: () => true, delay: async () => {},
     });
     expect(result.status).toBe('already_running');
+    expect(childSpawn).not.toHaveBeenCalled();
+  });
+
+  it('starts when a recycled PID belongs to another executable', async () => {
+    const syncSpawn = jest.fn()
+      .mockReturnValueOnce({ status: 0, stdout: '{"state":"unhealthy","pid":42}' })
+      .mockReturnValueOnce({ status: 0, stdout: '{"state":"ready","pid":73}' });
+    const childSpawn = jest.fn().mockReturnValue({ once: jest.fn(), unref: jest.fn() });
+    const result = await startVerifiedRuntimeDaemon(verified, {
+      syncSpawn, childSpawn, isProcessAlive: () => true, isDaemonPid: () => false, delay: async () => {},
+    });
+    expect(result).toMatchObject({ status: 'started', exit_code: 0 });
+    expect(childSpawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds an unverified live PID rather than waiting the whole recovery deadline', async () => {
+    const syncSpawn = jest.fn().mockReturnValue({ status: 0, stdout: '{"state":"unhealthy","pid":42}' });
+    const childSpawn = jest.fn();
+    let clock = 0;
+    const result = await startVerifiedRuntimeDaemon(verified, {
+      syncSpawn, childSpawn, isProcessAlive: () => true, isDaemonPid: () => null,
+      now: () => clock, timeoutMs: 30_000, delay: async (ms) => { clock += ms; },
+    });
+    expect(result).toMatchObject({ status: 'failed', exit_code: 2 });
+    expect(result.error).toMatch(/ownership could not be verified/);
+    expect(clock).toBeLessThan(30_000);
     expect(childSpawn).not.toHaveBeenCalled();
   });
 
@@ -372,5 +398,45 @@ describe('runtime control boundary', () => {
     });
     expect(result.status).toBe('failed');
     expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+  });
+
+  it('waits for an unobservable child to exit after SIGTERM', async () => {
+    const callbacks = {};
+    const child = {
+      pid: 91,
+      once: jest.fn((event, callback) => { callbacks[event] = callback; }),
+      unref: jest.fn(), kill: jest.fn(),
+    };
+    let clock = 0;
+    let cleanupWaits = 0;
+    const result = await startVerifiedRuntimeDaemon(verified, {
+      syncSpawn: jest.fn().mockReturnValue({ status: 1, stdout: '' }),
+      childSpawn: jest.fn().mockReturnValue(child),
+      isProcessAlive: () => true,
+      timeoutMs: 1000, now: () => clock,
+      delay: async (ms) => {
+        clock += ms;
+        if (ms === 200 && ++cleanupWaits === 2) callbacks.exit(0, 'SIGTERM');
+      },
+    });
+    expect(result.status).toBe('failed');
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(child.kill).not.toHaveBeenCalledWith('SIGKILL');
+    expect(cleanupWaits).toBe(2);
+  });
+
+  it('performs a final probe at the deadline after a capped backoff', async () => {
+    const syncSpawn = jest.fn()
+      .mockReturnValueOnce({ status: 0, stdout: '{"state":"not_ready","health":"ok","pid":42}' })
+      .mockReturnValueOnce({ status: 0, stdout: '{"state":"not_ready","health":"ok","pid":42}' })
+      .mockReturnValueOnce({ status: 0, stdout: '{"state":"ready","pid":42}' });
+    let clock = 0;
+    const delays = [];
+    const result = await startVerifiedRuntimeDaemon(verified, {
+      syncSpawn, childSpawn: jest.fn(), timeoutMs: 300, now: () => clock,
+      delay: async (ms) => { delays.push(ms); clock += ms; },
+    });
+    expect(result.status).toBe('already_running');
+    expect(delays).toEqual([250, 50]);
   });
 });
