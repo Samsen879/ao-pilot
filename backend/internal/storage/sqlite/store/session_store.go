@@ -92,34 +92,34 @@ func (s *Store) SetPaneDraftPending(ctx context.Context, id domain.SessionID, pe
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	_, err := s.writeDB.ExecContext(ctx, `UPDATE sessions SET pane_draft_pending = ?,
-		pane_draft_marked_at = CASE WHEN ? THEN ? ELSE pane_draft_marked_at END,
+		pane_draft_marked_at = CASE WHEN ? THEN 0 ELSE pane_draft_marked_at END,
 		pane_draft_owner = CASE WHEN ? THEN '' ELSE pane_draft_owner END,
 		pane_draft_complete = CASE WHEN ? THEN 0 ELSE pane_draft_complete END
-		WHERE id = ?`, pending, pending, time.Now().UnixNano(), pending, pending, string(id))
+		WHERE id = ?`, pending, pending, pending, pending, string(id))
 	return err
 }
 
 func (s *Store) SetPaneDraftOwned(ctx context.Context, id domain.SessionID, owner string) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	_, err := s.writeDB.ExecContext(ctx, "UPDATE sessions SET pane_draft_pending = 1, pane_draft_owner = ?, pane_draft_complete = 0, pane_draft_marked_at = ? WHERE id = ?", owner, time.Now().UnixNano(), string(id))
+	_, err := s.writeDB.ExecContext(ctx, "UPDATE sessions SET pane_draft_pending = 1, pane_draft_owner = ?, pane_draft_complete = 0, pane_draft_marked_at = 0 WHERE id = ?", owner, string(id))
 	return err
 }
 
-func (s *Store) PaneDraftMarkedAt(ctx context.Context, id domain.SessionID) (bool, time.Time, error) {
-	var pending bool
+func (s *Store) PaneDraftMarkedAt(ctx context.Context, id domain.SessionID) (bool, bool, time.Time, error) {
+	var pending, complete bool
 	var markedAt int64
-	err := s.readDB.QueryRowContext(ctx, "SELECT pane_draft_pending, pane_draft_marked_at FROM sessions WHERE id = ?", string(id)).Scan(&pending, &markedAt)
+	err := s.readDB.QueryRowContext(ctx, "SELECT pane_draft_pending, pane_draft_complete, pane_draft_marked_at FROM sessions WHERE id = ?", string(id)).Scan(&pending, &complete, &markedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return false, time.Time{}, nil
+		return false, false, time.Time{}, nil
 	}
-	return pending, time.Unix(0, markedAt), err
+	return pending, complete, time.Unix(0, markedAt), err
 }
 
 func (s *Store) MarkPaneDraftComplete(ctx context.Context, id domain.SessionID, owner string) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	result, err := s.writeDB.ExecContext(ctx, "UPDATE sessions SET pane_draft_complete = 1 WHERE id = ? AND pane_draft_pending = 1 AND pane_draft_owner = ?", string(id), owner)
+	result, err := s.writeDB.ExecContext(ctx, "UPDATE sessions SET pane_draft_complete = 1, pane_draft_marked_at = ? WHERE id = ? AND pane_draft_pending = 1 AND pane_draft_owner = ?", time.Now().UnixNano(), string(id), owner)
 	if err != nil {
 		return err
 	}

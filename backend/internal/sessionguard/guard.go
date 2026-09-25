@@ -257,16 +257,31 @@ func ClearPendingPaneDraft(ctx context.Context, store SessionReader, id domain.S
 func RecordManualSubmission(ctx context.Context, store SessionReader, id domain.SessionID, observedAt time.Time, update func() error) (bool, error) {
 	g := &Guard{store: store}
 	defer g.lockSession(id)()
+	return RecordManualSubmissionLocked(ctx, store, id, observedAt, update)
+}
+
+// WithSessionLock gives a submit hook the pane lock before it enters the
+// lifecycle reducer. Permission callbacks can then update lifecycle state
+// while this hook waits for a guarded paste to finish.
+func WithSessionLock(id domain.SessionID, apply func() error) error {
+	g := &Guard{}
+	defer g.lockSession(id)()
+	return apply()
+}
+
+// RecordManualSubmissionLocked requires the caller to hold the pane lock.
+func RecordManualSubmissionLocked(ctx context.Context, store SessionReader, id domain.SessionID, observedAt time.Time, update func() error) (bool, error) {
+	g := &Guard{store: store}
 	if marked, ok := store.(interface {
-		PaneDraftMarkedAt(context.Context, domain.SessionID) (bool, time.Time, error)
+		PaneDraftMarkedAt(context.Context, domain.SessionID) (bool, bool, time.Time, error)
 	}); ok {
-		pending, markedAt, err := marked.PaneDraftMarkedAt(ctx, id)
+		pending, complete, markedAt, err := marked.PaneDraftMarkedAt(ctx, id)
 		if err != nil {
 			return false, err
 		}
 		// An older hook may arrive after another paste. Without an occurrence
 		// timestamp, it cannot prove that it submitted the current draft.
-		if pending && (observedAt.IsZero() || observedAt.Before(markedAt)) {
+		if pending && (!complete || observedAt.IsZero() || observedAt.Before(markedAt)) {
 			return false, nil
 		}
 	}
@@ -446,6 +461,14 @@ func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, requi
 			return err
 		}
 		checkCount++
+		if msg != "" && checkCount >= 3 && !completeMarked {
+			if store, ok := g.store.(paneReceiptStore); ok {
+				if err := store.MarkPaneDraftComplete(checkCtx, id, owner); err != nil {
+					return err
+				}
+			}
+			completeMarked = true
+		}
 		// Codex reports both an idle composer and a permission prompt as
 		// waiting_input. A new signal during the paste interval is therefore
 		// unsafe to submit automatically, even if the state name is unchanged.
@@ -458,14 +481,6 @@ func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, requi
 		}
 		if outcome != Sent {
 			return suppressedError{outcome: outcome}
-		}
-		if msg != "" && owner != "" && checkCount >= 3 && !completeMarked {
-			if store, ok := g.store.(paneReceiptStore); ok {
-				if err := store.MarkPaneDraftComplete(checkCtx, id, owner); err != nil {
-					return err
-				}
-			}
-			completeMarked = true
 		}
 		return nil
 	}
@@ -487,6 +502,13 @@ func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, requi
 		err = messenger.SendGuarded(ctx, id, msg, check)
 	} else {
 		err = g.messenger.Send(ctx, id, msg)
+	}
+	if err == nil && msg != "" && !completeMarked {
+		if store, ok := g.store.(paneReceiptStore); ok {
+			if markErr := store.MarkPaneDraftComplete(ctx, id, owner); markErr != nil {
+				return SuppressedUnknown, markErr
+			}
+		}
 	}
 	if err != nil {
 		if errors.Is(err, ports.ErrPaneDraftIncomplete) {

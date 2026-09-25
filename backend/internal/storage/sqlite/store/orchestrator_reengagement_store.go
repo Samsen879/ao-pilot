@@ -117,6 +117,9 @@ func (s *Store) RecordOrchestratorReengagementAttempt(ctx context.Context, id do
 	if _, err := tx.ExecContext(ctx, "UPDATE orchestrator_reengagements SET pending_enter = 0 WHERE session_id = ?", string(id)); err != nil {
 		return domain.OrchestratorReengagement{}, err
 	}
+	if _, err := tx.ExecContext(ctx, "UPDATE sessions SET pane_draft_owner = '', pane_draft_complete = 0 WHERE id = ? AND pane_draft_pending = 0 AND pane_draft_owner = ?", string(id), "orchestrator\x00"+string(id)); err != nil {
+		return domain.OrchestratorReengagement{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return domain.OrchestratorReengagement{}, err
 	}
