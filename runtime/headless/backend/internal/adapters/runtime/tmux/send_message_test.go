@@ -37,8 +37,8 @@ func TestLaterChunkFailureLeavesPendingDraft(t *testing.T) {
 	runtime.chunkSize = 2
 	runtime.enterDelay = 0
 	err := runtime.SendMessage(context.Background(), ports.RuntimeHandle{ID: "session-a"}, "long message")
-	if !errors.Is(err, ports.ErrPaneDraftPending) || runner.literals != 2 {
-		t.Fatalf("error=%v literals=%d, want pending after two chunks", err, runner.literals)
+	if !errors.Is(err, ports.ErrPaneDraftIncomplete) || runner.literals != 2 {
+		t.Fatalf("error=%v literals=%d, want incomplete draft after two chunks", err, runner.literals)
 	}
 }
 

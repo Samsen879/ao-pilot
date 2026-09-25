@@ -79,6 +79,10 @@ type AgentMessenger interface {
 // after a fresh guard check. Retrying the text would duplicate the draft.
 var ErrPaneDraftPending = errors.New("pane draft pending; Enter was not sent")
 
+// ErrPaneDraftIncomplete means only a prefix may have reached the pane.
+// Enter-only recovery would submit a truncated instruction.
+var ErrPaneDraftIncomplete = errors.New("pane draft incomplete; do not submit")
+
 // ErrPaneWriteNotStarted identifies a failure before any paste reached the
 // pane, so the write-ahead draft marker can be cleared safely.
 var ErrPaneWriteNotStarted = errors.New("pane write not started")

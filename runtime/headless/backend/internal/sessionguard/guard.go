@@ -51,6 +51,9 @@ const (
 	// Attempted means text reached the pane, but Enter was withheld after a
 	// later guard check. Callers must not paste the same text again.
 	Attempted
+	// Incomplete means a paste failed before all text reached the pane.
+	// No automated Enter may submit the truncated instruction.
+	Incomplete
 	// SuppressedNotFound means no session row exists for the id.
 	SuppressedNotFound
 	// SuppressedTerminated means the session is terminated; its pane is gone
@@ -84,6 +87,8 @@ func (o Outcome) String() string {
 		return "sent"
 	case Attempted:
 		return "attempted_unsubmitted"
+	case Incomplete:
+		return "incomplete_unsubmitted"
 	case SuppressedNotFound:
 		return "suppressed_not_found"
 	case SuppressedTerminated:
@@ -119,9 +124,14 @@ type Guard struct {
 
 var sharedLocks = struct {
 	sync.Mutex
-	bySession map[domain.SessionID]*sync.Mutex
+	bySession map[domain.SessionID]*sessionLockEntry
 	pending   map[domain.SessionID]bool
-}{bySession: make(map[domain.SessionID]*sync.Mutex), pending: make(map[domain.SessionID]bool)}
+}{bySession: make(map[domain.SessionID]*sessionLockEntry), pending: make(map[domain.SessionID]bool)}
+
+type sessionLockEntry struct {
+	mu    sync.Mutex
+	users int
+}
 
 type guardedMessenger interface {
 	SendGuarded(context.Context, domain.SessionID, string, func(context.Context) error) error
@@ -142,15 +152,25 @@ func New(store SessionReader, messenger ports.AgentMessenger, logger *slog.Logge
 	return &Guard{store: store, messenger: messenger, logger: logger}
 }
 
-func (g *Guard) sessionLock(id domain.SessionID) *sync.Mutex {
+func (g *Guard) lockSession(id domain.SessionID) func() {
 	sharedLocks.Lock()
-	defer sharedLocks.Unlock()
-	lock := sharedLocks.bySession[id]
-	if lock == nil {
-		lock = &sync.Mutex{}
-		sharedLocks.bySession[id] = lock
+	entry := sharedLocks.bySession[id]
+	if entry == nil {
+		entry = &sessionLockEntry{}
+		sharedLocks.bySession[id] = entry
 	}
-	return lock
+	entry.users++ // includes goroutines waiting on entry.mu
+	sharedLocks.Unlock()
+	entry.mu.Lock()
+	return func() {
+		entry.mu.Unlock()
+		sharedLocks.Lock()
+		entry.users--
+		if entry.users == 0 && sharedLocks.bySession[id] == entry {
+			delete(sharedLocks.bySession, id)
+		}
+		sharedLocks.Unlock()
+	}
 }
 
 func (g *Guard) pendingDraft(ctx context.Context, id domain.SessionID) (bool, error) {
@@ -164,9 +184,7 @@ func (g *Guard) pendingDraft(ctx context.Context, id domain.SessionID) (bool, er
 
 func (g *Guard) setPendingDraft(ctx context.Context, id domain.SessionID, pending bool) error {
 	if store, ok := g.store.(paneDraftStore); ok {
-		if err := store.SetPaneDraftPending(ctx, id, pending); err != nil {
-			return err
-		}
+		return store.SetPaneDraftPending(ctx, id, pending)
 	}
 	sharedLocks.Lock()
 	if pending {
@@ -197,9 +215,7 @@ func (g *Guard) PaneGeneration(ctx context.Context, id domain.SessionID) (int64,
 // lock so an in-flight paste cannot recreate a stale marker afterward.
 func ClearPendingPaneDraft(ctx context.Context, store SessionReader, id domain.SessionID) error {
 	g := &Guard{store: store}
-	lock := g.sessionLock(id)
-	lock.Lock()
-	defer lock.Unlock()
+	defer g.lockSession(id)()
 	return g.setPendingDraft(ctx, id, false)
 }
 
@@ -208,9 +224,7 @@ func ClearPendingPaneDraft(ctx context.Context, store SessionReader, id domain.S
 // should commit activity and durable marker clearance in one transaction.
 func RecordManualSubmission(ctx context.Context, store SessionReader, id domain.SessionID, update func() error) error {
 	g := &Guard{store: store}
-	lock := g.sessionLock(id)
-	lock.Lock()
-	defer lock.Unlock()
+	defer g.lockSession(id)()
 	if err := update(); err != nil {
 		return err
 	}
@@ -222,9 +236,7 @@ func RecordManualSubmission(ctx context.Context, store SessionReader, id domain.
 // the replacement succeeds.
 func ReplacePane(ctx context.Context, store SessionReader, id domain.SessionID, replace func() (ports.RuntimeHandle, error)) (ports.RuntimeHandle, error) {
 	g := &Guard{store: store}
-	lock := g.sessionLock(id)
-	lock.Lock()
-	defer lock.Unlock()
+	defer g.lockSession(id)()
 	handle, err := replace()
 	if err != nil {
 		return handle, err
@@ -253,7 +265,7 @@ func ReplacePane(ctx context.Context, store SessionReader, id domain.SessionID, 
 // never delivered.
 func (g *Guard) Send(ctx context.Context, id domain.SessionID, msg string) error {
 	outcome, err := g.Deliver(ctx, id, msg)
-	if outcome == Attempted || outcome == SuppressedDraftPending {
+	if outcome == Attempted || outcome == Incomplete || outcome == SuppressedDraftPending {
 		return ports.ErrPaneDraftPending
 	}
 	return err
@@ -352,9 +364,7 @@ func (g *Guard) SubmitPendingCoordinationForGeneration(ctx context.Context, id d
 // available without scraping the terminal. Fail closed: a store error
 // suppresses the write rather than pressing Enter on an unknown state.
 func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, requirePending bool, expectedGeneration *int64, refuse func(domain.SessionRecord) (Outcome, bool)) (Outcome, error) {
-	lock := g.sessionLock(id)
-	lock.Lock()
-	defer lock.Unlock()
+	defer g.lockSession(id)()
 	pending, err := g.pendingDraft(ctx, id)
 	if err != nil {
 		return SuppressedUnknown, err
@@ -417,6 +427,9 @@ func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, requi
 		err = g.messenger.Send(ctx, id, msg)
 	}
 	if err != nil {
+		if errors.Is(err, ports.ErrPaneDraftIncomplete) {
+			return Incomplete, nil
+		}
 		if errors.Is(err, ports.ErrPaneDraftPending) {
 			return Attempted, nil
 		}
