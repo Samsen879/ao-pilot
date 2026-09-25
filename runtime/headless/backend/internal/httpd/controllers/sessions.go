@@ -141,11 +141,16 @@ func (c *SessionsController) Register(r chi.Router) {
 	r.Post("/sessions/{sessionId}/kill", c.kill)
 	r.Post("/sessions/{sessionId}/rollback", c.rollback)
 	r.Post("/sessions/{sessionId}/send", c.send)
-	r.Post("/sessions/{sessionId}/activity", c.activity)
 	r.Get("/orchestrators", c.listOrchestrators)
 	r.Post("/orchestrators", c.spawnOrchestrator)
 	r.Get("/orchestrators/{id}", c.getOrchestrator)
 	r.Post("/orchestrators/{id}/done", c.completeOrchestrator)
+}
+
+// RegisterActivity keeps restored-agent hook callbacks reachable while other
+// session routes wait for startup reconciliation.
+func (c *SessionsController) RegisterActivity(r chi.Router) {
+	r.Post("/sessions/{sessionId}/activity", c.activity)
 }
 
 func (c *SessionsController) list(w http.ResponseWriter, r *http.Request) {
