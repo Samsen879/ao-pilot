@@ -234,7 +234,7 @@ func (m *Manager) attempt(ctx context.Context, item domain.OrchestratorReengagem
 	if err != nil {
 		return err
 	}
-	if pendingEnter && receipt.Owner != "" && receipt.Owner != owner {
+	if pendingEnter && receipt.Pending && receipt.Owner != owner {
 		return m.store.ClearOrchestratorReengagementPendingEnter(ctx, rec.ID)
 	}
 	if !pendingEnter && receipt.Owner == owner {

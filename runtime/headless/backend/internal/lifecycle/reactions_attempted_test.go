@@ -83,7 +83,7 @@ func (m *attemptedMessenger) Send(_ context.Context, _ domain.SessionID, msg str
 
 func TestPartialPaneWriteIsNotRetriedOrClaimedDelivered(t *testing.T) {
 	messenger := &attemptedMessenger{}
-	m := &Manager{guard: sessionguard.New(attemptedSessionReader{}, messenger, nil), react: newReactionState()}
+	m := &Manager{guard: sessionguard.New(&generatedAttemptReader{}, messenger, nil), react: newReactionState()}
 	for i, want := range []sendOnceOutcome{sendOnceAttempted, sendOnceAccounted, sendOnceAccounted} {
 		outcome, err := m.sendOnce(context.Background(), "session", "", "review-key", "sha-and-review", "review text", 0)
 		if err != nil || outcome != want {
@@ -97,7 +97,7 @@ func TestPartialPaneWriteIsNotRetriedOrClaimedDelivered(t *testing.T) {
 
 func TestChangedSignatureSubmitsOldDraftBeforeNewMessage(t *testing.T) {
 	messenger := &attemptedMessenger{}
-	m := &Manager{guard: sessionguard.New(attemptedSessionReader{}, messenger, nil), react: newReactionState()}
+	m := &Manager{guard: sessionguard.New(&generatedAttemptReader{}, messenger, nil), react: newReactionState()}
 	for i, input := range []struct {
 		sig, text string
 		want      sendOnceOutcome
@@ -118,7 +118,7 @@ func TestChangedSignatureSubmitsOldDraftBeforeNewMessage(t *testing.T) {
 
 func TestPartialReviewDoesNotPressEnterInReplacementWorker(t *testing.T) {
 	messenger := &attemptedMessenger{}
-	m := &Manager{guard: sessionguard.New(attemptedSessionReader{}, messenger, nil), react: newReactionState()}
+	m := &Manager{guard: sessionguard.New(&generatedAttemptReader{}, messenger, nil), react: newReactionState()}
 	first, err := m.sendOnce(context.Background(), "old-worker", "", "review-key", "A", "old review", 0)
 	if err != nil || first != sendOnceAttempted {
 		t.Fatalf("first outcome=%v err=%v", first, err)
@@ -176,5 +176,20 @@ func TestIncompleteOwnedReviewNeverSubmitsTruncatedText(t *testing.T) {
 	outcome, err := m.sendOnce(context.Background(), id, "", "review-key", "A", "full review", 0)
 	if err != nil || outcome != sendOnceSuppressed || len(messenger.messages) != 0 {
 		t.Fatalf("outcome=%v err=%v messages=%#v", outcome, err, messenger.messages)
+	}
+}
+
+func TestPartialReviewDoesNotSubmitAnotherOwnersDraft(t *testing.T) {
+	id := domain.SessionID("review-owner-changed")
+	store := &generatedAttemptReader{pending: true, owner: "", complete: true}
+	messenger := &recordingMessenger{}
+	m := &Manager{guard: sessionguard.New(store, messenger, nil), react: newReactionState()}
+	m.react.seen["review-key"] = partialSendSignature(id, 0, "A")
+	outcome, err := m.sendOnce(context.Background(), id, "", "review-key", "A", "review text", 0)
+	if err != nil || outcome != sendOnceSuppressed || len(messenger.messages) != 0 {
+		t.Fatalf("outcome=%v err=%v messages=%#v", outcome, err, messenger.messages)
+	}
+	if _, retained := m.react.seen["review-key"]; retained {
+		t.Fatal("stale partial review marker retained")
 	}
 }

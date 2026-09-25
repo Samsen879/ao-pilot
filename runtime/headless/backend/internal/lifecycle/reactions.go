@@ -834,6 +834,22 @@ func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key,
 			}
 			originalSig = parts[2]
 		}
+		receipt, err := m.guard.PaneDraftReceipt(ctx, id)
+		if err != nil {
+			return sendOnceSuppressed, err
+		}
+		if receipt.Pending && receipt.Owner != reviewDraftOwner(id, key, originalSig) {
+			// Another send owns the current draft, even when the pane generation
+			// has not changed. Never submit it as this review's retry.
+			delete(m.react.seen, key)
+			delete(m.react.attempts, key)
+			if prURL != "" {
+				if err := m.persistPRSignaturesLocked(ctx, prURL); err != nil {
+					return sendOnceSuppressed, err
+				}
+			}
+			return sendOnceSuppressed, nil
+		}
 		outcome, err := m.guard.SubmitPendingNudgeForGeneration(ctx, id, &generation)
 		if err != nil {
 			return sendOnceAttempted, err
