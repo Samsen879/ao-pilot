@@ -974,12 +974,18 @@ func (m *Manager) Kill(ctx context.Context, id domain.SessionID) (bool, error) {
 	if ws.Path != "" {
 		release, err := m.beginShellTerminalTeardown(ctx, id)
 		if err != nil {
-			// Same shape as the dirty-workspace refusal below: the worktree is
-			// left alone, but the restore marker still must not survive a user
-			// kill, or the next boot's RestoreAll could resurrect a session the
-			// user explicitly terminated (#2319).
-			if err := m.store.DeleteSessionWorktrees(ctx, id); err != nil {
-				m.logger.Warn("kill: delete restore marker failed", "sessionID", id, "error", err)
+			// The rows are the only custody record when a failed spawn never
+			// persisted WorkspacePath. Keep the active rows for later cleanup;
+			// RestoreAll only accepts removed or legacy restore markers.
+			rows, rowErr := m.store.ListSessionWorktrees(ctx, id)
+			if rowErr != nil {
+				return false, fmt.Errorf("kill %s: retain worktree custody: %w", id, rowErr)
+			}
+			for _, row := range rows {
+				row.State = "active"
+				if rowErr := m.store.UpsertSessionWorktree(ctx, row); rowErr != nil {
+					return false, fmt.Errorf("kill %s: retain repo %s custody: %w", id, row.RepoName, rowErr)
+				}
 			}
 			if err := m.lcm.MarkTerminated(ctx, id); err != nil {
 				return false, fmt.Errorf("kill %s: %w", id, err)
