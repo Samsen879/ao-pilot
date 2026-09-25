@@ -606,7 +606,7 @@ func (r *Runtime) SendMessageGuarded(ctx context.Context, handle ports.RuntimeHa
 				// tmux may apply a chunk before reporting a command error; after
 				// earlier chunks, text is certainly stranded in the pane.
 				// Never invite callers to repaste the whole message.
-				return fmt.Errorf("%w: tmux runtime: send message %s: %v", ports.ErrPaneDraftPending, id, err)
+				return fmt.Errorf("%w: tmux runtime: send message %s: %v", ports.ErrPaneDraftIncomplete, id, err)
 			}
 			if i == 0 {
 				completionBudget := sendCompletionBudget(len(messageChunks), r.timeout, r.enterDelay)

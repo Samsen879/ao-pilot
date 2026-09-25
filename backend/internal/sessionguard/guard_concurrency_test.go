@@ -2,6 +2,7 @@ package sessionguard
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +12,28 @@ import (
 )
 
 type waitingSignalDuringPaste struct{ store *guardedStateStore }
+
+type missingSessionStore struct{}
+
+func (missingSessionStore) GetSession(context.Context, domain.SessionID) (domain.SessionRecord, bool, error) {
+	return domain.SessionRecord{}, false, nil
+}
+
+func TestRejectedSessionIDsDoNotAccumulateLocks(t *testing.T) {
+	guard := New(missingSessionStore{}, &partialMessenger{}, nil)
+	for i := 0; i < 100; i++ {
+		id := domain.SessionID(fmt.Sprintf("missing-%d", i))
+		if outcome, err := guard.Deliver(context.Background(), id, "message"); err != nil || outcome != SuppressedNotFound {
+			t.Fatalf("id=%s outcome=%s err=%v", id, outcome, err)
+		}
+	}
+	sharedLocks.Lock()
+	count := len(sharedLocks.bySession)
+	sharedLocks.Unlock()
+	if count != 0 {
+		t.Fatalf("session lock registry retained %d completed operations", count)
+	}
+}
 
 func (m waitingSignalDuringPaste) Send(context.Context, domain.SessionID, string) error {
 	return nil
