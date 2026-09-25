@@ -518,6 +518,13 @@ func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, requi
 		if err := g.setPendingDraftOwned(ctx, id, owner); err != nil {
 			return SuppressedUnknown, err
 		}
+	} else if pending {
+		// Retire automatic Enter eligibility before touching the pane. An Enter
+		// can succeed even when the subsequent store write fails, so clearing
+		// afterwards would allow recovery to press Enter a second time.
+		if err := g.setPendingDraft(ctx, id, false); err != nil {
+			return SuppressedUnknown, err
+		}
 	}
 	if messenger, ok := g.messenger.(guardedMessenger); ok {
 		err = messenger.SendGuarded(ctx, id, msg, check)
