@@ -251,6 +251,13 @@ func (m *Manager) ApplyRuntimeObservation(ctx context.Context, id domain.Session
 // native agent session id carried alongside it. Metadata-only hooks leave the
 // existing activity and first-signal facts untouched.
 func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, s ports.ActivitySignal) error {
+	if s.Event == "user-prompt-submit" {
+		return sessionguard.WithSessionLock(id, func() error { return m.applyActivitySignal(ctx, id, s) })
+	}
+	return m.applyActivitySignal(ctx, id, s)
+}
+
+func (m *Manager) applyActivitySignal(ctx context.Context, id domain.SessionID, s ports.ActivitySignal) error {
 	s.AgentSessionID = strings.TrimSpace(s.AgentSessionID)
 	s.LaunchID = strings.TrimSpace(s.LaunchID)
 	if !s.Valid && s.AgentSessionID == "" {
@@ -410,7 +417,7 @@ func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, 
 
 func (m *Manager) updateActivitySession(ctx context.Context, rec domain.SessionRecord, event string, observedAt time.Time) (bool, error) {
 	if event == "user-prompt-submit" {
-		return sessionguard.RecordManualSubmission(ctx, m.store, rec.ID, observedAt, func() error {
+		return sessionguard.RecordManualSubmissionLocked(ctx, m.store, rec.ID, observedAt, func() error {
 			if store, ok := m.store.(interface {
 				UpdateSessionAndClearPaneDraft(context.Context, domain.SessionRecord) error
 			}); ok {
