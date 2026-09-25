@@ -48,7 +48,7 @@ const (
 	doctorSectionTools          = "Tools"
 	doctorSectionAgents         = "Agent harnesses"
 	doctorSectionGitHub         = "GitHub"
-	minGitVersion               = "2.25.0"
+	minGitVersion               = "2.36.0"
 	githubDoctorUserAgent       = "ao-agent-orchestrator/doctor"
 	defaultDoctorGitHubRESTBase = "https://api.github.com"
 )

@@ -177,6 +177,7 @@ type Store interface {
 	// presence of any row is the marker; preserved_ref may be empty for clean
 	// worktrees.
 	ListSessionWorktrees(ctx context.Context, id domain.SessionID) ([]domain.SessionWorktreeRecord, error)
+	MarkSessionWorktreesNonRestorable(ctx context.Context, id domain.SessionID) error
 	// DeleteSessionWorktrees consumes stale shutdown-restore markers. Explicit
 	// Kill and successful RestoreAll must remove these rows to prevent
 	// resurrecting sessions the user intentionally terminated.
@@ -977,15 +978,8 @@ func (m *Manager) Kill(ctx context.Context, id domain.SessionID) (bool, error) {
 			// The rows are the only custody record when a failed spawn never
 			// persisted WorkspacePath. Keep the active rows for later cleanup;
 			// RestoreAll only accepts removed or legacy restore markers.
-			rows, rowErr := m.store.ListSessionWorktrees(ctx, id)
-			if rowErr != nil {
-				return false, fmt.Errorf("kill %s: retain worktree custody: %w", id, rowErr)
-			}
-			for _, row := range rows {
-				row.State = "active"
-				if rowErr := m.store.UpsertSessionWorktree(ctx, row); rowErr != nil {
-					return false, fmt.Errorf("kill %s: retain repo %s custody: %w", id, row.RepoName, rowErr)
-				}
+			if err := m.store.MarkSessionWorktreesNonRestorable(ctx, id); err != nil {
+				return false, fmt.Errorf("kill %s: retain worktree custody: %w", id, err)
 			}
 			if err := m.lcm.MarkTerminated(ctx, id); err != nil {
 				return false, fmt.Errorf("kill %s: %w", id, err)

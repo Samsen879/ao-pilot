@@ -239,7 +239,8 @@ func TestKillKeepsCustodyWhenShellTeardownRefuses(t *testing.T) {
 	m, s, _, workspace, _ := newSpawnFixture(t)
 	ctx := context.Background()
 	projectPath := t.TempDir()
-	if err := s.UpsertWorkspaceProject(ctx, domain.ProjectRecord{ID: "fixture", Path: projectPath, Kind: domain.ProjectKindWorkspace}, nil); err != nil {
+	if err := s.UpsertWorkspaceProject(ctx, domain.ProjectRecord{ID: "fixture", Path: projectPath, Kind: domain.ProjectKindWorkspace},
+		[]domain.WorkspaceRepoRecord{{ProjectID: "fixture", Name: "child", RelativePath: "child"}}); err != nil {
 		t.Fatal(err)
 	}
 	rec, err := s.CreateSession(ctx, domain.SessionRecord{ProjectID: "fixture", Kind: domain.KindWorker})
@@ -252,12 +253,17 @@ func TestKillKeepsCustodyWhenShellTeardownRefuses(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.UpsertSessionWorktree(ctx, domain.SessionWorktreeRecord{
+		SessionID: rec.ID, RepoName: "child", RepoPath: filepath.Join(projectPath, "child"), WorktreePath: filepath.Join(root, "child"), State: "removed",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	m.SetShellTerminalCloser(refusingShellTeardown{})
 	if _, err := m.Kill(ctx, rec.ID); err != nil || workspace.destroys != 0 {
 		t.Fatalf("Kill destroys=%d err=%v", workspace.destroys, err)
 	}
 	rows, err := s.ListSessionWorktrees(ctx, rec.ID)
-	if err != nil || len(rows) != 1 || rows[0].WorktreePath != root || rows[0].State != "active" {
+	if err != nil || len(rows) != 2 || rows[0].WorktreePath != root || rows[0].State != "active" || rows[1].State != "active" {
 		t.Fatalf("retained custody rows=%#v err=%v", rows, err)
 	}
 }
