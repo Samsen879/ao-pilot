@@ -9,12 +9,15 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/config"
 	"github.com/aoagents/agent-orchestrator/backend/internal/runfile"
 	"github.com/aoagents/agent-orchestrator/backend/internal/terminal"
 )
+
+const runFileRepairInterval = 5 * time.Second
 
 // Server is the daemon's HTTP server together with its lifecycle: bind the
 // loopback port, publish the running.json handshake, serve until the context
@@ -27,6 +30,8 @@ type Server struct {
 
 	shutdownRequested chan struct{}
 	shutdownOnce      sync.Once
+	ready             atomic.Bool
+	serveStarted      chan struct{}
 }
 
 // NewWithDeps constructs a Server with API dependencies supplied by the daemon
@@ -63,10 +68,12 @@ func NewWithDeps(cfg config.Config, log *slog.Logger, termMgr *terminal.Manager,
 		log:               log,
 		listen:            ln,
 		shutdownRequested: make(chan struct{}),
+		serveStarted:      make(chan struct{}),
 	}
 	srv.http = &http.Server{
 		Handler: NewRouterWithControl(cfg, log, termMgr, deps, ControlDeps{
 			RequestShutdown: srv.requestShutdown,
+			IsReady:         srv.ready.Load,
 		}),
 		// ReadHeaderTimeout guards against slow-loris even on loopback;
 		// per-request body/handler timeouts are applied per-surface.
@@ -83,6 +90,24 @@ func (s *Server) Addr() net.Addr { return s.listen.Addr() }
 // the exact same handler instance with the LAN listener (via NewMobileLAN),
 // keeping the loopback and LAN surfaces identical.
 func (s *Server) Handler() http.Handler { return s.http.Handler }
+
+// MarkReady opens the REST API and readiness probe after boot reconciliation.
+func (s *Server) MarkReady() { s.ready.Store(true) }
+
+// ServeStarted closes once the HTTP server enters its accept loop, after the
+// run file is written. Restored agents can then deliver startup hooks.
+func (s *Server) ServeStarted() <-chan struct{} { return s.serveStarted }
+
+type servingListener struct {
+	net.Listener
+	once    sync.Once
+	started chan struct{}
+}
+
+func (l *servingListener) Accept() (net.Conn, error) {
+	l.once.Do(func() { close(l.started) })
+	return l.Listener.Accept()
+}
 
 // Run serves until ctx is cancelled (SIGINT/SIGTERM via signal.NotifyContext),
 // then performs a graceful shutdown bounded by cfg.ShutdownTimeout. It writes
@@ -101,7 +126,12 @@ func (s *Server) Run(ctx context.Context) error {
 		_ = s.listen.Close()
 		return fmt.Errorf("write run-file: %w", err)
 	}
+	repairCtx, cancelRepair := context.WithCancel(ctx)
+	repairDone := make(chan struct{})
+	go s.maintainRunFile(repairCtx, repairDone, info)
 	defer func() {
+		cancelRepair()
+		<-repairDone
 		if err := runfile.RemoveIfOwned(s.cfg.RunFilePath, info.PID); err != nil {
 			s.log.Warn("failed to remove run-file", "path", s.cfg.RunFilePath, "err", err)
 		}
@@ -111,7 +141,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go func() {
 		s.log.Info("daemon listening", "addr", s.Addr().String(), "pid", info.PID)
 		// Serve returns ErrServerClosed on a clean Shutdown; that is success.
-		if err := s.http.Serve(s.listen); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := s.http.Serve(&servingListener{Listener: s.listen, started: s.serveStarted}); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serveErr <- err
 			return
 		}
@@ -141,6 +171,27 @@ func (s *Server) Run(ctx context.Context) error {
 
 	s.log.Info("daemon stopped cleanly")
 	return <-serveErr
+}
+
+func (s *Server) maintainRunFile(ctx context.Context, done chan<- struct{}, info runfile.Info) {
+	defer close(done)
+	ticker := time.NewTicker(runFileRepairInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			restored, err := runfile.RestoreIfMissing(s.cfg.RunFilePath, info)
+			if err != nil {
+				s.log.Warn("failed to inspect daemon run-file", "path", s.cfg.RunFilePath, "err", err)
+				continue
+			}
+			if restored {
+				s.log.Warn("restored missing daemon run-file", "path", s.cfg.RunFilePath, "pid", info.PID)
+			}
+		}
+	}
 }
 
 func (s *Server) boundPort() int {
