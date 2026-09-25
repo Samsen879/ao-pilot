@@ -262,18 +262,20 @@ describe('runtime control boundary', () => {
     expect(childSpawn).toHaveBeenCalledTimes(1);
   });
 
-  it('bounds an unverified live PID rather than waiting the whole recovery deadline', async () => {
-    const syncSpawn = jest.fn().mockReturnValue({ status: 0, stdout: '{"state":"unhealthy","pid":42}' });
-    const childSpawn = jest.fn();
-    let clock = 0;
-    const result = await startVerifiedRuntimeDaemon(verified, {
-      syncSpawn, childSpawn, isProcessAlive: () => true, isDaemonPid: () => null,
-      now: () => clock, timeoutMs: 30_000, delay: async (ms) => { clock += ms; },
-    });
-    expect(result).toMatchObject({ status: 'failed', exit_code: 2 });
-    expect(result.error).toMatch(/ownership could not be verified/);
-    expect(clock).toBeLessThan(30_000);
-    expect(childSpawn).not.toHaveBeenCalled();
+  it('bounds a live PID without verified health, even for the same executable', async () => {
+    for (const identity of [null, true]) {
+      const syncSpawn = jest.fn().mockReturnValue({ status: 0, stdout: '{"state":"unhealthy","pid":42}' });
+      const childSpawn = jest.fn();
+      let clock = 0;
+      const result = await startVerifiedRuntimeDaemon(verified, {
+        syncSpawn, childSpawn, isProcessAlive: () => true, isDaemonPid: () => identity,
+        now: () => clock, timeoutMs: 30_000, delay: async (ms) => { clock += ms; },
+      });
+      expect(result).toMatchObject({ status: 'failed', exit_code: 2 });
+      expect(result.error).toMatch(/ownership could not be verified/);
+      expect(clock).toBeLessThan(30_000);
+      expect(childSpawn).not.toHaveBeenCalled();
+    }
   });
 
   it('starts a replacement when the recovering daemon is confirmed gone', async () => {

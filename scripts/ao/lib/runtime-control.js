@@ -341,7 +341,7 @@ export async function startVerifiedRuntimeDaemon(runtime, {
   // let a recycled foreign PID block startup for the full recovery deadline.
   let existingDaemon = daemonStarting(before)
     || initialIdentity !== false;
-  let unverifiedPidUntil = existingDaemon && !daemonStarting(before) && initialIdentity === null
+  let unverifiedPidUntil = existingDaemon && !daemonStarting(before)
     ? now() + Math.min(10_000, Math.max(0, deadline - now())) : null;
   let spawned = false;
   let spawnedObserved = false;
@@ -415,9 +415,7 @@ export async function startVerifiedRuntimeDaemon(runtime, {
     }
     if (unverifiedPidUntil !== null && existingPid !== null && isProcessAlive(existingPid)) {
       const identity = isDaemonPid(existingPid, runtime.binary_path);
-      if (identity === true) {
-        unverifiedPidUntil = null;
-      } else if (identity === false) {
+      if (identity === false) {
         existingDaemon = false;
         unverifiedPidUntil = null;
         const failure = spawnDaemon();
