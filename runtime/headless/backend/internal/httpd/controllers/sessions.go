@@ -914,6 +914,9 @@ func (c *SessionsController) activity(w http.ResponseWriter, r *http.Request) {
 		AgentSessionID: agentSessionID,
 		LaunchID:       capActivityMeta(domain.SanitizeControlChars(strings.TrimSpace(in.LaunchID))),
 	}
+	if in.HookObservedAt != "" {
+		sig.HookObservedAt, _ = time.Parse(time.RFC3339Nano, in.HookObservedAt)
+	}
 	if err := c.Activity.ApplyActivitySignal(r.Context(), sessionID(r), sig); err != nil {
 		if errors.Is(err, ports.ErrSessionNotFound) {
 			envelope.WriteAPIError(w, r, http.StatusNotFound, "not_found", "SESSION_NOT_FOUND", "Unknown session", nil)
