@@ -949,6 +949,14 @@ func (m *Manager) Kill(ctx context.Context, id domain.SessionID) (bool, error) {
 	} else if ok {
 		workspaceProjectRows = rows
 		workspaceProject = true
+		if ws.Path == "" {
+			for _, row := range rows {
+				if row.RepoName == domain.RootWorkspaceRepoName || row.RepoName == "" {
+					ws = workspaceInfoFromRepoInfo(row)
+					break
+				}
+			}
+		}
 	}
 
 	if handle.ID != "" {
@@ -1818,24 +1826,29 @@ func (m *Manager) workspaceProjectRestoreRows(ctx context.Context, project domai
 }
 
 func (m *Manager) workspaceProjectRestoreRowsFromMarkers(ctx context.Context, project domain.ProjectRecord, rec domain.SessionRecord, rows []domain.SessionWorktreeRecord) ([]ports.WorkspaceRepoInfo, error) {
-	if len(rows) > 1 || (len(rows) == 1 && rows[0].RepoPath != "") {
+	if len(rows) > 1 {
 		return m.sessionWorktreeRowsToRepoInfos(ctx, project, rec, rows)
 	}
 	childRepos, err := m.store.ListWorkspaceRepos(ctx, project.ID)
 	if err != nil {
 		return nil, err
 	}
+	if len(rows) == 1 && rows[0].RepoPath != "" && (rec.Metadata.RuntimeHandleID == "" || len(childRepos) == 0) {
+		return m.sessionWorktreeRowsToRepoInfos(ctx, project, rec, rows)
+	}
 	rootPath := rec.Metadata.WorkspacePath
 	rootBranch := rec.Metadata.Branch
+	rootRepoPath := project.Path
 	var rootBaseSHA string
 	if len(rows) == 1 && (rows[0].RepoName == "" || rows[0].RepoName == domain.RootWorkspaceRepoName) {
 		rootPath = firstNonEmptyString(rows[0].WorktreePath, rootPath)
 		rootBranch = firstNonEmptyString(rows[0].Branch, rootBranch)
 		rootBaseSHA = rows[0].BaseSHA
+		rootRepoPath = firstNonEmptyString(rows[0].RepoPath, rootRepoPath)
 	}
 	out := []ports.WorkspaceRepoInfo{{
 		RepoName:  domain.RootWorkspaceRepoName,
-		RepoPath:  project.Path,
+		RepoPath:  rootRepoPath,
 		Path:      rootPath,
 		Branch:    rootBranch,
 		BaseSHA:   rootBaseSHA,
@@ -1861,56 +1874,7 @@ func (m *Manager) workspaceProjectRows(ctx context.Context, rec domain.SessionRe
 	if err != nil {
 		return nil, false, err
 	}
-	if rec.Metadata.WorkspacePath != "" {
-		project, err := m.loadProject(ctx, rec.ProjectID)
-		if err != nil {
-			return nil, false, err
-		}
-		if project.Kind.WithDefault() == domain.ProjectKindWorkspace {
-			if len(rows) == 0 {
-				if rec.Metadata.RuntimeHandleID != "" {
-					infos, err := m.workspaceProjectRestoreRowsFromMarkers(ctx, project, rec, rows)
-					return infos, err == nil, err
-				}
-				return nil, false, fmt.Errorf("workspace project %s: preserve root without any repository custody rows", rec.ID)
-			}
-			childRepos, err := m.store.ListWorkspaceRepos(ctx, project.ID)
-			if err != nil {
-				return nil, false, err
-			}
-			// A running legacy workspace-project session may have only the root
-			// marker. Its runtime handle proves spawn advanced past workspace
-			// bookkeeping; reconstruct the configured child rows for cleanup.
-			// A failed create has no runtime handle and must retain its parent
-			// whenever an unrecorded child path exists.
-			if len(rows) == 1 && (rows[0].RepoName == "" || rows[0].RepoName == domain.RootWorkspaceRepoName) && rec.Metadata.RuntimeHandleID != "" {
-				infos, err := m.workspaceProjectRestoreRowsFromMarkers(ctx, project, rec, rows)
-				return infos, err == nil, err
-			}
-			owned := make(map[string]bool, len(rows))
-			for _, row := range rows {
-				owned[row.RepoName] = true
-			}
-			if owned[""] {
-				owned[domain.RootWorkspaceRepoName] = true
-			}
-			if !owned[domain.RootWorkspaceRepoName] {
-				return nil, false, fmt.Errorf("workspace project %s: root path exists without custody", rec.ID)
-			}
-			for _, child := range childRepos {
-				if owned[child.Name] {
-					continue
-				}
-				childPath := filepath.Join(rec.Metadata.WorkspacePath, filepath.FromSlash(child.RelativePath))
-				if _, err := os.Lstat(childPath); err == nil {
-					return nil, false, fmt.Errorf("workspace project %s: preserve root while child path %q exists without custody", rec.ID, childPath)
-				} else if !errors.Is(err, os.ErrNotExist) {
-					return nil, false, fmt.Errorf("workspace project %s: inspect child path %q: %w", rec.ID, childPath, err)
-				}
-			}
-		}
-	}
-	if len(rows) <= 1 {
+	if len(rows) == 0 && rec.Metadata.WorkspacePath == "" {
 		return nil, false, nil
 	}
 	project, err := m.loadProject(ctx, rec.ProjectID)
@@ -1919,6 +1883,49 @@ func (m *Manager) workspaceProjectRows(ctx context.Context, rec domain.SessionRe
 	}
 	if project.Kind.WithDefault() != domain.ProjectKindWorkspace {
 		return nil, false, nil
+	}
+	if len(rows) == 0 {
+		if rec.Metadata.RuntimeHandleID != "" {
+			infos, err := m.workspaceProjectRestoreRowsFromMarkers(ctx, project, rec, rows)
+			return infos, err == nil, err
+		}
+		return nil, false, fmt.Errorf("workspace project %s: preserve root without any repository custody rows", rec.ID)
+	}
+	rootPath := rec.Metadata.WorkspacePath
+	owned := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		owned[row.RepoName] = true
+		if row.RepoName == "" || row.RepoName == domain.RootWorkspaceRepoName {
+			rootPath = firstNonEmptyString(row.WorktreePath, rootPath)
+		}
+	}
+	if owned[""] {
+		owned[domain.RootWorkspaceRepoName] = true
+	}
+	if !owned[domain.RootWorkspaceRepoName] || rootPath == "" {
+		return nil, false, fmt.Errorf("workspace project %s: root path exists without custody", rec.ID)
+	}
+	// A live runtime proves the legacy root-only marker was written after
+	// creating its configured children. Reconstruct them even if a later
+	// attempt to upgrade that root marker wrote RepoPath first.
+	if len(rows) == 1 && rec.Metadata.RuntimeHandleID != "" {
+		infos, err := m.workspaceProjectRestoreRowsFromMarkers(ctx, project, rec, rows)
+		return infos, err == nil, err
+	}
+	childRepos, err := m.store.ListWorkspaceRepos(ctx, project.ID)
+	if err != nil {
+		return nil, false, err
+	}
+	for _, child := range childRepos {
+		if owned[child.Name] {
+			continue
+		}
+		childPath := filepath.Join(rootPath, filepath.FromSlash(child.RelativePath))
+		if _, err := os.Lstat(childPath); err == nil {
+			return nil, false, fmt.Errorf("workspace project %s: preserve root while child path %q exists without custody", rec.ID, childPath)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, false, fmt.Errorf("workspace project %s: inspect child path %q: %w", rec.ID, childPath, err)
+		}
 	}
 	infos, err := m.sessionWorktreeRowsToRepoInfos(ctx, project, rec, rows)
 	if err != nil {
