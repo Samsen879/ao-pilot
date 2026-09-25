@@ -244,10 +244,11 @@ func TestManualSubmissionWaitsForPaneSend(t *testing.T) {
 	updated := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		done <- RecordManualSubmission(context.Background(), store, id, func() error {
+		_, err := RecordManualSubmission(context.Background(), store, id, time.Now(), func() error {
 			close(updated)
 			return nil
 		})
+		done <- err
 	}()
 	select {
 	case <-updated:

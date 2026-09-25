@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
@@ -253,13 +254,26 @@ func ClearPendingPaneDraft(ctx context.Context, store SessionReader, id domain.S
 // RecordManualSubmission keeps the activity update and draft clearance under
 // the same per-session lock used by guarded pane sends. The update callback
 // should commit activity and durable marker clearance in one transaction.
-func RecordManualSubmission(ctx context.Context, store SessionReader, id domain.SessionID, update func() error) error {
+func RecordManualSubmission(ctx context.Context, store SessionReader, id domain.SessionID, observedAt time.Time, update func() error) (bool, error) {
 	g := &Guard{store: store}
 	defer g.lockSession(id)()
-	if err := update(); err != nil {
-		return err
+	if marked, ok := store.(interface {
+		PaneDraftMarkedAt(context.Context, domain.SessionID) (bool, time.Time, error)
+	}); ok {
+		pending, markedAt, err := marked.PaneDraftMarkedAt(ctx, id)
+		if err != nil {
+			return false, err
+		}
+		// An older hook may arrive after another paste. Without an occurrence
+		// timestamp, it cannot prove that it submitted the current draft.
+		if pending && (observedAt.IsZero() || observedAt.Before(markedAt)) {
+			return false, nil
+		}
 	}
-	return g.setPendingDraft(ctx, id, false)
+	if err := update(); err != nil {
+		return false, err
+	}
+	return true, g.setPendingDraft(ctx, id, false)
 }
 
 // ReplacePane serializes a runtime replacement with guarded sends. A pending

@@ -316,7 +316,7 @@ func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, 
 	if !s.Valid && !metadataChanged {
 		if s.Event == "user-prompt-submit" {
 			rec.UpdatedAt = now
-			err := m.updateActivitySession(ctx, rec, s.Event)
+			_, err := m.updateActivitySession(ctx, rec, s.Event, s.HookObservedAt)
 			m.mu.Unlock()
 			return err
 		}
@@ -326,7 +326,7 @@ func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, 
 	if !s.Valid {
 		rec.Metadata.AgentSessionID = s.AgentSessionID
 		rec.UpdatedAt = now
-		err := m.updateActivitySession(ctx, rec, s.Event)
+		_, err := m.updateActivitySession(ctx, rec, s.Event, s.HookObservedAt)
 		m.mu.Unlock()
 		return err
 	}
@@ -347,9 +347,9 @@ func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, 
 	if sameState && !rec.FirstSignalAt.IsZero() {
 		if metadataChanged || s.Event == "user-prompt-submit" {
 			rec.UpdatedAt = now
-			err := m.updateActivitySession(ctx, rec, s.Event)
+			applied, err := m.updateActivitySession(ctx, rec, s.Event, s.HookObservedAt)
 			m.mu.Unlock()
-			if err == nil && m.reengagement != nil {
+			if err == nil && applied && m.reengagement != nil {
 				m.reengagement.ObserveActivity(ctx, rec, rec, s.Event)
 			}
 			return err
@@ -374,9 +374,14 @@ func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, 
 		delete(m.flights, id)
 	}
 	next.UpdatedAt = now
-	if err := m.updateActivitySession(ctx, next, s.Event); err != nil {
+	applied, err := m.updateActivitySession(ctx, next, s.Event, s.HookObservedAt)
+	if err != nil {
 		m.mu.Unlock()
 		return err
+	}
+	if !applied {
+		m.mu.Unlock()
+		return nil
 	}
 	// Transition into the needs-input family (waiting_input or blocked) pings
 	// the user; an in-family escalation (waiting_input -> blocked) does not
@@ -403,9 +408,9 @@ func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, 
 	return nil
 }
 
-func (m *Manager) updateActivitySession(ctx context.Context, rec domain.SessionRecord, event string) error {
+func (m *Manager) updateActivitySession(ctx context.Context, rec domain.SessionRecord, event string, observedAt time.Time) (bool, error) {
 	if event == "user-prompt-submit" {
-		return sessionguard.RecordManualSubmission(ctx, m.store, rec.ID, func() error {
+		return sessionguard.RecordManualSubmission(ctx, m.store, rec.ID, observedAt, func() error {
 			if store, ok := m.store.(interface {
 				UpdateSessionAndClearPaneDraft(context.Context, domain.SessionRecord) error
 			}); ok {
@@ -414,7 +419,7 @@ func (m *Manager) updateActivitySession(ctx context.Context, rec domain.SessionR
 			return m.store.UpdateSession(ctx, rec)
 		})
 	}
-	return m.store.UpdateSession(ctx, rec)
+	return true, m.store.UpdateSession(ctx, rec)
 }
 
 // toolFlight tracks one session's in-flight tool executions and the pending
