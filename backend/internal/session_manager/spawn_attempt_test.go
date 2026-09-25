@@ -186,6 +186,9 @@ func TestRootOnlyWorkspaceCustodyPreservesExistingChildPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec.Metadata.WorkspacePath = root
+	if _, _, err := m.workspaceProjectRows(ctx, rec); err == nil {
+		t.Fatal("zero-row cleanup accepted a workspace project without custody")
+	}
 	if err := s.UpsertSessionWorktree(ctx, domain.SessionWorktreeRecord{SessionID: rec.ID, RepoName: domain.RootWorkspaceRepoName, WorktreePath: root, State: "active"}); err != nil {
 		t.Fatal(err)
 	}
