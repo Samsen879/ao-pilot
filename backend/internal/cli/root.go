@@ -5,6 +5,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -179,7 +180,7 @@ func NewRootCommand(deps Deps) *cobra.Command {
 		return usageError{err}
 	})
 
-	root.AddCommand(newDaemonCommand())
+	root.AddCommand(newDaemonCommand(ctx))
 	root.AddCommand(newStartCommand(ctx))
 	root.AddCommand(newStopCommand(ctx))
 	root.AddCommand(newStatusCommand(ctx))
@@ -329,13 +330,16 @@ func atMostOneArg(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func newDaemonCommand() *cobra.Command {
+func newDaemonCommand(ctx *commandContext) *cobra.Command {
 	return &cobra.Command{
 		Use:    "daemon",
 		Short:  "Run the AO backend daemon",
 		Hidden: true,
 		Args:   noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if check := ctx.checkGit(cmd.Context()); check.Level != doctorPass {
+				return fmt.Errorf("git prerequisite: %s", check.Message)
+			}
 			return daemon.Run()
 		},
 	}
