@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,45 @@ import (
 )
 
 type recordingConn struct{ writes int }
+
+type failingFrameConn struct {
+	recordingConn
+	failAt int
+	wrote  int
+	err    error
+}
+
+func (c *failingFrameConn) Write(p []byte) (int, error) {
+	c.writes++
+	if c.writes == c.failAt {
+		return c.wrote, c.err
+	}
+	return len(p), nil
+}
+
+func TestConPTYClassifiesFailedFrameByBytesAlreadyWritten(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		text     string
+		failAt   int
+		wrote    int
+		writeErr error
+		want     error
+	}{
+		{"first frame zero with error", "review text", 1, 0, io.ErrClosedPipe, ports.ErrPaneWriteNotStarted},
+		{"first frame zero short write", "review text", 1, 0, nil, ports.ErrPaneWriteNotStarted},
+		{"first frame partial", "review text", 1, 1, io.ErrClosedPipe, ports.ErrPaneDraftIncomplete},
+		{"later frame zero", strings.Repeat("a", ptyInputChunkRunes+1), 2, 0, io.ErrClosedPipe, ports.ErrPaneDraftIncomplete},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			conn := &failingFrameConn{failAt: tc.failAt, wrote: tc.wrote, err: tc.writeErr}
+			err := sendMessageOnConn(context.Background(), conn, tc.text, nil)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("error=%v, want %v", err, tc.want)
+			}
+		})
+	}
+}
 
 func (c *recordingConn) Read([]byte) (int, error)         { return 0, io.EOF }
 func (c *recordingConn) Write(p []byte) (int, error)      { c.writes++; return len(p), nil }

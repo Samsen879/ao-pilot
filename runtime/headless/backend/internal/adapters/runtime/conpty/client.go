@@ -77,6 +77,9 @@ func sendMessageOnConn(ctx context.Context, conn net.Conn, message string, check
 			if err == nil {
 				err = io.ErrShortWrite
 			}
+			if i == 0 && n == 0 {
+				return fmt.Errorf("%w: %w", ports.ErrPaneWriteNotStarted, err)
+			}
 			return fmt.Errorf("%w: %w", ports.ErrPaneDraftIncomplete, err)
 		}
 		// Inter-chunk delay only between chunks, not after the last one.
