@@ -37,6 +37,10 @@ type Store interface {
 	MarkOrchestratorReengagementProgress(ctx context.Context, id domain.SessionID, now time.Time) error
 	ListDueOrchestratorReengagements(ctx context.Context, now time.Time) ([]domain.OrchestratorReengagement, error)
 	RecordOrchestratorReengagementAttempt(ctx context.Context, id domain.SessionID, next, now time.Time, maxAttempts int) (domain.OrchestratorReengagement, error)
+	GetOrchestratorReengagement(ctx context.Context, id domain.SessionID) (domain.OrchestratorReengagement, bool, error)
+	OrchestratorReengagementPendingEnter(ctx context.Context, id domain.SessionID) (bool, int64, error)
+	DeferOrchestratorReengagementPendingEnter(ctx context.Context, id domain.SessionID, generation int64, next, now time.Time) error
+	ClearOrchestratorReengagementPendingEnter(ctx context.Context, id domain.SessionID) error
 	ListPendingOrchestratorAttention(ctx context.Context) ([]domain.OrchestratorReengagement, error)
 	MarkOrchestratorAttentionNotified(ctx context.Context, id domain.SessionID, now time.Time) (bool, error)
 	CompleteOrchestratorReengagement(ctx context.Context, id domain.SessionID, now time.Time) (bool, error)
@@ -120,10 +124,39 @@ func (m *Manager) Start(ctx context.Context) <-chan struct{} {
 
 // ObserveActivity records productive activity and schedules new idle periods.
 func (m *Manager) ObserveActivity(ctx context.Context, before, after domain.SessionRecord, event string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if after.Kind != domain.KindOrchestrator || after.IsTerminated {
 		return
 	}
 	now := m.clock().UTC()
+	if event == "user-prompt-submit" {
+		pending, generation, err := m.store.OrchestratorReengagementPendingEnter(ctx, after.ID)
+		if err != nil {
+			m.logger.Error("orchestrator re-engagement: inspect submitted draft failed", "session", after.ID, "err", err)
+		} else if pending {
+			if m.guard == nil {
+				return
+			}
+			receipt, receiptErr := m.guard.PaneDraftReceipt(ctx, after.ID)
+			if receiptErr != nil || (receipt.Owner != "" && receipt.Owner != "orchestrator\x00"+string(after.ID)) {
+				return
+			}
+			current, genErr := m.guard.PaneGeneration(ctx, after.ID)
+			if genErr != nil || current != generation {
+				m.logger.Warn("orchestrator re-engagement: submitted draft belonged to replaced pane", "session", after.ID, "err", genErr)
+				return
+			}
+			item, ok, err := m.store.GetOrchestratorReengagement(ctx, after.ID)
+			if err != nil {
+				m.logger.Error("orchestrator re-engagement: load submitted draft failed", "session", after.ID, "err", err)
+			} else if ok {
+				if _, err := m.store.RecordOrchestratorReengagementAttempt(ctx, after.ID, now.Add(m.backoff(item.AttemptCount+1)), now, m.maxAttempts); err != nil {
+					m.logger.Error("orchestrator re-engagement: record manual draft submission failed", "session", after.ID, "err", err)
+				}
+			}
+		}
+	}
 	if event == "post-tool-use" {
 		if err := m.store.MarkOrchestratorReengagementProgress(ctx, after.ID, now); err != nil {
 			m.logger.Error("orchestrator re-engagement: record progress failed", "session", after.ID, "err", err)
@@ -192,21 +225,64 @@ func (m *Manager) attempt(ctx context.Context, item domain.OrchestratorReengagem
 	if m.guard == nil {
 		return nil
 	}
-	outcome, err := m.guard.NudgeCoordination(ctx, rec.ID, reengagementMessage(rec.ID), m.steersActive)
+	pendingEnter, generation, err := m.store.OrchestratorReengagementPendingEnter(ctx, rec.ID)
 	if err != nil {
 		return err
 	}
-	if outcome != sessionguard.Sent {
+	owner := "orchestrator\x00" + string(rec.ID)
+	receipt, err := m.guard.PaneDraftReceipt(ctx, rec.ID)
+	if err != nil {
+		return err
+	}
+	if pendingEnter && receipt.Pending && receipt.Owner != owner {
+		return m.store.ClearOrchestratorReengagementPendingEnter(ctx, rec.ID)
+	}
+	if !pendingEnter && receipt.Owner == owner {
+		if receipt.Pending && !receipt.Complete {
+			return nil // never submit a truncated instruction
+		}
+		if receipt.Complete {
+			pendingEnter = receipt.Pending
+			generation = receipt.Generation
+			if !pendingEnter {
+				return m.recordAttempt(ctx, rec.ID, item.AttemptCount, now, sessionguard.AlreadySubmitted)
+			}
+		}
+	}
+	var outcome sessionguard.Outcome
+	if pendingEnter {
+		outcome, err = m.guard.SubmitPendingCoordinationOwnedForGeneration(ctx, rec.ID, &generation, owner, m.steersActive)
+	} else {
+		generation, err = m.guard.PaneGeneration(ctx, rec.ID)
+		if err != nil {
+			return err
+		}
+		outcome, err = m.guard.NudgeCoordinationOwnedForGeneration(ctx, rec.ID, reengagementMessage(rec.ID), generation, owner, m.steersActive)
+	}
+	if err != nil {
+		return err
+	}
+	if outcome == sessionguard.PaneReplaced && pendingEnter {
+		return m.store.ClearOrchestratorReengagementPendingEnter(ctx, rec.ID)
+	}
+	if outcome == sessionguard.Attempted {
+		return m.store.DeferOrchestratorReengagementPendingEnter(ctx, rec.ID, generation, now.Add(m.backoff(item.AttemptCount+1)), now)
+	}
+	if outcome != sessionguard.Sent && outcome != sessionguard.AlreadySubmitted {
 		return nil
 	}
-	next := now.Add(m.backoff(item.AttemptCount + 1))
-	updated, err := m.store.RecordOrchestratorReengagementAttempt(ctx, rec.ID, next, now, m.maxAttempts)
+	return m.recordAttempt(ctx, rec.ID, item.AttemptCount, now, outcome)
+}
+
+func (m *Manager) recordAttempt(ctx context.Context, id domain.SessionID, count int, now time.Time, outcome sessionguard.Outcome) error {
+	next := now.Add(m.backoff(count + 1))
+	updated, err := m.store.RecordOrchestratorReengagementAttempt(ctx, id, next, now, m.maxAttempts)
 	if err != nil {
 		return err
 	}
-	m.logger.Info("orchestrator re-engagement sent", "session", rec.ID, "attempt", updated.AttemptCount)
+	m.logger.Info("orchestrator re-engagement attempted", "session", id, "attempt", updated.AttemptCount, "outcome", outcome.String())
 	if updated.State == domain.OrchestratorReengagementExhausted {
-		m.logger.Warn("orchestrator re-engagement exhausted; human attention required", "session", rec.ID)
+		m.logger.Warn("orchestrator re-engagement exhausted; human attention required", "session", id)
 	}
 	return nil
 }

@@ -47,6 +47,7 @@ type setActivityAPIRequest struct {
 	ToolUseID      string `json:"toolUseId,omitempty"`
 	AgentSessionID string `json:"agentSessionId,omitempty"`
 	LaunchID       string `json:"launchId,omitempty"`
+	HookObservedAt string `json:"hookObservedAt,omitempty"`
 }
 
 // maxActivityMetaLen caps the correlation fields lifted from a native hook
@@ -131,6 +132,7 @@ func newHooksCommand(ctx *commandContext) *cobra.Command {
 }
 
 func (c *commandContext) runHook(ctx context.Context, agent, event string) error {
+	hookObservedAt := time.Now().UTC()
 	sessionID := strings.TrimSpace(os.Getenv("AO_SESSION_ID"))
 	if !sessionIDPattern.MatchString(sessionID) {
 		// Not an AO-managed session (unset/empty), or an id we won't put in a
@@ -168,6 +170,7 @@ func (c *commandContext) runHook(ctx context.Context, agent, event string) error
 		ToolUseID:      toolUseID,
 		AgentSessionID: agentSessionID,
 		LaunchID:       validLaunchID(os.Getenv("AO_RUNTIME_LAUNCH_ID")),
+		HookObservedAt: hookObservedAt.Format(time.RFC3339Nano),
 	}
 	if hasActivity {
 		req.State = string(state)
