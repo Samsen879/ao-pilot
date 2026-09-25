@@ -257,6 +257,12 @@ func (w *Workspace) CreateWorkspaceProject(ctx context.Context, cfg ports.Worksp
 				retained, rollbackErr := w.rollbackOwnedWorktree(cleanupCtx, created[i].repoPath, created[i].outputPath, branch, created[i].createToken)
 				if rollbackErr != nil {
 					cleanupErr = errors.Join(cleanupErr, rollbackErr)
+					if created[i].name != domain.RootWorkspaceRepoName && !retained {
+						// An unregistered path may belong to a new creator. It is not
+						// ours to delete, but it still prevents removing its parent.
+						_, statErr := os.Lstat(created[i].outputPath)
+						childPathMayExist = childPathMayExist || statErr == nil || !errors.Is(statErr, os.ErrNotExist)
+					}
 				}
 				if retained {
 					remaining = append(remaining, out.Worktrees[i])
@@ -289,7 +295,7 @@ func (w *Workspace) CreateWorkspaceProject(ctx context.Context, cfg ports.Worksp
 	defer cancelUnlock()
 	for i := len(created) - 1; i >= 0; i-- {
 		repo := created[i]
-		if err := w.unlockCreatedWorktreeWithContext(unlockCtx, repo.repoPath, repo.outputPath); err != nil {
+		if err := w.unlockCreatedWorktreeIfOwned(unlockCtx, repo.repoPath, repo.outputPath, repo.createToken); err != nil {
 			// All paths already have custody in out. Retain every remaining lock
 			// for explicit recovery instead of tearing down a completed checkout.
 			return out, fmt.Errorf("gitworktree: unlock workspace repo %q: %w", repo.name, err)
@@ -898,6 +904,18 @@ func (w *Workspace) unlockCreatedWorktreeWithContext(ctx context.Context, repo, 
 		return fmt.Errorf("gitworktree: unlock created worktree %q: %w", path, err)
 	}
 	return nil
+}
+
+func (w *Workspace) unlockCreatedWorktreeIfOwned(ctx context.Context, repo, path, createToken string) error {
+	records, err := w.listRecords(ctx, repo)
+	if err != nil {
+		return fmt.Errorf("gitworktree: inspect creation lock %q: %w", path, err)
+	}
+	rec, registered := findWorktree(records, path)
+	if !registered || !rec.Locked || rec.LockReason != createToken {
+		return fmt.Errorf("gitworktree: preserve worktree %q: creation lock no longer belongs to this invocation", path)
+	}
+	return w.unlockCreatedWorktreeWithContext(ctx, repo, path)
 }
 
 // staleRegistrationForPath reports whether records carries a registration for
