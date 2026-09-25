@@ -68,6 +68,15 @@ func (s *Store) DeleteSessionWorktrees(ctx context.Context, sessionID domain.Ses
 	return s.qw.DeleteSessionWorktrees(ctx, sessionID)
 }
 
+// MarkSessionWorktreesNonRestorable retains every repository path while
+// atomically preventing a later RestoreAll from relaunching a killed session.
+func (s *Store) MarkSessionWorktreesNonRestorable(ctx context.Context, sessionID domain.SessionID) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	_, err := s.writeDB.ExecContext(ctx, "UPDATE session_worktrees SET state = 'active' WHERE session_id = ?", string(sessionID))
+	return err
+}
+
 func sessionWorktreeFromGen(row gen.SessionWorktree) domain.SessionWorktreeRecord {
 	return domain.SessionWorktreeRecord{
 		SessionID:    row.SessionID,
