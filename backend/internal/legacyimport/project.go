@@ -102,6 +102,9 @@ func buildProjectConfig(pc legacyProjectConfig, notes *[]string) domain.ProjectC
 	if len(pc.Symlinks) > 0 {
 		cfg.Symlinks = append([]string(nil), pc.Symlinks...)
 	}
+	if len(pc.SparseCheckout) > 0 {
+		cfg.SparseCheckout = append([]string(nil), pc.SparseCheckout...)
+	}
 	if len(pc.PostCreate) > 0 {
 		cfg.PostCreate = append([]string(nil), pc.PostCreate...)
 	}

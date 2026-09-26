@@ -706,12 +706,13 @@ func (m *Manager) createSessionWorkspace(ctx context.Context, project domain.Pro
 			baseBranch = ""
 		}
 		ws, err := m.workspace.Create(ctx, ports.WorkspaceConfig{
-			ProjectID:     cfg.ProjectID,
-			SessionID:     id,
-			Kind:          cfg.Kind,
-			SessionPrefix: sessionPrefix(project),
-			Branch:        branch,
-			BaseBranch:    baseBranch,
+			ProjectID:      cfg.ProjectID,
+			SessionID:      id,
+			Kind:           cfg.Kind,
+			SessionPrefix:  sessionPrefix(project),
+			Branch:         branch,
+			BaseBranch:     baseBranch,
+			SparseCheckout: append([]string(nil), project.Config.SparseCheckout...),
 		})
 		if ws.Path != "" {
 			attempt.Record.Workspace = ws.Path
@@ -1845,12 +1846,13 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 		} else {
 			var restoreErr error
 			ws, restoreErr = m.workspace.Restore(ctx, ports.WorkspaceConfig{
-				ProjectID:     rec.ProjectID,
-				SessionID:     rec.ID,
-				Kind:          rec.Kind,
-				SessionPrefix: sessionPrefix(project),
-				Branch:        rec.Metadata.Branch,
-				Path:          rec.Metadata.WorkspacePath,
+				ProjectID:      rec.ProjectID,
+				SessionID:      rec.ID,
+				Kind:           rec.Kind,
+				SessionPrefix:  sessionPrefix(project),
+				Branch:         rec.Metadata.Branch,
+				Path:           rec.Metadata.WorkspacePath,
+				SparseCheckout: append([]string(nil), project.Config.SparseCheckout...),
 			})
 			if restoreErr != nil {
 				m.logger.Error("restore-all: workspace restore failed", "sessionID", rec.ID, "error", restoreErr)
@@ -1951,12 +1953,13 @@ func (m *Manager) markSessionWorktreesActive(ctx context.Context, rows []domain.
 func (m *Manager) restoreSessionWorkspace(ctx context.Context, project domain.ProjectRecord, rec domain.SessionRecord) (ports.WorkspaceInfo, error) {
 	if project.Kind.WithDefault() != domain.ProjectKindWorkspace {
 		return m.workspace.Restore(ctx, ports.WorkspaceConfig{
-			ProjectID:     rec.ProjectID,
-			SessionID:     rec.ID,
-			Kind:          rec.Kind,
-			SessionPrefix: sessionPrefix(project),
-			Branch:        rec.Metadata.Branch,
-			Path:          rec.Metadata.WorkspacePath,
+			ProjectID:      rec.ProjectID,
+			SessionID:      rec.ID,
+			Kind:           rec.Kind,
+			SessionPrefix:  sessionPrefix(project),
+			Branch:         rec.Metadata.Branch,
+			Path:           rec.Metadata.WorkspacePath,
+			SparseCheckout: append([]string(nil), project.Config.SparseCheckout...),
 		})
 	}
 	rows, err := m.workspaceProjectRestoreRows(ctx, project, rec)

@@ -193,7 +193,7 @@ func TestEstimateCheckoutRejectsFiltersBeforeLsTree(t *testing.T) {
 		}
 		return nil, nil
 	}
-	_, err := w.estimateCheckoutBytes(context.Background(), "/repo", "feature", "main")
+	_, err := w.estimateCheckoutBytes(context.Background(), "/repo", "feature", "main", nil)
 	if !errors.Is(err, ports.ErrWorkspaceInsufficientSpace) {
 		t.Fatalf("estimateCheckoutBytes error = %v, want fail-closed capacity error", err)
 	}
@@ -226,7 +226,7 @@ func TestEstimateCheckoutIgnoresUnusedGlobalFilterDriver(t *testing.T) {
 			return nil, nil
 		}
 	}
-	if _, err := w.estimateCheckoutBytes(context.Background(), "/repo", "feature", "main"); err != nil {
+	if _, err := w.estimateCheckoutBytes(context.Background(), "/repo", "feature", "main", nil); err != nil {
 		t.Fatalf("unused global filter rejected checkout: %v", err)
 	}
 }
@@ -251,7 +251,7 @@ func TestEstimateCheckoutRejectsAutoCRLFExpansion(t *testing.T) {
 			return nil, nil
 		}
 	}
-	_, err := w.estimateCheckoutBytes(context.Background(), "/repo", "feature", "main")
+	_, err := w.estimateCheckoutBytes(context.Background(), "/repo", "feature", "main", nil)
 	if !errors.Is(err, ports.ErrWorkspaceInsufficientSpace) {
 		t.Fatalf("estimateCheckoutBytes error = %v, want autocrlf rejection", err)
 	}
@@ -270,11 +270,34 @@ func TestEstimateCheckoutAccountsForTinyFiles(t *testing.T) {
 			return nil, nil
 		}
 	}
-	estimate, err := w.estimateCheckoutBytes(context.Background(), "/missing", "feature", "main")
+	estimate, err := w.estimateCheckoutBytes(context.Background(), "/missing", "feature", "main", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := uint64(2 + 2*(64<<10) + checkoutMetadataHeadroom)
+	if estimate != want {
+		t.Fatalf("estimate=%d want=%d", estimate, want)
+	}
+}
+
+func TestEstimateCheckoutCountsOnlySparseDirectoriesAndRootFiles(t *testing.T) {
+	w := &Workspace{binary: "git", minFreeBytes: 1, availableBytes: func(string) (uint64, error) { return 1 << 40, nil }}
+	w.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		joined := strings.Join(args, " ")
+		switch {
+		case strings.Contains(joined, "rev-parse --verify --quiet refs/heads/feature"):
+			return []byte("abc\n"), nil
+		case strings.Contains(joined, "ls-tree"):
+			return []byte("100644 blob abc 10\tREADME.md\x00100644 blob def 100\tkeep/input.json\x00100644 blob ghi 1000\tomit/large.bin\x00"), nil
+		default:
+			return nil, nil
+		}
+	}
+	estimate, err := w.estimateCheckoutBytes(context.Background(), "/missing", "feature", "main", []string{"keep"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := uint64(110 + 2*(64<<10) + checkoutMetadataHeadroom + 11)
 	if estimate != want {
 		t.Fatalf("estimate=%d want=%d", estimate, want)
 	}
@@ -341,7 +364,7 @@ func TestEstimateCheckoutPrefersExistingLocalBranch(t *testing.T) {
 			return nil, nil
 		}
 	}
-	if _, err := w.estimateCheckoutBytes(context.Background(), "/repo", "feature", "main"); err != nil {
+	if _, err := w.estimateCheckoutBytes(context.Background(), "/repo", "feature", "main", nil); err != nil {
 		t.Fatal(err)
 	}
 	if estimatedRef != "refs/heads/feature" {

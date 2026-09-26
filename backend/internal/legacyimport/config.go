@@ -31,6 +31,7 @@ type legacyProjectConfig struct {
 	SessionPrefix    string             `yaml:"sessionPrefix"`
 	Env              map[string]string  `yaml:"env"`
 	Symlinks         []string           `yaml:"symlinks"`
+	SparseCheckout   []string           `yaml:"sparseCheckout"`
 	PostCreate       []string           `yaml:"postCreate"`
 	AgentConfig      *legacyAgentConfig `yaml:"agentConfig"`
 	Worker           *legacyRole        `yaml:"worker"`

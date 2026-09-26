@@ -23,20 +23,39 @@ func revParseVerifyArgs(repo, ref string) []string {
 // is what keeps a lock an effective "do not touch" signal. Never pass it twice.
 const worktreeAddForce = "--force"
 
-func worktreeAddBranchArgs(repo, path, branch string, force bool, createToken string) []string {
+func worktreeAddBranchArgs(repo, path, branch string, force, noCheckout bool, createToken string) []string {
 	args := []string{"-C", repo, "worktree", "add", "--lock", "--reason", createToken}
 	if force {
 		args = append(args, worktreeAddForce)
+	}
+	if noCheckout {
+		args = append(args, "--no-checkout")
 	}
 	return append(args, path, branch)
 }
 
-func worktreeAddNewBranchArgs(repo, branch, path, baseRef string, force bool, createToken string) []string {
+func worktreeAddNewBranchArgs(repo, branch, path, baseRef string, force, noCheckout bool, createToken string) []string {
 	args := []string{"-C", repo, "worktree", "add", "--lock", "--reason", createToken}
 	if force {
 		args = append(args, worktreeAddForce)
 	}
+	if noCheckout {
+		args = append(args, "--no-checkout")
+	}
 	return append(args, "-b", branch, path, baseRef)
+}
+
+func sparseCheckoutInitArgs(path string) []string {
+	return []string{"-C", path, "sparse-checkout", "init", "--cone"}
+}
+
+func sparseCheckoutSetArgs(path string, directories []string) []string {
+	args := []string{"-C", path, "sparse-checkout", "set", "--cone", "--skip-checks"}
+	return append(args, directories...)
+}
+
+func resetHardHeadArgs(path string) []string {
+	return []string{"-C", path, "reset", "--hard", "HEAD"}
 }
 
 // worktreeRemoveArgs intentionally omits --force: a dirty worktree (uncommitted
