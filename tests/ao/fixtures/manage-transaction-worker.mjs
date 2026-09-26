@@ -45,6 +45,10 @@ fs.renameSync = function (from, to) {
 };
 fs.appendFileSync = function (file, ...args) {
   if (file === paths.auditPath && journalWritten && mode === 'fault-audit') throw new Error('fixture audit failure');
+  if (file === paths.auditPath && journalWritten && mode === 'fault-partial-audit') {
+    original.append(file, String(args[0]).slice(0, 40));
+    throw new Error('fixture partial audit failure');
+  }
   return original.append(file, ...args);
 };
 fs.rmSync = function (file, ...args) {

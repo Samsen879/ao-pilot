@@ -135,6 +135,22 @@ describe('managed task command transaction', () => {
     expect(repository.getSnapshot().state).toEqual(recovered);
   });
 
+  it.each(['manage', 'ordinary-write'])('repairs a partial audit before the next %s bootstraps', async nextWriter => {
+    const { options, paths, repository } = await fixture();
+    const writer = start({ ...options, command: 'adopt', ownerSessionName: 'partial', prNumber: 350 }, 'fault-partial-audit');
+    expect(await writer.done).toMatchObject({ ok: false, code: 'MANAGED_TASK_COMMIT_RECOVERY_REQUIRED' });
+    expect(fs.existsSync(paths.stateMutationJournalPath)).toBe(true);
+    if (nextWriter === 'manage') {
+      await runManageCommand({ ...options, command: 'retire' });
+      expect(repository.getSnapshot().state.managed_tasks[0].status).toBe('retired');
+    } else {
+      repository.upsertManagedTask({ task_id: 'unrelated', title: 'After recovery', status: 'active', created_at: now, updated_at: now });
+      assertOwnerAndPr(repository.getSnapshot().state, 'partial', 350);
+    }
+    expect(repository.listAuditEntries().filter(entry => entry.entity_kind === 'managed_task_command' && entry.operation === 'adopt')).toHaveLength(1);
+    expect(fs.existsSync(paths.stateMutationJournalPath)).toBe(false);
+  });
+
   it('recovers a killed writer from its durable whole-command journal', async () => {
     const { options, repository, paths } = await fixture();
     const before = bytes(paths).state;

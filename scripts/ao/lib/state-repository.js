@@ -308,7 +308,6 @@ export function createStateRepository({
     }
 
     if (Number(schema.current_version ?? 0) < CONTROL_PLANE_LATEST_VERSION) {
-      if (stateLockHeld) throw new Error('Schema migration must complete before the state transaction');
       bootstrapControlPlaneState({ repoRoot, projectId, now: clock });
       return readSnapshot({ diagnosticTaskGraph });
     }
@@ -350,6 +349,10 @@ export function createStateRepository({
     if (activeManagedTaskLocks.has(stateLockIdentity())) {
       throw new Error('Durable repository writes cannot reenter a managed-task transaction');
     }
+    // A pending journal may own an incomplete final audit line. Recover it
+    // before bootstrap parses audit evidence; this lock is released before
+    // bootstrap takes its controller -> state locks.
+    recoverPendingStateMutation();
     bootstrapControlPlaneState({
       repoRoot,
       projectId,
@@ -537,6 +540,10 @@ export function createStateRepository({
       const lockIdentity = stateLockIdentity();
       activeManagedTaskLocks.add(lockIdentity);
       try {
+        const schema = readControlPlaneSchema({ schemaPath: paths.schemaPath });
+        if (Number(schema?.current_version ?? 0) < CONTROL_PLANE_LATEST_VERSION) {
+          throw new Error('Schema migration must complete before the state transaction');
+        }
         const snapshot = readSnapshot({ stateLockHeld: true });
         const nextState = cloneJsonValue(snapshot.state);
         const changes = [];

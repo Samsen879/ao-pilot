@@ -35,7 +35,9 @@ not a claim of a physically atomic multi-file write or power-loss durability.
 - Failure after journal preparation returns
   `MANAGED_TASK_COMMIT_RECOVERY_REQUIRED`. This is an incomplete publication,
   not a validation rejection. The next repository read/write recovers the entire
-  transaction and its audit, with audit ID deduplication.
+  transaction and its audit, with audit ID deduplication. Pending recovery runs
+  before bootstrap parses audit evidence, including a partially appended final
+  audit line. Its state lock is released before migration lock acquisition.
 - Conflicting state/audit evidence remains an error; callers must not erase the
   journal or retry a previously computed snapshot to bypass recovery.
 

@@ -12,7 +12,7 @@ const FROZEN_AUTHORITY_DESIGN = Object.freeze({
   malformed_authority_policy: 'fail_closed',
   mixed_version_policy: 'validate and migrate the canonical file; never select the state.json shadow by freshness',
 });
-const FROZEN_SEMANTIC_MANIFEST_DIGEST = 'b6744c90f594a8ae94912757251a0f6cc788cf6985aa1b14eeb5267216c50101';
+const FROZEN_SEMANTIC_MANIFEST_DIGEST = 'c6894ebf2cecc3e153ac38526ce65bf9767dfb6c38d05e7255b7dbb6f89ab187';
 const SEMANTIC_SELECTOR_VALUES = Object.freeze({
   'atomic-api': 'mutateControllerLeasesAtomically',
   'file-name': 'controller-leases.json',
