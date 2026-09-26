@@ -11,12 +11,12 @@ func TestRestoreIfMissingRecreatesHandshake(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "running.json")
 	want := Info{PID: 42, Port: 3001, StartedAt: time.Unix(123, 0).UTC()}
 
-	restored, err := RestoreIfMissing(path, want)
+	restored, err := restoreIfMissing(path, want)
 	if err != nil {
-		t.Fatalf("RestoreIfMissing() error = %v", err)
+		t.Fatalf("restoreIfMissing() error = %v", err)
 	}
 	if !restored {
-		t.Fatal("RestoreIfMissing() restored = false, want true")
+		t.Fatal("restoreIfMissing() restored = false, want true")
 	}
 	got, err := Read(path)
 	if err != nil {
@@ -39,7 +39,7 @@ func TestRestoreIfMissingConcurrentPublishKeepsOneOwner(t *testing.T) {
 		go func(pid int) {
 			defer wait.Done()
 			<-start
-			restored, err := RestoreIfMissing(path, Info{PID: pid, Port: 3000 + pid})
+			restored, err := restoreIfMissing(path, Info{PID: pid, Port: 3000 + pid})
 			results <- restored
 			errs <- err
 		}(i)
@@ -60,7 +60,7 @@ func TestRestoreIfMissingConcurrentPublishKeepsOneOwner(t *testing.T) {
 	}
 	for err := range errs {
 		if err != nil {
-			t.Fatalf("RestoreIfMissing() error = %v", err)
+			t.Fatalf("restoreIfMissing() error = %v", err)
 		}
 	}
 	got, err := Read(path)
@@ -75,16 +75,16 @@ func TestRestoreIfMissingConcurrentPublishKeepsOneOwner(t *testing.T) {
 func TestRestoreIfMissingPreservesExistingOwner(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "running.json")
 	existing := Info{PID: 99, Port: 4001, StartedAt: time.Unix(456, 0).UTC()}
-	if err := Write(path, existing); err != nil {
-		t.Fatalf("Write() error = %v", err)
+	if err := write(path, existing); err != nil {
+		t.Fatalf("write() error = %v", err)
 	}
 
-	restored, err := RestoreIfMissing(path, Info{PID: 42, Port: 3001})
+	restored, err := restoreIfMissing(path, Info{PID: 42, Port: 3001})
 	if err != nil {
-		t.Fatalf("RestoreIfMissing() error = %v", err)
+		t.Fatalf("restoreIfMissing() error = %v", err)
 	}
 	if restored {
-		t.Fatal("RestoreIfMissing() restored = true, want false")
+		t.Fatal("restoreIfMissing() restored = true, want false")
 	}
 	got, err := Read(path)
 	if err != nil {

@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/daemon"
+	"github.com/aoagents/agent-orchestrator/backend/internal/ownership"
 	aoprocess "github.com/aoagents/agent-orchestrator/backend/internal/process"
 	"github.com/aoagents/agent-orchestrator/backend/internal/processalive"
 )
@@ -68,6 +69,7 @@ type Deps struct {
 	Executable         func() (string, error)
 	StartProcess       func(processStartConfig) error
 	ProcessAlive       func(pid int) bool
+	OwnerProcessAlive  func(pid int) (bool, error)
 	LookPath           func(file string) (string, error)
 	CommandOutput      func(ctx context.Context, name string, args ...string) ([]byte, error)
 	CommandOutputInDir func(ctx context.Context, dir, name string, args ...string) ([]byte, error)
@@ -88,6 +90,7 @@ func DefaultDeps() Deps {
 		Executable:           os.Executable,
 		StartProcess:         startProcess,
 		ProcessAlive:         processalive.Alive,
+		OwnerProcessAlive:    ownership.ProcessAlive,
 		LookPath:             exec.LookPath,
 		CommandOutput:        commandOutput,
 		CommandOutputInDir:   commandOutputInDir,
@@ -126,6 +129,9 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.StartProcess == nil {
 		d.StartProcess = def.StartProcess
+	}
+	if d.OwnerProcessAlive == nil {
+		d.OwnerProcessAlive = def.OwnerProcessAlive
 	}
 	if d.ProcessAlive == nil {
 		d.ProcessAlive = def.ProcessAlive
@@ -221,8 +227,9 @@ func shouldEmitCLIInvocation(cmd *cobra.Command) bool {
 	// "ao daemon"/"ao start" are supervisor-driven bootstrapping, and
 	// "ao completion"/"ao help" are shell setup and self-documentation.
 	// "ao pty-host" and "ao agent-process" are internal runtime processes.
-	// None reflect user activity.
-	case "ao daemon", "ao start", "ao completion", "ao help", "ao pty-host", "ao agent-process", "ao agent-process supervise":
+	// Import is an offline writer: do not contact a running daemon before
+	// ownership admission. The remaining commands do not reflect user activity.
+	case "ao import", "ao daemon", "ao start", "ao completion", "ao help", "ao pty-host", "ao agent-process", "ao agent-process supervise":
 		return false
 	default:
 		return true
