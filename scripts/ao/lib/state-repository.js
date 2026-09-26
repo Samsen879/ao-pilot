@@ -69,6 +69,7 @@ function cloneJsonValue(value) {
 }
 
 const STATE_MUTATION_JOURNAL_SCHEMA_VERSION = 'ao.state-mutation-journal.v1';
+const activeManagedTaskLocks = new Set();
 
 function digestJsonValue(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -210,6 +211,13 @@ export function createStateRepository({
   const controllerLeaseLockPath = `${paths.controllerLeasesPath}.lock`;
   const stateWriteLockPath = paths.stateWriteLockPath;
 
+  function stateLockIdentity() {
+    const directory = path.dirname(stateWriteLockPath);
+    return fs.existsSync(directory)
+      ? path.join(fs.realpathSync(directory), path.basename(stateWriteLockPath))
+      : path.resolve(stateWriteLockPath);
+  }
+
   function readControllerLeaseRecords() {
     return readControllerLeaseAuthorityFile(paths.controllerLeasesPath).records;
   }
@@ -300,6 +308,7 @@ export function createStateRepository({
     }
 
     if (Number(schema.current_version ?? 0) < CONTROL_PLANE_LATEST_VERSION) {
+      if (stateLockHeld) throw new Error('Schema migration must complete before the state transaction');
       bootstrapControlPlaneState({ repoRoot, projectId, now: clock });
       return readSnapshot({ diagnosticTaskGraph });
     }
@@ -338,6 +347,9 @@ export function createStateRepository({
   }
 
   function ensureBootstrapped() {
+    if (activeManagedTaskLocks.has(stateLockIdentity())) {
+      throw new Error('Durable repository writes cannot reenter a managed-task transaction');
+    }
     bootstrapControlPlaneState({
       repoRoot,
       projectId,
@@ -511,6 +523,96 @@ export function createStateRepository({
 
   const collectionUpsertMethods = createRepositoryCollectionUpsertMethods(upsertCollectionRecord);
 
+  function mutateManagedTaskAtomically({ command, mutate } = {}) {
+    if (!['enroll', 'adopt', 'resume', 'unmanage', 'retire'].includes(command)) {
+      throw new Error('Unsupported managed-task transaction command');
+    }
+    if (typeof mutate !== 'function' || mutate.constructor.name === 'AsyncFunction') {
+      throw new Error('Managed-task transaction requires a synchronous callback');
+    }
+    // Bootstrap acquires controller -> state locks. Never call it while holding
+    // the state lock, or call durable repository writers from the callback.
+    ensureBootstrapped();
+    return withFileLockSync(stateWriteLockPath, () => {
+      const lockIdentity = stateLockIdentity();
+      activeManagedTaskLocks.add(lockIdentity);
+      try {
+        const snapshot = readSnapshot({ stateLockHeld: true });
+        const nextState = cloneJsonValue(snapshot.state);
+        const changes = [];
+        let active = true;
+        const assertActive = () => {
+          if (!active) throw new Error('Managed-task transaction is no longer active');
+        };
+        const collections = new Set([
+          'managed_tasks', 'task_specs', 'ownership_leases', 'pr_bindings',
+          'execution_attempt_metrics', 'handoff_requests', 'handoff_transfers',
+        ]);
+        const stagedRepository = Object.freeze({
+          getSnapshot() {
+            assertActive();
+            return { ...snapshot, state: cloneJsonValue(nextState) };
+          },
+          ...Object.fromEntries(STATE_REPOSITORY_COLLECTIONS
+            .filter((descriptor) => collections.has(descriptor.collectionKey))
+            .map((descriptor) => [descriptor.methodName, (record) => {
+              assertActive();
+              const normalized = upsertRepositoryCollectionRecord({ state: nextState, descriptor, record });
+              changes.push({ entity_kind: descriptor.entityKind, entity_id: normalized[descriptor.identityKey], task_id: normalized.task_id });
+              return cloneJsonValue(normalized);
+            }])),
+        });
+        let result;
+        try {
+          result = mutate(stagedRepository);
+          if (typeof result?.then === 'function') {
+            Promise.resolve(result).catch(() => {});
+            throw new Error('Managed-task transaction callback must not return a Promise');
+          }
+        } finally {
+          active = false;
+        }
+        const taskId = result?.task?.task_id;
+        if (!taskId || changes.length === 0 || changes.some((change) => change.task_id !== taskId)) {
+          throw new Error('Managed-task transaction must update exactly one task');
+        }
+        const owners = nextState.ownership_leases.filter((entry) => entry.task_id === taskId && entry.status === 'active');
+        const bindings = nextState.pr_bindings.filter((entry) => entry.task_id === taskId && entry.status === 'bound');
+        if (owners.length > 1 || bindings.length > 1 || (command === 'retire' && (owners.length || bindings.length))) {
+          throw new Error('Managed-task transaction has conflicting task ownership or PR bindings');
+        }
+        try {
+          persistState({
+            state: sortRepositoryStateCollections(nextState),
+            entityKind: 'managed_task_command',
+            entityId: taskId,
+            operation: command,
+            summary: `Committed ${command} for managed task ${taskId}.`,
+            details: {
+              command,
+              task_id: taskId,
+              prior_status: snapshot.state.managed_tasks.find((task) => task.task_id === taskId)?.status ?? null,
+              next_status: nextState.managed_tasks.find((task) => task.task_id === taskId)?.status ?? null,
+              changes,
+            },
+            stateLockHeld: true,
+          });
+        } catch (cause) {
+          if (!fs.existsSync(paths.stateMutationJournalPath)) throw cause;
+          // The existing journal is a durable commit intent. Do not report a
+          // validation rejection or retry an old snapshot after partial I/O.
+          throw Object.assign(new Error(`Managed-task transaction for ${taskId} requires journal recovery before retry`, { cause }), {
+            code: 'MANAGED_TASK_COMMIT_RECOVERY_REQUIRED',
+            task_id: taskId,
+          });
+        }
+        return result;
+      } finally {
+        activeManagedTaskLocks.delete(lockIdentity);
+      }
+    });
+  }
+
   function validateTaskRelationWrite(record, snapshot, { requireAbsent = false } = {}) {
     const normalizedRecord = createTaskRelation(record);
     const existingRecord = (snapshot.state.task_relations ?? []).find(
@@ -650,6 +752,8 @@ export function createStateRepository({
   }
 
   return {
+    mutateManagedTaskAtomically,
+
     getSnapshot() {
       return readSnapshot();
     },

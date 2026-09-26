@@ -289,7 +289,7 @@ function releaseConflictingPrBindings(repository, taskId, prNumber, now) {
   return activeBindings.map((binding) => binding.binding_id);
 }
 
-export async function runManageCommand({
+function stageManageCommand(repository, {
   repoRoot,
   cwd = repoRoot,
   projectId = DEFAULT_PROJECT_ID,
@@ -309,10 +309,6 @@ export async function runManageCommand({
   now = new Date().toISOString(),
 } = {}) {
   const timestamp = resolveNow(now);
-  const repository = createStateRepository({
-    repoRoot,
-    projectId,
-  });
   const checkpointStore = createCheckpointStore({
     repository,
     now: () => timestamp,
@@ -592,4 +588,15 @@ export async function runManageCommand({
     releasedOwnershipLeaseIds,
     releasedPrBindingIds,
   };
+}
+
+// The public API remains async; the lock-held planning callback is strictly
+// synchronous and all helper writes target the in-memory transaction facade.
+export async function runManageCommand(options = {}) {
+  const { repoRoot, projectId = DEFAULT_PROJECT_ID, command } = options;
+  const repository = createStateRepository({ repoRoot, projectId });
+  return repository.mutateManagedTaskAtomically({
+    command,
+    mutate: (stagedRepository) => stageManageCommand(stagedRepository, options),
+  });
 }
