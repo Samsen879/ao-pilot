@@ -10,6 +10,10 @@ HTTP health failures never confer ownership.
 Two permanent lock files protect the canonical DataDir and canonical discovery
 parent: `.daemon-owner.lock` and `.daemon-discovery.lock`. The second protects
 both running.json and the existing fixed Unix browser/supervisor socket names.
+Run-file names cannot use either reserved lock basename (case-insensitively);
+Windows trailing-dot/space aliases and alternate streams are rejected, and
+existing run-file aliases of lock file objects are rejected before lock opening
+or record inspection. Rejection leaves existing record bytes and identity intact.
 Paths become absolute before any chdir; directory aliases resolve to the same
 files. The final run-file component must be a regular file or absent: symlink
 run-files are rejected. Different DataDirs sharing one discovery directory also

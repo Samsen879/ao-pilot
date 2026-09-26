@@ -3,6 +3,8 @@
 package ownership
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -62,4 +64,34 @@ func TestChildDoesNotInheritOwnerHandles(t *testing.T) {
 		t.Fatalf("child inherited owner lease: %v", err)
 	}
 	defer lease.Close()
+}
+
+func TestExistingRunFileAliasCannotNameLockObject(t *testing.T) {
+	for _, lockName := range []string{dataLockName, discoveryLockName} {
+		root := t.TempDir()
+		lockPath := filepath.Join(root, lockName)
+		run := filepath.Join(root, "alias.json")
+		original := []byte("existing record bytes")
+		if err := os.WriteFile(lockPath, original, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Link(lockPath, run); err != nil {
+			t.Fatal(err)
+		}
+		before, err := os.Stat(lockPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if lease, err := Acquire(root, run); lease != nil || !errors.Is(err, ErrReservedRunFile) {
+			t.Fatalf("lease=%v err=%v", lease, err)
+		}
+		after, err := os.Stat(lockPath)
+		if err != nil || !os.SameFile(before, after) {
+			t.Fatalf("lock identity changed: %v", err)
+		}
+		got, err := os.ReadFile(run)
+		if err != nil || !bytes.Equal(got, original) {
+			t.Fatalf("record changed: %q %v", got, err)
+		}
+	}
 }
