@@ -19,7 +19,7 @@ fs.mkdirSync(home);
 const env = { ...process.env, HOME: home, TMUX_TMPDIR: sandbox, NEXT_TELEMETRY_DISABLED: '1', GOTOOLCHAIN: 'local', CGO_ENABLED: '0', GOENV: 'off', GOWORK: 'off',
   AO_DATA_DIR: path.join(sandbox, 'data'), AO_RUN_FILE: path.join(sandbox, 'run.json'), AO_CONFIG_PATH: path.join(sandbox, 'invalid.yaml') };
 for (const key of Object.keys(env)) if (key.startsWith('AO_') && !['AO_DATA_DIR', 'AO_RUN_FILE', 'AO_CONFIG_PATH'].includes(key)) delete env[key];
-for (const key of ['GOFLAGS', 'GOEXPERIMENT', 'NODE_OPTIONS', 'NODE_PATH', 'BASH_ENV', 'ENV']) delete env[key];
+for (const key of ['GOFLAGS', 'GOEXPERIMENT', 'NODE_OPTIONS', 'NODE_PATH', 'NODE_ENV', 'BASH_ENV', 'ENV']) delete env[key];
 for (const key of Object.keys(env)) if (key.toLowerCase().startsWith('npm_config_')) delete env[key];
 env.npm_config_cache = path.join(os.tmpdir(), `ao-source-npm-cache-${process.getuid()}`);
 delete env.TMUX;

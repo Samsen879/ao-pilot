@@ -26,13 +26,13 @@ jobs:
     env:
       AO_SOURCE_EXPECTED_HEAD: ${{ inputs.ref }}
       AO_SOURCE_EXPECTED_TREE: ${{ inputs.tree }}
-      AO_SOURCE_RECEIPT_DIR: ${{ runner.temp }}/current-source
     steps:
       - name: Validate immutable candidate
         run: |
           [[ "$AO_SOURCE_EXPECTED_HEAD" =~ ^[0-9a-f]{40}$ ]]
           [[ -z "$AO_SOURCE_EXPECTED_TREE" || "$AO_SOURCE_EXPECTED_TREE" =~ ^[0-9a-f]{40}$ ]]
-          mkdir -p "$AO_SOURCE_RECEIPT_DIR"
+          mkdir -p "$RUNNER_TEMP/current-source"
+          echo "AO_SOURCE_RECEIPT_DIR=$RUNNER_TEMP/current-source" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
