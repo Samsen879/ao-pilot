@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { gitIdentity, summarizeGo, summarizeVitest, commandOutcome } from './ao/lib/current-source-evidence.js';
+import { gitIdentity, summarizeGo, summarizeVitest, commandOutcome, tmuxCleanupOutcome } from './ao/lib/current-source-evidence.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const suite = process.argv[2];
@@ -22,6 +22,10 @@ for (const key of Object.keys(env)) if (key.startsWith('AO_') && !['AO_DATA_DIR'
 for (const key of ['GOFLAGS', 'GOEXPERIMENT', 'NODE_OPTIONS', 'NODE_PATH', 'NODE_ENV', 'BASH_ENV', 'ENV']) delete env[key];
 for (const key of Object.keys(env)) if (key.toLowerCase().startsWith('npm_config_')) delete env[key];
 env.npm_config_cache = path.join(os.tmpdir(), `ao-source-npm-cache-${process.getuid()}`);
+// Go module caches contain read-only directories. Keep reusable caches outside
+// the disposable HOME so cleanup works for unprivileged CI users too.
+env.GOMODCACHE ||= path.join(os.tmpdir(), `ao-source-gomodcache-${process.getuid()}`);
+env.GOCACHE ||= path.join(os.tmpdir(), `ao-source-gocache-${process.getuid()}`);
 delete env.TMUX;
 delete env.TMUX_PANE;
 fs.writeFileSync(env.AO_CONFIG_PATH, '[invalid yaml');
@@ -111,10 +115,17 @@ try {
   const socket = path.join(sandbox, `tmux-${process.getuid()}`, 'default');
   if (fs.existsSync(socket)) {
     const cleanup = spawnSync('tmux', ['-S', socket, 'kill-server'], { env, encoding: 'utf8', timeout: 10000 });
-    receipt.tmux_cleanup = { exit_code: cleanup.status, stderr: cleanup.stderr };
-    if (cleanup.status !== 0) { receipt.status = 'FAIL'; process.exitCode = 1; }
+    const status = tmuxCleanupOutcome(cleanup, socket);
+    receipt.tmux_cleanup = { status, exit_code: cleanup.status, stderr: cleanup.stderr };
+    if (status === 'FAIL') { receipt.status = 'FAIL'; process.exitCode = 1; }
   }
-  fs.rmSync(sandbox, { recursive: true, force: true });
+  try {
+    fs.rmSync(sandbox, { recursive: true, force: true });
+    receipt.sandbox_cleanup = { status: 'PASS' };
+  } catch (error) {
+    receipt.sandbox_cleanup = { status: 'FAIL', error: error.message };
+    receipt.status = 'FAIL'; process.exitCode = 1;
+  }
   receipt.finished_at = new Date().toISOString(); save();
   console.log(`Current source ${receipt.status}: ${path.join(output, 'receipt.json')}`);
 }

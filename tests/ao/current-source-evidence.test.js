@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import yaml from 'js-yaml';
-import { gitIdentity, releasePrerequisites, summarizeGo, summarizeVitest, commandOutcome } from '../../scripts/ao/lib/current-source-evidence.js';
+import { gitIdentity, releasePrerequisites, summarizeGo, summarizeVitest, commandOutcome, tmuxCleanupOutcome } from '../../scripts/ao/lib/current-source-evidence.js';
 
 describe('release prerequisite identity and history', () => {
   let root;
@@ -55,6 +55,17 @@ describe('release prerequisite identity and history', () => {
 });
 
 describe('source test evidence', () => {
+  test('accepts only stopped or already-stopped private tmux cleanup', () => {
+    const socket = '/tmp/private/tmux-1000/default';
+    expect(tmuxCleanupOutcome({ status: 0 }, socket)).toBe('STOPPED');
+    expect(tmuxCleanupOutcome({ status: 1, stderr: `no server running on ${socket}\n` }, socket)).toBe('ALREADY_STOPPED');
+    for (const result of [
+      { status: 1, stderr: 'permission denied' },
+      { status: 1, stderr: 'no server running on /tmp/another/socket' },
+      { status: 0, error: { code: 'EPERM' } },
+      { status: null, signal: 'SIGKILL' },
+    ]) expect(tmuxCleanupOutcome(result, socket)).toBe('FAIL');
+  });
   const go = events => {
     const packages = [...new Set(events.map(event => event.Package ?? 'fixture'))];
     const starts = packages.map(Package => ({ Package, Action: 'start' }));

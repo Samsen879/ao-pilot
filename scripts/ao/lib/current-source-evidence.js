@@ -84,3 +84,12 @@ export function commandOutcome(result, readReport) {
   }
   return outcome;
 }
+
+export function tmuxCleanupOutcome(result, socket) {
+  if (!result.error && !result.signal && result.status === 0) return 'STOPPED';
+  // tmux leaves its socket inode after the last session exits. This is an
+  // affirmative no-server result for our exact private socket, not a failure.
+  if (!result.error && !result.signal && result.status === 1 &&
+      result.stderr?.trim() === `no server running on ${socket}`) return 'ALREADY_STOPPED';
+  return 'FAIL';
+}
