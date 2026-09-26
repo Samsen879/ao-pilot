@@ -10,6 +10,11 @@ permissions:
   contents: read
 
 jobs:
+  current-source:
+    uses: ./.github/workflows/current-source.yml
+    with:
+      ref: ${{ github.sha }}
+
   test:
     runs-on: ubuntu-latest
     strategy:
