@@ -333,37 +333,32 @@ func (q *Queries) SetSessionTerminateOnPRMerge(ctx context.Context, arg SetSessi
 
 const updateSession = `-- name: UpdateSession :exec
 UPDATE sessions SET
-    issue_id = ?, kind = ?, harness = ?, display_name = ?,
+    issue_id = ?, kind = ?, harness = ?,
     activity_state = ?, activity_last_at = ?, first_signal_at = ?, is_terminated = ?,
     branch = ?, workspace_path = ?, workspace_repo_path = ?, runtime_handle_id = ?,
     runtime_launch_id = ?, agent_session_id = ?, prompt = ?,
-    preview_url = ?, preview_revision = ?, terminate_on_pr_merge = ?,
     cleanup_generation = ?, updated_at = ?
 WHERE id = ?
 `
 
 type UpdateSessionParams struct {
-	IssueID            domain.IssueID
-	Kind               domain.SessionKind
-	Harness            domain.AgentHarness
-	DisplayName        string
-	ActivityState      domain.ActivityState
-	ActivityLastAt     time.Time
-	FirstSignalAt      sql.NullTime
-	IsTerminated       bool
-	Branch             string
-	WorkspacePath      string
-	WorkspaceRepoPath  string
-	RuntimeHandleID    string
-	RuntimeLaunchID    string
-	AgentSessionID     string
-	Prompt             string
-	PreviewURL         string
-	PreviewRevision    int64
-	TerminateOnPRMerge bool
-	CleanupGeneration  int64
-	UpdatedAt          time.Time
-	ID                 domain.SessionID
+	IssueID           domain.IssueID
+	Kind              domain.SessionKind
+	Harness           domain.AgentHarness
+	ActivityState     domain.ActivityState
+	ActivityLastAt    time.Time
+	FirstSignalAt     sql.NullTime
+	IsTerminated      bool
+	Branch            string
+	WorkspacePath     string
+	WorkspaceRepoPath string
+	RuntimeHandleID   string
+	RuntimeLaunchID   string
+	AgentSessionID    string
+	Prompt            string
+	CleanupGeneration int64
+	UpdatedAt         time.Time
+	ID                domain.SessionID
 }
 
 func (q *Queries) UpdateSession(ctx context.Context, arg UpdateSessionParams) error {
@@ -371,7 +366,6 @@ func (q *Queries) UpdateSession(ctx context.Context, arg UpdateSessionParams) er
 		arg.IssueID,
 		arg.Kind,
 		arg.Harness,
-		arg.DisplayName,
 		arg.ActivityState,
 		arg.ActivityLastAt,
 		arg.FirstSignalAt,
@@ -383,10 +377,54 @@ func (q *Queries) UpdateSession(ctx context.Context, arg UpdateSessionParams) er
 		arg.RuntimeLaunchID,
 		arg.AgentSessionID,
 		arg.Prompt,
-		arg.PreviewURL,
-		arg.PreviewRevision,
-		arg.TerminateOnPRMerge,
 		arg.CleanupGeneration,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	return err
+}
+
+const clearFailedSpawnWorkspace = `-- name: ClearFailedSpawnWorkspace :exec
+UPDATE sessions SET branch = '', workspace_path = '', runtime_handle_id = '',
+    agent_session_id = '', updated_at = ?
+WHERE id = ?
+`
+
+type ClearFailedSpawnWorkspaceParams struct {
+	UpdatedAt time.Time
+	ID        domain.SessionID
+}
+
+func (q *Queries) ClearFailedSpawnWorkspace(ctx context.Context, arg ClearFailedSpawnWorkspaceParams) error {
+	_, err := q.db.ExecContext(ctx, clearFailedSpawnWorkspace, arg.UpdatedAt, arg.ID)
+	return err
+}
+
+const preserveFailedSpawnWorkspace = `-- name: PreserveFailedSpawnWorkspace :exec
+UPDATE sessions SET branch = ?1, workspace_path = ?2, workspace_repo_path = ?3,
+    runtime_handle_id = CASE WHEN CAST(?4 AS INTEGER) <> 0 THEN '' ELSE runtime_handle_id END,
+    runtime_launch_id = CASE WHEN CAST(?4 AS INTEGER) <> 0 THEN '' ELSE runtime_launch_id END,
+    updated_at = ?5
+WHERE id = ?6
+`
+
+type PreserveFailedSpawnWorkspaceParams struct {
+	Branch            string
+	WorkspacePath     string
+	WorkspaceRepoPath string
+	ClearRuntime      int64
+	UpdatedAt         time.Time
+	ID                domain.SessionID
+}
+
+// Rollback only owns workspace custody and explicitly destroyed runtime handles.
+// It must not write lifecycle observations or user preferences from a snapshot.
+func (q *Queries) PreserveFailedSpawnWorkspace(ctx context.Context, arg PreserveFailedSpawnWorkspaceParams) error {
+	_, err := q.db.ExecContext(ctx, preserveFailedSpawnWorkspace,
+		arg.Branch,
+		arg.WorkspacePath,
+		arg.WorkspaceRepoPath,
+		arg.ClearRuntime,
 		arg.UpdatedAt,
 		arg.ID,
 	)

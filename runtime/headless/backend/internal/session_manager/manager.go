@@ -160,7 +160,8 @@ type Store interface {
 	GetProject(ctx context.Context, id string) (domain.ProjectRecord, bool, error)
 	ListWorkspaceRepos(ctx context.Context, projectID string) ([]domain.WorkspaceRepoRecord, error)
 	CreateSession(ctx context.Context, rec domain.SessionRecord) (domain.SessionRecord, error)
-	UpdateSession(ctx context.Context, rec domain.SessionRecord) error
+	PreserveFailedSpawnWorkspace(ctx context.Context, id domain.SessionID, branch, workspacePath, repoPath string, clearRuntime bool) error
+	ClearFailedSpawnWorkspace(ctx context.Context, id domain.SessionID) error
 	GetSession(ctx context.Context, id domain.SessionID) (domain.SessionRecord, bool, error)
 	ListSessions(ctx context.Context, project domain.ProjectID) ([]domain.SessionRecord, error)
 	ListAllSessions(ctx context.Context) ([]domain.SessionRecord, error)
@@ -823,23 +824,7 @@ func (m *Manager) rollbackSeedSpawnWorkspace(ctx context.Context, rec domain.Ses
 }
 
 func (m *Manager) preserveFailedSpawnWorkspace(ctx context.Context, id domain.SessionID, ws ports.WorkspaceInfo, runtimeDestroyed bool) {
-	rec, ok, err := m.store.GetSession(ctx, id)
-	if err != nil {
-		m.logger.Warn("spawn rollback: failed to load session for preserved workspace", "sessionID", id, "workspacePath", ws.Path, "error", err)
-		return
-	}
-	if !ok {
-		m.logger.Warn("spawn rollback: session missing for preserved workspace", "sessionID", id, "workspacePath", ws.Path)
-		return
-	}
-	rec.Metadata.Branch = ws.Branch
-	rec.Metadata.WorkspacePath = ws.Path
-	rec.Metadata.WorkspaceRepoPath = ws.RepoPath
-	if runtimeDestroyed {
-		rec.Metadata.RuntimeHandleID = ""
-		rec.Metadata.RuntimeLaunchID = ""
-	}
-	if err := m.store.UpdateSession(ctx, rec); err != nil {
+	if err := m.store.PreserveFailedSpawnWorkspace(ctx, id, ws.Branch, ws.Path, ws.RepoPath, runtimeDestroyed); err != nil {
 		m.logger.Warn("spawn rollback: failed to record preserved workspace", "sessionID", id, "workspacePath", ws.Path, "error", err)
 	}
 }
@@ -912,15 +897,7 @@ func (m *Manager) markSpawnFailedTerminated(ctx context.Context, id domain.Sessi
 // from treating a removed worktree as reusable state.
 func (m *Manager) markSpawnFailedTerminatedWithoutWorkspace(ctx context.Context, id domain.SessionID) {
 	m.markSpawnFailedTerminated(ctx, id)
-	rec, ok, err := m.store.GetSession(ctx, id)
-	if err != nil || !ok {
-		return
-	}
-	rec.Metadata.Branch = ""
-	rec.Metadata.WorkspacePath = ""
-	rec.Metadata.RuntimeHandleID = ""
-	rec.Metadata.AgentSessionID = ""
-	_ = m.store.UpdateSession(ctx, rec)
+	_ = m.store.ClearFailedSpawnWorkspace(ctx, id)
 }
 
 // rollbackSpawnSeedRow best-effort removes the row of a spawn that failed

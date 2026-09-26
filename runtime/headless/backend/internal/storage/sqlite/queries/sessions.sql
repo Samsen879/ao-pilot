@@ -13,12 +13,25 @@ INSERT INTO sessions (
 
 -- name: UpdateSession :exec
 UPDATE sessions SET
-    issue_id = ?, kind = ?, harness = ?, display_name = ?,
+    issue_id = ?, kind = ?, harness = ?,
     activity_state = ?, activity_last_at = ?, first_signal_at = ?, is_terminated = ?,
     branch = ?, workspace_path = ?, workspace_repo_path = ?, runtime_handle_id = ?,
     runtime_launch_id = ?, agent_session_id = ?, prompt = ?,
-    preview_url = ?, preview_revision = ?, terminate_on_pr_merge = ?,
     cleanup_generation = ?, updated_at = ?
+WHERE id = ?;
+
+-- Rollback only owns workspace custody and explicitly destroyed runtime handles.
+-- It must not write lifecycle observations or user preferences from a snapshot.
+-- name: PreserveFailedSpawnWorkspace :exec
+UPDATE sessions SET branch = sqlc.arg(branch), workspace_path = sqlc.arg(workspace_path), workspace_repo_path = sqlc.arg(workspace_repo_path),
+    runtime_handle_id = CASE WHEN CAST(sqlc.arg(clear_runtime) AS INTEGER) <> 0 THEN '' ELSE runtime_handle_id END,
+    runtime_launch_id = CASE WHEN CAST(sqlc.arg(clear_runtime) AS INTEGER) <> 0 THEN '' ELSE runtime_launch_id END,
+    updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id);
+
+-- name: ClearFailedSpawnWorkspace :exec
+UPDATE sessions SET branch = '', workspace_path = '', runtime_handle_id = '',
+    agent_session_id = '', updated_at = ?
 WHERE id = ?;
 
 -- name: GetSession :one
