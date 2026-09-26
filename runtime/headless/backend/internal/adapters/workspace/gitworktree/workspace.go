@@ -186,7 +186,7 @@ func (w *Workspace) Create(ctx context.Context, cfg ports.WorkspaceConfig) (port
 	} else if ok {
 		return info, nil
 	}
-	requiredBytes, err := w.estimateCheckoutBytes(ctx, repo, cfg.Branch, cfg.BaseBranch)
+	requiredBytes, err := w.estimateCheckoutBytes(ctx, repo, cfg.Branch, cfg.BaseBranch, cfg.SparseCheckout)
 	if err != nil {
 		return ports.WorkspaceInfo{}, err
 	}
@@ -194,7 +194,7 @@ func (w *Workspace) Create(ctx context.Context, cfg ports.WorkspaceConfig) (port
 		return ports.WorkspaceInfo{}, err
 	}
 	createToken := newWorktreeCreateToken()
-	if attempted, err := w.addWorktree(ctx, repo, path, cfg.Branch, cfg.BaseBranch, createToken); err != nil {
+	if attempted, err := w.addWorktree(ctx, repo, path, cfg.Branch, cfg.BaseBranch, cfg.SparseCheckout, createToken); err != nil {
 		if !attempted {
 			return ports.WorkspaceInfo{}, err
 		}
@@ -792,7 +792,7 @@ func (w *Workspace) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (por
 	if err := w.validateBranch(ctx, repo, recreateBranch); err != nil {
 		return ports.WorkspaceInfo{}, err
 	}
-	requiredBytes, err := w.estimateCheckoutBytes(ctx, repo, recreateBranch, cfg.BaseBranch)
+	requiredBytes, err := w.estimateCheckoutBytes(ctx, repo, recreateBranch, cfg.BaseBranch, cfg.SparseCheckout)
 	if err != nil {
 		return ports.WorkspaceInfo{}, err
 	}
@@ -813,7 +813,7 @@ func (w *Workspace) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (por
 		return ports.WorkspaceInfo{}, err
 	}
 	createToken := newWorktreeCreateToken()
-	if attempted, err := w.addWorktree(ctx, repo, path, recreateBranch, cfg.BaseBranch, createToken); err != nil {
+	if attempted, err := w.addWorktree(ctx, repo, path, recreateBranch, cfg.BaseBranch, cfg.SparseCheckout, createToken); err != nil {
 		if !attempted {
 			return ports.WorkspaceInfo{}, err
 		}
@@ -871,7 +871,7 @@ func (w *Workspace) availableCapacityBytes() (uint64, error) {
 
 const checkoutMetadataHeadroom = uint64(256 << 20)
 
-func (w *Workspace) estimateCheckoutBytes(ctx context.Context, repo, branch, baseBranch string) (uint64, error) {
+func (w *Workspace) estimateCheckoutBytes(ctx context.Context, repo, branch, baseBranch string, sparseCheckout []string) (uint64, error) {
 	if w.minFreeBytes == 0 {
 		return 0, nil
 	}
@@ -906,8 +906,11 @@ func (w *Workspace) estimateCheckoutBytes(ctx context.Context, repo, branch, bas
 	var total uint64
 	var entries uint64
 	for _, record := range strings.Split(string(out), "\x00") {
-		meta, _, ok := strings.Cut(record, "\t")
+		meta, treePath, ok := strings.Cut(record, "\t")
 		if !ok {
+			continue
+		}
+		if len(sparseCheckout) > 0 && !sparseCheckoutContains(treePath, sparseCheckout) {
 			continue
 		}
 		fields := strings.Fields(meta)
@@ -939,6 +942,20 @@ func (w *Workspace) estimateCheckoutBytes(ctx context.Context, repo, branch, bas
 		return ^uint64(0), nil
 	}
 	return total + overhead, nil
+}
+
+func sparseCheckoutContains(treePath string, directories []string) bool {
+	if !strings.Contains(treePath, "/") {
+		return true
+	}
+	cleanPath := filepath.ToSlash(filepath.Clean(treePath))
+	for _, directory := range directories {
+		cleanDirectory := filepath.ToSlash(filepath.Clean(directory))
+		if cleanPath == cleanDirectory || strings.HasPrefix(cleanPath, cleanDirectory+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func (w *Workspace) rejectPartialClone(ctx context.Context, repo string) error {
@@ -1113,7 +1130,7 @@ func registeredWorktreeDirMissing(rec worktreeRecord) (bool, error) {
 	return false, nil
 }
 
-func (w *Workspace) addWorktree(ctx context.Context, repo, path, branch, baseBranch, createToken string) (bool, error) {
+func (w *Workspace) addWorktree(ctx context.Context, repo, path, branch, baseBranch string, sparseCheckout []string, createToken string) (bool, error) {
 	// Refuse early if the branch is already checked out in another worktree:
 	// `git worktree add` will fail, but its stderr leaks through as an opaque
 	// 500. A typed sentinel lets the HTTP layer surface a 409.
@@ -1139,8 +1156,11 @@ func (w *Workspace) addWorktree(ctx context.Context, repo, path, branch, baseBra
 		return false, err
 	}
 	if localBranch {
-		if _, err := w.runGuardedWorktreeAdd(ctx, worktreeAddBranchArgs(repo, path, branch, force, createToken)...); err != nil {
+		if _, err := w.runGuardedWorktreeAdd(ctx, worktreeAddBranchArgs(repo, path, branch, force, len(sparseCheckout) > 0, createToken)...); err != nil {
 			return true, fmt.Errorf("gitworktree: worktree add existing branch %q: %w", branch, err)
+		}
+		if err := w.materializeSparseCheckout(ctx, path, sparseCheckout); err != nil {
+			return true, err
 		}
 		return true, w.unlockCreatedWorktree(ctx, repo, path, createToken)
 	}
@@ -1158,10 +1178,29 @@ func (w *Workspace) addWorktree(ctx context.Context, repo, path, branch, baseBra
 		}
 		return false, err
 	}
-	if err := w.addNewBranchWorktree(ctx, repo, branch, path, baseRef, force, createToken); err != nil {
+	if err := w.addNewBranchWorktree(ctx, repo, branch, path, baseRef, force, len(sparseCheckout) > 0, createToken); err != nil {
 		return true, fmt.Errorf("gitworktree: worktree add branch %q from %q: %w", branch, baseRef, err)
 	}
+	if err := w.materializeSparseCheckout(ctx, path, sparseCheckout); err != nil {
+		return true, err
+	}
 	return true, w.unlockCreatedWorktree(ctx, repo, path, createToken)
+}
+
+func (w *Workspace) materializeSparseCheckout(ctx context.Context, path string, directories []string) error {
+	if len(directories) == 0 {
+		return nil
+	}
+	if _, err := w.run(ctx, w.binary, sparseCheckoutInitArgs(path)...); err != nil {
+		return fmt.Errorf("gitworktree: initialize sparse checkout: %w", err)
+	}
+	if _, err := w.run(ctx, w.binary, sparseCheckoutSetArgs(path, directories)...); err != nil {
+		return fmt.Errorf("gitworktree: set sparse checkout: %w", err)
+	}
+	if _, err := w.run(ctx, w.binary, resetHardHeadArgs(path)...); err != nil {
+		return fmt.Errorf("gitworktree: materialize sparse checkout: %w", err)
+	}
+	return nil
 }
 
 func newWorktreeCreateToken() string { return "ao-create-" + uuid.NewString() }
@@ -1232,8 +1271,8 @@ func staleRegistrationForPath(records []worktreeRecord, path string) (bool, erro
 // worktree that won. The leftover ref is harmless and self-correcting: the next
 // addWorktree for it takes the existing-branch path, and workspaceProjectBranch
 // simply picks the next free candidate.
-func (w *Workspace) addNewBranchWorktree(ctx context.Context, repo, branch, path, baseRef string, force bool, createToken string) error {
-	_, err := w.runGuardedWorktreeAdd(ctx, worktreeAddNewBranchArgs(repo, branch, path, baseRef, force, createToken)...)
+func (w *Workspace) addNewBranchWorktree(ctx context.Context, repo, branch, path, baseRef string, force, noCheckout bool, createToken string) error {
+	_, err := w.runGuardedWorktreeAdd(ctx, worktreeAddNewBranchArgs(repo, branch, path, baseRef, force, noCheckout, createToken)...)
 	if err == nil {
 		return nil
 	}
@@ -1253,9 +1292,9 @@ func (w *Workspace) addNewBranchWorktree(ctx context.Context, repo, branch, path
 	if refErr != nil {
 		return errors.Join(err, refErr)
 	}
-	retryArgs := worktreeAddNewBranchArgs(repo, branch, path, baseRef, true, createToken)
+	retryArgs := worktreeAddNewBranchArgs(repo, branch, path, baseRef, true, noCheckout, createToken)
 	if created {
-		retryArgs = worktreeAddBranchArgs(repo, path, branch, true, createToken)
+		retryArgs = worktreeAddBranchArgs(repo, path, branch, true, noCheckout, createToken)
 	}
 	if _, retryErr := w.runGuardedWorktreeAdd(ctx, retryArgs...); retryErr != nil {
 		return errors.Join(err, retryErr)
@@ -1348,7 +1387,7 @@ func (w *Workspace) createWorkspaceProjectRepo(ctx context.Context, repo workspa
 	if err != nil {
 		return "", false, err
 	}
-	requiredBytes, err := w.estimateCheckoutBytes(ctx, repo.repoPath, branch, repo.baseBranch)
+	requiredBytes, err := w.estimateCheckoutBytes(ctx, repo.repoPath, branch, repo.baseBranch, nil)
 	if err != nil {
 		return "", false, err
 	}
@@ -1372,7 +1411,7 @@ func (w *Workspace) createWorkspaceProjectRepo(ctx context.Context, repo workspa
 	// addNewBranchWorktree's job: git's own --force override, not the repo-wide
 	// prune this used to run, which would also drop sibling sessions'
 	// registrations.
-	if err := w.addNewBranchWorktree(ctx, repo.repoPath, branch, repo.outputPath, baseRef, force, createToken); err != nil {
+	if err := w.addNewBranchWorktree(ctx, repo.repoPath, branch, repo.outputPath, baseRef, force, false, createToken); err != nil {
 		createErr := fmt.Errorf("gitworktree: workspace repo %q worktree add branch %q from %q: %w", repo.name, branch, baseRef, err)
 		retained, cleanupErr := w.rollbackFailedCreate(ctx, repo.repoPath, repo.outputPath, createToken)
 		if cleanupErr != nil {
@@ -1697,6 +1736,11 @@ func validateConfig(cfg ports.WorkspaceConfig) error {
 	}
 	if cfg.Branch == "" {
 		return errors.New("gitworktree: branch is required")
+	}
+	for _, directory := range cfg.SparseCheckout {
+		if _, err := cleanRelativePath(directory); err != nil {
+			return fmt.Errorf("gitworktree: sparse checkout path %q: %w", directory, err)
+		}
 	}
 	return nil
 }

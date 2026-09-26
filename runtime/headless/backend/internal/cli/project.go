@@ -101,6 +101,7 @@ type projectConfig struct {
 	SessionPrefix     string              `json:"sessionPrefix,omitempty"`
 	Env               map[string]string   `json:"env,omitempty"`
 	Symlinks          []string            `json:"symlinks,omitempty"`
+	SparseCheckout    []string            `json:"sparseCheckout,omitempty"`
 	PostCreate        []string            `json:"postCreate,omitempty"`
 	AgentRules        string              `json:"agentRules,omitempty"`
 	AgentRulesFile    string              `json:"agentRulesFile,omitempty"`
@@ -129,6 +130,7 @@ type projectSetConfigOptions struct {
 	orchestratorRules string
 	env               []string
 	symlink           []string
+	sparseCheckout    []string
 	postCreate        []string
 	trackerIntake     bool
 	trackerRepo       string
@@ -320,6 +322,7 @@ func newProjectSetConfigCommand(ctx *commandContext) *cobra.Command {
 	f.StringVar(&opts.orchestratorRules, "orchestrator-rules", "", "Project-specific standing instructions for orchestrator sessions")
 	f.StringArrayVar(&opts.env, "env", nil, "Env var KEY=VALUE forwarded into sessions (repeatable)")
 	f.StringArrayVar(&opts.symlink, "symlink", nil, "Repo-relative path to symlink into workspaces (repeatable)")
+	f.StringArrayVar(&opts.sparseCheckout, "sparse-checkout", nil, "Repo-relative directory to materialize in new workspaces (repeatable)")
 	f.StringArrayVar(&opts.postCreate, "post-create", nil, "Command to run after workspace creation (repeatable)")
 	f.BoolVar(&opts.trackerIntake, "tracker-intake", false, "Enable GitHub issue intake for matching issues")
 	f.StringVar(&opts.trackerRepo, "tracker-repo", "", "GitHub repo for issue intake (owner/repo; default: derive from git origin)")
@@ -355,6 +358,7 @@ func buildProjectConfig(opts projectSetConfigOptions) (projectConfig, error) {
 		SessionPrefix:     opts.sessionPrefix,
 		Env:               env,
 		Symlinks:          opts.symlink,
+		SparseCheckout:    opts.sparseCheckout,
 		PostCreate:        opts.postCreate,
 		AgentRules:        opts.agentRules,
 		AgentRulesFile:    opts.agentRulesFile,
