@@ -223,3 +223,37 @@ func TestNamespacesAndDirectoryAliases(t *testing.T) {
 		}
 	}
 }
+
+func TestReservedRunFileNameEquivalence(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		windows bool
+		reject  bool
+	}{
+		{dataLockName, false, true}, {discoveryLockName, false, true},
+		{".DAEMON-OWNER.LOCK", false, true}, {".Daemon-Discovery.Lock", true, true},
+		{".daemon-owner.lock...  ", true, true}, {".DAEMON-DISCOVERY.LOCK. ", true, true},
+		{".daemon-owner.lock:stream", true, true}, {"running.json:stream", true, true},
+		{"running.json", false, false}, {"running.json", true, false},
+	} {
+		err := validateRunFileName(tc.name, tc.windows)
+		if errors.Is(err, ErrReservedRunFile) != tc.reject {
+			t.Fatalf("name=%q windows=%v err=%v", tc.name, tc.windows, err)
+		}
+	}
+}
+
+func TestReservedRunFileRejectedBeforeDirectoryCreation(t *testing.T) {
+	for _, name := range []string{dataLockName, discoveryLockName} {
+		root := t.TempDir()
+		data := filepath.Join(root, "not-created-data")
+		run := filepath.Join(root, "not-created-discovery", name)
+		if lease, err := Acquire(data, run); lease != nil || !errors.Is(err, ErrReservedRunFile) {
+			t.Fatalf("lease=%v err=%v", lease, err)
+		}
+		entries, err := os.ReadDir(root)
+		if err != nil || len(entries) != 0 {
+			t.Fatalf("admission created files: %v %v", entries, err)
+		}
+	}
+}

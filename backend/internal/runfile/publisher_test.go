@@ -1,6 +1,7 @@
 package runfile
 
 import (
+	"bytes"
 	"errors"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ownership"
 	"os"
@@ -142,5 +143,64 @@ func TestMissingRecordDoesNotProveStopped(t *testing.T) {
 	}
 	if err := CleanupStopped(data, path, nil, dead); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestReservedRunFileAdmissionPreservesExistingRecords(t *testing.T) {
+	for _, name := range []string{".daemon-owner.lock", ".daemon-discovery.lock"} {
+		for _, contents := range []string{"absent", "empty", "dead-record"} {
+			t.Run(name+"/"+contents, func(t *testing.T) {
+				root := t.TempDir()
+				path := filepath.Join(root, name)
+				var original []byte
+				var before os.FileInfo
+				if contents != "absent" {
+					if contents == "dead-record" {
+						original = []byte(`{"pid":42,"port":3001,"startedAt":"2026-01-01T00:00:00Z"}`)
+					}
+					if err := os.WriteFile(path, original, 0600); err != nil {
+						t.Fatal(err)
+					}
+					var err error
+					before, err = os.Stat(path)
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				probes := 0
+				probe := func(int) (bool, error) { probes++; return false, nil }
+				publisher, err := Admit(root, path, probe)
+				if publisher != nil || !errors.Is(err, ownership.ErrReservedRunFile) {
+					t.Fatalf("publisher=%v err=%v", publisher, err)
+				}
+				if err := CleanupStopped(root, path, &Info{PID: 42}, probe); !errors.Is(err, ownership.ErrReservedRunFile) {
+					t.Fatalf("cleanup=%v", err)
+				}
+				if probes != 0 {
+					t.Fatalf("record inspected before reserved-name rejection: probes=%d", probes)
+				}
+				entries, err := os.ReadDir(root)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if contents == "absent" {
+					if len(entries) != 0 {
+						t.Fatal("rejection created lock or record files")
+					}
+					return
+				}
+				if len(entries) != 1 || entries[0].Name() != name {
+					t.Fatalf("rejection changed directory: %v", entries)
+				}
+				got, err := os.ReadFile(path)
+				if err != nil || !bytes.Equal(got, original) {
+					t.Fatalf("record bytes changed: %q %v", got, err)
+				}
+				after, err := os.Stat(path)
+				if err != nil || !os.SameFile(before, after) {
+					t.Fatalf("record file identity changed: %v", err)
+				}
+			})
+		}
 	}
 }

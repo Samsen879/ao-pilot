@@ -9,10 +9,56 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 )
 
 var ErrBusy = errors.New("AO ownership is held by another process")
+var ErrReservedRunFile = errors.New("run-file conflicts with an ownership lock filename")
+
+const dataLockName = ".daemon-owner.lock"
+const discoveryLockName = ".daemon-discovery.lock"
+
+func validateRunFileName(name string, windows bool) error {
+	// Case-insensitive rejection is conservative even on case-sensitive volumes.
+	// Windows also folds trailing dots/spaces; alternate streams are not locators.
+	if windows {
+		if strings.Contains(name, ":") {
+			return ErrReservedRunFile
+		}
+		name = strings.TrimRight(name, ". ")
+	}
+	if strings.EqualFold(name, dataLockName) || strings.EqualFold(name, discoveryLockName) {
+		return ErrReservedRunFile
+	}
+	return nil
+}
+
+// Existing aliases (including Windows short names) must not name either lock
+// object. Metadata checks precede every lock open and any run-file read/unlink.
+func rejectLockAlias(runFile string, lockPaths []string) error {
+	info, err := os.Stat(runFile)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, lockPath := range lockPaths {
+		locked, err := os.Stat(lockPath)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if os.SameFile(info, locked) {
+			return ErrReservedRunFile
+		}
+	}
+	return nil
+}
 
 // Lease is a short critical section until RetainForProcess transfers it to the
 // process lifetime. A retained lease cannot be explicitly closed, even when Run
@@ -58,14 +104,17 @@ func directory(name string) (string, error) {
 // Acquire always locks data first, then the discovery parent (which also owns
 // the fixed browser.sock/supervise.sock names). Contention is nonblocking.
 func Acquire(dataDir, runFile string) (*Lease, error) {
-	data, err := directory(dataDir)
-	if err != nil {
-		return nil, err
-	}
 	if runFile == "" {
 		return nil, errors.New("run-file path is empty")
 	}
 	abs, err := filepath.Abs(runFile)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateRunFileName(filepath.Base(abs), runtime.GOOS == "windows"); err != nil {
+		return nil, err
+	}
+	data, err := directory(dataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +123,11 @@ func Acquire(dataDir, runFile string) (*Lease, error) {
 		return nil, err
 	}
 	l := &Lease{dataDir: data, runFile: filepath.Join(discovery, filepath.Base(abs))}
-	for _, name := range []string{filepath.Join(data, ".daemon-owner.lock"), filepath.Join(discovery, ".daemon-discovery.lock")} {
+	lockPaths := []string{filepath.Join(data, dataLockName), filepath.Join(discovery, discoveryLockName)}
+	if err := rejectLockAlias(l.runFile, lockPaths); err != nil {
+		return nil, err
+	}
+	for _, name := range lockPaths {
 		if info, err := os.Lstat(name); err == nil && !info.Mode().IsRegular() {
 			_ = l.Close()
 			return nil, fmt.Errorf("ownership lock is not a regular file: %s", name)
