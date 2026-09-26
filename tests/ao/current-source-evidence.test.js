@@ -40,6 +40,8 @@ describe('release prerequisite identity and history', () => {
       git('clone', '--depth=1', `file://${root}`, clone);
       const { head, tree } = gitIdentity(clone);
       expect(() => releasePrerequisites(clone, head, tree)).toThrow('full history');
+      execFileSync('git', ['fetch', '--unshallow'], { cwd: clone, stdio: 'pipe' });
+      expect(releasePrerequisites(clone, head, tree)).toEqual({ head, tree });
     } finally { fs.rmSync(clone, { recursive: true, force: true }); }
   });
   test('reports missing historical object rather than false ancestry', () => {
@@ -59,7 +61,7 @@ describe('source test evidence', () => {
     return [...starts, ...events.flatMap(event => event.Test ? [{ ...event, Action: 'run' }, event] : [event])].map(event => JSON.stringify({ Package: 'fixture', ...event })).join('\n');
   };
   test('counts Go top-level, subtests and no-test packages separately', () => {
-    expect(summarizeGo(go([{ Action: 'pass', Test: 'TestA/sub' }, { Action: 'pass', Test: 'TestA' }, { Action: 'pass' }, { Package: 'empty', Action: 'skip' }]))).toEqual({ packages: 1, packagesWithoutTests: 1, topLevel: 1, subtests: 1, passed: 2, failed: 0, skipped: 0 });
+    expect(summarizeGo(go([{ Action: 'pass', Test: 'TestA/sub' }, { Action: 'pass', Test: 'TestA' }, { Action: 'pass' }, { Package: 'empty', Action: 'skip' }]))).toEqual({ packages: 1, packagesFailed: 0, packagesWithoutTests: 1, topLevel: 1, subtests: 1, passed: 2, failed: 0, skipped: 0 });
   });
   test.each(['skip', 'fail'])('rejects Go %s', action => {
     expect(() => summarizeGo(go([{ Action: action, Test: 'TestA' }, { Action: 'pass' }]))).toThrow('failed, skipped, or empty');
@@ -81,8 +83,10 @@ describe('source test evidence', () => {
     for (const read of reports) {
       const outcome = commandOutcome({ status: 1, signal: null }, read);
       expect(outcome.status).toBe('FAIL'); expect(outcome.tests).toBeDefined(); expect(outcome.report_error).toBeDefined();
+      if ('packagesFailed' in outcome.tests) expect(outcome.tests).toMatchObject({ topLevel: 1, failed: 1, packagesFailed: 1 });
     }
     expect(commandOutcome({ status: 1 }, () => summarizeVitest(vitest())).status).toBe('FAIL');
+    expect(commandOutcome({ status: 0, error: { code: 'EPERM', message: 'denied' } }, () => summarizeVitest(vitest())).status).toBe('FAIL');
     expect(commandOutcome({ status: null, error: { code: 'ETIMEDOUT' } }, () => { throw new Error('missing report'); }).status).toBe('TIMEOUT');
     expect(commandOutcome({ status: 1 }, () => JSON.parse('{')).status).toBe('FAIL');
   });

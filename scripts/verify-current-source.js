@@ -19,8 +19,9 @@ fs.mkdirSync(home);
 const env = { ...process.env, HOME: home, TMUX_TMPDIR: sandbox, NEXT_TELEMETRY_DISABLED: '1', GOTOOLCHAIN: 'local', CGO_ENABLED: '0', GOENV: 'off', GOWORK: 'off',
   AO_DATA_DIR: path.join(sandbox, 'data'), AO_RUN_FILE: path.join(sandbox, 'run.json'), AO_CONFIG_PATH: path.join(sandbox, 'invalid.yaml') };
 for (const key of Object.keys(env)) if (key.startsWith('AO_') && !['AO_DATA_DIR', 'AO_RUN_FILE', 'AO_CONFIG_PATH'].includes(key)) delete env[key];
-for (const key of ['GOFLAGS', 'GOEXPERIMENT', 'NODE_OPTIONS', 'NODE_PATH']) delete env[key];
+for (const key of ['GOFLAGS', 'GOEXPERIMENT', 'NODE_OPTIONS', 'NODE_PATH', 'BASH_ENV', 'ENV']) delete env[key];
 for (const key of Object.keys(env)) if (key.toLowerCase().startsWith('npm_config_')) delete env[key];
+env.npm_config_cache = path.join(os.tmpdir(), `ao-source-npm-cache-${process.getuid()}`);
 delete env.TMUX;
 delete env.TMUX_PANE;
 fs.writeFileSync(env.AO_CONFIG_PATH, '[invalid yaml');
@@ -37,8 +38,12 @@ function step(name, command, args, cwd, report) {
     const err = fs.openSync(log, 'wx');
     item.status = 'RUNNING'; save();
     console.log(`[${suite}] ${name}: ${command} ${args.join(' ')}`);
+    const childEnv = { ...env };
+    // Only web's observer needs a deliberately invalid config. Core tests
+    // exercise config discovery itself and must have no explicit override.
+    if (cwd !== path.join(root, 'browser/packages/web')) delete childEnv.AO_CONFIG_PATH;
     let result;
-    try { result = spawnSync(command, args, { cwd, env, stdio: ['ignore', out, err], timeout: 20 * 60 * 1000, killSignal: 'SIGKILL', detached: true }); }
+    try { result = spawnSync(command, args, { cwd, env: childEnv, stdio: ['ignore', out, err], timeout: 20 * 60 * 1000, killSignal: 'SIGKILL', detached: true }); }
     finally { fs.closeSync(out); fs.closeSync(err); }
     if (result.error?.code === 'ETIMEDOUT' && result.pid) {
       try { process.kill(-result.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }

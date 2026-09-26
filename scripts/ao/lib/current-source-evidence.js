@@ -31,7 +31,7 @@ export function releasePrerequisites(root, expectedHead, expectedTree) {
 
 export function summarizeGo(text) {
   const events = text.trim().split('\n').map(line => JSON.parse(line));
-  const counts = { packages: 0, packagesWithoutTests: 0, topLevel: 0, subtests: 0, passed: 0, failed: 0, skipped: 0 };
+  const counts = { packages: 0, packagesFailed: 0, packagesWithoutTests: 0, topLevel: 0, subtests: 0, passed: 0, failed: 0, skipped: 0 };
   const terminal = new Set();
   const started = new Set();
   for (const event of events) {
@@ -50,10 +50,10 @@ export function summarizeGo(text) {
       counts[{ pass: 'passed', fail: 'failed', skip: 'skipped' }[event.Action]]++;
     } else if (event.Action === 'skip') counts.packagesWithoutTests++;
     else if (event.Action === 'pass') counts.packages++;
-    else counts.failed++;
+    else counts.packagesFailed++;
   }
   if (started.size !== terminal.size) throw Object.assign(new Error('Go report has unfinished packages or tests'), { counts });
-  if (!counts.packages || !counts.topLevel || counts.failed || counts.skipped) throw Object.assign(new Error('Go tests failed, skipped, or empty'), { counts });
+  if (!counts.packages || !counts.topLevel || counts.failed || counts.packagesFailed || counts.skipped) throw Object.assign(new Error('Go tests failed, skipped, or empty'), { counts });
   return counts;
 }
 
@@ -74,7 +74,7 @@ export function summarizeVitest(report) {
 // A report never overrides a failed process; failed reports still retain counts.
 export function commandOutcome(result, readReport) {
   const outcome = { exit_code: result.status, signal: result.signal,
-    status: result.error?.code === 'ETIMEDOUT' ? 'TIMEOUT' : result.status === 0 ? 'PASS' : 'FAIL' };
+    status: result.error?.code === 'ETIMEDOUT' ? 'TIMEOUT' : !result.error && result.status === 0 ? 'PASS' : 'FAIL' };
   if (result.error) outcome.error = result.error.message;
   try { if (readReport) outcome.tests = readReport(); }
   catch (error) {
