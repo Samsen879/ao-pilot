@@ -48,8 +48,10 @@ func (s *Store) CreateSession(ctx context.Context, rec domain.SessionRecord) (do
 	return rec, nil
 }
 
-// UpdateSession writes the full mutable state of an existing session. The
-// id/project/num/created_at are immutable and not touched here.
+// UpdateSession writes lifecycle and launch state only. User settings
+// (display name, preview URL/revision, terminate-on-merge) belong exclusively
+// to their column setters after creation. Pane draft/generation and immutable
+// identity also remain outside this update, even when rec is a stale snapshot.
 func (s *Store) UpdateSession(ctx context.Context, rec domain.SessionRecord) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -74,6 +76,29 @@ func (s *Store) UpdateSessionAndClearPaneDraft(ctx context.Context, rec domain.S
 		return err
 	}
 	return tx.Commit()
+}
+
+// PreserveFailedSpawnWorkspace saves only rollback-owned workspace fields.
+// When the runtime survives, its current handles are left untouched in SQL.
+func (s *Store) PreserveFailedSpawnWorkspace(ctx context.Context, id domain.SessionID, branch, workspacePath, repoPath string, clearRuntime bool) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	var clear int64
+	if clearRuntime {
+		clear = 1
+	}
+	return s.qw.PreserveFailedSpawnWorkspace(ctx, gen.PreserveFailedSpawnWorkspaceParams{
+		ID: id, Branch: branch, WorkspacePath: workspacePath, WorkspaceRepoPath: repoPath,
+		ClearRuntime: clear, UpdatedAt: time.Now().UTC(),
+	})
+}
+
+// ClearFailedSpawnWorkspace clears handles destroyed by rollback without
+// writing an old activity, termination, user preference or pane draft.
+func (s *Store) ClearFailedSpawnWorkspace(ctx context.Context, id domain.SessionID) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.qw.ClearFailedSpawnWorkspace(ctx, gen.ClearFailedSpawnWorkspaceParams{ID: id, UpdatedAt: time.Now().UTC()})
 }
 
 // PaneDraftPending is a write-ahead marker for a pane that may contain an
@@ -392,27 +417,23 @@ func recordToInsert(rec domain.SessionRecord, num int64) gen.InsertSessionParams
 func recordToUpdate(rec domain.SessionRecord) gen.UpdateSessionParams {
 	activity := normalActivity(rec.Activity, rec.UpdatedAt)
 	return gen.UpdateSessionParams{
-		ID:                 rec.ID,
-		IssueID:            rec.IssueID,
-		Kind:               rec.Kind,
-		Harness:            rec.Harness,
-		DisplayName:        rec.DisplayName,
-		ActivityState:      activity.State,
-		ActivityLastAt:     activity.LastActivityAt,
-		FirstSignalAt:      timeToNullTime(rec.FirstSignalAt),
-		IsTerminated:       rec.IsTerminated,
-		Branch:             rec.Metadata.Branch,
-		WorkspacePath:      rec.Metadata.WorkspacePath,
-		WorkspaceRepoPath:  rec.Metadata.WorkspaceRepoPath,
-		RuntimeHandleID:    rec.Metadata.RuntimeHandleID,
-		RuntimeLaunchID:    rec.Metadata.RuntimeLaunchID,
-		AgentSessionID:     rec.Metadata.AgentSessionID,
-		Prompt:             rec.Metadata.Prompt,
-		PreviewURL:         rec.Metadata.PreviewURL,
-		PreviewRevision:    rec.Metadata.PreviewRevision,
-		TerminateOnPRMerge: rec.TerminateOnPRMerge,
-		CleanupGeneration:  rec.CleanupGeneration,
-		UpdatedAt:          rec.UpdatedAt,
+		ID:                rec.ID,
+		IssueID:           rec.IssueID,
+		Kind:              rec.Kind,
+		Harness:           rec.Harness,
+		ActivityState:     activity.State,
+		ActivityLastAt:    activity.LastActivityAt,
+		FirstSignalAt:     timeToNullTime(rec.FirstSignalAt),
+		IsTerminated:      rec.IsTerminated,
+		Branch:            rec.Metadata.Branch,
+		WorkspacePath:     rec.Metadata.WorkspacePath,
+		WorkspaceRepoPath: rec.Metadata.WorkspaceRepoPath,
+		RuntimeHandleID:   rec.Metadata.RuntimeHandleID,
+		RuntimeLaunchID:   rec.Metadata.RuntimeLaunchID,
+		AgentSessionID:    rec.Metadata.AgentSessionID,
+		Prompt:            rec.Metadata.Prompt,
+		CleanupGeneration: rec.CleanupGeneration,
+		UpdatedAt:         rec.UpdatedAt,
 	}
 }
 
