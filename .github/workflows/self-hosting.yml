@@ -17,14 +17,38 @@ permissions:
   pull-requests: read
 
 jobs:
-  verify-self-hosting-receipt:
+  resolve-candidate:
     runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ github.token }}
+    outputs:
+      head: ${{ steps.identity.outputs.head }}
+      tree: ${{ steps.identity.outputs.tree }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.repository.default_branch }}
+      - id: identity
+        run: |
+          echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "tree=$(git rev-parse HEAD^{tree})" >> "$GITHUB_OUTPUT"
+
+  current-source:
+    needs: resolve-candidate
+    uses: ./.github/workflows/current-source.yml
+    with:
+      ref: ${{ needs.resolve-candidate.outputs.head }}
+      tree: ${{ needs.resolve-candidate.outputs.tree }}
+
+  verify-self-hosting-receipt:
+    needs: [resolve-candidate, current-source]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      AO_PHASE_ZERO_EXPECTED_HEAD: ${{ needs.resolve-candidate.outputs.head }}
+      AO_PHASE_ZERO_EXPECTED_TREE: ${{ needs.resolve-candidate.outputs.tree }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-candidate.outputs.head }}
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
