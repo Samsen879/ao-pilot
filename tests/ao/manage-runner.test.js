@@ -665,6 +665,8 @@ describe('ao manage runner', () => {
       ],
     });
 
+    const before = readState(repoRoot);
+    const beforeAudit = repository.listAuditEntries();
     await expect(runManageCommand({
       repoRoot,
       projectId: PROJECT_ID,
@@ -674,6 +676,8 @@ describe('ao manage runner', () => {
       ownerSessionId: 'session-126-impl',
       now: '2026-04-03T15:04:00.000Z',
     })).rejects.toThrow(/independent review is active/i);
+    expect(readState(repoRoot)).toEqual(before);
+    expect(repository.listAuditEntries()).toEqual(beforeAudit);
 
     const state = readState(repoRoot);
     expect(state.managed_tasks).toEqual([
@@ -691,7 +695,7 @@ describe('ao manage runner', () => {
     ]);
   });
 
-  it('blocks successor resume until an accepted handoff grant exists', async () => {
+  it.each(['missing handoff', 'conflicting owners'])('rejects successor resume atomically with %s', async (rejection) => {
     const repoRoot = createTempRepo();
 
     await runManageCommand({
@@ -757,6 +761,15 @@ describe('ao manage runner', () => {
       reason: 'worker_stale',
     });
 
+    if (rejection === 'conflicting owners') {
+      const priorLease = repository.getSnapshot().state.ownership_leases[0];
+      repository.upsertOwnershipLease({ ...priorLease, status: 'active', released_at: null, release_reason: null });
+      repository.upsertOwnershipLease({ ...priorLease, lease_id: 'conflicting-lease', owner_session_name: 'other-owner', status: 'active', released_at: null, release_reason: null });
+    }
+    const paths = repository.getSnapshot().paths;
+    const beforeState = fs.readFileSync(paths.statePath, 'utf8');
+    const beforeAudit = fs.readFileSync(paths.auditPath, 'utf8');
+
     await expect(runManageCommand({
       repoRoot,
       projectId: PROJECT_ID,
@@ -765,7 +778,10 @@ describe('ao manage runner', () => {
       ownerSessionName: 'worker-59',
       ownerSessionId: 'worker-59',
       now: '2026-03-31T10:04:00.000Z',
-    })).rejects.toThrow(/accepted handoff/i);
+    })).rejects.toThrow(rejection === 'missing handoff' ? /accepted handoff/i : /conflicting active owners/i);
+    expect(fs.readFileSync(paths.statePath, 'utf8')).toBe(beforeState);
+    expect(fs.readFileSync(paths.auditPath, 'utf8')).toBe(beforeAudit);
+    expect(readState(repoRoot).managed_tasks[0].status).toBe('paused');
   });
 
   it('transfers ownership to the accepted successor during resume', async () => {
@@ -863,6 +879,7 @@ describe('ao manage runner', () => {
       grantExpiresAt: '2026-03-31T10:20:00.000Z',
     });
 
+    const auditsBeforeResume = repository.listAuditEntries().length;
     const result = await runManageCommand({
       repoRoot,
       projectId: PROJECT_ID,
@@ -872,6 +889,11 @@ describe('ao manage runner', () => {
       ownerSessionId: 'worker-59',
       now: '2026-03-31T10:05:00.000Z',
     });
+
+    const resumeAudits = repository.listAuditEntries().slice(auditsBeforeResume);
+    expect(resumeAudits).toHaveLength(1);
+    expect(resumeAudits[0]).toMatchObject({ entity_kind: 'managed_task_command', operation: 'resume' });
+    expect(resumeAudits[0].details.changes.map(change => change.entity_kind)).toEqual(expect.arrayContaining(['managed_task', 'ownership_lease', 'pr_binding', 'handoff_transfer', 'handoff_request', 'execution_attempt_metric']));
 
     expect(result.ownershipLease).toMatchObject({
       task_id: 'issue-117',

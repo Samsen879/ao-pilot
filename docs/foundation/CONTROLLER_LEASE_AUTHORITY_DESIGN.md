@@ -221,3 +221,14 @@ restored, remain failed closed and escalate rather than synthesize a shadow.
 - Existing targeted repository, migration, controller-loop, state-runner, and
   collection tests remain the regression boundary.
 - Full `npm test` and package verification must remain green.
+
+## Managed-task transaction registration (#127)
+
+Inventory `2026-09-26.1` adds `persist-state-api.08` for the compound
+`managed_task_command` writer (64 selector usages, including eight ordinary
+state persistence definitions/calls). It still calls the existing shadow-stripping
+persistence boundary; it neither writes canonical controller leases nor promotes
+their read projection to authority. The current manifest/verifier digest and
+live-evidence assertions advance together. Existing authority design, 11 semantic
+region digests, migration/admission provenance, and historical v1 reports and
+receipts remain unchanged.
