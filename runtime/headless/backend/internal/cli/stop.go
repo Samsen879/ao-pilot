@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/config"
+	"github.com/aoagents/agent-orchestrator/backend/internal/ownership"
 	"github.com/aoagents/agent-orchestrator/backend/internal/runfile"
 )
 
@@ -55,13 +57,9 @@ func (c *commandContext) stopDaemon(ctx context.Context, opts stopOptions) (daem
 		return daemonStatus{}, err
 	}
 	switch st.State {
-	case stateStopped:
-		return st, nil
-	case stateStale:
-		if err := runfile.Remove(cfg.RunFilePath); err != nil {
-			return daemonStatus{}, err
-		}
-		return daemonStatus{State: stateStopped, RunFile: cfg.RunFilePath, DataDir: cfg.DataDir}, nil
+	case stateStopped, stateStale:
+		// Missing discovery can mean startup or draining, so also test both leases.
+		return c.waitForStopped(ctx, st.record, cfg.RunFilePath, cfg.DataDir, opts.timeout)
 	}
 	if !st.owned {
 		if st.Error != "" {
@@ -70,13 +68,13 @@ func (c *commandContext) stopDaemon(ctx context.Context, opts stopOptions) (daem
 		return daemonStatus{}, fmt.Errorf("daemon pid %d is alive but ownership could not be verified", st.PID)
 	}
 
-	if err := c.requestShutdown(ctx, st.Port); err != nil {
+	if err := c.requestShutdown(ctx, st.Port, st.record); err != nil {
 		return daemonStatus{}, fmt.Errorf("request daemon shutdown: %w", err)
 	}
-	return c.waitForStopped(ctx, st.PID, cfg.RunFilePath, cfg.DataDir, opts.timeout)
+	return c.waitForStopped(ctx, st.record, cfg.RunFilePath, cfg.DataDir, opts.timeout)
 }
 
-func (c *commandContext) requestShutdown(ctx context.Context, port int) error {
+func (c *commandContext) requestShutdown(ctx context.Context, port int, expected *runfile.Info) error {
 	reqCtx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 
@@ -84,6 +82,11 @@ func (c *commandContext) requestShutdown(ctx context.Context, port int) error {
 	if err != nil {
 		return err
 	}
+	instance := runfile.LegacyInstance
+	if expected != nil && expected.InstanceID != "" {
+		instance = expected.InstanceID
+	}
+	req.Header.Set(runfile.ExpectedInstanceHeader, instance)
 	resp, err := c.deps.HTTPClient.Do(req)
 	if err != nil {
 		return err
@@ -95,55 +98,24 @@ func (c *commandContext) requestShutdown(ctx context.Context, port int) error {
 	return nil
 }
 
-func (c *commandContext) waitForStopped(ctx context.Context, pid int, runFilePath, dataDir string, timeout time.Duration) (daemonStatus, error) {
+func (c *commandContext) waitForStopped(ctx context.Context, expected *runfile.Info, runFilePath, dataDir string, timeout time.Duration) (daemonStatus, error) {
 	if timeout <= 0 {
 		timeout = defaultStopTimeout
 	}
 	deadline := c.deps.Now().Add(timeout)
 	for {
-		select {
-		case <-ctx.Done():
-			return daemonStatus{}, ctx.Err()
-		default:
-		}
-
-		info, err := runfile.Read(runFilePath)
-		if err != nil {
+		if err := ctx.Err(); err != nil {
 			return daemonStatus{}, err
 		}
-		alive := c.deps.ProcessAlive(pid)
-		if !alive {
-			// Only remove the run-file if it still belongs to the process we
-			// stopped. A concurrent `ao start` may have already written a new
-			// run-file for a different daemon; removing that would corrupt its
-			// handshake and make a live daemon look stopped.
-			if info != nil && info.PID == pid {
-				if err := runfile.Remove(runFilePath); err != nil {
-					return daemonStatus{}, err
-				}
-			}
+		err := runfile.CleanupStopped(dataDir, runFilePath, expected, c.deps.OwnerProcessAlive)
+		if err == nil {
 			return daemonStatus{State: stateStopped, RunFile: runFilePath, DataDir: dataDir}, nil
 		}
-		if info == nil {
-			// The run-file is the daemon's own liveness marker; it removes it as
-			// it shuts down, before the OS process has necessarily exited. Once
-			// the marker is gone the daemon has committed to stopping, so treat
-			// that as stopped.
-			//
-			// We still poll for full process exit as a best effort so Windows
-			// releases inherited handles such as daemon.log before callers clean
-			// up the data directory, but exceeding the timeout is NOT an error:
-			// with no desktop client connected the daemon can drain its
-			// background workers slower than the stop timeout, and failing here
-			// made `ao stop` spuriously report failure (issue #2214).
-			if !c.deps.Now().Before(deadline) {
-				return daemonStatus{State: stateStopped, RunFile: runFilePath, DataDir: dataDir}, nil
-			}
-			c.deps.Sleep(100 * time.Millisecond)
-			continue
+		if !errors.Is(err, ownership.ErrBusy) && !errors.Is(err, runfile.ErrOwnerAlive) {
+			return daemonStatus{}, err
 		}
 		if !c.deps.Now().Before(deadline) {
-			return daemonStatus{}, fmt.Errorf("daemon pid %d did not stop within %s", pid, timeout)
+			return daemonStatus{}, fmt.Errorf("daemon ownership did not become fully stopped within %s: %w", timeout, err)
 		}
 		c.deps.Sleep(100 * time.Millisecond)
 	}
