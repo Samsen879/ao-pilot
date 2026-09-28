@@ -2296,10 +2296,10 @@ func (m *Manager) Send(ctx context.Context, id domain.SessionID, message string)
 	}
 	// confirmActive only helps — and is only SAFE — when the harness reports
 	// both a prompt-submit signal (so the loop can observe active) and a
-	// blocked signal it can clear mid-turn (so it can tell an unsubmitted
-	// draft from a pending permission dialog and never Enter into the latter).
-	// Only claude-code and its hook-delegators (grok/continueagent/devin)
-	// satisfy both; every other harness opts out via EmitsBlockedActivity —
+	// distinct blocked signal (so it can tell an unsubmitted draft from a
+	// pending permission dialog and never Enter into the latter).
+	// Codex and Claude Code report both signals. Harnesses that collapse a
+	// permission request into waiting_input opt out via EmitsBlockedActivity —
 	// see ports.ActivitySignaler.
 	rec, ok, err := m.store.GetSession(ctx, id)
 	if err != nil {
