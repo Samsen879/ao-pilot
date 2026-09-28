@@ -103,6 +103,40 @@ func TestSendRetriesCodexEnterUntilSubmitSignal(t *testing.T) {
 	}
 }
 
+func TestSendDoesNotTreatStaleActiveStateAsSubmitSignal(t *testing.T) {
+	ctx := context.Background()
+	messenger := &sendConfirmMessenger{}
+	manager, store, rec := newSendConfirmFixture(t, messenger)
+	baseline := time.Now().UTC().Add(-time.Minute)
+	current, ok, err := store.GetSession(ctx, rec.ID)
+	if err != nil || !ok {
+		t.Fatal(err)
+	}
+	current.Activity = domain.Activity{State: domain.ActivityActive, LastActivityAt: baseline}
+	if err := store.UpdateSession(ctx, current); err != nil {
+		t.Fatal(err)
+	}
+	messenger.after = func(ctx context.Context, call int) error {
+		if call != 2 {
+			return nil
+		}
+		current, ok, err := store.GetSession(ctx, rec.ID)
+		if err != nil || !ok {
+			return err
+		}
+		current.Activity = domain.Activity{State: domain.ActivityActive, LastActivityAt: baseline.Add(time.Second)}
+		return store.UpdateSession(ctx, current)
+	}
+
+	if err := manager.Send(ctx, rec.ID, "steer the active Codex turn"); err != nil {
+		t.Fatal(err)
+	}
+	got := messenger.snapshot()
+	if len(got) != 2 || got[1] != "" {
+		t.Fatalf("send calls = %#v, want stale active ignored and one Enter-only retry", got)
+	}
+}
+
 func TestSendDoesNotRetryCodexEnterAfterPermissionRequest(t *testing.T) {
 	ctx := context.Background()
 	messenger := &sendConfirmMessenger{}
