@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 type fakeAgent struct{ hooks func(context.Context) error }
@@ -150,6 +151,9 @@ func (l fakeLifecycle) MarkTerminated(ctx context.Context, id domain.SessionID) 
 		return err
 	}
 	r.IsTerminated = true
+	now := time.Now().UTC()
+	r.Activity = domain.Activity{State: domain.ActivityExited, LastActivityAt: now}
+	r.UpdatedAt = now
 	return l.s.UpdateSession(ctx, r)
 }
 
