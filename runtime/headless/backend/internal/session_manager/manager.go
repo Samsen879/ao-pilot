@@ -153,6 +153,11 @@ type RestoreResult struct {
 	Mode    RestoreMode
 }
 
+type bootRestoreCandidate struct {
+	rec  domain.SessionRecord
+	rows []domain.SessionWorktreeRecord
+}
+
 // Store is the persistence surface needed by the internal session Manager.
 type Store interface {
 	// GetProject loads a project row so spawn can resolve its per-project agent
@@ -309,6 +314,12 @@ const (
 	sendConfirmPollInterval    = 300 * time.Millisecond
 	sendConfirmAttemptDeadline = 2 * time.Second
 	sendConfirmMaxAttempts     = 3
+	// bootRestoreLimit is a total cold-start launch budget. A stale database can
+	// contain many old live rows or shutdown markers; restoring all of them at
+	// once fans out one agent plus its helper processes per row and can exhaust
+	// the host before the daemon becomes ready. Overflow remains in durable
+	// custody and can still be restored explicitly.
+	bootRestoreLimit = 4
 )
 
 // Deps are the collaborators a Session Manager needs; New wires them together.
@@ -1683,36 +1694,70 @@ func (m *Manager) saveAndTeardownOne(ctx context.Context, rec domain.SessionReco
 // If the work capture fails we mark terminated WITHOUT a marker and leave the
 // worktree intact: better to skip the relaunch than to tear down un-preserved
 // work or relaunch onto an inconsistent worktree.
-func (m *Manager) reconcileLive(ctx context.Context, rec domain.SessionRecord) error {
+func (m *Manager) reconcileLive(ctx context.Context, rec domain.SessionRecord, allowRestore bool) (bool, error) {
 	project, err := m.loadProject(ctx, rec.ProjectID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	projectKind := project.Kind.WithDefault()
 	if rec.Metadata.WorkspacePath == "" || (rec.Metadata.Branch == "" && projectKind != domain.ProjectKindScratch) {
-		return nil
+		return false, nil
 	}
 	handle := runtimeHandle(rec.Metadata)
 	if handle.ID != "" {
 		alive, err := m.runtime.IsAlive(ctx, handle)
 		if err != nil {
 			// A failed probe is not proof of death: leave the session as-is.
-			return fmt.Errorf("reconcile %s: probe: %w", rec.ID, err)
+			return false, fmt.Errorf("reconcile %s: probe: %w", rec.ID, err)
 		}
 		if alive {
-			return nil // adopt: the session survived the crash.
+			return false, nil // adopt: the session survived the crash.
 		}
 	}
 	if projectKind == domain.ProjectKindScratch {
-		return m.lcm.MarkTerminated(ctx, rec.ID)
+		return false, m.lcm.MarkTerminated(ctx, rec.ID)
+	}
+	if !allowRestore {
+		// Preserve the existing workspace and any preserve ref, but consume its
+		// automatic-restore eligibility. Without this state transition, every
+		// later daemon boot would get another chance to resurrect the same stale
+		// session and the launch limit would only delay the resource spike.
+		markerErr := m.store.MarkSessionWorktreesNonRestorable(ctx, rec.ID)
+		terminatedErr := m.lcm.MarkTerminated(ctx, rec.ID)
+		if markerErr != nil {
+			if terminatedErr != nil {
+				return false, errors.Join(
+					fmt.Errorf("reconcile %s: quarantine restore marker: %w", rec.ID, markerErr),
+					fmt.Errorf("reconcile %s: mark deferred session terminated: %w", rec.ID, terminatedErr),
+				)
+			}
+			return false, fmt.Errorf("reconcile %s: quarantine restore marker: %w", rec.ID, markerErr)
+		}
+		if terminatedErr != nil {
+			return false, fmt.Errorf("reconcile %s: mark deferred session terminated: %w", rec.ID, terminatedErr)
+		}
+		m.logger.Warn("reconcile: cold-start restore limit reached; session retained for manual restore",
+			"sessionID", rec.ID, "workspacePath", rec.Metadata.WorkspacePath, "limit", bootRestoreLimit)
+		return false, nil
 	}
 	if err := m.saveAndTeardownOne(ctx, rec, false); err != nil {
 		m.logger.Warn("reconcile: save-and-teardown failed; terminating without restore marker", "sessionID", rec.ID, "error", err)
-		if mErr := m.lcm.MarkTerminated(ctx, rec.ID); mErr != nil {
-			return fmt.Errorf("reconcile %s: mark terminated: %w", rec.ID, mErr)
+		markerErr := m.store.MarkSessionWorktreesNonRestorable(ctx, rec.ID)
+		terminatedErr := m.lcm.MarkTerminated(ctx, rec.ID)
+		if markerErr != nil {
+			if terminatedErr != nil {
+				return true, errors.Join(
+					fmt.Errorf("reconcile %s: quarantine failed restore marker: %w", rec.ID, markerErr),
+					fmt.Errorf("reconcile %s: mark terminated: %w", rec.ID, terminatedErr),
+				)
+			}
+			return true, fmt.Errorf("reconcile %s: quarantine failed restore marker: %w", rec.ID, markerErr)
+		}
+		if terminatedErr != nil {
+			return true, fmt.Errorf("reconcile %s: mark terminated: %w", rec.ID, terminatedErr)
 		}
 	}
-	return nil
+	return true, nil
 }
 
 // reconcileReap kills the leaked tmux session of a session the DB already marks
@@ -1755,14 +1800,23 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("reconcile: list sessions: %w", err)
 	}
+	live := make([]domain.SessionRecord, 0, len(recs))
 	for _, rec := range recs {
+		if !rec.IsTerminated {
+			live = append(live, rec)
+		}
+	}
+	prioritizeBootRecovery(live, bootRestoreLimit)
+	recoveryAttempts := 0
+	for _, rec := range live {
 		if !m.spawnAttemptAllowed(ctx, rec.ID) {
 			continue
 		}
-		if rec.IsTerminated {
-			continue
+		attempted, err := m.reconcileLive(ctx, rec, recoveryAttempts < bootRestoreLimit)
+		if attempted {
+			recoveryAttempts++
 		}
-		if err := m.reconcileLive(ctx, rec); err != nil {
+		if err != nil {
 			m.logger.Error("reconcile: live pass failed, skipping", "sessionID", rec.ID, "error", err)
 		}
 	}
@@ -1780,8 +1834,8 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	return m.RestoreAll(ctx)
 }
 
-// RestoreAll relaunches every terminated session that was saved by the last
-// SaveAndTeardownAll. The "shutdown-saved" marker is the presence of a
+// RestoreAll relaunches a bounded set of terminated sessions saved by the last
+// SaveAndTeardownAll or crash reconciliation. The "shutdown-saved" marker is the presence of a
 // session_worktrees row for the session; sessions the user killed before
 // shutdown have no such row and are left terminated.
 //
@@ -1797,6 +1851,7 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("restore-all: list sessions: %w", err)
 	}
+	candidates := make([]bootRestoreCandidate, 0)
 	for _, rec := range recs {
 		if !m.spawnAttemptAllowed(ctx, rec.ID) {
 			continue
@@ -1816,6 +1871,23 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 		}
 		rows = restorableWorktreeRows(rows)
 		if len(rows) == 0 {
+			continue
+		}
+		candidates = append(candidates, bootRestoreCandidate{rec: rec, rows: rows})
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return bootRecoveryBefore(candidates[i].rec, candidates[j].rec)
+	})
+	reserveRecentOrchestratorCandidate(candidates, bootRestoreLimit)
+	for i, saved := range candidates {
+		rec, rows := saved.rec, saved.rows
+		if i >= bootRestoreLimit {
+			if err := m.store.MarkSessionWorktreesNonRestorable(ctx, rec.ID); err != nil {
+				m.logger.Error("restore-all: quarantine overflow marker failed", "sessionID", rec.ID, "error", err)
+				continue
+			}
+			m.logger.Warn("restore-all: cold-start restore limit reached; session retained for manual restore",
+				"sessionID", rec.ID, "workspacePath", rec.Metadata.WorkspacePath, "limit", bootRestoreLimit)
 			continue
 		}
 
@@ -1921,6 +1993,54 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func bootRecoveryBefore(a, b domain.SessionRecord) bool {
+	if !a.Activity.LastActivityAt.Equal(b.Activity.LastActivityAt) {
+		return a.Activity.LastActivityAt.After(b.Activity.LastActivityAt)
+	}
+	if !a.UpdatedAt.Equal(b.UpdatedAt) {
+		return a.UpdatedAt.After(b.UpdatedAt)
+	}
+	return a.ID > b.ID
+}
+
+// prioritizeBootRecovery sorts recent activity first and reserves one slot for
+// the most recent orchestrator. Restoring only workers can leave a recovered
+// project without the controller that owns their next actions.
+func prioritizeBootRecovery(recs []domain.SessionRecord, limit int) {
+	sort.SliceStable(recs, func(i, j int) bool { return bootRecoveryBefore(recs[i], recs[j]) })
+	if limit <= 0 || len(recs) <= limit {
+		return
+	}
+	for i := 0; i < limit; i++ {
+		if recs[i].Kind == domain.KindOrchestrator {
+			return
+		}
+	}
+	for i := limit; i < len(recs); i++ {
+		if recs[i].Kind == domain.KindOrchestrator {
+			recs[limit-1], recs[i] = recs[i], recs[limit-1]
+			return
+		}
+	}
+}
+
+func reserveRecentOrchestratorCandidate(candidates []bootRestoreCandidate, limit int) {
+	if limit <= 0 || len(candidates) <= limit {
+		return
+	}
+	for i := 0; i < limit; i++ {
+		if candidates[i].rec.Kind == domain.KindOrchestrator {
+			return
+		}
+	}
+	for i := limit; i < len(candidates); i++ {
+		if candidates[i].rec.Kind == domain.KindOrchestrator {
+			candidates[limit-1], candidates[i] = candidates[i], candidates[limit-1]
+			return
+		}
+	}
 }
 
 func restorableWorktreeRows(rows []domain.SessionWorktreeRecord) []domain.SessionWorktreeRecord {

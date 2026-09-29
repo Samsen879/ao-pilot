@@ -141,6 +141,7 @@ func (l fakeLifecycle) MarkSpawned(ctx context.Context, id domain.SessionID, met
 		return err
 	}
 	r.Metadata = meta
+	r.IsTerminated = false
 	return l.s.UpdateSession(ctx, r)
 }
 func (l fakeLifecycle) MarkTerminated(ctx context.Context, id domain.SessionID) error {
