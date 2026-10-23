@@ -153,8 +153,9 @@ func TestSendDoesNotRetryCodexEnterAfterPermissionRequest(t *testing.T) {
 		return store.UpdateSession(ctx, current)
 	}
 
-	if err := manager.Send(ctx, rec.ID, "message delivered as a permission dialog appears"); err != nil {
-		t.Fatal(err)
+	result, err := manager.SendMessage(ctx, rec.ID, domain.MessageOptions{Message: "message delivered as a permission dialog appears"})
+	if err != nil || result.Outcome != "rejected" || result.Evidence.Code != "SESSION_AWAITING_DECISION" {
+		t.Fatalf("result=%+v err=%v", result, err)
 	}
 	got := messenger.snapshot()
 	if len(got) != 1 {

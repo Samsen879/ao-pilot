@@ -205,7 +205,7 @@ type Manager struct {
 	store     Store
 	// messenger is a sessionguard.Guard wrapping the raw messenger, so every
 	// pane write is guarded (re-read state, refuse a blocked session) without
-	// each call site re-deriving the check. Send/confirmActive use Deliver for
+	// each call site re-deriving the check. SendMessage/confirmMessage use Deliver for
 	// its Outcome; Spawn/Restore use the interface-level Send for
 	// initial-prompt delivery, where a blocked session is impossible.
 	messenger           *sessionguard.Guard
@@ -215,6 +215,9 @@ type Manager struct {
 	reviewerStopper     func(context.Context, domain.SessionID) error
 	browserCapabilities BrowserCapabilityIssuer
 	dataDir             string
+	runFile             string
+	messageMu           sync.Mutex
+	messageLocks        map[domain.SessionID]*messageGate
 	clock               func() time.Time
 	// lookPath is exec.LookPath in production; tests substitute a stub so
 	// they don't need real binaries on PATH. Returns ports.ErrAgentBinaryNotFound
@@ -342,6 +345,7 @@ type Deps struct {
 	// DataDir is exported to spawned agents as AO_DATA_DIR so their hook
 	// commands can open the same store.
 	DataDir string
+	RunFile string
 	Clock   func() time.Time
 	// LookPath overrides exec.LookPath for the pre-launch agent-binary check.
 	// Production wiring leaves this nil and the manager defaults to
@@ -371,6 +375,8 @@ func New(d Deps) *Manager {
 		browser:             d.Browser,
 		browserCapabilities: d.BrowserCapabilities,
 		dataDir:             d.DataDir,
+		runFile:             d.RunFile,
+		messageLocks:        make(map[domain.SessionID]*messageGate),
 		clock:               d.Clock,
 		lookPath:            d.LookPath,
 		executable:          d.Executable,
@@ -2437,65 +2443,18 @@ func (m *Manager) applySessionPreserved(ctx context.Context, rec domain.SessionR
 	return keepPreserved
 }
 
-// Send delivers a message to a running session's agent through the guarded
-// pane-write primitive, then best-effort confirms the agent actually accepted
-// it. The guard refuses delivery into a session that is gone, terminated, has
-// an exited agent, or is paused on a permission decision;
-// those refusals surface as typed sentinels so the API reports why instead of
-// silently dropping the message. AO has no delivery ack: the messenger returns
-// nil the moment the runtime paste + Enter commands exit 0, and for a large
-// multiline prompt a single Enter may not submit (claude-code leaves it as an
-// unsubmitted draft). confirmActive observes a fresh durable ActivityActive
-// timestamp (written by the user-prompt-submit hook) and re-sends Enter until
-// the message is confirmed or the budget is exhausted. Confirmation never
-// fails the send: it only decides whether to nudge again.
+// Send is the error-only compatibility wrapper for internal ordinary notices.
+// External callers use SendMessage for durable submission and reading evidence.
 func (m *Manager) Send(ctx context.Context, id domain.SessionID, message string) error {
-	before, beforeOK, err := m.store.GetSession(ctx, id)
+	result, err := m.SendMessage(ctx, id, domain.MessageOptions{Message: message})
 	if err != nil {
-		return fmt.Errorf("send %s: session: %w", id, err)
+		return err
 	}
-	message = prepareOutboundMessage(before, beforeOK, message)
-	outcome, err := m.messenger.Deliver(ctx, id, message)
-	if err != nil {
-		return fmt.Errorf("send %s: %w", id, err)
+	if result.Outcome == "rejected" {
+		return fmt.Errorf("send %s: %s", id, result.Evidence.Code)
 	}
-	switch outcome {
-	case sessionguard.SuppressedNotFound:
-		return fmt.Errorf("send %s: %w", id, ErrNotFound)
-	case sessionguard.SuppressedTerminated:
-		return fmt.Errorf("send %s: %w", id, ErrTerminated)
-	case sessionguard.SuppressedExited:
-		return fmt.Errorf("send %s: %w", id, ErrAgentExited)
-	case sessionguard.SuppressedAwaitingUser:
-		return fmt.Errorf("send %s: %w", id, ErrAwaitingDecision)
-	case sessionguard.Attempted:
-		return fmt.Errorf("send %s: %w", id, ErrDraftPending)
-	case sessionguard.Incomplete:
-		return fmt.Errorf("send %s: %w", id, ErrDraftIncomplete)
-	case sessionguard.SuppressedDraftPending:
-		return fmt.Errorf("send %s: %w", id, ErrDraftPending)
-	}
-	// confirmActive only helps — and is only SAFE — when the harness reports
-	// both a prompt-submit signal (so the loop can observe active) and a
-	// distinct blocked signal (so it can tell an unsubmitted draft from a
-	// pending permission dialog and never Enter into the latter).
-	// Codex and Claude Code report both signals. Harnesses that collapse a
-	// permission request into waiting_input opt out via EmitsBlockedActivity —
-	// see ports.ActivitySignaler.
-	rec, ok, err := m.store.GetSession(ctx, id)
-	if err != nil {
-		// Confirmation is best-effort and never fails the send (the message
-		// was already delivered above); log so a store error is not swallowed
-		// silently.
-		m.logger.Warn("send: confirm skipped, session lookup failed", "sessionID", id, "error", err)
-		return nil
-	}
-	if !ok {
-		return nil
-	}
-	if m.harnessNudgeSafe(rec.Harness) {
-		m.confirmActive(ctx, m.messenger, id, before.Activity.LastActivityAt)
-	}
+	// Internal ordinary notices historically do not require submission/reading ACK.
+	// External API/CLI use SendMessage and must inspect every outcome.
 	return nil
 }
 
@@ -2522,7 +2481,7 @@ Your next action for any implementation, fix, UI change, test, PR, or code-revie
 
 ao spawn --project %s --name "<label, max 20 chars>" --prompt "<clear worker task>"
 
-If a suitable worker already exists, use ao send to redirect that worker instead. After spawning or redirecting, report the worker session id and stop. Do not do the worker's task in this orchestrator session.
+If a suitable worker already exists, use ao send --session <id> --message "<task>" --require-ack --json to redirect that worker instead. Only outcome acknowledged proves it read the task; report rejected, submitted_unconfirmed, or ack_timeout explicitly and never automatically resend. After spawning or redirecting, report the worker session id and stop. Do not do the worker's task in this orchestrator session.
 
 USER MESSAGE:
 %s`, project, project, message)
@@ -2559,57 +2518,8 @@ const (
 	// permission/approval dialog) — an automated Enter could answer the dialog
 	// on the user's behalf, so confirmation must stop and never nudge.
 	waitBlocked
+	waitAcknowledged
 )
-
-// confirmActive re-sends Enter until the session reports ActivityActive with a
-// timestamp newer than activityBaseline, or the attempt budget is exhausted.
-// The initial Send already submitted one Enter;
-// each additional attempt sends Enter again (an empty message is an Enter-only
-// nudge, see ports.AgentMessenger) after waiting for Activity.State to flip. It
-// is best-effort: on context cancellation, store failure, or budget exhaustion
-// it returns silently (the message was already delivered; the agent may yet
-// pick it up). Harnesses without a user-prompt-submit hook never flip to
-// active, so the loop simply times out — Send remains successful for them.
-//
-// Decision safety: a session observed in ActivityBlocked stops confirmation
-// immediately with no nudge — an Enter into a pending permission dialog would
-// answer it for the user. Sticky ActivityWaitingInput does NOT stop the loop:
-// an idle-prompt session with an unsubmitted pasted draft is exactly the case
-// the nudge exists for.
-func (m *Manager) confirmActive(ctx context.Context, guard *sessionguard.Guard, id domain.SessionID, activityBaseline time.Time) {
-	for attempt := 1; ; attempt++ {
-		outcome, err := m.waitForActive(ctx, id, activityBaseline)
-		if err != nil || outcome == waitActive {
-			return
-		}
-		if outcome == waitBlocked {
-			m.logger.Info("send: session awaiting a decision; skipping Enter nudge", "sessionID", id, "attempt", attempt)
-			return
-		}
-		if attempt >= m.sendConfirm.maxAttempts {
-			m.logger.Warn("send: activity confirmation budget exhausted", "sessionID", id, "attempts", attempt)
-			return
-		}
-		// Timed out with budget remaining: the previous Enter did not land.
-		// Nudge again with an Enter-only send. Deliver re-reads state
-		// immediately before pasting — a permission dialog can appear in the
-		// gap between waitForActive's final poll and this send, and an Enter
-		// into it would answer the decision. This closes the TOCTOU the
-		// per-poll check inside waitForActive cannot cover; a store failure
-		// inside the guard fails closed (no Enter on an unknown state).
-		nudge, nudgeErr := guard.Deliver(ctx, id, "")
-		if nudgeErr != nil {
-			m.logger.Warn("send: confirm re-send failed", "sessionID", id, "attempt", attempt, "error", nudgeErr)
-			return
-		}
-		if nudge != sessionguard.Sent {
-			// Not necessarily blocked: the session may also have terminated or
-			// vanished since the poll — the outcome says which.
-			m.logger.Info("send: session unavailable before nudge; skipping Enter nudge", "sessionID", id, "attempt", attempt, "outcome", nudge.String())
-			return
-		}
-	}
-}
 
 // waitForActive polls Activity for up to attemptDeadline and reports whether
 // another nudge could help (see waitOutcome). A pre-existing active state is
@@ -2617,11 +2527,22 @@ func (m *Manager) confirmActive(ctx context.Context, guard *sessionguard.Guard, 
 // checked every poll so a permission dialog appearing mid-wait aborts
 // immediately instead of burning the deadline. A non-nil error means polling
 // cannot continue (ctx cancelled, store failure, session gone).
-func (m *Manager) waitForActive(ctx context.Context, id domain.SessionID, activityBaseline time.Time) (waitOutcome, error) {
+func (m *Manager) waitForActive(ctx context.Context, id domain.SessionID, activityBaseline time.Time, messageID ...string) (waitOutcome, error) {
 	deadlineAt := m.clock().Add(m.sendConfirm.attemptDeadline)
 	ticker := time.NewTicker(m.sendConfirm.pollInterval)
 	defer ticker.Stop()
 	for {
+		if len(messageID) > 0 {
+			if store, ok := m.store.(messageStore); ok {
+				message, exists, err := store.GetMessage(ctx, messageID[0])
+				if err != nil {
+					return waitTimedOut, err
+				}
+				if exists && message.Outcome == "acknowledged" {
+					return waitAcknowledged, nil
+				}
+			}
+		}
 		rec, ok, err := m.store.GetSession(ctx, id)
 		if err != nil {
 			return waitTimedOut, err
@@ -3190,9 +3111,22 @@ func (m *Manager) runtimeEnv(id domain.SessionID, project domain.ProjectID, issu
 	if err != nil {
 		m.logger.Warn("session PATH not pinned to the daemon binary; `ao hooks` callbacks may resolve to a different ao and activity tracking will stall",
 			"session", id, "error", err)
+		if m.runFile != "" {
+			env[messageCLIErrorEnv] = err.Error()
+		}
 		return env
 	}
 	env["PATH"] = path
+	if m.runFile != "" {
+		dir, err := m.prepareMessageCLI(id)
+		if err != nil {
+			env[messageCLIErrorEnv] = err.Error()
+			return env
+		}
+		env["PATH"] = dir + string(os.PathListSeparator) + path
+		env["AO_RUN_FILE"] = m.runFile
+		env[EnvDataDir] = m.dataDir
+	}
 	return env
 }
 
@@ -3341,6 +3275,9 @@ func (m *Manager) augmentAgentRuntimeEnv(agent ports.Agent, env map[string]strin
 // startup hooks can update the already-created session row), then any optional
 // PreLaunch step. Shared by Spawn and Restore.
 func (m *Manager) prepareWorkspace(ctx context.Context, agent ports.Agent, id domain.SessionID, workspacePath, systemPrompt, systemPromptFile string, agentConfig ports.AgentConfig, env map[string]string) error {
+	if env[messageCLIErrorEnv] != "" {
+		return fmt.Errorf("message CLI: %s", env[messageCLIErrorEnv])
+	}
 	if err := agent.GetAgentHooks(ctx, ports.WorkspaceHookConfig{
 		SessionID:        string(id),
 		WorkspacePath:    workspacePath,

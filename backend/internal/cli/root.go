@@ -51,6 +51,17 @@ func ExitCode(err error) int {
 	if err == nil {
 		return 0
 	}
+	var outcome messageOutcomeError
+	if errors.As(err, &outcome) {
+		switch outcome.result.Outcome {
+		case "submitted_unconfirmed":
+			return 3
+		case "rejected":
+			return 4
+		case "ack_timeout":
+			return 5
+		}
+	}
 	var ue usageError
 	if errors.As(err, &ue) {
 		return 2
@@ -195,6 +206,8 @@ func NewRootCommand(deps Deps) *cobra.Command {
 	root.AddCommand(newSpawnCommand(ctx))
 	root.AddCommand(newSpawnAttemptCommand(ctx))
 	root.AddCommand(newSendCommand(ctx))
+	root.AddCommand(newAckCommand(ctx))
+	root.AddCommand(newMessageContractCommand(ctx))
 	root.AddCommand(newPreviewCommand(ctx))
 	root.AddCommand(newBrowserCommand(ctx))
 	root.AddCommand(newHooksCommand(ctx))

@@ -392,6 +392,25 @@ paths:
       summary: Run the legacy AO project import through the daemon store
       tags:
       - import
+  /api/v1/message-contract:
+    get:
+      operationId: getMessageContract
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageContract'
+          description: OK
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Service Unavailable
+      summary: Read native message protocol capabilities before any mutation
+      tags:
+      - sessions
   /api/v1/mobile/disable:
     post:
       operationId: disableMobile
@@ -1694,6 +1713,120 @@ paths:
       summary: Configure whether PR completion terminates the session
       tags:
       - sessions
+  /api/v1/sessions/{sessionId}/messages:
+    post:
+      operationId: createSessionMessage
+      parameters:
+      - description: Session identifier, e.g. project-1.
+        in: path
+        name: sessionId
+        required: true
+        schema:
+          description: Session identifier, e.g. project-1.
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendSessionMessageRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendSessionMessageResponse'
+          description: OK
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendSessionMessageResponse'
+          description: Accepted
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendSessionMessageResponse'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Service Unavailable
+        "504":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendSessionMessageResponse'
+          description: Gateway Timeout
+      summary: Send once with durable outcomes; protocol-specific path fails closed
+        against old daemons
+      tags:
+      - sessions
+  /api/v1/sessions/{sessionId}/messages/{messageId}/ack:
+    post:
+      operationId: ackSessionMessage
+      parameters:
+      - description: Session identifier, e.g. project-1.
+        in: path
+        name: sessionId
+        required: true
+        schema:
+          description: Session identifier, e.g. project-1.
+          type: string
+      - in: path
+        name: messageId
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendSessionMessageResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendSessionMessageResponse'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Service Unavailable
+      summary: Acknowledge reading a message for the bound target session
+      tags:
+      - sessions
   /api/v1/sessions/{sessionId}/pr:
     get:
       operationId: listSessionPRs
@@ -1799,7 +1932,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/APIError'
           description: Service Unavailable
-      summary: Claim an existing pull request for a session
+      summary: Claim an existing PR; reject PR_MERGED, PR_CLOSED, or PR_DRAFT (in
+        that precedence)
       tags:
       - sessions
   /api/v1/sessions/{sessionId}/preview:
@@ -2568,23 +2702,23 @@ paths:
               schema:
                 $ref: '#/components/schemas/SendSessionMessageResponse'
           description: OK
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendSessionMessageResponse'
+          description: Accepted
         "400":
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
           description: Bad Request
-        "404":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/APIError'
-          description: Not Found
         "409":
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/APIError'
+                $ref: '#/components/schemas/SendSessionMessageResponse'
           description: Conflict
         "500":
           content:
@@ -2598,7 +2732,14 @@ paths:
               schema:
                 $ref: '#/components/schemas/APIError'
           description: Service Unavailable
-      summary: Send a message to a running session's agent
+        "504":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendSessionMessageResponse'
+          description: Gateway Timeout
+      summary: Compatibility alias for messages; submitted_unconfirmed returns202,
+        never ordinary200ok
       tags:
       - sessions
   /api/v1/sessions/{sessionId}/workspace/file:
@@ -3679,6 +3820,57 @@ components:
       - headSha
       - mergeCommitSha
       type: object
+    MessageContract:
+      properties:
+        authority:
+          type: string
+        default_ack_timeout_ms:
+          type: integer
+        max_ack_timeout_ms:
+          type: integer
+        outcomes:
+          items:
+            type: string
+          type: array
+        require_ack:
+          type: boolean
+        schema_version:
+          type: string
+        send_timeout_ms:
+          type: integer
+      required:
+      - schema_version
+      - authority
+      - require_ack
+      - default_ack_timeout_ms
+      - max_ack_timeout_ms
+      - send_timeout_ms
+      - outcomes
+      type: object
+    MessageEvidence:
+      properties:
+        acknowledged_at:
+          type: string
+        attempts:
+          type: integer
+        code:
+          type: string
+        existing_outcome:
+          type: string
+        recorded_at:
+          type: string
+        signal:
+          enum:
+          - none
+          - activity_active
+          - explicit_ack
+          type: string
+      required:
+      - code
+      - signal
+      - attempts
+      - recorded_at
+      type: object
     MobileStatusResponse:
       properties:
         enabled:
@@ -4200,25 +4392,41 @@ components:
       type: object
     SendSessionMessageRequest:
       properties:
+        ack_timeout_ms:
+          maximum: 60000
+          minimum: 1
+          type: integer
         message:
           maxLength: 4096
           minLength: 1
           type: string
+        message_id:
+          maxLength: 128
+          pattern: ^[A-Za-z0-9_-]{1,128}$
+          type: string
+        require_ack:
+          type: boolean
       required:
       - message
       type: object
     SendSessionMessageResponse:
       properties:
-        message:
+        evidence:
+          $ref: '#/components/schemas/MessageEvidence'
+        message_id:
           type: string
-        ok:
-          type: boolean
-        sessionId:
+        outcome:
+          enum:
+          - submitted_confirmed
+          - submitted_unconfirmed
+          - rejected
+          - acknowledged
+          - ack_timeout
           type: string
       required:
-      - ok
-      - sessionId
-      - message
+      - message_id
+      - outcome
+      - evidence
       type: object
     SessionManagerBatchRestoreItem:
       properties:

@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/config"
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/runfile"
 )
 
@@ -30,6 +32,7 @@ type apiError struct {
 type apiResponseError struct {
 	StatusCode int
 	ErrorBody  apiError
+	Body       []byte
 }
 
 func (e apiResponseError) Error() string {
@@ -143,6 +146,15 @@ func (c *commandContext) doJSONPathWithHeaders(
 	// give daemon API calls far more headroom than the 2s status-probe timeout.
 	client := *c.deps.HTTPClient
 	client.Timeout = commandTimeout
+	if path == "/api/v1/message-contract" {
+		client.Timeout = 2 * time.Second
+	}
+	if strings.Contains(path, "/sessions/") && strings.HasSuffix(path, "/messages") {
+		client.Timeout = 95 * time.Second
+	}
+	if strings.Contains(path, "/messages/") && strings.HasSuffix(path, "/ack") {
+		client.Timeout = 15 * time.Second
+	}
 	if path == "/api/v1/sessions/restore" {
 		client.Timeout = 15*time.Minute + 5*time.Second
 	}
@@ -154,8 +166,9 @@ func (c *commandContext) doJSONPathWithHeaders(
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var e apiError
-		_ = json.NewDecoder(resp.Body).Decode(&e)
-		return apiResponseError{StatusCode: resp.StatusCode, ErrorBody: e}
+		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		_ = json.Unmarshal(payload, &e)
+		return apiResponseError{StatusCode: resp.StatusCode, ErrorBody: e, Body: payload}
 	}
 	if out != nil {
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
@@ -164,6 +177,9 @@ func (c *commandContext) doJSONPathWithHeaders(
 			}
 			return fmt.Errorf("decode response: %w", err)
 		}
+	}
+	if message, ok := out.(*domain.MessageResult); ok && messageResultHTTPStatus(message.Outcome) != resp.StatusCode {
+		return errors.New("message HTTP status/outcome mismatch")
 	}
 	return nil
 }

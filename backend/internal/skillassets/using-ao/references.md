@@ -16,7 +16,9 @@ Natural-language-to-command mappings for common AO tasks.
 | Check network capture without enabling it | `ao browser network status` or `ao browser network list` |
 | Capture the page | `ao browser screenshot [path]` |
 | Spawn a worker on issue N | `ao spawn --project <p> --issue N --name "<=20 chars>" --prompt "..."` |
-| Message a running agent | `ao send --session <id> --message "..."` |
+| Assign/redirect a worker task | `ao send --session <id> --message "..." --require-ack --json` |
+| Ordinary session notice | `ao send --session <id> --message "..." --json` |
+| Acknowledge reading | `ao-pilot ack <message-id>` (original worker environment) |
 | Kill a session | `ao session kill <id>` |
 | List sessions | `ao session ls` |
 | Register a repo as a project | `ao project add --path <abs-path> --name <name>` |
@@ -34,3 +36,5 @@ Natural-language-to-command mappings for common AO tasks.
 | Submit a code review verdict | `ao review submit <session-id> --run <run-id> --verdict approved` |
 | Configure a project's default branch or model | `ao project set-config <id> --default-branch <branch> --model <model>` |
 | Import projects from a legacy AO install | `ao import --dry-run` (preview), then `ao import -y` |
+
+Message results: exit0 submitted_confirmed/acknowledged, 3 submitted_unconfirmed, 4 rejected, 5 ack_timeout; infrastructure1/usage2. Only acknowledged proves reading. Never automatically resend; an already acknowledged message ID is rejected on send and its original audit record remains acknowledged.
