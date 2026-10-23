@@ -695,6 +695,9 @@ func (m *Manager) loadProject(ctx context.Context, projectID domain.ProjectID) (
 	if !ok {
 		return domain.ProjectRecord{}, nil
 	}
+	if err := row.Config.ValidateForKind(row.Kind); err != nil {
+		return domain.ProjectRecord{}, fmt.Errorf("load project config: %w", err)
+	}
 	return row, nil
 }
 

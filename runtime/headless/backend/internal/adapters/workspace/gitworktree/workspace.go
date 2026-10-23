@@ -629,6 +629,68 @@ func (w *Workspace) countIgnoredPaths(ctx context.Context, worktree string) (int
 // and ErrPreservedConflict (wrapped) is returned so the caller can surface it.
 //
 // NEVER deletes the preserve ref on a failed or conflicted apply.
+func (w *Workspace) materializePreservedPaths(ctx context.Context, worktree, commit string) error {
+	if w.minFreeBytes > 0 {
+		w.materializeMu.Lock()
+		defer w.materializeMu.Unlock()
+	}
+	out, err := w.run(ctx, w.binary, "-C", worktree, "config", "--bool", "core.sparseCheckout")
+	if isGitConfigMissing(err) || (err == nil && strings.TrimSpace(string(out)) != "true") {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("gitworktree: inspect preserved sparse checkout: %w", err)
+	}
+	out, err = w.run(ctx, w.binary, "-C", worktree, "diff-tree", "--root", "--no-commit-id", "--no-renames", "--name-only", "-r", "-z", commit)
+	if err != nil {
+		return fmt.Errorf("gitworktree: list preserved paths: %w", err)
+	}
+	var directories []string
+	for _, name := range strings.Split(string(out), "\x00") {
+		if name == "" {
+			continue
+		}
+		dir := filepath.ToSlash(filepath.Dir(name))
+		if dir != "." && !slices.Contains(directories, dir) {
+			directories = append(directories, dir)
+		}
+	}
+	if len(directories) == 0 {
+		return nil // Root files are already in every cone.
+	}
+	if w.minFreeBytes > 0 {
+		out, err = w.run(ctx, w.binary, "-C", worktree, "sparse-checkout", "list")
+		if err != nil {
+			return fmt.Errorf("gitworktree: list restored cones: %w", err)
+		}
+		all := append([]string(nil), directories...)
+		for _, line := range strings.Split(strings.TrimSuffix(string(out), "\n"), "\n") {
+			if strings.HasPrefix(line, "\"") {
+				line, err = strconv.Unquote(line)
+				if err != nil {
+					return fmt.Errorf("gitworktree: decode restored cone: %w", err)
+				}
+			}
+			if line != "" {
+				all = append(all, line)
+			}
+		}
+		// Include both existing and added cones, reserving room before checkout.
+		bytes, err := w.estimateCheckoutRefBytes(ctx, worktree, commit, all)
+		if err != nil {
+			return err
+		}
+		if err := w.ensureCapacity(bytes); err != nil {
+			return err
+		}
+	}
+	args := append([]string{"-C", worktree, "sparse-checkout", "add", "--skip-checks", "--"}, directories...)
+	if _, err := w.run(ctx, w.binary, args...); err != nil {
+		return fmt.Errorf("gitworktree: materialize preserved cones: %w", err)
+	}
+	return nil
+}
+
 func (w *Workspace) ApplyPreserved(ctx context.Context, info ports.WorkspaceInfo, ref string) error {
 	if info.Path == "" {
 		return fmt.Errorf("%w: empty path", ErrUnsafePath)
@@ -643,6 +705,11 @@ func (w *Workspace) ApplyPreserved(ctx context.Context, info ports.WorkspaceInfo
 		return fmt.Errorf("gitworktree: ApplyPreserved resolve ref %q: %w", ref, err)
 	}
 	commitSHA := strings.TrimSpace(string(resolveOut))
+	// Expand a restored sparse cone before replay. Otherwise cherry-pick may
+	// update skip-worktree entries only and report success with WIP invisible.
+	if err := w.materializePreservedPaths(ctx, info.Path, commitSHA); err != nil {
+		return err // Keep the preserve ref until all affected files are readable.
+	}
 
 	// Apply the preserve commit via "git cherry-pick --no-commit <sha>".
 	// cherry-pick computes the diff between the preserve commit and its parent
@@ -896,6 +963,16 @@ func (w *Workspace) estimateCheckoutBytes(ctx context.Context, repo, branch, bas
 			return 0, err
 		}
 	}
+	return w.estimateCheckoutRefBytes(ctx, repo, ref, sparseCheckout)
+}
+
+func (w *Workspace) estimateCheckoutRefBytes(ctx context.Context, repo, ref string, sparseCheckout []string) (uint64, error) {
+	if err := w.ensureCapacity(0); err != nil {
+		return 0, err
+	}
+	if err := w.rejectPartialClone(ctx, repo); err != nil {
+		return 0, err
+	}
 	if err := w.rejectCheckoutTransforms(ctx, repo, ref); err != nil {
 		return 0, err
 	}
@@ -951,7 +1028,8 @@ func sparseCheckoutContains(treePath string, directories []string) bool {
 	cleanPath := filepath.ToSlash(filepath.Clean(treePath))
 	for _, directory := range directories {
 		cleanDirectory := filepath.ToSlash(filepath.Clean(directory))
-		if cleanPath == cleanDirectory || strings.HasPrefix(cleanPath, cleanDirectory+"/") {
+		parent := filepath.ToSlash(filepath.Dir(cleanPath))
+		if cleanDirectory == "." || cleanPath == cleanDirectory || strings.HasPrefix(cleanPath, cleanDirectory+"/") || strings.HasPrefix(cleanDirectory, parent+"/") {
 			return true
 		}
 	}

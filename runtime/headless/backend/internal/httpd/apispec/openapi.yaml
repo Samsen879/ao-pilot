@@ -3802,6 +3802,10 @@ components:
           type: array
         sessionPrefix:
           type: string
+        sparseCheckout:
+          items:
+            type: string
+          type: array
         symlinks:
           items:
             type: string
@@ -4429,6 +4433,10 @@ components:
           type: string
         event:
           description: AO hook sub-command that produced this state (e.g. post-tool-use).
+          type: string
+        hookObservedAt:
+          description: Time when the native hook callback began, used to reject stale
+            submit signals.
           type: string
         launchId:
           description: AO process generation that produced the signal.
