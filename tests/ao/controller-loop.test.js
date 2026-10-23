@@ -2381,4 +2381,82 @@ describe('ao controller loop', () => {
       }),
     ]);
   });
+  it('rejects an old pass commit after a new controller acquires leadership (barrier and clock)', async () => {
+    const repoRoot = createTempRepo();
+    const repository = createStateRepository({ repoRoot, projectId: PROJECT_ID });
+    seedActiveTask(repository, 'observe');
+    let timestamp = '2026-10-23T00:00:00.000Z';
+    const entered = createDeferred();
+    const resume = createDeferred();
+    const first = runControllerLoop({
+      repoRoot, projectId: PROJECT_ID, holderId: 'old', leaseIncarnationId: 'old-epoch',
+      leaseTimeoutMs: 100, heartbeatIntervalMs: 100000, now: () => timestamp,
+      deps: {
+        loadAoProjectObservation: async ({ now }) => ({ observed_at: now, workers: [] }),
+        loadGitHubObservationSet: async ({ now }) => {
+          entered.resolve(); await resume.promise; return { observed_at: now, prs: [] };
+        },
+      },
+    });
+    await entered.promise;
+    timestamp = '2026-10-23T00:00:01.000Z';
+    const newEntered = createDeferred();
+    const newResume = createDeferred();
+    const second = runControllerLoop({
+      repoRoot, projectId: PROJECT_ID, holderId: 'new', leaseIncarnationId: 'new-epoch',
+      now: () => timestamp,
+      deps: {
+        loadAoProjectObservation: async ({ now }) => ({ observed_at: now, workers: [] }),
+        loadGitHubObservationSet: async ({ now }) => {
+          newEntered.resolve(); await newResume.promise; return { observed_at: now, prs: [] };
+        },
+      },
+    });
+    await newEntered.promise;
+    expect(repository.getSnapshot().state.controller_leases.some((lease) => (
+      lease.holder_id === 'new' && lease.status === 'active'
+    ))).toBe(true);
+    const stateBefore = fs.readFileSync(repository.getSnapshot().paths.statePath, 'utf8');
+    const auditBefore = repository.listAuditEntries().filter((entry) => entry.entity_kind !== 'controller_lease');
+    resume.resolve();
+    await expect(first).rejects.toMatchObject({ code: 'controller_commit_fenced' });
+    expect(fs.readFileSync(repository.getSnapshot().paths.statePath, 'utf8')).toBe(stateBefore);
+    expect(repository.listAuditEntries().filter((entry) => entry.entity_kind !== 'controller_lease')).toEqual(auditBefore);
+    newResume.resolve();
+    await second;
+  });
+
+  it('revokes a non-cooperative callback repository after shutdown timeout', async () => {
+    const repoRoot = createTempRepo();
+    const repository = createStateRepository({ repoRoot, projectId: PROJECT_ID });
+    seedActiveTask(repository, 'observe');
+    const stopSignal = { aborted: false };
+    const entered = createDeferred();
+    const resume = createDeferred();
+    const lateWrite = createDeferred();
+    const run = runControllerLoop({
+      repoRoot, projectId: PROJECT_ID, holderId: 'old', shutdownTimeoutMs: 0, stopSignal,
+      deps: {
+        ensureRuntimePreflights: async ({ repository: callbackRepository }) => {
+          entered.resolve(); await resume.promise;
+          try {
+            callbackRepository.upsertControllerMode(createControllerModeRecord({
+              controller_id: 'default', mode: 'assist', updated_at: new Date().toISOString(),
+              updated_by: 'late_callback', reason: 'Must be fenced',
+            }));
+            lateWrite.resolve(null);
+          } catch (error) { lateWrite.resolve(error); throw error; }
+        },
+      },
+    });
+    await entered.promise;
+    stopSignal.aborted = true;
+    stopSignal.requested_at = new Date().toISOString();
+    await expect(run).resolves.toMatchObject({ stop_reason: 'shutdown_timeout' });
+    const before = fs.readFileSync(repository.getSnapshot().paths.statePath, 'utf8');
+    resume.resolve();
+    expect(await lateWrite.promise).toMatchObject({ code: 'controller_commit_fenced' });
+    expect(fs.readFileSync(repository.getSnapshot().paths.statePath, 'utf8')).toBe(before);
+  });
+
 });

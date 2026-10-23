@@ -1044,10 +1044,6 @@ export async function runControllerLoop({
     projectId,
   });
   let activeTimestamp = resolveNow(now);
-  const checkpointStore = createCheckpointStore({
-    repository,
-    now: () => activeTimestamp,
-  });
   const resolvedMode = resolveLoopMode(repository, controllerId, mode);
   const runtimeKind = continuous ? 'continuous' : 'oneshot';
 
@@ -1110,7 +1106,15 @@ export async function runControllerLoop({
         holderType: activeLease.holder_type,
       };
       currentLeaseStatus = 'running';
-      persistModeOverride(repository, controllerId, mode, activeTimestamp);
+      let passActive = true;
+      const passRepository = repository.createControllerFencedRepository({
+        controllerId, leaseId: currentLeaseId, incarnationId: currentLeaseIncarnationId,
+        now, isActive: () => passActive && !isStopRequested(stopSignal),
+      });
+      const checkpointStore = createCheckpointStore({
+        repository: passRepository, now: () => activeTimestamp,
+      });
+      persistModeOverride(passRepository, controllerId, mode, activeTimestamp);
       const heartbeat = startControllerHeartbeat({
         repository,
         controllerId,
@@ -1131,7 +1135,7 @@ export async function runControllerLoop({
 
       try {
         const passResult = await executeControllerPass({
-          repository,
+          repository: passRepository,
           checkpointStore,
           services,
           cwd,
@@ -1197,6 +1201,7 @@ export async function runControllerLoop({
         currentLeaseStatus = 'failed';
         throw error;
       } finally {
+        passActive = false;
         await heartbeat.stop();
       }
 

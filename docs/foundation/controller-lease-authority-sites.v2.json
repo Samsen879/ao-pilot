@@ -1,6 +1,6 @@
 {
   "schema_version": "ao.controller-lease-authority-sites.v2",
-  "inventory_version": "2026-09-26.1",
+  "inventory_version": "2026-10-23.1",
   "migrated_from": {
     "schema_version": "ao.controller-lease-caller-inventory.v1",
     "accepted_match_count": 61,
@@ -105,7 +105,7 @@
       "symbol": "persistState/upsertCollectionRecord/ensureRuntimePreflights/ensureRepoKnowledge",
       "roles": ["shadow-stripper"],
       "anchors": ["function persistState({", "delete nextState.controller_leases;", "function upsertCollectionRecord({", "ensureRuntimePreflights({", "ensureRepoKnowledge({"],
-      "semantic_regions": [{ "id": "repository.ordinary-state-shadow-stripper.operation", "start": "function persistState({", "end": "function persistControllerLeases({", "expected_digest": "db88de22f452d1ead7d7fce4b58aa8412cf51f0de0166c13ecd14646b6354e45" }]
+      "semantic_regions": [{ "id": "repository.ordinary-state-shadow-stripper.operation", "start": "function persistState({", "end": "function persistControllerLeases({", "expected_digest": "6480c9aca92da4af1530d373a7983563c569749c88fc1af9b03d19bb9de5dcb1" }]
     },
     {
       "id": "repository.atomic-mutation",
@@ -122,6 +122,17 @@
       "roles": ["reader", "writer", "lock"],
       "anchors": ["upsertControllerLease(record) {"],
       "semantic_regions": [{ "id": "repository.synchronous-upsert.operation", "start": "upsertControllerLease(record) {", "end": "mutateControllerLeasesAtomically,", "expected_digest": "3d4e7c7e9e51c2821c7f9bd5a30ea3289bdadc1fc81d738baf07d91183c063a2" }]
+    },
+    {
+      "id": "repository.controller-commit-fence",
+      "path": "scripts/ao/lib/state-repository.js",
+      "symbol": "assertFence/controller fenced view",
+      "roles": ["reader", "lock", "fail-closed"],
+      "anchors": ["function assertFence() {", "return [name, (...args) => withFileLockSync(controllerLeaseLockPath, () => {"],
+      "semantic_regions": [
+        { "id": "repository.controller-commit-fence.operation", "start": "if (controllerCommitFence == null) return repository;", "end": "return fencedRepository;", "expected_digest": "10ceed867648b7feaacf6c2e3ff68d0d477e8372eac69810c061546f564188bb" },
+        { "id": "repository.fenced-bootstrap.contract", "start": "function ensureBootstrapped() {", "end": "function persistState({", "expected_digest": "a97cc7b442dec22a09fa07e3f65e753348f20f0e00f2499b5ac54f309a28893d" }
+      ]
     },
     {
       "id": "controller.acquire-renew-release",
@@ -182,14 +193,17 @@
       { "id": "file-name", "pattern": "controller-leases\\.json" }
     ],
     "expected_selector_counts": {
-      "atomic-api": 5,
+      "atomic-api": 6,
       "file-name": 4,
       "isolated-path": 12,
-      "persist-state-api": 8,
+      "persist-state-api": 9,
       "state-property": 26,
-      "upsert-api": 9
+      "upsert-api": 10
     },
     "semantic_usages": [
+      { "id": "atomic-api.04", "selector": "atomic-api", "semantic_source": "'mutateControllerLeasesAtomically',", "expected_count": 1 },
+      { "id": "upsert-api.commit-denial", "selector": "upsert-api", "semantic_source": "'upsertControllerLease',", "expected_count": 1 },
+      { "id": "persist-state-api.09", "selector": "persist-state-api", "semantic_source": "persistState({ state: nextState, entityKind: 'action', entityId: normalized.action_id,", "expected_count": 1 },
       { "id": "atomic-api.01", "selector": "atomic-api", "semantic_source": "async function mutateControllerLeasesAtomically({", "expected_count": 1 },
       { "id": "atomic-api.02", "selector": "atomic-api", "semantic_source": "mutateControllerLeasesAtomically,", "expected_count": 1 },
       { "id": "atomic-api.03", "selector": "atomic-api", "semantic_source": "return repository.mutateControllerLeasesAtomically({", "expected_count": 3 },
