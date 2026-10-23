@@ -51,14 +51,6 @@ func (c *commandContext) runImport(cmd *cobra.Command, opts importOptions) error
 		return err
 	}
 
-	// The daemon is the sole writer; refuse to open the store underneath a live
-	// one. A stale run-file (dead PID) is treated as safe.
-	if live, err := runfile.CheckStale(cfg.RunFilePath); err != nil {
-		return fmt.Errorf("inspect run-file: %w", err)
-	} else if live != nil {
-		return usageError{fmt.Errorf("the AO daemon is running (pid %d); stop it first with `ao stop` before importing", live.PID)}
-	}
-
 	root := opts.from
 	if root == "" {
 		root = legacyimport.DefaultLegacyRootDir()
@@ -106,6 +98,15 @@ func (c *commandContext) runImport(cmd *cobra.Command, opts importOptions) error
 // one-time bootstrap that must run with the daemon stopped (guarded by the
 // caller), so it cannot go through the daemon's loopback API.
 func (c *commandContext) executeImport(ctx context.Context, cfg config.Config, opts legacyimport.Options) (legacyimport.Report, error) {
+	publisher, err := runfile.Admit(cfg.DataDir, cfg.RunFilePath, nil)
+	if err != nil {
+		return legacyimport.Report{}, fmt.Errorf("import ownership: %w", err)
+	}
+	if err := publisher.RetainForProcess(); err != nil {
+		_ = publisher.Close()
+		return legacyimport.Report{}, err
+	}
+	cfg.DataDir = publisher.DataDir()
 	store, err := sqlite.Open(cfg.DataDir)
 	if err != nil {
 		return legacyimport.Report{}, fmt.Errorf("open store: %w", err)
