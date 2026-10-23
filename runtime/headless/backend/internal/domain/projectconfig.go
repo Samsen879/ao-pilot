@@ -28,6 +28,9 @@ type ProjectConfig struct {
 	Env map[string]string `json:"env,omitempty"`
 	// Symlinks are repo-relative paths symlinked into each session workspace.
 	Symlinks []string `json:"symlinks,omitempty"`
+	// SparseCheckout names repo-relative directories materialized in each new
+	// session worktree. An empty list preserves the full-checkout behavior.
+	SparseCheckout []string `json:"sparseCheckout,omitempty"`
 	// PostCreate are shell commands run in the workspace after it is created.
 	PostCreate []string `json:"postCreate,omitempty"`
 
@@ -139,6 +142,14 @@ func (c ProjectConfig) Validate() error {
 			return fmt.Errorf("symlink %q: %w", s, err)
 		}
 	}
+	for _, s := range c.SparseCheckout {
+		if strings.TrimSpace(s) == "" {
+			return fmt.Errorf("sparseCheckout: directory must not be empty")
+		}
+		if err := validateRepoRelative(s); err != nil {
+			return fmt.Errorf("sparseCheckout %q: %w", s, err)
+		}
+	}
 	if err := validateRepoRelative(c.AgentRulesFile); err != nil {
 		return fmt.Errorf("agentRulesFile %q: %w", c.AgentRulesFile, err)
 	}
@@ -149,6 +160,17 @@ func (c ProjectConfig) Validate() error {
 	}
 	if err := c.TrackerIntake.Validate(); err != nil {
 		return err
+	}
+	return nil
+}
+
+// ValidateForKind rejects settings with no materialization consumer for a kind.
+func (c ProjectConfig) ValidateForKind(kind ProjectKind) error {
+	if err := c.Validate(); err != nil {
+		return err
+	}
+	if len(c.SparseCheckout) > 0 && kind.WithDefault() != ProjectKindSingleRepo {
+		return fmt.Errorf("sparseCheckout is supported only for single_repo projects")
 	}
 	return nil
 }

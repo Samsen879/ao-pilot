@@ -263,6 +263,9 @@ type WorkspaceConfig struct {
 	RepoPath string
 	// Path optionally supplies an existing managed worktree path for restore.
 	Path string
+	// SparseCheckout contains repo-relative cone-mode directories to
+	// materialize. Empty keeps the historical full checkout.
+	SparseCheckout []string
 }
 
 // WorkspaceInfo describes a created workspace — where it lives and its branch.
