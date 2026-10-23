@@ -2,6 +2,7 @@ package gitworktree
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -512,16 +513,18 @@ func (w *Workspace) StashUncommitted(ctx context.Context, info ports.WorkspaceIn
 		return "", fmt.Errorf("gitworktree: worktree %q is not registered: %w", path, ports.ErrWorkspaceStale)
 	}
 
-	// Early exit for clean worktrees: nothing to preserve.
-	dirty, err := w.isDirty(ctx, path)
+	// Read the REAL index first: its skip-worktree bits distinguish absent
+	// sparse paths from deletions. Never derive this set from the temp index.
+	changes, err := w.preserveChanges(ctx, path)
 	if err != nil {
-		if isNotGitRepositoryError(err) {
-			return "", fmt.Errorf("gitworktree: stale worktree %q: %w", path, ports.ErrWorkspaceStale)
-		}
-		return "", fmt.Errorf("gitworktree: StashUncommitted dirty check: %w", err)
+		return "", fmt.Errorf("gitworktree: preserve change set: %w", err)
 	}
-	if !dirty {
+	if len(changes) == 0 {
 		return "", nil
+	}
+	drift, err := w.preserveConeDrift(ctx, path, changes)
+	if err != nil {
+		return "", err
 	}
 
 	// Log the count of ignored paths that will be skipped.
@@ -551,6 +554,20 @@ func (w *Workspace) StashUncommitted(ctx context.Context, info ports.WorkspaceIn
 	// tracked files, turning unrelated hidden paths into preserved deletions.
 	headOut, headErr := w.run(ctx, w.binary, revParseHeadArgs(path)...)
 	headSHA := ""
+	if headErr != nil {
+		// Only a symbolic HEAD with a provably absent branch is unborn. An
+		// I/O/object/inspection failure must never turn a populated tree into
+		// a parentless preserve commit.
+		branch, branchErr := w.run(ctx, w.binary, "-C", path, "symbolic-ref", "--quiet", "HEAD")
+		if branchErr != nil {
+			return "", fmt.Errorf("gitworktree: cannot establish preserve HEAD; worktree retained: %w", headErr)
+		}
+		_, existsErr := w.run(ctx, w.binary, "-C", path, "show-ref", "--verify", "--quiet", strings.TrimSpace(string(branch)))
+		var exitErr *exec.ExitError
+		if !errors.As(existsErr, &exitErr) || exitErr.ExitCode() != 1 {
+			return "", fmt.Errorf("gitworktree: cannot establish preserve HEAD; worktree retained: %w", headErr)
+		}
+	}
 	if headErr == nil {
 		headSHA = strings.TrimSpace(string(headOut))
 		seed := exec.CommandContext(ctx, w.binary, "-C", path, "read-tree", headSHA)
@@ -560,12 +577,18 @@ func (w *Workspace) StashUncommitted(ctx context.Context, info ports.WorkspaceIn
 		}
 	}
 
-	// Stage all tracked and non-ignored untracked files into the temp index.
-	// GIT_INDEX_FILE overrides the index so the real index is never touched.
-	addCmd := exec.CommandContext(ctx, w.binary, addAllTempIndexArgs(path)...)
+	// Only explicit changed paths enter the HEAD-seeded index. Literal NUL
+	// pathspecs cover whitespace, non-ASCII, leading dashes and glob characters.
+	var paths strings.Builder
+	for _, change := range changes {
+		paths.WriteString(change.Path)
+		paths.WriteByte(0)
+	}
+	addCmd := exec.CommandContext(ctx, w.binary, addExplicitTempIndexArgs(path)...)
 	addCmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+tmpIdxPath)
+	addCmd.Stdin = strings.NewReader(paths.String())
 	if out, err := addCmd.CombinedOutput(); err != nil {
-		return "", commandError{args: append([]string{w.binary}, addAllTempIndexArgs(path)...), output: string(out), err: err}
+		return "", commandError{args: append([]string{w.binary}, addExplicitTempIndexArgs(path)...), output: string(out), err: err}
 	}
 
 	// Write the staged tree to get a tree SHA.
@@ -576,6 +599,12 @@ func (w *Workspace) StashUncommitted(ctx context.Context, info ports.WorkspaceIn
 		return "", commandError{args: append([]string{w.binary}, writeTreeArgs(path)...), output: string(treeOut), err: err}
 	}
 	treeSHA := strings.TrimSpace(string(treeOut))
+
+	// Fail closed BEFORE publishing a preserve ref: the resulting diff and
+	// every saved blob must match the real-index change set captured above.
+	if err := w.verifyPreservedTree(ctx, path, headSHA, treeSHA, changes); err != nil {
+		return "", err
+	}
 
 	// An unborn HEAD leaves headSHA empty, so commit-tree omits the parent.
 
@@ -593,7 +622,11 @@ func (w *Workspace) StashUncommitted(ctx context.Context, info ports.WorkspaceIn
 	}
 
 	// Create a commit object that wraps the preserve tree.
-	msg := "ao preserved " + string(info.SessionID)
+	receipt, err := json.Marshal(preserveReceipt{SchemaVersion: "ao.wip-preserve.v1", ConeDrift: drift})
+	if err != nil {
+		return "", err
+	}
+	msg := "ao preserved " + string(info.SessionID) + "\n\n" + string(receipt)
 	commitOut, err := w.run(ctx, w.binary, commitTreeArgs(path, treeSHA, headSHA, msg)...)
 	if err != nil {
 		return "", fmt.Errorf("gitworktree: commit-tree: %w", err)
@@ -605,6 +638,7 @@ func (w *Workspace) StashUncommitted(ctx context.Context, info ports.WorkspaceIn
 	if _, err := w.run(ctx, w.binary, updateRefArgs(path, ref, commitSHA)...); err != nil {
 		return "", fmt.Errorf("gitworktree: update-ref %q: %w", ref, err)
 	}
+	slog.InfoContext(ctx, "gitworktree: preserved WIP", "ref", ref, "cone_drift", drift)
 	return ref, nil
 }
 

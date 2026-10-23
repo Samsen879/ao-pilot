@@ -94,11 +94,11 @@ func worktreeListPorcelainArgs(repo string) []string {
 	return []string{"-C", repo, "worktree", "list", "--porcelain"}
 }
 
-// addAllTempIndexArgs stages all tracked and non-ignored untracked files into a
-// temp index file without touching the real index or the working tree.
-// GIT_INDEX_FILE must be set in the command's environment before calling.
-func addAllTempIndexArgs(worktree string) []string {
-	return []string{"-C", worktree, "add", "-A"}
+// addExplicitTempIndexArgs requires Git >= 2.34 (--sparse); AO's existing
+// startup/doctor prerequisite is stricter, Git >= 2.36. Paths on stdin are
+// literal and NUL-delimited, including deletions and cone drift.
+func addExplicitTempIndexArgs(worktree string) []string {
+	return []string{"--literal-pathspecs", "-C", worktree, "add", "--sparse", "--pathspec-from-file=-", "--pathspec-file-nul"}
 }
 
 // writeTreeArgs flushes the temp index into a tree object and prints the SHA.
