@@ -32,6 +32,7 @@ type Server struct {
 	shutdownOnce      sync.Once
 	ready             atomic.Bool
 	serveStarted      chan struct{}
+	publisher         *runfile.Publisher
 }
 
 // NewWithDeps constructs a Server with API dependencies supplied by the daemon
@@ -41,12 +42,15 @@ type Server struct {
 //
 // If the configured port is already held, it falls back to an OS-assigned
 // ephemeral port rather than failing. A genuine peer AO daemon is ruled out
-// upstream (the running.json + /healthz check in daemon.Run), so a conflict here
+// upstream (the lifetime ownership admission in daemon.Run), so a conflict here
 // means a non-AO process owns the port; exiting would only leave the desktop
 // supervisor stuck on "daemon not ready". The actual bound port is logged
 // ("daemon listening") and written to running.json, both of which the supervisor
 // reads, so the fallback propagates to the renderer with no UI changes.
-func NewWithDeps(cfg config.Config, log *slog.Logger, termMgr *terminal.Manager, deps APIDeps) (*Server, error) {
+func NewWithDeps(cfg config.Config, log *slog.Logger, termMgr *terminal.Manager, deps APIDeps, publisher *runfile.Publisher) (*Server, error) {
+	if publisher == nil {
+		return nil, errors.New("daemon publisher is required")
+	}
 	log = loggerOrDefault(log)
 	ln, err := net.Listen("tcp", cfg.Addr())
 	if err != nil {
@@ -65,6 +69,7 @@ func NewWithDeps(cfg config.Config, log *slog.Logger, termMgr *terminal.Manager,
 
 	srv := &Server{
 		cfg:               cfg,
+		publisher:         publisher,
 		log:               log,
 		listen:            ln,
 		shutdownRequested: make(chan struct{}),
@@ -73,6 +78,7 @@ func NewWithDeps(cfg config.Config, log *slog.Logger, termMgr *terminal.Manager,
 	srv.http = &http.Server{
 		Handler: NewRouterWithControl(cfg, log, termMgr, deps, ControlDeps{
 			RequestShutdown: srv.requestShutdown,
+			InstanceID:      publisher.InstanceID(),
 			IsReady:         srv.ready.Load,
 		}),
 		// ReadHeaderTimeout guards against slow-loris even on loopback;
@@ -114,6 +120,9 @@ func (l *servingListener) Accept() (net.Conn, error) {
 // running.json before serving and removes it on the way out. Run blocks until
 // shutdown is complete.
 func (s *Server) Run(ctx context.Context) error {
+	if s.publisher == nil {
+		return errors.New("daemon publisher is required")
+	}
 	info := runfile.Info{
 		PID:                   os.Getpid(),
 		Port:                  s.boundPort(),
@@ -122,7 +131,7 @@ func (s *Server) Run(ctx context.Context) error {
 		BrowserRuntimeToken:   os.Getenv("AO_BROWSER_RUNTIME_TOKEN"),
 		BrowserRuntimeAddress: os.Getenv("AO_BROWSER_RUNTIME_ADDRESS"),
 	}
-	if err := runfile.Write(s.cfg.RunFilePath, info); err != nil {
+	if err := s.publisher.Publish(info); err != nil {
 		_ = s.listen.Close()
 		return fmt.Errorf("write run-file: %w", err)
 	}
@@ -132,7 +141,7 @@ func (s *Server) Run(ctx context.Context) error {
 	defer func() {
 		cancelRepair()
 		<-repairDone
-		if err := runfile.RemoveIfOwned(s.cfg.RunFilePath, info.PID); err != nil {
+		if err := s.publisher.Remove(); err != nil {
 			s.log.Warn("failed to remove run-file", "path", s.cfg.RunFilePath, "err", err)
 		}
 	}()
@@ -182,7 +191,7 @@ func (s *Server) maintainRunFile(ctx context.Context, done chan<- struct{}, info
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			restored, err := runfile.RestoreIfMissing(s.cfg.RunFilePath, info)
+			restored, err := s.publisher.Restore(info)
 			if err != nil {
 				s.log.Warn("failed to inspect daemon run-file", "path", s.cfg.RunFilePath, "err", err)
 				continue
