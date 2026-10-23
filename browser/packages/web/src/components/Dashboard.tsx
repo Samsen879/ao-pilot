@@ -11,6 +11,7 @@ import {
   getAttentionLevel,
   isPRRateLimited,
 } from "@/lib/types";
+import { messageResponseNotice } from "@/lib/message-outcome";
 import { CI_STATUS } from "@composio/ao-core/types";
 import { AttentionZone } from "./AttentionZone";
 import { PRTableRow } from "./PRStatus";
@@ -58,6 +59,7 @@ export function Dashboard({
     initialGlobalPause,
     projectId,
   );
+  const [sendNotice, setSendNotice] = useState<string | null>(null);
   const [rateLimitDismissed, setRateLimitDismissed] = useState(false);
   const [globalPauseDismissed, setGlobalPauseDismissed] = useState(false);
   const [activeOrchestrators, setActiveOrchestrators] =
@@ -139,14 +141,12 @@ export function Dashboard({
   }, [activeOrchestrators, allProjectsView, projects, sessionsByProject]);
 
   const handleSend = useCallback(async (sessionId: string, message: string) => {
-    const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/send`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
-    });
-    if (!res.ok) {
-      console.error(`Failed to send message to ${sessionId}:`, await res.text());
-    }
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/send`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message }),
+      });
+      setSendNotice(await messageResponseNotice(res));
+    } catch { setSendNotice("Message delivery could not be verified."); }
   }, []);
 
   const handleKill = useCallback(async (sessionId: string) => {
@@ -249,6 +249,7 @@ export function Dashboard({
       {showSidebar && <ProjectSidebar projects={projects} activeProjectId={projectId} />}
       <div className="flex-1 overflow-y-auto px-8 py-7">
         <DynamicFavicon sessions={sessions} projectName={projectName} />
+        {sendNotice && <p role="status" className="mb-4 text-sm text-amber-500">{sendNotice}</p>}
         <div className="mb-8 flex items-center justify-between border-b border-[var(--color-border-subtle)] pb-6">
           <div className="flex items-center gap-6">
             <h1 className="text-[17px] font-semibold tracking-[-0.02em] text-[var(--color-text-primary)]">

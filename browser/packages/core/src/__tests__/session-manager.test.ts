@@ -2625,6 +2625,29 @@ describe("cleanup", () => {
 });
 
 describe("send", () => {
+  it("rejects legacy require_ack before runtime injection or implicit restoration", async () => {
+    writeMetadata(sessionsDir, "app-1", { worktree: "/tmp", branch: "main", status: "working", project: "my-app", runtimeHandle: JSON.stringify(makeHandle("rt-1")) });
+    const manager = createSessionManager({ config, registry: mockRegistry });
+    expect(await manager.send("app-1", "task", { messageId: "stable-id", requireAck: true })).toMatchObject({ outcome: "rejected", evidence: { code: "ACK_UNSUPPORTED_AUTHORITY", attempts: 0 } });
+    expect(mockRuntime.sendMessage).not.toHaveBeenCalled(); expect(mockRuntime.create).not.toHaveBeenCalled();
+  });
+  it("delegates an explicitly mapped native message once and never mutates legacy metadata or runtime", async () => {
+    writeMetadata(sessionsDir, "app-1", { worktree: "/tmp", branch: "main", status: "working", project: "my-app" });
+    updateMetadata(sessionsDir, "app-1", { nativeSessionId: "native-original", nativeProjectId: "native-project", nativeRuntimeBinarySHA256: "a".repeat(64), nativeDataDir: "/native/data", nativeRunFile: "/native/discovery/running.json" });
+    const before = readMetadataRaw(sessionsDir, "app-1");
+    const nativeMessageSend = vi.fn().mockResolvedValue({ message_id: "stable-id", outcome: "ack_timeout", evidence: { code: "ACK_TIMEOUT", signal: "none", attempts: 1, recorded_at: new Date().toISOString() } });
+    const manager = createSessionManager({ config, registry: mockRegistry, nativeMessageSend });
+    expect(await manager.send("app-1", "task", { messageId: "stable-id", requireAck: true })).toMatchObject({ outcome: "ack_timeout" });
+    expect(nativeMessageSend).toHaveBeenCalledTimes(1); expect(nativeMessageSend.mock.calls[0]?.[0]).toMatchObject({ sessionId: "native-original", projectId: "native-project" });
+    expect(mockRuntime.sendMessage).not.toHaveBeenCalled(); expect(mockRuntime.create).not.toHaveBeenCalled(); expect(readMetadataRaw(sessionsDir, "app-1")).toEqual(before);
+  });
+  it("a partial native mapping cannot silently fall back to legacy delivery", async () => {
+    writeMetadata(sessionsDir, "app-1", { worktree: "/tmp", branch: "main", status: "working", project: "my-app" });
+    updateMetadata(sessionsDir, "app-1", { nativeSessionId: "native-original" });
+    expect(await createSessionManager({ config, registry: mockRegistry }).send("app-1", "text")).toMatchObject({ outcome: "rejected", evidence: { code: "NATIVE_TARGET_UNVERIFIED" } });
+    expect(mockRuntime.sendMessage).not.toHaveBeenCalled();
+  });
+
   it("sends message via runtime.sendMessage and confirms delivery", async () => {
     writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
@@ -2752,7 +2775,7 @@ describe("send", () => {
     // Should resolve without throwing — the message was already sent via
     // sendMessage, so unconfirmed delivery is treated as a soft success
     // to avoid duplicate dispatches on the next poll cycle.
-    await expect(sm.send("app-1", "Fix the CI failures")).resolves.toBeUndefined();
+    await expect(sm.send("app-1", "Fix the CI failures")).resolves.toMatchObject({ outcome: "submitted_unconfirmed", evidence: { code: "LEGACY_UNCONFIRMED" } });
     expect(mockRuntime.sendMessage).toHaveBeenCalled();
   });
 
@@ -2854,7 +2877,7 @@ describe("send", () => {
     const sm = createSessionManager({ config, registry: registryWithCodexTmux });
     await expect(
       sm.send("app-1", longMessage, { requireConfirmation: true }),
-    ).resolves.toBeUndefined();
+    ).resolves.toMatchObject({ outcome: "submitted_unconfirmed", evidence: { code: "LEGACY_UNCONFIRMED" } });
 
     expect(mockRuntime.create).not.toHaveBeenCalled();
     expect(mockRuntime.sendMessage).toHaveBeenCalledTimes(1);

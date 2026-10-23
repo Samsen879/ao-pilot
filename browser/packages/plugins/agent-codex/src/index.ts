@@ -14,7 +14,8 @@ import {
   type WorkspaceHooksConfig,
 } from "@composio/ao-core";
 import { execFile, execFileSync } from "node:child_process";
-import { createReadStream } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
+import { managedAckDirectory, setupManagedMessageAck } from "./managed-ack.js";
 import { writeFile, mkdir, readFile, readdir, rename, stat, lstat, open } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
@@ -397,6 +398,7 @@ async function atomicWriteFile(filePath: string, content: string, mode: number):
 }
 
 export async function setupManagedAoLauncher(): Promise<void> {
+  await setupManagedMessageAck();
   await mkdir(AO_BIN_DIR, { recursive: true });
 
   await atomicWriteFile(join(AO_BIN_DIR, "ao-metadata-helper.sh"), AO_METADATA_HELPER, 0o755);
@@ -1045,7 +1047,10 @@ function createCodexAgent(): Agent {
       // Keep metadata wrappers active in every Codex session. With no managed
       // binding, the ao wrapper removes its own directory and delegates to the
       // ambient ao command; partial bindings remain fail-closed.
-      env["PATH"] = buildAgentPath(process.env["PATH"]);
+      const ackDirectory = managedAckDirectory();
+      const ackAvailable = ackDirectory && existsSync(join(ackDirectory, "ao-pilot"));
+      env["PATH"] = `${ackAvailable ? `${ackDirectory}:` : ""}${buildAgentPath(process.env["PATH"])}`;
+      env["AO_MESSAGE_ACK_AVAILABLE"] = ackAvailable ? "1" : "";
       env["GH_PATH"] = PREFERRED_GH_PATH;
       // Disable Codex's version check/update prompt for non-interactive AO sessions.
       env["CODEX_DISABLE_UPDATE_CHECK"] = "1";

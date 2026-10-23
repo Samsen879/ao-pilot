@@ -18,6 +18,8 @@ import type {
   Notifier,
   ActivityState,
   PRInfo,
+  MessageResult,
+  SendOptions,
 } from "../types.js";
 
 let tmpDir: string;
@@ -29,6 +31,10 @@ let mockAgent: Agent;
 let mockRegistry: PluginRegistry;
 let config: OrchestratorConfig;
 
+function successfulSend(_id: string, _message: string, options?: SendOptions): Promise<MessageResult> {
+  return Promise.resolve({ message_id: options?.messageId ?? "fixture-notification", outcome: options?.requireAck ? "acknowledged" : "submitted_confirmed",
+    evidence: { code: options?.requireAck ? "EXPLICIT_ACK" : "CONFIRMED", signal: options?.requireAck ? "explicit_ack" : "activity_active", attempts: 1, recorded_at: new Date().toISOString() } });
+}
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
     id: "app-1",
@@ -43,8 +49,8 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     agentInfo: null,
     createdAt: new Date(),
     lastActivityAt: new Date(),
-    metadata: {},
     ...overrides,
+    metadata: { messageDispatchEpisode: "fixture-persistent-episode", ...overrides.metadata },
   };
 }
 
@@ -103,6 +109,7 @@ beforeEach(() => {
   };
 
   mockSessionManager = {
+    messageContract: "ao.message-contract.v1",
     spawn: vi.fn(),
     spawnOrchestrator: vi.fn(),
     restore: vi.fn(),
@@ -110,7 +117,7 @@ beforeEach(() => {
     get: vi.fn().mockResolvedValue(null),
     kill: vi.fn().mockResolvedValue(undefined),
     cleanup: vi.fn(),
-    send: vi.fn().mockResolvedValue(undefined),
+    send: vi.fn().mockImplementation(successfulSend),
     claimPR: vi.fn(),
   } as SessionManager;
 
@@ -150,6 +157,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   // Clean up hash-based directories in ~/.agent-orchestrator
   const projectBaseDir = getProjectBaseDir(configPath, join(tmpDir, "my-app"));
   if (existsSync(projectBaseDir)) {
@@ -1250,6 +1258,37 @@ describe("check (single session)", () => {
 });
 
 describe("reactions", () => {
+  it.each(["unknown-episode", "old-authority"])("refuses %s without worker injection", async (reason) => {
+    const session = makeSession({ status: "working", metadata: reason === "unknown-episode" ? { messageDispatchEpisode: "" } : {} });
+    if (reason === "old-authority") delete (mockSessionManager as { messageContract?: string }).messageContract;
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "idle", timestamp: new Date(0) });
+    config.reactions = { "agent-idle": { action: "send-to-agent", auto: true, message: "task", repeatEvery: "1s", retries: 1 } };
+    writeMetadata(sessionsDir, "app-1", { worktree: "/tmp", branch: "main", status: "working", project: "my-app" });
+    const manager = createLifecycleManager({ config, registry: mockRegistry, sessionManager: mockSessionManager });
+    await manager.check("app-1");
+    expect(mockSessionManager.send).not.toHaveBeenCalled();
+  });
+
+  it.each(["submitted_unconfirmed", "ack_timeout", "rejected"] as const)("does not resubmit %s and later polls still escalate", async (outcome) => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-23T00:00:00Z"));
+    const session = makeSession({ status: "working" });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "idle", timestamp: new Date(0) });
+    const notify = vi.fn();
+    const registry = { ...mockRegistry, get: vi.fn((slot: string) => slot === "notifier" ? { name: "desktop", notify } : mockRegistry.get(slot as Parameters<PluginRegistry["get"]>[0], "mock")) } as PluginRegistry;
+    vi.mocked(mockSessionManager.send).mockImplementation(async (_id, _message, options) => ({ message_id: options!.messageId!, outcome, evidence: { code: "FIXTURE", signal: "none", attempts: 1, recorded_at: new Date().toISOString() } }));
+    config.reactions = { "agent-idle": { action: "send-to-agent", auto: true, message: "task", repeatEvery: "1s", escalateAfter: 2 } };
+    writeMetadata(sessionsDir, "app-1", { worktree: "/tmp", branch: "main", status: "working", project: "my-app" });
+    const manager = createLifecycleManager({ config, registry, sessionManager: mockSessionManager });
+    await manager.check("app-1");
+    vi.advanceTimersByTime(1000); await manager.check("app-1");
+    vi.advanceTimersByTime(1000); await manager.check("app-1");
+    expect(mockSessionManager.send).toHaveBeenCalledTimes(1);
+    expect(mockSessionManager.send).toHaveBeenCalledWith("app-1", "task", { requireAck: true, messageId: expect.stringMatching(/^reaction_/) });
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ type: "reaction.escalated" }));
+  });
+
   it("calls scm.mergePR for approved-and-green auto-merge reactions", async () => {
     config.reactions = {
       "approved-and-green": {
@@ -1367,7 +1406,7 @@ describe("reactions", () => {
     await lm.check("app-1");
 
     expect(mockSessionManager.send).toHaveBeenCalledWith("app-1", "CI is failing. Fix it.", {
-      requireConfirmation: true,
+      requireAck: true, messageId: expect.any(String),
     });
   });
 
@@ -1460,7 +1499,7 @@ describe("reactions", () => {
     // Session transitions from pr_open → ci_failed, which maps to ci-failed reaction
     const session = makeSession({ status: "pr_open", pr: makePR() });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
-    vi.mocked(mockSessionManager.send).mockResolvedValue(undefined);
+    vi.mocked(mockSessionManager.send).mockImplementation(successfulSend);
 
     writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
@@ -1494,7 +1533,7 @@ describe("reactions", () => {
     expect(lm.getStates().get("app-1")).toBe("ci_failed");
     // send-to-agent reaction should have been executed
     expect(mockSessionManager.send).toHaveBeenCalledWith("app-1", "Fix CI", {
-      requireConfirmation: true,
+      requireAck: true, messageId: expect.any(String),
     });
     // Notifier should NOT have been called — the reaction is handling it
     expect(mockNotifier.notify).not.toHaveBeenCalled();
@@ -1552,7 +1591,7 @@ describe("reactions", () => {
     expect(mockSessionManager.send).toHaveBeenCalledWith(
       "app-orchestrator",
       "Continue coordinating the unfinished execution chain without waiting for human input.",
-      { requireConfirmation: true },
+      { requireAck: true, messageId: expect.any(String) },
     );
   });
 
@@ -1607,7 +1646,7 @@ describe("reactions", () => {
         metadata: { role: "worker" },
       }),
     ]);
-    vi.mocked(mockSessionManager.send).mockResolvedValue(undefined);
+    vi.mocked(mockSessionManager.send).mockImplementation(successfulSend);
 
     writeMetadata(sessionsDir, "app-orchestrator", {
       worktree: "/tmp",
@@ -1632,15 +1671,18 @@ describe("reactions", () => {
 
     vi.advanceTimersByTime(1_000);
     await lm.check("app-orchestrator");
+    expect(mockSessionManager.send).toHaveBeenCalledTimes(1);
+
+    // Polling/time alone is not a new task episode. A persisted operator token is.
+    vi.advanceTimersByTime(30_000);
+    await lm.check("app-orchestrator");
+    expect(mockSessionManager.send).toHaveBeenCalledTimes(1);
+    session.metadata.messageDispatchEpisode = "operator-next-episode";
+    vi.advanceTimersByTime(30_000);
+    await lm.check("app-orchestrator");
     expect(mockSessionManager.send).toHaveBeenCalledTimes(2);
-
-    vi.advanceTimersByTime(30_000);
-    await lm.check("app-orchestrator");
-    expect(mockSessionManager.send).toHaveBeenCalledTimes(3);
-
-    vi.advanceTimersByTime(30_000);
-    await lm.check("app-orchestrator");
-    expect(mockSessionManager.send).toHaveBeenCalledTimes(4);
+    const ids = vi.mocked(mockSessionManager.send).mock.calls.map((call) => call[2]?.messageId);
+    expect(new Set(ids).size).toBe(2);
     expect(mockNotifier.notify).not.toHaveBeenCalled();
 
     vi.useRealTimers();
@@ -1985,10 +2027,9 @@ describe("reactions", () => {
       }
       return session;
     });
-    vi.mocked(mockSessionManager.send).mockImplementation(async (sessionId: string) => {
-      if (sessionId === "app-1") {
-        throw new Error("worker unavailable");
-      }
+    vi.mocked(mockSessionManager.send).mockImplementation(async (sessionId, message, options) => {
+      if (sessionId === "app-1") throw new Error("worker unavailable");
+      return successfulSend(sessionId, message, options);
     });
 
     writeMetadata(sessionsDir, "app-1", {
@@ -2009,7 +2050,7 @@ describe("reactions", () => {
     await lm.check("app-1");
 
     expect(mockSessionManager.send).toHaveBeenNthCalledWith(1, "app-1", "Fix CI", {
-      requireConfirmation: true,
+      requireAck: true, messageId: expect.any(String),
     });
     expect(mockSessionManager.send).toHaveBeenNthCalledWith(
       2,
@@ -2067,7 +2108,7 @@ describe("reactions", () => {
 
     const session = makeSession({ status: "pr_open", pr: makePR() });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
-    vi.mocked(mockSessionManager.send).mockResolvedValue(undefined);
+    vi.mocked(mockSessionManager.send).mockImplementation(successfulSend);
 
     writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
@@ -2085,7 +2126,7 @@ describe("reactions", () => {
     await lm.check("app-1");
     expect(mockSessionManager.send).toHaveBeenCalledTimes(1);
     expect(mockSessionManager.send).toHaveBeenCalledWith("app-1", "Handle review comments.", {
-      requireConfirmation: true,
+      requireAck: true, messageId: expect.any(String),
     });
 
     vi.mocked(mockSessionManager.send).mockClear();
@@ -2143,7 +2184,7 @@ describe("reactions", () => {
 
     const session = makeSession({ status: "pr_open", pr: makePR() });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
-    vi.mocked(mockSessionManager.send).mockResolvedValue(undefined);
+    vi.mocked(mockSessionManager.send).mockImplementation(successfulSend);
 
     writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
@@ -2163,7 +2204,7 @@ describe("reactions", () => {
 
     expect(mockSessionManager.send).toHaveBeenCalledTimes(1);
     expect(mockSessionManager.send).toHaveBeenCalledWith("app-1", "Handle requested changes.", {
-      requireConfirmation: true,
+      requireAck: true, messageId: expect.any(String),
     });
   });
 
@@ -2214,7 +2255,7 @@ describe("reactions", () => {
 
     const session = makeSession({ status: "pr_open", pr: makePR() });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
-    vi.mocked(mockSessionManager.send).mockResolvedValue(undefined);
+    vi.mocked(mockSessionManager.send).mockImplementation(successfulSend);
 
     writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
@@ -2234,7 +2275,7 @@ describe("reactions", () => {
     expect(mockSessionManager.send).toHaveBeenCalledWith(
       "app-1",
       "Handle automated review findings.",
-      { requireConfirmation: true },
+      { requireAck: true, messageId: expect.any(String) },
     );
 
     vi.mocked(mockSessionManager.send).mockClear();
@@ -2303,7 +2344,7 @@ describe("reactions", () => {
 
     const session = makeSession({ status: "pr_open", pr: makePR() });
     vi.mocked(mockSessionManager.get).mockResolvedValue(session);
-    vi.mocked(mockSessionManager.send).mockResolvedValue(undefined);
+    vi.mocked(mockSessionManager.send).mockImplementation(successfulSend);
 
     writeMetadata(sessionsDir, "app-1", {
       worktree: "/tmp",
@@ -2324,7 +2365,7 @@ describe("reactions", () => {
     expect(mockSessionManager.send).toHaveBeenCalledWith(
       "app-1",
       "Handle automated review findings.",
-      { requireConfirmation: true },
+      { requireAck: true, messageId: expect.any(String) },
     );
     expect(mockSCM.mergePR).not.toHaveBeenCalled();
   });

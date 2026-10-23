@@ -51,9 +51,12 @@ vi.mock("node:fs/promises", () => ({
   stat: mockStat,
   lstat: mockLstat,
   open: mockOpen,
+  realpath: vi.fn(),
+  chmod: vi.fn(),
 }));
 
-vi.mock("node:crypto", () => ({
+vi.mock("node:crypto", async (importOriginal) => ({
+  ...await importOriginal<typeof import("node:crypto")>(),
   randomBytes: () => ({ toString: () => "abc123" }),
 }));
 

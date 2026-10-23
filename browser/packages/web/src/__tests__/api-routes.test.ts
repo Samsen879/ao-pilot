@@ -3,7 +3,6 @@ import { NextRequest } from "next/server";
 import {
   SessionNotFoundError,
   SessionNotRestorableError,
-  SessionNotFoundError,
   type Session,
   type SessionManager,
   type OrchestratorConfig,
@@ -215,6 +214,7 @@ function makeRequest(url: string, init?: RequestInit): NextRequest {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  delete (mockSessionManager as { messageContract?: string }).messageContract;
   // Re-set default return values
   (mockSessionManager.list as ReturnType<typeof vi.fn>).mockResolvedValue(testSessions);
   (mockSessionManager.get as ReturnType<typeof vi.fn>).mockImplementation(
@@ -566,6 +566,26 @@ describe("API Routes", () => {
   // ── POST /api/sessions/:id/send ────────────────────────────────────
 
   describe("POST /api/sessions/:id/send", () => {
+    it("rejects require_ack on an old authority without calling send", async () => {
+      const req = makeRequest("/api/sessions/backend-3/send", { method: "POST", body: JSON.stringify({ message: "task", message_id: "stable-id", require_ack: true }) });
+      const response = await sendPOST(req, { params: Promise.resolve({ id: "backend-3" }) });
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ message_id: "stable-id", outcome: "rejected", evidence: { code: "ACK_UNSUPPORTED_AUTHORITY", attempts: 0 } });
+      expect(mockSessionManager.send).not.toHaveBeenCalled();
+    });
+    it.each([["submitted_confirmed", 200], ["submitted_unconfirmed", 202], ["rejected", 409], ["acknowledged", 200], ["ack_timeout", 504]])("preserves native %s as HTTP %s", async (outcome, status) => {
+      Object.assign(mockSessionManager, { messageContract: "ao.message-contract.v1" });
+      const result = { message_id: "stable-id", outcome, evidence: { code: "FIXTURE", signal: "none", attempts: 1, recorded_at: new Date().toISOString() } };
+      vi.mocked(mockSessionManager.send).mockResolvedValueOnce(result as never);
+      const response = await sendPOST(makeRequest("/api/sessions/backend-3/send", { method: "POST", body: JSON.stringify({ message: "task", message_id: "stable-id", require_ack: true, ack_timeout_ms: 1200 }) }), { params: Promise.resolve({ id: "backend-3" }) });
+      expect(response.status).toBe(status);
+      expect(await response.json()).toEqual(result);
+      expect(mockSessionManager.send).toHaveBeenCalledWith("backend-3", "task", { messageId: "stable-id", requireAck: true, ackTimeoutMs: 1200 });
+    });
+    it.each([{ message_id: "../escape" }, { require_ack: "true" }, { ack_timeout_ms: 1 }, { require_ack: true, ack_timeout_ms: 60001 }])("rejects invalid options before sending %j", async (options) => {
+      const response = await sendPOST(makeRequest("/api/sessions/backend-3/send", { method: "POST", body: JSON.stringify({ message: "task", ...options }) }), { params: Promise.resolve({ id: "backend-3" }) });
+      expect(response.status).toBe(400); expect(mockSessionManager.send).not.toHaveBeenCalled();
+    });
     it("sends a message to a valid session", async () => {
       const req = makeRequest("/api/sessions/backend-3/send", {
         method: "POST",
@@ -573,10 +593,10 @@ describe("API Routes", () => {
         headers: { "Content-Type": "application/json" },
       });
       const res = await sendPOST(req, { params: Promise.resolve({ id: "backend-3" }) });
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(202);
       const data = await res.json();
-      expect(data.ok).toBe(true);
-      expect(data.message).toBe("Fix the tests");
+      expect(data.outcome).toBe("submitted_unconfirmed");
+      expect(data.evidence.code).toBe("LEGACY_UNCONFIRMED");
     });
 
     it("returns 404 for unknown session", async () => {
@@ -635,9 +655,10 @@ describe("API Routes", () => {
         headers: { "Content-Type": "application/json" },
       });
       const res = await messagePOST(req, { params: Promise.resolve({ id: "backend-3" }) });
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(202);
       const data = await res.json();
-      expect(data.success).toBe(true);
+      expect(data.outcome).toBe("submitted_unconfirmed");
+      expect(data.success).toBeUndefined();
     });
 
     it("returns 404 for unknown session", async () => {

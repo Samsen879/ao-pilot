@@ -1,7 +1,7 @@
 {
   "name": "@composio/ao-core",
   "version": "0.1.0",
-  "description": "Core library — types, config, session manager, lifecycle manager, event bus",
+  "description": "Core library \u2014 types, config, session manager, lifecycle manager, event bus",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
@@ -22,6 +22,10 @@
     "./scm-webhook-utils": {
       "types": "./dist/scm-webhook-utils.d.ts",
       "import": "./dist/scm-webhook-utils.js"
+    },
+    "./message-contract": {
+      "types": "./dist/message-contract.d.ts",
+      "import": "./dist/message-contract.js"
     }
   },
   "files": [

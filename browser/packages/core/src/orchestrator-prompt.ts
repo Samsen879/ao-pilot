@@ -13,6 +13,8 @@ export interface OrchestratorPromptConfig {
   projectId: string;
   project: ProjectConfig;
   managedCli?: boolean;
+  /** True only after a fresh read-only native capability handshake. */
+  nativeMessages?: boolean;
 }
 
 export function hasCompleteManagedAoBinding(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -24,7 +26,7 @@ export function hasCompleteManagedAoBinding(env: NodeJS.ProcessEnv = process.env
   ].every((name) => Boolean(env[name]));
 }
 
-function adaptForManagedCli(prompt: string, projectId: string, sessionPrefix: string): string {
+function adaptForManagedCli(prompt: string, projectId: string, sessionPrefix: string, nativeMessages: boolean): string {
   const sessions = `ao session ls --all --project ${projectId} --json`;
   const adapted = prompt
     .replaceAll(`ao session claim-pr 123 ${sessionPrefix}-1`, `ao session claim-pr ${sessionPrefix}-1 123 --project ${projectId}`)
@@ -37,8 +39,8 @@ function adaptForManagedCli(prompt: string, projectId: string, sessionPrefix: st
     .replaceAll("ao batch-spawn", "repeat the documented ao spawn command")
     .replaceAll("batch-spawn", "individual spawn commands")
     .replaceAll(`ao send ${sessionPrefix}-1 "Your message here"`, `ao send --session ${sessionPrefix}-1 --message "Your message here"`)
-    .replaceAll(`ao send ${sessionPrefix}-1 "Please address the review comments on your PR"`, `ao send --session ${sessionPrefix}-1 --message "Please address the review comments on your PR"`)
-    .replaceAll("ao send <session> '...'", "ao send --session <session> --message '...'")
+    .replaceAll(`ao send ${sessionPrefix}-1 "Please address the review comments on your PR"`, nativeMessages ? `ao-pilot send --session ${sessionPrefix}-1 --message "Please address the review comments on your PR" --message-id <stable-dispatch-id> --require-ack --json` : "Task dispatch unavailable: native ACK capability has not been verified")
+    .replaceAll("ao send <session> '...'", nativeMessages ? "ao-pilot send --session <session> --message '...' --message-id <stable-dispatch-id> --require-ack --json" : "Task dispatch unavailable until native ACK capability is verified")
     .replaceAll("ao send <session> <message>", "ao send --session <session> --message <message>")
     .replaceAll("ao session attach <session>", `ao session get <session> --project ${projectId} --json`)
     .replaceAll("`ao session ls`, `ao session attach`, and SCM/tracker lookups", "project-scoped session JSON and SCM/tracker lookups")
@@ -58,6 +60,8 @@ function adaptForManagedCli(prompt: string, projectId: string, sessionPrefix: st
 - Use \`ao status --json\` only for global daemon health.
 - Use \`${sessions}\` for session, PR, CI, and review coordination state.
 - Run command-specific \`--help\` before relying on any inherited syntax.
+
+${nativeMessages ? "- Task dispatch uses the verified native authority and --require-ack with a stable message ID for this task/episode. Only acknowledged proves the worker explicitly read it. submitted_confirmed is submission only; submitted_unconfirmed, rejected, ack_timeout or unknown require observation/escalation. Never retry by creating a new ID, never restore/resend as a fallback. Ordinary notifications do not require ACK. Target native IDs come from the verified native session JSON, never inferred from browser metadata." : "- Native message/ACK capability has not been verified. Legacy ordinary messages remain unconfirmed; task dispatch is unavailable. Escalate to an operator, without a legacy fallback."}
 
 ${adapted}`;
 }
@@ -227,7 +231,7 @@ Features:
     for (const [event, reaction] of Object.entries(project.reactions)) {
       if (reaction.auto && reaction.action === "send-to-agent") {
         reactionLines.push(
-          `- **${event}**: Auto-sends instruction to agent (retries: ${reaction.retries ?? "none"}, escalates after: ${reaction.escalateAfter ?? "never"})`,
+          `- **${event}**: Requires native worker ACK; one submission per persistent episode (observation/escalation threshold: ${reaction.retries ?? "none"}, escalates after: ${reaction.escalateAfter ?? "never"}; no automatic resubmission)`,
         );
       } else if (reaction.auto && reaction.action === "send-to-orchestrator") {
         reactionLines.push(`- **${event}**: Auto-routes the situation back to the orchestrator`);
@@ -286,7 +290,7 @@ When an agent needs human judgment:
 
 2. **Check status before spawning** — Avoid creating duplicate sessions for issues already being worked on.
 
-3. **Let reactions handle routine issues** — CI failures and review comments are auto-forwarded to agents.
+3. **Let reactions handle routine issues** — Task reactions require acknowledged native delivery; unknown or unavailable authority escalates without automatic resubmission.
 
 4. **Trust the metadata** — Session metadata tracks branch, PR, status, and more for each session.
 
@@ -300,8 +304,14 @@ When an agent needs human judgment:
 
   const prompt = sections.join("\n\n");
   const builtInPrompt = managedCli
-    ? adaptForManagedCli(prompt, projectId, project.sessionPrefix)
-    : prompt;
+    ? adaptForManagedCli(prompt, projectId, project.sessionPrefix, opts.nativeMessages === true)
+    : `## Legacy message authority
+
+Ordinary messages retain legacy behavior and are unconfirmed. Acknowledged task dispatch is unavailable; do not use legacy send as a task-delivery fallback.
+
+${prompt
+      .replaceAll(`ao send ${project.sessionPrefix}-1 "Please address the review comments on your PR"`, "Task dispatch unavailable: use a verified native authority or operator")
+      .replaceAll("4. Send instructions: `ao send <session> '...'`", "4. Request explicit acknowledged task dispatch through the operator")}`;
   return project.orchestratorRules
     ? `${builtInPrompt}\n\n## Project-Specific Rules\n\n${project.orchestratorRules}`
     : builtInPrompt;
