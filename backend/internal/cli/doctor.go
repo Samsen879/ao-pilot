@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/agent/codex"
+	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/runtime/tmux"
 	"github.com/aoagents/agent-orchestrator/backend/internal/config"
 )
 
@@ -35,6 +36,7 @@ type doctorCheck struct {
 	Section string      `json:"section,omitempty"`
 	Name    string      `json:"name"`
 	Message string      `json:"message"`
+	Details any         `json:"details,omitempty"`
 }
 
 type doctorReport struct {
@@ -169,6 +171,7 @@ func (c *commandContext) runDoctor(ctx context.Context) []doctorCheck {
 		checks = append(checks, doctorCheck{Level: level, Section: doctorSectionCore, Name: "daemon", Message: msg})
 	}
 
+	checks = append(checks, c.checkTmuxCgroup(ctx, st))
 	checks = append(checks,
 		c.checkGit(ctx),
 		c.checkTerminalRuntime(ctx),
@@ -319,10 +322,10 @@ func (c *commandContext) checkTmux(ctx context.Context) doctorCheck {
 		return doctorCheck{Level: doctorFail, Section: doctorSectionTools, Name: "tmux", Message: fmt.Sprintf("%s: %v", path, err)}
 	}
 	version := firstOutputLine(out)
-	if version == "" {
-		version = "version unknown"
+	if err := tmux.CheckVersion(version); err != nil {
+		return doctorCheck{Level: doctorFail, Section: doctorSectionTools, Name: "tmux", Message: err.Error()}
 	}
-	return doctorCheck{Level: doctorPass, Section: doctorSectionTools, Name: "tmux", Message: fmt.Sprintf("%s (%s)", path, version)}
+	return doctorCheck{Level: doctorPass, Section: doctorSectionTools, Name: "tmux", Message: fmt.Sprintf("%s (%s; managed server requires >= %s)", path, version, tmux.MinimumVersion)}
 }
 
 // checkHooksLog surfaces recent agent hook delivery failures. `ao hooks`
