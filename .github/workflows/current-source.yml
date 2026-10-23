@@ -1,0 +1,60 @@
+name: current-source
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+      tree:
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    name: source-${{ matrix.suite }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [native, browser]
+    env:
+      AO_SOURCE_EXPECTED_HEAD: ${{ inputs.ref }}
+      AO_SOURCE_EXPECTED_TREE: ${{ inputs.tree }}
+    steps:
+      - name: Validate immutable candidate
+        run: |
+          [[ "$AO_SOURCE_EXPECTED_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          [[ -z "$AO_SOURCE_EXPECTED_TREE" || "$AO_SOURCE_EXPECTED_TREE" =~ ^[0-9a-f]{40}$ ]]
+          mkdir -p "$RUNNER_TEMP/current-source"
+          echo "AO_SOURCE_RECEIPT_DIR=$RUNNER_TEMP/current-source" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - name: Verify checkout identity
+        run: test "$(git rev-parse HEAD)" = "$AO_SOURCE_EXPECTED_HEAD"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-go@v5
+        if: matrix.suite == 'native'
+        with:
+          go-version: '1.25.7'
+          cache-dependency-path: runtime/headless/backend/go.sum
+      - name: Install browser integration prerequisite
+        if: matrix.suite == 'browser'
+        run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Verify current source
+        run: node scripts/verify-current-source.js "${{ matrix.suite }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: current-source-${{ matrix.suite }}
+          path: ${{ runner.temp }}/current-source/
+          if-no-files-found: error

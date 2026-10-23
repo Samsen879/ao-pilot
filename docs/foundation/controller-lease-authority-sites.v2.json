@@ -1,6 +1,6 @@
 {
   "schema_version": "ao.controller-lease-authority-sites.v2",
-  "inventory_version": "2026-09-01.1",
+  "inventory_version": "2026-09-26.1",
   "migrated_from": {
     "schema_version": "ao.controller-lease-caller-inventory.v1",
     "accepted_match_count": 61,
@@ -185,7 +185,7 @@
       "atomic-api": 5,
       "file-name": 4,
       "isolated-path": 12,
-      "persist-state-api": 7,
+      "persist-state-api": 8,
       "state-property": 26,
       "upsert-api": 9
     },
@@ -213,6 +213,7 @@
       { "id": "persist-state-api.05", "selector": "persist-state-api", "semantic_source": "persistState({ state: nextState, entityKind: 'task_relation', entityId: normalizedRelationId,", "expected_count": 1 },
       { "id": "persist-state-api.06", "selector": "persist-state-api", "semantic_source": "persistState({ state: nextState, entityKind: 'runtime_preflight',", "expected_count": 1 },
       { "id": "persist-state-api.07", "selector": "persist-state-api", "semantic_source": "persistState({ state: nextState, entityKind: 'repo_knowledge',", "expected_count": 1 },
+      { "id": "persist-state-api.08", "selector": "persist-state-api", "semantic_source": "persistState({ state: sortRepositoryStateCollections(nextState), entityKind: 'managed_task_command',", "expected_count": 1 },
       { "id": "state-property.01", "selector": "state-property", "semantic_source": "active_controller_lease_count: snapshot.state.controller_leases.filter((lease) => lease.status === 'active').length,", "expected_count": 1 },
       { "id": "state-property.02", "selector": "state-property", "semantic_source": "collectionKey: 'controller_leases',", "expected_count": 1 },
       { "id": "state-property.03", "selector": "state-property", "semantic_source": "const controllerLeases = snapshot.state.controller_leases ?? [];", "expected_count": 1 },

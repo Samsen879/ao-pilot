@@ -153,6 +153,12 @@ type RestoreResult struct {
 	Mode    RestoreMode
 }
 
+type bootRestoreCandidate struct {
+	rec        domain.SessionRecord
+	rows       []domain.SessionWorktreeRecord
+	activityAt time.Time
+}
+
 // Store is the persistence surface needed by the internal session Manager.
 type Store interface {
 	// GetProject loads a project row so spawn can resolve its per-project agent
@@ -160,7 +166,8 @@ type Store interface {
 	GetProject(ctx context.Context, id string) (domain.ProjectRecord, bool, error)
 	ListWorkspaceRepos(ctx context.Context, projectID string) ([]domain.WorkspaceRepoRecord, error)
 	CreateSession(ctx context.Context, rec domain.SessionRecord) (domain.SessionRecord, error)
-	UpdateSession(ctx context.Context, rec domain.SessionRecord) error
+	PreserveFailedSpawnWorkspace(ctx context.Context, id domain.SessionID, branch, workspacePath, repoPath string, clearRuntime bool) error
+	ClearFailedSpawnWorkspace(ctx context.Context, id domain.SessionID) error
 	GetSession(ctx context.Context, id domain.SessionID) (domain.SessionRecord, bool, error)
 	ListSessions(ctx context.Context, project domain.ProjectID) ([]domain.SessionRecord, error)
 	ListAllSessions(ctx context.Context) ([]domain.SessionRecord, error)
@@ -180,6 +187,8 @@ type Store interface {
 	// worktrees.
 	ListSessionWorktrees(ctx context.Context, id domain.SessionID) ([]domain.SessionWorktreeRecord, error)
 	MarkSessionWorktreesNonRestorable(ctx context.Context, id domain.SessionID) error
+	SetSessionWorktreesRecoveryActivity(ctx context.Context, id domain.SessionID, at time.Time) error
+	SessionWorktreesRecoveryActivity(ctx context.Context, id domain.SessionID) (time.Time, bool, error)
 	// DeleteSessionWorktrees consumes stale shutdown-restore markers. Explicit
 	// Kill and successful RestoreAll must remove these rows to prevent
 	// resurrecting sessions the user intentionally terminated.
@@ -290,9 +299,10 @@ type BrowserCapabilityIssuer interface {
 // Send. AO has no delivery ack: ao send returns 200 the moment tmux send-keys
 // exits 0, and for a large multiline paste the single Enter may not submit the
 // prompt — so UserPromptSubmit never fires and the orchestrator cannot tell the
-// worker started. confirmActive observes the durable Activity.State (written by
-// the user-prompt-submit hook) and re-sends Enter until the session is active or
-// the budget is exhausted. It never fails the send.
+// worker started. confirmActive observes a durable ActivityActive timestamp
+// newer than the pre-send baseline (written by the user-prompt-submit hook) and
+// re-sends Enter until that confirmation arrives or the budget is exhausted.
+// It never fails the send.
 type sendConfirmConfig struct {
 	// pollInterval is the gap between activity reads.
 	pollInterval time.Duration
@@ -309,6 +319,12 @@ const (
 	sendConfirmPollInterval    = 300 * time.Millisecond
 	sendConfirmAttemptDeadline = 2 * time.Second
 	sendConfirmMaxAttempts     = 3
+	// bootRestoreLimit is a total cold-start launch budget. A stale database can
+	// contain many old live rows or shutdown markers; restoring all of them at
+	// once fans out one agent plus its helper processes per row and can exhaust
+	// the host before the daemon becomes ready. Overflow remains in durable
+	// custody and can still be restored explicitly.
+	bootRestoreLimit = 4
 )
 
 // Deps are the collaborators a Session Manager needs; New wires them together.
@@ -827,23 +843,7 @@ func (m *Manager) rollbackSeedSpawnWorkspace(ctx context.Context, rec domain.Ses
 }
 
 func (m *Manager) preserveFailedSpawnWorkspace(ctx context.Context, id domain.SessionID, ws ports.WorkspaceInfo, runtimeDestroyed bool) {
-	rec, ok, err := m.store.GetSession(ctx, id)
-	if err != nil {
-		m.logger.Warn("spawn rollback: failed to load session for preserved workspace", "sessionID", id, "workspacePath", ws.Path, "error", err)
-		return
-	}
-	if !ok {
-		m.logger.Warn("spawn rollback: session missing for preserved workspace", "sessionID", id, "workspacePath", ws.Path)
-		return
-	}
-	rec.Metadata.Branch = ws.Branch
-	rec.Metadata.WorkspacePath = ws.Path
-	rec.Metadata.WorkspaceRepoPath = ws.RepoPath
-	if runtimeDestroyed {
-		rec.Metadata.RuntimeHandleID = ""
-		rec.Metadata.RuntimeLaunchID = ""
-	}
-	if err := m.store.UpdateSession(ctx, rec); err != nil {
+	if err := m.store.PreserveFailedSpawnWorkspace(ctx, id, ws.Branch, ws.Path, ws.RepoPath, runtimeDestroyed); err != nil {
 		m.logger.Warn("spawn rollback: failed to record preserved workspace", "sessionID", id, "workspacePath", ws.Path, "error", err)
 	}
 }
@@ -916,15 +916,7 @@ func (m *Manager) markSpawnFailedTerminated(ctx context.Context, id domain.Sessi
 // from treating a removed worktree as reusable state.
 func (m *Manager) markSpawnFailedTerminatedWithoutWorkspace(ctx context.Context, id domain.SessionID) {
 	m.markSpawnFailedTerminated(ctx, id)
-	rec, ok, err := m.store.GetSession(ctx, id)
-	if err != nil || !ok {
-		return
-	}
-	rec.Metadata.Branch = ""
-	rec.Metadata.WorkspacePath = ""
-	rec.Metadata.RuntimeHandleID = ""
-	rec.Metadata.AgentSessionID = ""
-	_ = m.store.UpdateSession(ctx, rec)
+	_ = m.store.ClearFailedSpawnWorkspace(ctx, id)
 }
 
 // rollbackSpawnSeedRow best-effort removes the row of a spawn that failed
@@ -1372,15 +1364,31 @@ func (m *Manager) RestoreWithMode(ctx context.Context, id domain.SessionID) (Res
 	// unresumable non-orchestrator (a worker with no task and no native id to resume).
 	// Orchestrators always relaunch fresh with the system prompt only.
 
-	ws, err := m.restoreSessionWorkspace(ctx, project, rec)
+	markerRows, err := m.store.ListSessionWorktrees(ctx, rec.ID)
+	if err != nil {
+		return RestoreResult{}, fmt.Errorf("restore %s: list worktrees: %w", id, err)
+	}
+	ws, projectRows, err := m.restoreSessionWorkspace(ctx, project, rec, markerRows)
 	if err != nil {
 		return RestoreResult{}, fmt.Errorf("restore %s: workspace: %w", id, err)
+	}
+	keepPreserved := m.applySessionPreserved(ctx, rec, ws, projectRows, markerRows, "restore")
+	if project.Kind.WithDefault() == domain.ProjectKindWorkspace {
+		if err := m.markWorkspaceProjectRowsActive(ctx, projectRows, markerRows, keepPreserved); err != nil {
+			return RestoreResult{}, fmt.Errorf("restore %s: mark workspace active: %w", id, err)
+		}
+	} else if err := m.markSessionWorktreesActive(ctx, markerRows, keepPreserved); err != nil {
+		return RestoreResult{}, fmt.Errorf("restore %s: mark worktrees active: %w", id, err)
 	}
 	return m.relaunchRestoredSession(ctx, rec, project, ws)
 }
 
 func (m *Manager) relaunchRestoredSession(ctx context.Context, rec domain.SessionRecord, project domain.ProjectRecord, ws ports.WorkspaceInfo) (RestoreResult, error) {
-	return m.relaunchSession(ctx, "restore", rec, project, ws, nil)
+	return m.relaunchSession(ctx, "restore", rec, project, ws, nil, nil)
+}
+
+func (m *Manager) relaunchRestoredSessionWithAttempt(ctx context.Context, rec domain.SessionRecord, project domain.ProjectRecord, ws ports.WorkspaceInfo, beforeRuntimeLaunch func()) (RestoreResult, error) {
+	return m.relaunchSession(ctx, "restore", rec, project, ws, nil, beforeRuntimeLaunch)
 }
 
 // ResumeAgentWithMode replaces an exited agent inside its still-live session.
@@ -1422,7 +1430,7 @@ func (m *Manager) ResumeAgentWithMode(ctx context.Context, id domain.SessionID) 
 		ProjectID: rec.ProjectID,
 	}
 	handle := ports.RuntimeHandle{ID: meta.RuntimeHandleID}
-	return m.relaunchSession(ctx, "resume agent", rec, project, ws, &handle)
+	return m.relaunchSession(ctx, "resume agent", rec, project, ws, &handle, nil)
 }
 
 func (m *Manager) beginAgentResume(id domain.SessionID) bool {
@@ -1441,7 +1449,7 @@ func (m *Manager) endAgentResume(id domain.SessionID) {
 	m.resumeMu.Unlock()
 }
 
-func (m *Manager) relaunchSession(ctx context.Context, operation string, rec domain.SessionRecord, project domain.ProjectRecord, ws ports.WorkspaceInfo, restartHandle *ports.RuntimeHandle) (RestoreResult, error) {
+func (m *Manager) relaunchSession(ctx context.Context, operation string, rec domain.SessionRecord, project domain.ProjectRecord, ws ports.WorkspaceInfo, restartHandle *ports.RuntimeHandle, beforeRuntimeLaunch func()) (RestoreResult, error) {
 	agent, ok := m.agents.Agent(rec.Harness)
 	if !ok {
 		return RestoreResult{}, fmt.Errorf("%s %s: no agent adapter for harness %q", operation, rec.ID, rec.Harness)
@@ -1494,6 +1502,9 @@ func (m *Manager) relaunchSession(ctx context.Context, operation string, rec dom
 	}
 	var handle ports.RuntimeHandle
 	handle, err = sessionguard.ReplacePane(ctx, m.store, rec.ID, func() (ports.RuntimeHandle, error) {
+		if beforeRuntimeLaunch != nil {
+			beforeRuntimeLaunch()
+		}
 		if restartHandle == nil {
 			return m.runtime.Create(ctx, runtimeCfg)
 		}
@@ -1650,6 +1661,9 @@ func (m *Manager) saveAndTeardownOne(ctx context.Context, rec domain.SessionReco
 	if err := m.store.UpsertSessionWorktree(ctx, row); err != nil {
 		return fmt.Errorf("save %s: upsert worktree row: %w", rec.ID, err)
 	}
+	if err := m.store.SetSessionWorktreesRecoveryActivity(ctx, rec.ID, rec.Activity.LastActivityAt); err != nil {
+		return fmt.Errorf("save %s: record recovery activity: %w", rec.ID, err)
+	}
 
 	// 3. Mark terminal via the LCM (same path Kill uses).
 	if err := m.lcm.MarkTerminated(ctx, rec.ID); err != nil {
@@ -1687,36 +1701,70 @@ func (m *Manager) saveAndTeardownOne(ctx context.Context, rec domain.SessionReco
 // If the work capture fails we mark terminated WITHOUT a marker and leave the
 // worktree intact: better to skip the relaunch than to tear down un-preserved
 // work or relaunch onto an inconsistent worktree.
-func (m *Manager) reconcileLive(ctx context.Context, rec domain.SessionRecord) error {
+func (m *Manager) reconcileLive(ctx context.Context, rec domain.SessionRecord, allowRestore bool) (bool, error) {
 	project, err := m.loadProject(ctx, rec.ProjectID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	projectKind := project.Kind.WithDefault()
 	if rec.Metadata.WorkspacePath == "" || (rec.Metadata.Branch == "" && projectKind != domain.ProjectKindScratch) {
-		return nil
+		return false, nil
 	}
 	handle := runtimeHandle(rec.Metadata)
 	if handle.ID != "" {
 		alive, err := m.runtime.IsAlive(ctx, handle)
 		if err != nil {
 			// A failed probe is not proof of death: leave the session as-is.
-			return fmt.Errorf("reconcile %s: probe: %w", rec.ID, err)
+			return false, fmt.Errorf("reconcile %s: probe: %w", rec.ID, err)
 		}
 		if alive {
-			return nil // adopt: the session survived the crash.
+			return false, nil // adopt: the session survived the crash.
 		}
 	}
 	if projectKind == domain.ProjectKindScratch {
-		return m.lcm.MarkTerminated(ctx, rec.ID)
+		return false, m.lcm.MarkTerminated(ctx, rec.ID)
+	}
+	if !allowRestore {
+		// Preserve the existing workspace and any preserve ref, but consume its
+		// automatic-restore eligibility. Without this state transition, every
+		// later daemon boot would get another chance to resurrect the same stale
+		// session and the launch limit would only delay the resource spike.
+		markerErr := m.store.MarkSessionWorktreesNonRestorable(ctx, rec.ID)
+		terminatedErr := m.lcm.MarkTerminated(ctx, rec.ID)
+		if markerErr != nil {
+			if terminatedErr != nil {
+				return false, errors.Join(
+					fmt.Errorf("reconcile %s: quarantine restore marker: %w", rec.ID, markerErr),
+					fmt.Errorf("reconcile %s: mark deferred session terminated: %w", rec.ID, terminatedErr),
+				)
+			}
+			return false, fmt.Errorf("reconcile %s: quarantine restore marker: %w", rec.ID, markerErr)
+		}
+		if terminatedErr != nil {
+			return false, fmt.Errorf("reconcile %s: mark deferred session terminated: %w", rec.ID, terminatedErr)
+		}
+		m.logger.Warn("reconcile: cold-start restore limit reached; session retained for manual restore",
+			"sessionID", rec.ID, "workspacePath", rec.Metadata.WorkspacePath, "limit", bootRestoreLimit)
+		return false, nil
 	}
 	if err := m.saveAndTeardownOne(ctx, rec, false); err != nil {
 		m.logger.Warn("reconcile: save-and-teardown failed; terminating without restore marker", "sessionID", rec.ID, "error", err)
-		if mErr := m.lcm.MarkTerminated(ctx, rec.ID); mErr != nil {
-			return fmt.Errorf("reconcile %s: mark terminated: %w", rec.ID, mErr)
+		markerErr := m.store.MarkSessionWorktreesNonRestorable(ctx, rec.ID)
+		terminatedErr := m.lcm.MarkTerminated(ctx, rec.ID)
+		if markerErr != nil {
+			if terminatedErr != nil {
+				return true, errors.Join(
+					fmt.Errorf("reconcile %s: quarantine failed restore marker: %w", rec.ID, markerErr),
+					fmt.Errorf("reconcile %s: mark terminated: %w", rec.ID, terminatedErr),
+				)
+			}
+			return true, fmt.Errorf("reconcile %s: quarantine failed restore marker: %w", rec.ID, markerErr)
+		}
+		if terminatedErr != nil {
+			return true, fmt.Errorf("reconcile %s: mark terminated: %w", rec.ID, terminatedErr)
 		}
 	}
-	return nil
+	return true, nil
 }
 
 // reconcileReap kills the leaked tmux session of a session the DB already marks
@@ -1759,14 +1807,23 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("reconcile: list sessions: %w", err)
 	}
+	live := make([]domain.SessionRecord, 0, len(recs))
 	for _, rec := range recs {
+		if !rec.IsTerminated {
+			live = append(live, rec)
+		}
+	}
+	prioritizeBootRecovery(live, bootRestoreLimit)
+	recoveryAttempts := 0
+	for _, rec := range live {
 		if !m.spawnAttemptAllowed(ctx, rec.ID) {
 			continue
 		}
-		if rec.IsTerminated {
-			continue
+		attempted, err := m.reconcileLive(ctx, rec, recoveryAttempts < bootRestoreLimit)
+		if attempted {
+			recoveryAttempts++
 		}
-		if err := m.reconcileLive(ctx, rec); err != nil {
+		if err != nil {
 			m.logger.Error("reconcile: live pass failed, skipping", "sessionID", rec.ID, "error", err)
 		}
 	}
@@ -1784,8 +1841,8 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	return m.RestoreAll(ctx)
 }
 
-// RestoreAll relaunches every terminated session that was saved by the last
-// SaveAndTeardownAll. The "shutdown-saved" marker is the presence of a
+// RestoreAll relaunches a bounded set of terminated sessions saved by the last
+// SaveAndTeardownAll or crash reconciliation. The "shutdown-saved" marker is the presence of a
 // session_worktrees row for the session; sessions the user killed before
 // shutdown have no such row and are left terminated.
 //
@@ -1801,6 +1858,7 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("restore-all: list sessions: %w", err)
 	}
+	candidates := make([]bootRestoreCandidate, 0)
 	for _, rec := range recs {
 		if !m.spawnAttemptAllowed(ctx, rec.ID) {
 			continue
@@ -1820,6 +1878,35 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 		}
 		rows = restorableWorktreeRows(rows)
 		if len(rows) == 0 {
+			continue
+		}
+		activityAt, ok, err := m.store.SessionWorktreesRecoveryActivity(ctx, rec.ID)
+		if err != nil {
+			m.logger.Error("restore-all: read recovery activity failed", "sessionID", rec.ID, "error", err)
+			continue
+		}
+		if !ok {
+			activityAt = rec.Activity.LastActivityAt
+		}
+		candidates = append(candidates, bootRestoreCandidate{rec: rec, rows: rows, activityAt: activityAt})
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if !candidates[i].activityAt.Equal(candidates[j].activityAt) {
+			return candidates[i].activityAt.After(candidates[j].activityAt)
+		}
+		return bootRecoveryBefore(candidates[i].rec, candidates[j].rec)
+	})
+	reserveRecentOrchestratorCandidate(candidates, bootRestoreLimit)
+	runtimeAttempts := 0
+	for _, saved := range candidates {
+		rec, rows := saved.rec, saved.rows
+		if runtimeAttempts >= bootRestoreLimit {
+			if err := m.store.MarkSessionWorktreesNonRestorable(ctx, rec.ID); err != nil {
+				m.logger.Error("restore-all: quarantine overflow marker failed", "sessionID", rec.ID, "error", err)
+				continue
+			}
+			m.logger.Warn("restore-all: cold-start restore limit reached; session retained for manual restore",
+				"sessionID", rec.ID, "workspacePath", rec.Metadata.WorkspacePath, "limit", bootRestoreLimit)
 			continue
 		}
 
@@ -1868,36 +1955,18 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 		}
 
 		// Step 2: replay preserve ref when one was recorded.
-		if restoredWorkspaceProject {
-			m.applyWorkspaceProjectPreserved(ctx, projectRows)
-		} else {
-			var preserveRef string
-			for _, r := range rows {
-				if r.PreservedRef != "" {
-					preserveRef = r.PreservedRef
-					break
-				}
-			}
-			if preserveRef != "" {
-				if applyErr := m.workspace.ApplyPreserved(ctx, ws, preserveRef); applyErr != nil {
-					if errors.Is(applyErr, ports.ErrPreservedConflict) {
-						m.logger.Warn("restore-all: apply preserved produced conflicts; agent relaunched with conflict markers in place",
-							"sessionID", rec.ID, "ref", preserveRef, "error", applyErr)
-					} else {
-						m.logger.Error("restore-all: apply preserved failed", "sessionID", rec.ID, "error", applyErr)
-					}
-					// Continue: always relaunch even on conflict (never delete the ref here).
-				}
-			}
-		}
+		keepPreserved := m.applySessionPreserved(ctx, rec, ws, projectRows, rows, "restore-all")
 
 		// Step 3: relaunch the agent in the restored workspace.
-		if _, err := m.relaunchRestoredSession(ctx, rec, project, ws); err != nil {
+		if _, err := m.relaunchRestoredSessionWithAttempt(ctx, rec, project, ws, func() { runtimeAttempts++ }); err != nil {
 			switch {
 			case errors.Is(err, ErrNotResumable):
 				// A promptless, unresumable worker is intentionally left terminated:
 				// expected, not an operational failure, so log it quietly.
 				m.logger.Warn("restore-all: session left terminated (nothing to resume)", "sessionID", rec.ID)
+				if markerErr := m.store.MarkSessionWorktreesNonRestorable(ctx, rec.ID); markerErr != nil {
+					m.logger.Error("restore-all: quarantine unresumable marker failed", "sessionID", rec.ID, "error", markerErr)
+				}
 			case errors.Is(err, ErrNotFound):
 				// The row was reaped between listing and relaunch (a stale id during
 				// reconciliation): skip it and keep restoring the rest.
@@ -1911,21 +1980,74 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 		// One-shot: drop the consumed marker so it never outlives one restart
 		// (#2319). A still-live session re-acquires it at the next quit.
 		if restoredWorkspaceProject {
-			for _, row := range projectRows {
-				if err := m.upsertWorkspaceProjectRowState(ctx, row, "active"); err != nil {
-					m.logger.Warn("restore-all: marking workspace repo active failed", "sessionID", rec.ID, "repo", row.RepoName, "error", err)
-				}
+			if err := m.markWorkspaceProjectRowsActive(ctx, projectRows, rows, keepPreserved); err != nil {
+				m.logger.Warn("restore-all: marking workspace active failed", "sessionID", rec.ID, "error", err)
 			}
 		} else {
-			if err := m.markSessionWorktreesActive(ctx, rows); err != nil {
+			if err := m.markSessionWorktreesActive(ctx, rows, keepPreserved); err != nil {
 				m.logger.Warn("restore-all: marking worktrees active failed", "sessionID", rec.ID, "error", err)
+				continue
 			}
-			if err := m.store.DeleteSessionWorktrees(ctx, rec.ID); err != nil {
-				m.logger.Warn("restore-all: delete restore marker failed", "sessionID", rec.ID, "error", err)
+			if !keepPreserved {
+				if err := m.store.DeleteSessionWorktrees(ctx, rec.ID); err != nil {
+					m.logger.Warn("restore-all: delete restore marker failed", "sessionID", rec.ID, "error", err)
+				}
 			}
 		}
 	}
 	return nil
+}
+
+func bootRecoveryBefore(a, b domain.SessionRecord) bool {
+	if !a.Activity.LastActivityAt.Equal(b.Activity.LastActivityAt) {
+		return a.Activity.LastActivityAt.After(b.Activity.LastActivityAt)
+	}
+	if !a.UpdatedAt.Equal(b.UpdatedAt) {
+		return a.UpdatedAt.After(b.UpdatedAt)
+	}
+	return a.ID > b.ID
+}
+
+// prioritizeBootRecovery sorts recent activity first and reserves one slot for
+// the most recent orchestrator. Restoring only workers can leave a recovered
+// project without the controller that owns their next actions.
+func prioritizeBootRecovery(recs []domain.SessionRecord, limit int) {
+	sort.SliceStable(recs, func(i, j int) bool { return bootRecoveryBefore(recs[i], recs[j]) })
+	if limit <= 0 || len(recs) <= limit {
+		return
+	}
+	for i := 0; i < limit; i++ {
+		if recs[i].Kind == domain.KindOrchestrator {
+			return
+		}
+	}
+	for i := limit; i < len(recs); i++ {
+		if recs[i].Kind == domain.KindOrchestrator {
+			orchestrator := recs[i]
+			copy(recs[limit:i+1], recs[limit-1:i])
+			recs[limit-1] = orchestrator
+			return
+		}
+	}
+}
+
+func reserveRecentOrchestratorCandidate(candidates []bootRestoreCandidate, limit int) {
+	if limit <= 0 || len(candidates) <= limit {
+		return
+	}
+	for i := 0; i < limit; i++ {
+		if candidates[i].rec.Kind == domain.KindOrchestrator {
+			return
+		}
+	}
+	for i := limit; i < len(candidates); i++ {
+		if candidates[i].rec.Kind == domain.KindOrchestrator {
+			orchestrator := candidates[i]
+			copy(candidates[limit:i+1], candidates[limit-1:i])
+			candidates[limit-1] = orchestrator
+			return
+		}
+	}
 }
 
 func restorableWorktreeRows(rows []domain.SessionWorktreeRecord) []domain.SessionWorktreeRecord {
@@ -1942,10 +2064,12 @@ func legacyRestorableWorktreeRow(row domain.SessionWorktreeRecord) bool {
 	return row.State == "" && (row.PreservedRef != "" || row.RepoName == domain.RootWorkspaceRepoName)
 }
 
-func (m *Manager) markSessionWorktreesActive(ctx context.Context, rows []domain.SessionWorktreeRecord) error {
+func (m *Manager) markSessionWorktreesActive(ctx context.Context, rows []domain.SessionWorktreeRecord, keepPreserved bool) error {
 	for _, row := range rows {
 		row.State = "active"
-		row.PreservedRef = ""
+		if !keepPreserved {
+			row.PreservedRef = ""
+		}
 		if err := m.store.UpsertSessionWorktree(ctx, row); err != nil {
 			return err
 		}
@@ -1953,9 +2077,31 @@ func (m *Manager) markSessionWorktreesActive(ctx context.Context, rows []domain.
 	return nil
 }
 
-func (m *Manager) restoreSessionWorkspace(ctx context.Context, project domain.ProjectRecord, rec domain.SessionRecord) (ports.WorkspaceInfo, error) {
+func (m *Manager) markWorkspaceProjectRowsActive(ctx context.Context, rows []ports.WorkspaceRepoInfo, markers []domain.SessionWorktreeRecord, keepPreserved bool) error {
+	markerByRepo := make(map[string]domain.SessionWorktreeRecord, len(markers))
+	for _, marker := range markers {
+		markerByRepo[marker.RepoName] = marker
+	}
+	for _, row := range rows {
+		marker := markerByRepo[row.RepoName]
+		preservedRef := ""
+		if keepPreserved {
+			preservedRef = marker.PreservedRef
+		}
+		if err := m.store.UpsertSessionWorktree(ctx, domain.SessionWorktreeRecord{
+			SessionID: row.SessionID, RepoName: row.RepoName, Branch: row.Branch,
+			BaseSHA: row.BaseSHA, RepoPath: row.RepoPath, WorktreePath: row.Path,
+			PreservedRef: preservedRef, State: "active",
+		}); err != nil {
+			return fmt.Errorf("repo %s: %w", row.RepoName, err)
+		}
+	}
+	return nil
+}
+
+func (m *Manager) restoreSessionWorkspace(ctx context.Context, project domain.ProjectRecord, rec domain.SessionRecord, markerRows []domain.SessionWorktreeRecord) (ports.WorkspaceInfo, []ports.WorkspaceRepoInfo, error) {
 	if project.Kind.WithDefault() != domain.ProjectKindWorkspace {
-		return m.workspace.Restore(ctx, ports.WorkspaceConfig{
+		ws, err := m.workspace.Restore(ctx, ports.WorkspaceConfig{
 			ProjectID:      rec.ProjectID,
 			SessionID:      rec.ID,
 			Kind:           rec.Kind,
@@ -1964,29 +2110,17 @@ func (m *Manager) restoreSessionWorkspace(ctx context.Context, project domain.Pr
 			Path:           rec.Metadata.WorkspacePath,
 			SparseCheckout: append([]string(nil), project.Config.SparseCheckout...),
 		})
+		return ws, nil, err
 	}
-	rows, err := m.workspaceProjectRestoreRows(ctx, project, rec)
+	rows, err := m.workspaceProjectRestoreRowsFromMarkers(ctx, project, rec, markerRows)
 	if err != nil {
-		return ports.WorkspaceInfo{}, err
+		return ports.WorkspaceInfo{}, nil, err
 	}
 	root, err := m.restoreWorkspaceProjectRows(ctx, rows)
 	if err != nil {
-		return ports.WorkspaceInfo{}, err
+		return ports.WorkspaceInfo{}, nil, err
 	}
-	for _, row := range rows {
-		if err := m.upsertWorkspaceProjectRowState(ctx, row, "active"); err != nil {
-			return ports.WorkspaceInfo{}, fmt.Errorf("mark repo %s active: %w", row.RepoName, err)
-		}
-	}
-	return workspaceInfoFromRepoInfo(root), nil
-}
-
-func (m *Manager) workspaceProjectRestoreRows(ctx context.Context, project domain.ProjectRecord, rec domain.SessionRecord) ([]ports.WorkspaceRepoInfo, error) {
-	rows, err := m.store.ListSessionWorktrees(ctx, rec.ID)
-	if err != nil {
-		return nil, err
-	}
-	return m.workspaceProjectRestoreRowsFromMarkers(ctx, project, rec, rows)
+	return workspaceInfoFromRepoInfo(root), rows, nil
 }
 
 func (m *Manager) workspaceProjectRestoreRowsFromMarkers(ctx context.Context, project domain.ProjectRecord, rec domain.SessionRecord, rows []domain.SessionWorktreeRecord) ([]ports.WorkspaceRepoInfo, error) {
@@ -2148,6 +2282,9 @@ func (m *Manager) saveAndTeardownWorkspaceProject(ctx context.Context, rec domai
 			return fmt.Errorf("save %s repo %s: upsert worktree row: %w", rec.ID, row.RepoName, err)
 		}
 	}
+	if err := m.store.SetSessionWorktreesRecoveryActivity(ctx, rec.ID, rec.Activity.LastActivityAt); err != nil {
+		return fmt.Errorf("save %s: record recovery activity: %w", rec.ID, err)
+	}
 	if err := m.lcm.MarkTerminated(ctx, rec.ID); err != nil {
 		return fmt.Errorf("save %s: mark terminated: %w", rec.ID, err)
 	}
@@ -2235,32 +2372,42 @@ func (m *Manager) restoreWorkspaceProjectRows(ctx context.Context, rows []ports.
 	return root, nil
 }
 
-func (m *Manager) applyWorkspaceProjectPreserved(ctx context.Context, rows []ports.WorkspaceRepoInfo) {
-	for _, row := range rows {
-		var preserveRef string
-		sessionRows, err := m.store.ListSessionWorktrees(ctx, row.SessionID)
-		if err != nil {
-			m.logger.Error("restore-all: list worktrees failed", "sessionID", row.SessionID, "error", err)
-			continue
-		}
-		for _, sessionRow := range sessionRows {
-			if sessionRow.RepoName == row.RepoName {
-				preserveRef = sessionRow.PreservedRef
-				break
-			}
-		}
+func (m *Manager) applySessionPreserved(ctx context.Context, rec domain.SessionRecord, root ports.WorkspaceInfo, projectRows []ports.WorkspaceRepoInfo, markers []domain.SessionWorktreeRecord, operation string) bool {
+	keepPreserved := false
+	apply := func(info ports.WorkspaceInfo, repoName, preserveRef string) {
 		if preserveRef == "" {
-			continue
+			return
 		}
-		if applyErr := m.workspace.ApplyPreserved(ctx, workspaceInfoFromRepoInfo(row), preserveRef); applyErr != nil {
+		if applyErr := m.workspace.ApplyPreserved(ctx, info, preserveRef); applyErr != nil {
+			keepPreserved = true
+			attrs := []any{"sessionID", rec.ID, "ref", preserveRef, "error", applyErr}
+			if repoName != "" {
+				attrs = append(attrs, "repo", repoName)
+			}
 			if errors.Is(applyErr, ports.ErrPreservedConflict) {
-				m.logger.Warn("restore-all: apply preserved produced conflicts; agent relaunched with conflict markers in place",
-					"sessionID", row.SessionID, "repo", row.RepoName, "ref", preserveRef, "error", applyErr)
+				m.logger.Warn(operation+": apply preserved produced conflicts; agent relaunched with conflict markers in place", attrs...)
 			} else {
-				m.logger.Error("restore-all: apply preserved failed", "sessionID", row.SessionID, "repo", row.RepoName, "error", applyErr)
+				m.logger.Error(operation+": apply preserved failed", attrs...)
 			}
 		}
 	}
+	if len(projectRows) == 0 {
+		for _, marker := range markers {
+			if marker.PreservedRef != "" {
+				apply(root, "", marker.PreservedRef)
+				return keepPreserved
+			}
+		}
+		return keepPreserved
+	}
+	markerByRepo := make(map[string]domain.SessionWorktreeRecord, len(markers))
+	for _, marker := range markers {
+		markerByRepo[marker.RepoName] = marker
+	}
+	for _, row := range projectRows {
+		apply(workspaceInfoFromRepoInfo(row), row.RepoName, markerByRepo[row.RepoName].PreservedRef)
+	}
+	return keepPreserved
 }
 
 // Send delivers a message to a running session's agent through the guarded
@@ -2271,15 +2418,16 @@ func (m *Manager) applyWorkspaceProjectPreserved(ctx context.Context, rows []por
 // silently dropping the message. AO has no delivery ack: the messenger returns
 // nil the moment the runtime paste + Enter commands exit 0, and for a large
 // multiline prompt a single Enter may not submit (claude-code leaves it as an
-// unsubmitted draft). confirmActive observes the durable Activity.State
-// (flipped to active by the user-prompt-submit hook) and re-sends Enter until
-// the session is active or the budget is exhausted. Confirmation never fails
-// the send: it only decides whether to nudge again.
+// unsubmitted draft). confirmActive observes a fresh durable ActivityActive
+// timestamp (written by the user-prompt-submit hook) and re-sends Enter until
+// the message is confirmed or the budget is exhausted. Confirmation never
+// fails the send: it only decides whether to nudge again.
 func (m *Manager) Send(ctx context.Context, id domain.SessionID, message string) error {
-	message, err := m.prepareOutboundMessage(ctx, id, message)
+	before, beforeOK, err := m.store.GetSession(ctx, id)
 	if err != nil {
-		return err
+		return fmt.Errorf("send %s: session: %w", id, err)
 	}
+	message = prepareOutboundMessage(before, beforeOK, message)
 	outcome, err := m.messenger.Deliver(ctx, id, message)
 	if err != nil {
 		return fmt.Errorf("send %s: %w", id, err)
@@ -2302,10 +2450,10 @@ func (m *Manager) Send(ctx context.Context, id domain.SessionID, message string)
 	}
 	// confirmActive only helps — and is only SAFE — when the harness reports
 	// both a prompt-submit signal (so the loop can observe active) and a
-	// blocked signal it can clear mid-turn (so it can tell an unsubmitted
-	// draft from a pending permission dialog and never Enter into the latter).
-	// Only claude-code and its hook-delegators (grok/continueagent/devin)
-	// satisfy both; every other harness opts out via EmitsBlockedActivity —
+	// distinct blocked signal (so it can tell an unsubmitted draft from a
+	// pending permission dialog and never Enter into the latter).
+	// Codex and Claude Code report both signals. Harnesses that collapse a
+	// permission request into waiting_input opt out via EmitsBlockedActivity —
 	// see ports.ActivitySignaler.
 	rec, ok, err := m.store.GetSession(ctx, id)
 	if err != nil {
@@ -2319,23 +2467,19 @@ func (m *Manager) Send(ctx context.Context, id domain.SessionID, message string)
 		return nil
 	}
 	if m.harnessNudgeSafe(rec.Harness) {
-		m.confirmActive(ctx, m.messenger, id)
+		m.confirmActive(ctx, m.messenger, id, before.Activity.LastActivityAt)
 	}
 	return nil
 }
 
-func (m *Manager) prepareOutboundMessage(ctx context.Context, id domain.SessionID, message string) (string, error) {
-	rec, ok, err := m.store.GetSession(ctx, id)
-	if err != nil {
-		return "", fmt.Errorf("send %s: session: %w", id, err)
-	}
+func prepareOutboundMessage(rec domain.SessionRecord, ok bool, message string) string {
 	if !ok {
-		return message, nil
+		return message
 	}
 	if rec.Harness != domain.HarnessCopilot || rec.Kind != domain.KindOrchestrator {
-		return message, nil
+		return message
 	}
-	return copilotOrchestratorMessage(rec.ProjectID, message), nil
+	return copilotOrchestratorMessage(rec.ProjectID, message)
 }
 
 func copilotOrchestratorMessage(projectID domain.ProjectID, message string) string {
@@ -2390,8 +2534,9 @@ const (
 	waitBlocked
 )
 
-// confirmActive re-sends Enter until the session reports ActivityActive or the
-// attempt budget is exhausted. The initial Send already submitted one Enter;
+// confirmActive re-sends Enter until the session reports ActivityActive with a
+// timestamp newer than activityBaseline, or the attempt budget is exhausted.
+// The initial Send already submitted one Enter;
 // each additional attempt sends Enter again (an empty message is an Enter-only
 // nudge, see ports.AgentMessenger) after waiting for Activity.State to flip. It
 // is best-effort: on context cancellation, store failure, or budget exhaustion
@@ -2404,9 +2549,9 @@ const (
 // answer it for the user. Sticky ActivityWaitingInput does NOT stop the loop:
 // an idle-prompt session with an unsubmitted pasted draft is exactly the case
 // the nudge exists for.
-func (m *Manager) confirmActive(ctx context.Context, guard *sessionguard.Guard, id domain.SessionID) {
+func (m *Manager) confirmActive(ctx context.Context, guard *sessionguard.Guard, id domain.SessionID, activityBaseline time.Time) {
 	for attempt := 1; ; attempt++ {
-		outcome, err := m.waitForActive(ctx, id)
+		outcome, err := m.waitForActive(ctx, id, activityBaseline)
 		if err != nil || outcome == waitActive {
 			return
 		}
@@ -2439,12 +2584,13 @@ func (m *Manager) confirmActive(ctx context.Context, guard *sessionguard.Guard, 
 	}
 }
 
-// waitForActive polls Activity.State for up to attemptDeadline and reports
-// whether another nudge could help (see waitOutcome). Blocked is checked every
-// poll so a permission dialog appearing mid-wait aborts immediately instead of
-// burning the deadline. A non-nil error means polling cannot continue (ctx
-// cancelled, store failure, session gone).
-func (m *Manager) waitForActive(ctx context.Context, id domain.SessionID) (waitOutcome, error) {
+// waitForActive polls Activity for up to attemptDeadline and reports whether
+// another nudge could help (see waitOutcome). A pre-existing active state is
+// ignored until LastActivityAt advances beyond activityBaseline. Blocked is
+// checked every poll so a permission dialog appearing mid-wait aborts
+// immediately instead of burning the deadline. A non-nil error means polling
+// cannot continue (ctx cancelled, store failure, session gone).
+func (m *Manager) waitForActive(ctx context.Context, id domain.SessionID, activityBaseline time.Time) (waitOutcome, error) {
 	deadlineAt := m.clock().Add(m.sendConfirm.attemptDeadline)
 	ticker := time.NewTicker(m.sendConfirm.pollInterval)
 	defer ticker.Stop()
@@ -2458,7 +2604,13 @@ func (m *Manager) waitForActive(ctx context.Context, id domain.SessionID) (waitO
 		}
 		switch rec.Activity.State {
 		case domain.ActivityActive:
-			return waitActive, nil
+			// A session may already be active because an earlier turn is still
+			// running. Only a newer user-prompt-submit activity timestamp proves
+			// this message left the composer; the stale active state must not
+			// suppress the Enter retry.
+			if rec.Activity.LastActivityAt.After(activityBaseline) {
+				return waitActive, nil
+			}
 		case domain.ActivityBlocked:
 			return waitBlocked, nil
 		}

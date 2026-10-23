@@ -115,7 +115,10 @@
     "verify:phase-zero-exit": "node scripts/verify-phase-zero-exit-evidence.js",
     "audit:false-success": "node scripts/audit-false-success-trajectories.js",
     "verify:false-success": "node scripts/audit-false-success-trajectories.js --check",
-    "release:check": "npm test && npm run ao:test:acceptance && npm run ao:smoke && npm run verify:package && npm run verify:runtime-lock && npm run verify:headless-runtime-source && npm run verify:runtime-bootstrap && npm run verify:runtime-lifecycle && npm run verify:fresh-clone && npm run verify:trajectory-vocabulary && npm run verify:false-success && npm run verify:completion-record-coverage && npm run verify:controller-lease-audit && npm run verify:controller-lease-safety && npm run verify:phase-zero-exit -- --expected-head \"$AO_PHASE_ZERO_EXPECTED_HEAD\" --expected-tree \"$AO_PHASE_ZERO_EXPECTED_TREE\" && npm audit"
+    "release:check": "npm run verify:release-prerequisites && npm test && npm run ao:test:acceptance && npm run ao:smoke && npm run verify:package && npm run verify:runtime-lock && npm run verify:headless-runtime-source && npm run verify:runtime-bootstrap && npm run verify:runtime-lifecycle && npm run verify:fresh-clone && npm run verify:trajectory-vocabulary && npm run verify:false-success && npm run verify:completion-record-coverage && npm run verify:controller-lease-audit && npm run verify:controller-lease-safety && npm run verify:phase-zero-exit -- --expected-head \"$AO_PHASE_ZERO_EXPECTED_HEAD\" --expected-tree \"$AO_PHASE_ZERO_EXPECTED_TREE\" && npm audit",
+    "verify:release-prerequisites": "node scripts/verify-release-prerequisites.js",
+    "verify:source:native": "node scripts/verify-current-source.js native",
+    "verify:source:browser": "node scripts/verify-current-source.js browser"
   },
   "ao": {
     "worker_worktree_preparation": {

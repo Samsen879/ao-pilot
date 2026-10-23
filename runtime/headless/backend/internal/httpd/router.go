@@ -19,6 +19,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/controllers"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/envelope"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
+	"github.com/aoagents/agent-orchestrator/backend/internal/runfile"
 	"github.com/aoagents/agent-orchestrator/backend/internal/telemetrymeta"
 	"github.com/aoagents/agent-orchestrator/backend/internal/terminal"
 )
@@ -27,6 +28,7 @@ import (
 // callback that requests a graceful shutdown.
 type ControlDeps struct {
 	RequestShutdown func()
+	InstanceID      string
 	IsReady         func() bool
 }
 
@@ -115,11 +117,18 @@ func mountControl(r chi.Router, deps ControlDeps) {
 			})
 			return
 		}
+		// Updated CLI requests bind to the observed launch, including legacy
+		// sentinels, so a successor reusing this port cannot consume an old stop.
+		if expected := req.Header.Get(runfile.ExpectedInstanceHeader); expected != "" && expected != deps.InstanceID {
+			http.Error(w, "daemon instance changed", http.StatusConflict)
+			return
+		}
 		envelope.WriteJSON(w, http.StatusAccepted, map[string]any{
 			"status":  "shutting_down",
 			"service": daemonmeta.ServiceName,
 			"pid":     os.Getpid(),
 		})
+
 		deps.RequestShutdown()
 	})
 }

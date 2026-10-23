@@ -142,7 +142,7 @@ describe('controller lease authority design audit', () => {
   it('pins deterministic semantic authority evidence and exhaustive selector coverage', () => {
     expect(validateControllerLeaseInventory(inventory, repositoryRoot)).toMatchObject({
       schema_version: 'ao.controller-lease-authority-evidence.v2',
-      semantic_manifest_digest: 'b6744c90f594a8ae94912757251a0f6cc788cf6985aa1b14eeb5267216c50101',
+      semantic_manifest_digest: 'c6894ebf2cecc3e153ac38526ce65bf9767dfb6c38d05e7255b7dbb6f89ab187',
       authority_site_count: 17,
       binding_count: 31,
       semantic_region_count: 11,
@@ -150,15 +150,28 @@ describe('controller lease authority design audit', () => {
         'atomic-api': 5,
         'file-name': 4,
         'isolated-path': 12,
-        'persist-state-api': 7,
+        'persist-state-api': 8,
         'state-property': 26,
         'upsert-api': 9,
       },
-      semantic_usage_count: 63,
-      selector_evidence_digest: '848df3d628412753ee57faa78d6b5517df85840ac7c6b2fb5f7b49a176b92dec',
-      authority_evidence_digest: 'f7b319a7044932eca2e8a0eff25a954c0d97241fd0008f018e7b32e5b72af4e8',
+      semantic_usage_count: 64,
+      selector_evidence_digest: '096126d73c456698aea286bd509a43bf35265458fa95f68d453f35adb0ff71f3',
+      authority_evidence_digest: '903ecb5a93e5766e8a065e49f2000a3a0b843733a7400c6f2a2cd31afe767282',
     });
-    expect(scanControllerLeaseSources(inventory, repositoryRoot).match_count).toBe(63);
+    expect(scanControllerLeaseSources(inventory, repositoryRoot).match_count).toBe(64);
+  });
+
+  it('rejects an unregistered or changed managed-task persistence call', () => {
+    const missingRegistration = structuredClone(inventory);
+    missingRegistration.source_scan.semantic_usages = missingRegistration.source_scan.semantic_usages
+      .filter(usage => usage.id !== 'persist-state-api.08');
+    expect(() => validateControllerLeaseInventory(missingRegistration, repositoryRoot))
+      .toThrow('frozen controller lease semantic manifest has drifted');
+    const mutatedRoot = materializeSourceRoot();
+    replaceSource(mutatedRoot, 'scripts/ao/lib/state-repository.js',
+      "entityKind: 'managed_task_command',", "entityKind: 'unregistered_command',");
+    expect(() => validateControllerLeaseInventory(inventory, mutatedRoot))
+      .toThrow('persist-state-api.08 drifted');
   });
 
   it('is stable under formatting-only changes', () => {
@@ -519,7 +532,7 @@ describe('controller lease authority design audit', () => {
     });
     expect(inventory.migrated_from.accepted_match_count).toBe(61);
     expect(Object.values(inventory.source_scan.expected_selector_counts)
-      .reduce((total, count) => total + count, 0)).toBe(63);
+      .reduce((total, count) => total + count, 0)).toBe(64);
   });
 
   it('fails closed when frozen authority or semantic manifest evidence drifts', () => {

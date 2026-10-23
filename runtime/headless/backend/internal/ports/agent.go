@@ -127,25 +127,18 @@ type AgentResolver interface {
 // never observe active and would only burn its budget on spurious Enter nudges.
 //
 // EmitsBlockedActivity reports whether the harness emits a decision-pause
-// signal (a permission/approval prompt that flips Activity.State to blocked)
-// AND can clear that state before the turn ends — which requires the
-// pre/post-tool-use trio so lifecycle can correlate the approved tool's post
-// with the dialog that blocked the session. The Enter-only nudge is only SAFE
-// when this is true: a harness that submits but cannot report blocked leaves
-// the confirm loop unable to tell an unsubmitted draft from a pending
-// permission dialog, so an Enter meant to resubmit the draft could instead
-// answer the dialog. confirmActive therefore requires BOTH signals before it
-// will nudge.
+// signal (a permission/approval prompt that flips Activity.State to blocked).
+// The Enter-only nudge is only safe when this is true: a harness that submits
+// but cannot report blocked leaves the confirm loop unable to tell an
+// unsubmitted draft from a pending permission dialog, so an Enter meant to
+// resubmit the draft could instead answer the dialog. The blocked state may be
+// sticky until a later turn signal; confirmation only needs to observe it and
+// stop.
 //
-// Only claude-code satisfies both halves: it installs the pre/post-tool-use
-// trio that lets lifecycle correlate the approved tool's post with the dialog
-// and clear blocked before the turn ends. codex maps permission-request to
-// waiting_input and opts out (no tool trio → blocked could not be cleared).
-// Every other harness simply does not implement this interface; it maps its
-// permission signal to waiting_input via the shared deriver and gets the
-// paste settle delay but no confirm loop. Adapters that later gain a
-// correlatable blocked signal implement this interface to opt in; see the
-// fork/archive/blocked-mappings branch for the prior 13-harness mapping set.
+// Claude Code clears blocked through its pre/post-tool-use trio. Codex reports
+// permission-request as blocked and clears it on a later turn signal. Other
+// harnesses that map permission signals to waiting_input keep the paste settle
+// delay but do not opt into the confirmation loop.
 type ActivitySignaler interface {
 	EmitsSubmitActivity() bool
 	EmitsBlockedActivity() bool

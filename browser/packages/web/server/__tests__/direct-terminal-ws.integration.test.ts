@@ -371,13 +371,13 @@ describe("WebSocket terminal connection", () => {
     ws.close();
   });
 
-  it("can send input to the terminal and receive echo", async () => {
+  it("executes input in the selected tmux server", async () => {
     const ws = await connectWs(TEST_SESSION);
     await waitForWsData(ws);
 
-    // Send a command — "echo INTEGRATION_TEST_MARKER"
+    // The complete marker is absent from the input, so terminal echo cannot pass.
     const marker = `MARKER_${Date.now()}`;
-    ws.send(`echo ${marker}\n`);
+    ws.send(`printf '%s%s\\n' MARKER_ ${marker.slice(7)}\n`);
 
     const output = await waitForMarker(ws, marker);
     expect(output).toContain(marker);

@@ -31,6 +31,7 @@ const (
 )
 
 type daemonStatus struct {
+	record    *runfile.Info
 	State     daemonState `json:"state"`
 	PID       int         `json:"pid,omitempty"`
 	Port      int         `json:"port,omitempty"`
@@ -88,6 +89,7 @@ func (c *commandContext) inspectDaemon(ctx context.Context) (daemonStatus, error
 		return st, nil
 	}
 
+	st.record = info
 	st.PID = info.PID
 	st.Port = info.Port
 	startedAt := info.StartedAt

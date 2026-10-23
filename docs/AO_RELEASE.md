@@ -22,12 +22,42 @@ the protected P0-R08 AO-created Worker/GitHub delivery proof. See the
 ## Release Candidate Checks
 
 ```bash
+# Use a clean checkout with complete history (fetch --unshallow if necessary).
+export AO_PHASE_ZERO_EXPECTED_HEAD="$(git rev-parse HEAD)"
+export AO_PHASE_ZERO_EXPECTED_TREE="$(git rev-parse HEAD^{tree})"
 npm ci
+npm run verify:release-prerequisites
+npm run verify:source:native
+npm run verify:source:browser
 npm run release:check
 npm pack --dry-run
 ```
 
-The release check runs the full test suite, lifecycle acceptance suite,
+The two current-source gates require Linux, Node 22+, Go 1.25.7, tmux,
+and network access for Go/npm dependencies and Next font downloads. Native runs
+CGO=0 build and uncached tests; browser installs its lockfile, builds core and
+plugins, typechecks and tests all ten workspaces, then builds the web app.
+Outputs go to unique directories under `AO_SOURCE_RECEIPT_DIR` (which must exist
+outside the checkout) or the system temporary directory. Receipts bind the clean
+commit/tree and source subtree to commands, exit codes, test counts and raw logs.
+Failed, skipped, empty, timed-out and unexecuted suites cannot yield source PASS.
+Go counts top-level tests and subtests separately; packages with no tests are
+reported separately from skipped tests. Browser tests use a private HOME/config
+and tmux socket; they do not attach to the workstation's AO tmux server.
+
+CI runs native and browser as separate jobs. Release packaging depends on both;
+self-hosting resolves default-branch HEAD once and reuses that immutable SHA/tree
+for both source gates and receipt verification. Setup failures, cancellation or
+missing artifacts are incomplete evidence, never PASS. Artifact upload uses
+`always()`; raw runner logs remain available even when no receipt was produced.
+These gates establish current Linux source behavior only: they do not prove
+Windows ConPTY, race safety, the locked p0.4 artifact, or an installed-service
+upgrade. Locked-runtime gates remain separate. `release:check` alone is not a
+complete current-source verdict.
+
+`release:check` first rejects missing/wrong expected identity, dirty or shallow
+checkouts and unavailable historical baseline objects before expensive tests.
+It then runs the root test suite, lifecycle acceptance suite,
 operator smoke, isolated tarball installation, bundled evaluation pack,
 runtime-lock, bootstrap-contract, exact lifecycle-routing verification,
 isolated fresh-clone runtime smoke, the F01 trajectory-vocabulary source gate,
@@ -103,6 +133,10 @@ This credential-free local-adapter gate cannot satisfy P0-R08. The latter is a
 manual workflow that validates an AO-created new-workstation receipt:
 
 ```bash
+# First complete the Release Candidate Checks source gates on this clean,
+# full-history checkout, then bind the same candidate for receipt verification.
+export AO_PHASE_ZERO_EXPECTED_HEAD="$(git rev-parse HEAD)"
+export AO_PHASE_ZERO_EXPECTED_TREE="$(git rev-parse HEAD^{tree})"
 npm run verify:self-hosting -- --receipt docs/runtime-portability/p0-r08-workstation-self-hosting-receipt.json
 ```
 
