@@ -19,7 +19,7 @@ export function assertStagingIsolation(config, production) {
   assertRelease(config.tmuxSocket !== production.tmuxSocket && config.listenPorts.every((port) => !(production.listenPorts ?? []).includes(port)), 'staging_endpoint_collision');
   return true;
 }
-export function prepareStaging({ root, id, production, ports = [43001, 43000, 43002] }) {
+export function prepareStaging({ root, id, production, ports = [43001, 43000, 43002, 43003, 43004] }) {
   assertRelease(/^[a-z0-9-]+$/.test(id) && path.isAbsolute(root), 'invalid_staging_input');
   assertRelease(!fs.existsSync(root), 'staging_root_exists');
   const namespace = `ao-pilot-staging-${id}`;
@@ -27,8 +27,8 @@ export function prepareStaging({ root, id, production, ports = [43001, 43000, 43
     unitRoot: path.join(os.homedir(), '.config/systemd/user'), dataDir: path.join(root, 'state/data'), discoveryDir: path.join(root, 'state/discovery'),
     configPath: path.join(root, 'state/ao.yaml'), controlPlaneRoot: path.join(root, 'state/control'), trustedHostDirectory: path.join(root, 'state/trusted-host'),
     tmuxTmpdir: path.join(root, 'state/tmux'), tmuxSocket: namespace,
-    daemonURL: `http://127.0.0.1:${ports[0]}`, terminalURL: `ws://127.0.0.1:${ports[2]}/terminal/REPLACE_WITH_FAKE_SESSION_ID`,
-    terminalOrigin: `http://127.0.0.1:${ports[1]}`, terminalTokenFile: path.join(root, 'state/staging-terminal-token'), terminalCanaryPrefix: 'canary:',
+    daemonURL: `http://127.0.0.1:${ports[0]}`, terminalURL: `ws://127.0.0.1:${ports[2]}/ao-terminal-ws?sessionId=REPLACE_WITH_FAKE_SESSION_ID`,
+    terminalOrigin: `http://127.0.0.1:${ports[2]}`, terminalTokenFile: path.join(root, 'state/staging-terminal-token'), terminalCanaryPrefix: 'canary:',
     listenPorts: ports, cliPath: path.join(root, 'bin/ao-pilot'), mode: 'first', releaseCatalog: {} };
   assertStagingIsolation(config, production);
   fs.mkdirSync(config.stateRoot, { recursive: true, mode: 0o700 });

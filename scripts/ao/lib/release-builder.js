@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import { verifyPackedRelease } from './release-tarball.js';
+import { NATIVE_ADAPTER_SOURCE } from './release-adapter.js';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -28,11 +30,12 @@ export function verifyReleaseEnvelope(bundle, expectedSha256) {
     && Object.keys(envelope).sort().join(',') === 'manifest_sha256,npm_tarball_sha256,platform,release_id,schema_version', 'invalid_release_envelope');
   const manifest = verifyReleaseTree(path.join(bundle, 'payload'), envelope.manifest_sha256);
   assertRelease(fileSha256(path.join(bundle, 'package.tgz')) === envelope.npm_tarball_sha256, 'release_package_digest_mismatch');
+  verifyPackedRelease(path.join(bundle, 'package.tgz'), path.join(bundle, 'payload'), manifest);
   assertRelease(envelope.release_id === manifest.release_id && objectSha256(envelope.platform) === objectSha256(manifest.platform), 'release_envelope_identity_mismatch');
   return { envelope, manifest };
 }
 export async function buildRelease({
-  repository, commit = 'HEAD', version, output, adapter = null, compatibilityEvidence,
+  repository, commit = 'HEAD', version, output, adapter = undefined, compatibilityEvidence, oldBinary,
   env = process.env, run = releaseCommand, verifyPackage = true,
   now = () => new Date().toISOString(), onStage = () => {},
 } = {}) {
@@ -55,6 +58,7 @@ export async function buildRelease({
     onStage('archive', source);
     // Inputs must belong to this archive. No importing unknown installed code,
     // development worktree dist or another release's node_modules is permitted.
+    if (adapter === undefined) adapter = NATIVE_ADAPTER_SOURCE;
     assertRelease(adapter !== null, 'release_adapter_source_missing');
     const adapterRoot = relativePath(adapter.root);
     const adapterEntry = relativePath(adapter.entrypoint);
@@ -64,9 +68,11 @@ export async function buildRelease({
     const compatibilityFile = confined(source, compatibilityEvidence ?? 'release/compatibility.json');
     assertRelease(fs.existsSync(compatibilityFile), 'release_compatibility_evidence_missing');
     const compatibility = readJson(compatibilityFile);
-    assertRelease(compatibility.schema_version === 'ao.schema-compatibility.v1'
-      && compatibility.result === 'passed' && compatibility.old_reader_result === 'passed'
-      && /^[a-f0-9]{64}$/.test(compatibility.old_binary_sha256 ?? ''), 'release_compatibility_evidence_missing');
+    assertRelease(compatibility.schema_version === 'ao.schema-compatibility-input.v1'
+      && /^[a-f0-9]{64}$/.test(compatibility.old_binary_sha256 ?? '') && oldBinary
+      && fileSha256(oldBinary) === compatibility.old_binary_sha256, 'release_compatibility_artifact_missing');
+    const fixtureDatabase = confined(source, compatibility.fixture_database);
+    assertRelease(fileSha256(fixtureDatabase) === compatibility.fixture_sha256, 'release_compatibility_fixture_mismatch');
     const go = run('go', ['version'], { env }).match(/\bgo(1\.25\.\d+)\b/)?.[1];
     const tmuxPath = executable('tmux', env);
     const tmux = run(tmuxPath, ['-V'], { env });
@@ -93,14 +99,24 @@ export async function buildRelease({
     run('go', ['build', '-trimpath', '-buildvcs=false', '-o', path.join(source, 'native/ao'), './cmd/ao'], {
       cwd: path.join(source, 'runtime/headless/backend'), env: { ...env, CGO_ENABLED: '0', GOOS: 'linux' },
     });
-    assertRelease(fileSha256(path.join(source, 'native/ao')) === compatibility.candidate_binary_sha256, 'release_compatibility_binary_mismatch');
+
     const schemaCurrent = Math.max(...fs.readdirSync(path.join(source, 'runtime/headless/backend/internal/storage/sqlite/migrations'))
       .filter((file) => /^\d+.*\.sql$/.test(file)).map((file) => Number(file.split('_')[0])));
-    assertRelease(schemaCurrent === compatibility.schema_current, 'release_schema_incompatible');
+    const compatibilityResult = path.join(buildRoot, 'compatibility-result.json');
+    run(process.execPath, [path.join(source, 'scripts/verify-schema-compatibility.js'), '--candidate', path.join(source, 'native/ao'),
+      '--old', oldBinary, '--fixture', fixtureDatabase, '--schema', String(schemaCurrent), '--output', compatibilityResult], { env });
+    const observedCompatibility = readJson(compatibilityResult);
+    assertRelease(observedCompatibility.schema_version === 'ao.schema-compatibility-result.v1'
+      && observedCompatibility.candidate_result === 'passed' && ['passed', 'failed'].includes(observedCompatibility.old_reader_result)
+      && observedCompatibility.candidate_binary_sha256 === fileSha256(path.join(source, 'native/ao'))
+      && observedCompatibility.old_binary_sha256 === compatibility.old_binary_sha256
+      && observedCompatibility.fixture_sha256 === compatibility.fixture_sha256
+      && observedCompatibility.schema_after === schemaCurrent && observedCompatibility.integrity === 'ok', 'release_compatibility_result_mismatch');
+    fs.copyFileSync(compatibilityResult, path.join(source, 'release/compatibility-result.json'));
     const lockFile = path.join(source, 'runtime/agent-orchestrator.lock.json');
     const lock = readJson(lockFile);
     const packageMetadata = readJson(path.join(source, 'package.json'));
-    packageMetadata.files = [...new Set([...(packageMetadata.files ?? []), 'release.json', 'native', adapterRoot])];
+    packageMetadata.files = [...new Set([...(packageMetadata.files ?? []), 'release.json', 'release', 'native', adapterRoot])];
     fs.writeFileSync(path.join(source, 'package.json'), `${JSON.stringify(packageMetadata, null, 2)}\n`);
     const files = inventoryTree(source);
     const scopes = {
@@ -117,8 +133,9 @@ export async function buildRelease({
       schema_version: 'ao.release.v1', release_id: `${version}+${resolved}`, version, commit: resolved, tree,
       built_at: now(), platform: { os: 'linux', arch: process.arch }, toolchain,
       database: {
-        schema_current: schemaCurrent, schema_min_readable: compatibility.schema_min_readable,
-        schema_max_readable: compatibility.schema_max_readable, compatibility_evidence_sha256: fileSha256(compatibilityFile),
+        schema_current: schemaCurrent, schema_min_readable: schemaCurrent, schema_max_readable: schemaCurrent,
+        compatibility_evidence_sha256: fileSha256(compatibilityResult), previous_binary_sha256: compatibility.old_binary_sha256,
+        previous_reader_compatible: observedCompatibility.old_reader_result === 'passed',
       },
       runtime_lock: { runtime_ref: lock.runtime_ref, sha256: fileSha256(lockFile), commit: lock.artifact.ref.commit_sha, tree: lock.artifact.ref.tree_sha,
         binary_sha256: lock.compatibility.platforms.find((platform) => platform.os === 'linux' && platform.arch === process.arch)?.binary_sha256 },
@@ -139,11 +156,12 @@ export async function buildRelease({
     assertRelease(pack.length === 1 && /^[^/\\]+\.tgz$/.test(pack[0].filename ?? ''), 'release_pack_failed');
     const tarball = path.join(packDir, pack[0].filename);
     const tarballSha = fileSha256(tarball);
+    verifyPackedRelease(tarball, source, manifest);
     const packedPaths = run('tar', ['-tzf', tarball], { env }).split('\n');
     for (const entry of ['release.json', 'native/ao', adapterEntry, 'browser/packages/web/.next/BUILD_ID', 'browser/packages/web/dist-server/start-all.js']) {
       assertRelease(packedPaths.includes(`package/${entry}`), 'release_package_component_missing');
     }
-    if (verifyPackage) run(process.execPath, [path.join(source, 'scripts/verify-package-install.js'), '--tarball', tarball, '--sha256', tarballSha], { cwd: source, env });
+    if (verifyPackage) run(process.execPath, [path.join(source, 'scripts/verify-package-install.js'), '--tarball', tarball, '--sha256', tarballSha, '--release-payload', source], { cwd: source, env });
     assertRelease(fileSha256(tarball) === tarballSha, 'release_package_digest_mismatch');
     verifyReleaseTree(source);
     const envelope = { schema_version: 'ao.release-envelope.v1', release_id: manifest.release_id,

@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { verifyPackedRelease } from './ao/lib/release-tarball.js';
+import { verifyReleaseTree } from './ao/lib/release-manifest.js';
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -47,6 +49,15 @@ try {
   const filename = packReport?.[0]?.filename;
   if (typeof filename !== 'string' || filename === '') throw new Error('npm pack did not return a package filename');
   const tarballSha256 = createHash('sha256').update(fs.readFileSync(tarball)).digest('hex');
+  const payload = argument('--release-payload');
+  if (payload) {
+    const manifest = verifyReleaseTree(payload); verifyPackedRelease(tarball, payload, manifest);
+    const metadata = JSON.parse(fs.readFileSync(path.join(payload, 'package.json'), 'utf8'));
+    const paths = Object.entries(metadata.exports).filter(([name, value]) => !name.endsWith('.json') && typeof value === 'string').map(([, value]) => value);
+    run(process.execPath, ['--input-type=module', '--eval', `import {pathToFileURL} from 'node:url'; import path from 'node:path'; for (const file of ${JSON.stringify(paths)}) await import(pathToFileURL(path.resolve(${JSON.stringify(payload)}, file)));`], { cwd: payload });
+    run(process.execPath, [path.join(payload, 'bin/ao-pilot.js'), '--version'], { cwd: payload });
+  }
+
 
   const installRoot = path.join(verificationRoot, 'install');
   fs.mkdirSync(installRoot, { recursive: true });

@@ -32,25 +32,33 @@ jobs:
         run: |
           echo "AO_PHASE_ZERO_EXPECTED_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           echo "AO_PHASE_ZERO_EXPECTED_TREE=$(git rev-parse HEAD^{tree})" >> "$GITHUB_ENV"
-      - name: Pack once and bind the consumer artifact
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.7'
+      - run: sudo apt-get update && sudo apt-get install -y tmux sqlite3
+      - name: Resolve independently locked old artifact (build only)
         run: |
-          mkdir -p "$RUNNER_TEMP/ao-pack-once"
-          npm pack --json --pack-destination "$RUNNER_TEMP/ao-pack-once" > "$RUNNER_TEMP/ao-pack-once/pack.json"
+          ./scripts/bootstrap.sh --json > "$RUNNER_TEMP/old-runtime-bootstrap.json"
+          node bin/ao-pilot.js runtime-path --json > "$RUNNER_TEMP/old-runtime.json"
+      - name: Build immutable archive and pack once
+        run: |
           node --input-type=module <<'JS'
           import fs from 'node:fs';
           import path from 'node:path';
-          import crypto from 'node:crypto';
-          const directory = path.join(process.env.RUNNER_TEMP, 'ao-pack-once');
-          const report = JSON.parse(fs.readFileSync(path.join(directory, 'pack.json'), 'utf8'));
-          const file = path.join(directory, report[0].filename);
-          const digest = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
-          fs.appendFileSync(process.env.GITHUB_ENV, `AO_RELEASE_TARBALL=${file}\nAO_RELEASE_TARBALL_SHA256=${digest}\n`);
+          import { buildRelease } from './scripts/ao/lib/release-builder.js';
+          const old = JSON.parse(fs.readFileSync(path.join(process.env.RUNNER_TEMP, 'old-runtime.json'), 'utf8'));
+          const version = JSON.parse(fs.readFileSync('package.json', 'utf8')).version;
+          // Source-owned release/compatibility.json + empty fixture are mandatory.
+          // Missing compatibility inputs block promotion; CI never invents PASS.
+          const built = await buildRelease({ repository: process.cwd(), commit: process.env.AO_PHASE_ZERO_EXPECTED_HEAD,
+            version, output: path.join(process.env.RUNNER_TEMP, 'ao-pack-once'), oldBinary: old.binary_path });
+          fs.appendFileSync(process.env.GITHUB_ENV, `AO_RELEASE_BUNDLE=${built.bundle}\nAO_RELEASE_TARBALL=${path.join(built.bundle, 'package.tgz')}\nAO_RELEASE_TARBALL_SHA256=${built.npm_tarball_sha256}\nAO_RELEASE_ENVELOPE_SHA256=${built.envelope_sha256}\n`);
           JS
       - run: npm run release:check
-      - name: Recheck exact bytes before upload
-        run: node --input-type=module -e "import fs from 'node:fs'; import crypto from 'node:crypto'; if (crypto.createHash('sha256').update(fs.readFileSync(process.env.AO_RELEASE_TARBALL)).digest('hex') !== process.env.AO_RELEASE_TARBALL_SHA256) process.exit(1);"
+      - name: Recheck envelope, payload and exact bytes before upload
+        run: node --input-type=module -e "import {verifyReleaseEnvelope} from './scripts/ao/lib/release-builder.js'; verifyReleaseEnvelope(process.env.AO_RELEASE_BUNDLE, process.env.AO_RELEASE_ENVELOPE_SHA256);"
       - uses: actions/upload-artifact@v4
         with:
-          name: ao-pilot-package
-          path: ${{ env.AO_RELEASE_TARBALL }}
+          name: ao-pilot-linux-x64-release
+          path: ${{ env.AO_RELEASE_BUNDLE }}
           if-no-files-found: error

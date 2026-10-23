@@ -1,5 +1,10 @@
 # AO Runtime Lock and Provenance
 
+## Unified installation (R3)
+
+The new unified release/installer supports Linux x64/arm64 and WSL2 with systemd.
+See [the unified installation runbook](AO_UNIFIED_INSTALL.md) for archive/pack-once builds, private configuration, current/previous transactions, rollback and local staging gates. Source merge does not promote the unchanged p0.4 runtime lock or authorize deployment. Existing Node 20 control-plane commands remain supported; new execve release launchers require Node >=22.15.
+
 `ao-pilot` owns both its control plane and the minimal headless runtime source.
 The package must never treat a command named `ao` on `PATH`, an old HOME
 checkout, an npm link, or a mutable Git branch as runtime authority.

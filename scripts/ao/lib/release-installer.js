@@ -1,9 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { adapterConfiguration, adapterConfigPath } from './release-adapter.js';
 import { acquireInstallLock } from './release-lock.js';
 import { verifyReleaseEnvelope } from './release-builder.js';
-import { assertRelease, durableJson, fileSha256, readJson, syncDirectory, syncTree, verifyReleaseTree } from './release-manifest.js';
+import { assertRelease, durableJson, fileSha256, objectSha256, readJson, syncDirectory, syncTree, verifyReleaseTree } from './release-manifest.js';
 import { backupAndInstallUnits, restoreUnitBackup, writeReleaseUnits, renderReleaseUnits, validateEnvironmentOverride } from './release-units.js';
 import { inspectInstall } from './install-doctor.js';
 import { publicInstallReceipt, savePrivateInstallReceipt } from './release-receipt.js';
@@ -31,6 +32,8 @@ function switchPointer(root, name, target, lock) {
 }
 function writeEnvironment(configuration, lock) {
   const environment = {
+    AO_DASHBOARD_ADAPTER_CONFIG: adapterConfigPath(configuration),
+    DIRECT_TERMINAL_PORT: String(configuration.listenPorts[3]), TERMINAL_PORT: String(configuration.listenPorts[4]),
     AO_INSTALL_CONFIG: configuration.installConfigPath ?? path.join(configuration.stateRoot, 'install.json'),
     AO_INSTALL_ROOT: configuration.installRoot, AO_DATA_DIR: configuration.dataDir,
     AO_RUN_FILE: path.join(configuration.discoveryDir, 'running.json'),
@@ -66,6 +69,63 @@ function installCliLink(configuration, lock) {
   fs.mkdirSync(path.dirname(configuration.cliPath), { recursive: true, mode: 0o700 });
   const temp = `${configuration.cliPath}.tmp-${randomUUID()}`;
   fs.symlinkSync(target, temp); fs.renameSync(temp, configuration.cliPath); syncDirectory(path.dirname(configuration.cliPath));
+}
+function snapshotEnvironment(configuration, txDir, lock) {
+  const files = [path.join(configuration.stateRoot, 'install.env'), path.join(configuration.installRoot, 'installation.json'), adapterConfigPath(configuration)];
+  const backupRoot = path.join(txDir, 'environment'); fs.mkdirSync(backupRoot, { mode: 0o700 });
+  const records = files.map((target, index) => {
+    lock.assertOwned();
+    const record = { target, backup: String(index), exists: fs.existsSync(target) };
+    if (record.exists) {
+      const stat = fs.lstatSync(target); assertRelease(stat.isFile() && !stat.isSymbolicLink(), 'unsafe_install_environment');
+      record.mode = stat.mode & 0o777; record.sha256 = fileSha256(target);
+      fs.copyFileSync(target, path.join(backupRoot, record.backup)); fs.chmodSync(path.join(backupRoot, record.backup), 0o600);
+    }
+    return record;
+  });
+  syncTree(backupRoot); return records;
+}
+function restoreEnvironment(journal, txDir, lock, configuration) {
+  const expected = [path.join(configuration.stateRoot, 'install.env'), path.join(configuration.installRoot, 'installation.json'), adapterConfigPath(configuration)];
+  assertRelease(Array.isArray(journal.environment_files) && journal.environment_files.length === expected.length, 'invalid_install_journal');
+  journal.environment_files.forEach((record, index) => {
+    assertRelease(record.target === expected[index] && record.backup === String(index), 'invalid_install_journal');
+    try { assertRelease(!fs.lstatSync(record.target).isSymbolicLink(), 'unsafe_install_environment'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (record.exists) assertRelease(fileSha256(path.join(txDir, 'environment', record.backup)) === record.sha256, 'unit_backup_digest_mismatch');
+  });
+  for (const record of journal.environment_files ?? []) {
+    lock.assertOwned();
+    if (record.exists) {
+      const saved = path.join(txDir, 'environment', record.backup);
+      assertRelease(fileSha256(saved) === record.sha256, 'unit_backup_digest_mismatch');
+      fs.copyFileSync(saved, record.target); fs.chmodSync(record.target, record.mode);
+    } else fs.rmSync(record.target, { force: true });
+  }
+}
+function snapshotCli(configuration) {
+  if (!configuration.cliPath) return null;
+  try {
+    const stat = fs.lstatSync(configuration.cliPath); assertRelease(stat.isSymbolicLink(), 'unowned_cli_entry');
+    const rawTarget = fs.readlinkSync(configuration.cliPath);
+    const resolved = path.resolve(path.dirname(configuration.cliPath), rawTarget);
+    assertRelease(resolved === path.join(configuration.installRoot, 'current/bin/ao-pilot.js') || resolved === configuration.legacyCliTarget, 'unowned_cli_entry');
+    return { exists: true, target: rawTarget };
+  } catch (error) { if (error.code === 'ENOENT') return { exists: false }; throw error; }
+}
+function restoreCli(configuration, snapshot, lock) {
+  if (!configuration.cliPath || !snapshot) return;
+  lock.assertOwned();
+  try {
+    assertRelease(fs.lstatSync(configuration.cliPath).isSymbolicLink(), 'unowned_cli_entry');
+    const target = path.resolve(path.dirname(configuration.cliPath), fs.readlinkSync(configuration.cliPath));
+    assertRelease(target === path.join(configuration.installRoot, 'current/bin/ao-pilot.js'), 'unowned_cli_entry');
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  if (!snapshot.exists) fs.rmSync(configuration.cliPath, { force: true });
+  else {
+    const temp = `${configuration.cliPath}.rollback-${randomUUID()}`;
+    fs.symlinkSync(snapshot.target, temp); fs.renameSync(temp, configuration.cliPath);
+  }
+  syncDirectory(path.dirname(configuration.cliPath));
 }
 async function garbageCollect({ root, lock, runner, protectedTargets, remove = fs.rmSync }) {
   const pins = await runner.pins();
@@ -109,10 +169,13 @@ export async function applyRelease({
       const pending = readJson(journalPath);
       assertRelease(pending.schema_version === 'ao.install-journal.v1', 'invalid_install_journal');
       if (!['committed', 'rolled_back'].includes(pending.phase)) {
-        assertRelease(resume && pending.release_id === manifest.release_id && pending.envelope_sha256 === expectedEnvelopeSha256, 'interrupted_install_requires_resume');
+        assertRelease(resume && pending.release_id === manifest.release_id && pending.envelope_sha256 === expectedEnvelopeSha256
+          && pending.configuration_sha256 === objectSha256(configuration), 'interrupted_install_requires_resume');
         journal = pending; txDir = path.join(transactionRoot, journal.transaction_id);
         assertRelease(/^[-a-f0-9]+$/.test(journal.transaction_id) && fs.existsSync(txDir), 'invalid_install_journal');
         prior = journal.old; previous = journal.previous;
+        assertRelease(journal.target === target && [prior, previous].every((value) => value === null || /^releases\/[0-9][A-Za-z0-9._-]*\+[a-f0-9]{40}$/.test(value))
+          && fs.realpathSync(txDir) === txDir && fs.statSync(txDir).uid === process.getuid(), 'invalid_install_journal');
         const actual = pointer(root, 'current');
         assertRelease(actual === prior || actual === target, 'interrupted_install_pointer_unknown');
         // A previously prepared release is immutable and already renamed. Never
@@ -131,9 +194,9 @@ export async function applyRelease({
       const transactionId = lock.owner.transaction_id;
       txDir = path.join(transactionRoot, transactionId); fs.mkdirSync(txDir, { mode: 0o700 });
       journal = { schema_version: 'ao.install-journal.v1', transaction_id: transactionId, release_id: manifest.release_id,
-        envelope_sha256: expectedEnvelopeSha256, manifest_sha256: manifestSha256,
+        envelope_sha256: expectedEnvelopeSha256, manifest_sha256: manifestSha256, configuration_sha256: objectSha256(configuration),
         owner: lock.owner, old: prior, previous, target, phase: 'install', mode, baseline,
-        old_manifest: oldManifest, database_backup: null, unit_backup_complete: false, switched: false };
+        old_manifest: oldManifest, database_backup: null, unit_backup_complete: false, switched: false, cli_snapshot: snapshotCli(configuration) };
       lock.assertOwned(); durableJson(journalPath, journal);
       phase = 'install';
       const partial = `${final}.partial`; const partialOwner = `${partial}.owner.json`;
@@ -159,34 +222,46 @@ export async function applyRelease({
     oldManifest ??= journal.old_manifest;
     phase = 'switch';
     if (journal.phase === 'install') throw Object.assign(new Error('Incomplete prepare requires retry after preserving owned partial'), { code: 'interrupted_install_release_missing' });
+    // Durable intent precedes the first external stop. Freeze existing service
+    // entrypoints and all DB writers before taking the rollback snapshot.
+    journal.service_mutation_started = true; lock.assertOwned(); durableJson(journalPath, journal);
+    await runner.stop({ baseline: journal.baseline }); inject('stopped', {});
+    const stopped = await runner.quiescent();
+    journal.stopped_snapshot = stopped; lock.assertOwned(); durableJson(journalPath, journal);
+    assertRelease(Array.isArray(stopped.cids) && stopped.database?.integrity === 'ok'
+      && objectSha256([...stopped.cids].sort()) === objectSha256([...journal.baseline.cids].sort()), 'install_baseline_changed');
     if (!journal.database_backup) {
       journal.database_backup = await runner.backupDatabase({ backupRoot: path.join(txDir, 'database') });
       assertRelease(journal.database_backup?.sha256 && fs.existsSync(journal.database_backup.path)
         && fileSha256(journal.database_backup.path) === journal.database_backup.sha256, 'install_database_backup_invalid');
       lock.assertOwned(); durableJson(journalPath, journal);
     }
-    journal.service_mutation_started = true; lock.assertOwned(); durableJson(journalPath, journal);
-    await runner.stop({ baseline: journal.baseline }); inject('stopped', {});
     const unitBackup = path.join(txDir, 'units');
+    if (!journal.environment_files) {
+      journal.environment_files = snapshotEnvironment(configuration, txDir, lock); lock.assertOwned(); durableJson(journalPath, journal);
+    }
     if (!journal.unit_backup_complete) {
       // Snapshot install.env independently; units and environment form one
       // rollback input. Unknown files are never silently treated as absent.
       fs.mkdirSync(unitBackup, { recursive: true, mode: 0o700 });
-      if (fs.existsSync(envFile)) { fs.copyFileSync(envFile, path.join(txDir, 'install.env')); journal.environment_backup_sha256 = fileSha256(envFile); }
       backupAndInstallUnits({ unitRoot: configuration.unitRoot, backupRoot: unitBackup, units, lock,
         environmentOverride: configuration.environmentOverride ?? null,
         onBackup: () => { journal.unit_backup_complete = true; lock.assertOwned(); durableJson(journalPath, journal); } });
     } else writeReleaseUnits({ unitRoot: configuration.unitRoot, units, lock, environmentOverride: configuration.environmentOverride ?? null });
+    lock.assertOwned(); durableJson(adapterConfigPath(configuration), adapterConfiguration(configuration));
     writeEnvironment(configuration, lock);
     lock.assertOwned(); durableJson(path.join(root, 'installation.json'), configuration);
     journal.phase = 'switching'; lock.assertOwned(); durableJson(journalPath, journal);
     switchPointer(root, 'previous', prior, lock); inject('previous', {});
     switchPointer(root, 'current', target, lock);
     journal.switched = true; journal.phase = 'switched'; lock.assertOwned(); durableJson(journalPath, journal);
-    inject('current', {}); installCliLink(configuration, lock);
+    inject('current', {});
+    journal.cli_installed = true; lock.assertOwned(); durableJson(journalPath, journal);
+    installCliLink(configuration, lock);
     journal.new_services_started = true; lock.assertOwned(); durableJson(journalPath, journal);
     await runner.reload(); await runner.start({ releaseRoot: final, mode });
     phase = 'verify'; journal.phase = phase; lock.assertOwned(); durableJson(journalPath, journal);
+    assertRelease(!configuration.cliPath || fs.realpathSync(configuration.cliPath) === path.join(final, 'bin/ao-pilot.js'), 'install_cli_drift');
     const observed = await runner.observe({ releaseRoot: final });
     report = inspectInstall({ releaseRoot: final, observation: observed, baseline: journal.baseline, mode: journal.mode });
     assertRelease(report.status === 'passed', 'install_verify_failed'); inject('verify', {});
@@ -226,18 +301,23 @@ export async function applyRelease({
         if (journal.new_services_started && !Number.isSafeInteger(schema)) {
           try { schema = (await runner.observe({ releaseRoot: path.join(root, journal.target) })).database?.schema; } catch { /* unknown stays fail-closed */ }
         }
-        const oldCompatible = old && Number.isSafeInteger(schema)
-          && schema >= old.database.schema_min_readable && schema <= old.database.schema_max_readable;
-        if (!oldCompatible && !allowDatabaseRestore) throw Object.assign(new Error('Backup restore with explicit data-loss acceptance required'), { code: 'install_rollback_requires_backup' });
-        if (!oldCompatible) await runner.restoreDatabase({ backup: journal.database_backup });
+        const oldCompatible = old && (!journal.new_services_started || manifest.database.previous_reader_compatible
+          && manifest.database.previous_binary_sha256 === old.components.daemon.files.find((file) => file.path === old.components.daemon.entrypoint)?.sha256
+          && Number.isSafeInteger(schema)
+          && schema >= old.database.schema_min_readable && schema <= old.database.schema_max_readable);
+        if (old && !oldCompatible && !allowDatabaseRestore) throw Object.assign(new Error('Backup restore with explicit data-loss acceptance required'), { code: 'install_rollback_requires_backup' });
+        if (old && !oldCompatible) await runner.restoreDatabase({ backup: journal.database_backup });
         switchPointer(root, 'current', journal.old, lock); switchPointer(root, 'previous', journal.previous, lock);
         if (journal.unit_backup_complete) restoreUnitBackup({ unitRoot: configuration.unitRoot, backupRoot: path.join(txDir, 'units'), units, lock });
-        const envFile = path.join(configuration.stateRoot, 'install.env');
-        if (journal.environment_backup_sha256) {
-          assertRelease(fileSha256(path.join(txDir, 'install.env')) === journal.environment_backup_sha256, 'unit_backup_digest_mismatch');
-          fs.copyFileSync(path.join(txDir, 'install.env'), envFile);
-        } else fs.rmSync(envFile, { force: true });
-        await runner.reload(); await runner.start({ releaseRoot: journal.old ? path.join(root, journal.old) : null, rollback: true });
+        if (journal.environment_files) restoreEnvironment(journal, txDir, lock, configuration);
+        if (journal.cli_installed) restoreCli(configuration, journal.cli_snapshot, lock);
+        await runner.reload();
+        assertRelease(journal.old !== null, 'legacy_restore_requires_manual_start');
+        await runner.start({ releaseRoot: path.join(root, journal.old), rollback: true });
+        const rollbackObservation = await runner.observe({ releaseRoot: path.join(root, journal.old) });
+        const rollbackReport = inspectInstall({ releaseRoot: path.join(root, journal.old), observation: rollbackObservation,
+          baseline: journal.stopped_snapshot?.cids ? { ...journal.baseline, cids: journal.stopped_snapshot.cids } : journal.baseline, mode: journal.mode });
+        assertRelease(rollbackReport.status === 'passed', 'install_rollback_readback_failed');
         journal.phase = 'rolled_back'; lock.assertOwned(); durableJson(journalPath, journal);
       } catch (rollbackError) {
         rollbackRequired = true; lock.assertOwned();
@@ -251,7 +331,7 @@ export async function applyRelease({
     if (manifest && txDir) {
       savePrivateInstallReceipt(path.join(txDir, 'private-failure.json'), { phase, code: error.code, message: error.message, journal });
       const receipt = publicInstallReceipt({ manifest, manifestSha256, phase,
-        result: rollbackRequired ? 'hold' : 'failed', checks: report?.checks,
+        result: rollbackRequired || error.code === 'install_baseline_changed' ? 'hold' : 'failed', checks: report?.checks,
         failureCode: rollbackRequired ? 'rollback_required' : `${phase}_failed`, now });
       lock.assertOwned(); durableJson(path.join(txDir, 'public-receipt.json'), receipt);
       error.publicReceipt = receipt;

@@ -68,10 +68,64 @@ describe('unified release transaction on real temporary filesystem with fake ser
     const { root, config } = fixture(); const old = createBundle(root); const next = createBundle(root, { version: '2.0.0' });
     await apply(old, config, fakeRunner(root));
     const unit = path.join(config.unitRoot, 'ao-pilot-staging-fixture-runtime.service'); const oldUnit = fs.readFileSync(unit, 'utf8');
-    await expect(apply(next, config, fakeRunner(root, { onObserve: (observation) => ({ ...observation, ready: { health: 'ok', state: 'degraded', reasons: ['injected'] } }) }))).rejects.toMatchObject({ code: 'install_verify_failed' });
+    await expect(apply(next, config, fakeRunner(root, { onObserve: (observation) => observation.services.daemon.release_id === next.manifest.release_id ? ({ ...observation, ready: { health: 'ok', state: 'degraded', reasons: ['injected'] } }) : observation }))).rejects.toMatchObject({ code: 'install_verify_failed' });
     expect(readReleasePointer(config.installRoot, 'current')).toBe(`releases/${old.manifest.release_id}`);
     expect(readJson(path.join(config.installRoot, 'install-journal.json')).phase).toBe('rolled_back');
     expect(fs.readFileSync(unit, 'utf8')).toBe(oldUnit);
+  });
+  it('restores legacy CLI and environment after first-install failure without restarting unowned services', async () => {
+    const { root, config } = fixture(); const bundle = createBundle(root);
+    const legacy = path.join(root, 'legacy-cli'); fs.writeFileSync(legacy, 'legacy');
+    fs.mkdirSync(path.dirname(config.cliPath), { recursive: true }); fs.symlinkSync(legacy, config.cliPath); config.legacyCliTarget = legacy;
+    fs.mkdirSync(config.installRoot, { recursive: true });
+    const priorFiles = [path.join(config.stateRoot, 'install.env'), path.join(config.installRoot, 'installation.json'), path.join(config.stateRoot, 'dashboard-adapter.json')];
+    priorFiles.forEach((file, index) => fs.writeFileSync(file, `old-${index}`, { mode: 0o600 }));
+    const runner = fakeRunner(root, { onObserve: (observation) => ({ ...observation, terminal_auth: false }) });
+    await expect(apply(bundle, config, runner)).rejects.toMatchObject({ publicReceipt: { result: 'hold' } });
+    expect(readReleasePointer(config.installRoot, 'current')).toBeNull();
+    expect(fs.readlinkSync(config.cliPath)).toBe(legacy);
+    priorFiles.forEach((file, index) => expect(fs.readFileSync(file, 'utf8')).toBe(`old-${index}`));
+    expect(runner.calls.filter((call) => call === 'start')).toHaveLength(1);
+    expect(readJson(path.join(config.installRoot, 'install-journal.json'))).toMatchObject({ phase: 'recovery_required', rollback_error: { code: 'legacy_restore_requires_manual_start' } });
+  });
+  it('removes first-install generated environment and CLI on failure', async () => {
+    const { root, config } = fixture(); const bundle = createBundle(root);
+    await expect(apply(bundle, config, fakeRunner(root, { onObserve: (observation) => ({ ...observation, terminal_auth: false }) }))).rejects.toThrow();
+    for (const file of [config.cliPath, path.join(config.stateRoot, 'install.env'), path.join(config.installRoot, 'installation.json'), path.join(config.stateRoot, 'dashboard-adapter.json')]) {
+      expect(() => fs.lstatSync(file)).toThrow();
+    }
+  });
+  it('keeps every original unit untouched if a drop-in backup cannot be validated', async () => {
+    const { root, config } = fixture(); const bundle = createBundle(root);
+    const unit = path.join(config.unitRoot, 'ao-pilot-staging-fixture-runtime.service');
+    fs.mkdirSync(`${unit}.d`, { recursive: true }); fs.writeFileSync(unit, 'original unit');
+    fs.symlinkSync('/missing-private-fixture', path.join(`${unit}.d`, '99-hotfix.conf'));
+    await expect(apply(bundle, config, fakeRunner(root))).rejects.toThrow();
+    expect(fs.readFileSync(unit, 'utf8')).toBe('original unit');
+    expect(fs.readlinkSync(path.join(`${unit}.d`, '99-hotfix.conf'))).toBe('/missing-private-fixture');
+    expect(readReleasePointer(config.installRoot, 'current')).toBeNull();
+  });
+  it('records stop intent before effects and takes the DB backup only after final stopped CID snapshot', async () => {
+    const { root, config } = fixture(); const bundle = createBundle(root); const runner = fakeRunner(root);
+    const originalStop = runner.stop;
+    runner.stop = async () => { expect(readJson(path.join(config.installRoot, 'install-journal.json')).service_mutation_started).toBe(true); return originalStop(); };
+    await apply(bundle, config, runner);
+    expect(runner.calls.indexOf('stop')).toBeLessThan(runner.calls.indexOf('quiescent'));
+    expect(runner.calls.indexOf('quiescent')).toBeLessThan(runner.calls.indexOf('backup'));
+  });
+  it('holds for rebaseline if CID membership changes before all writers stop', async () => {
+    const { root, config } = fixture(); const bundle = createBundle(root); const runner = fakeRunner(root);
+    runner.quiescent = async () => ({ cids: ['new-cid'], database: { schema: 43, integrity: 'ok' } });
+    await expect(apply(bundle, config, runner)).rejects.toMatchObject({ code: 'install_baseline_changed', publicReceipt: { result: 'hold' } });
+    expect(runner.calls).not.toContain('backup'); expect(readReleasePointer(config.installRoot, 'current')).toBeNull();
+  });
+  it('restores already-stopped old services when post-stop backup fails', async () => {
+    const { root, config } = fixture(); const old = createBundle(root); const next = createBundle(root, { version: '2.0.0' });
+    await apply(old, config, fakeRunner(root)); const runner = fakeRunner(root);
+    runner.backupDatabase = async () => { throw Error('injected backup failure'); };
+    await expect(apply(next, config, runner)).rejects.toThrow('injected backup failure');
+    expect(runner.calls).toContain('start'); expect(readReleasePointer(config.installRoot, 'current')).toBe(`releases/${old.manifest.release_id}`);
+    expect(readJson(path.join(config.installRoot, 'install-journal.json')).phase).toBe('rolled_back');
   });
   it('holds on incompatible rollback without explicit backup restoration authority', async () => {
     const { root, config } = fixture(); const old = createBundle(root); const next = createBundle(root, { version: '2.0.0', schema: 44 });

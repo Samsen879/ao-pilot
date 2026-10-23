@@ -115,7 +115,9 @@
         "schema_current",
         "schema_min_readable",
         "schema_max_readable",
-        "compatibility_evidence_sha256"
+        "compatibility_evidence_sha256",
+        "previous_binary_sha256",
+        "previous_reader_compatible"
       ],
       "properties": {
         "schema_current": {
@@ -133,6 +135,13 @@
         "compatibility_evidence_sha256": {
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
+        },
+        "previous_binary_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "previous_reader_compatible": {
+          "type": "boolean"
         }
       }
     },

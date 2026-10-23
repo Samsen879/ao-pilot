@@ -8,20 +8,20 @@ export const INSTALL_CHECK_IDS = [
   'tokenless_lock_safe', 'cid_set', 'ready', 'unit_provenance', 'process_identity',
 ];
 const truth = (value) => value === true ? 'PASS' : value === false ? 'FAIL' : 'UNKNOWN';
-export function inspectInstall({ releaseRoot, observation = {}, baseline = null, mode = 'daily', manifest = null }) {
+export function inspectInstall({ releaseRoot, observation = {}, baseline = null, mode = 'daily', manifest = null, requireRestart = true }) {
   const checks = Object.fromEntries(INSTALL_CHECK_IDS.map((id) => [id, 'UNKNOWN']));
   try { manifest = verifyReleaseTree(releaseRoot); checks.release_integrity = 'PASS'; } catch { checks.release_integrity = 'FAIL'; }
   if (!manifest) return { status: 'blocked', checks, evidence: observation };
   const services = observation.services;
   if (services && ['daemon', 'dashboard', 'adapter', 'session-recovery'].every((key) => services[key])) {
-    checks.version_drift = truth(['daemon', 'dashboard', 'adapter', 'session-recovery'].every((name) => {
+    checks.version_drift = observation.cli_bound === undefined || observation.cli_bound === null ? 'UNKNOWN' : truth(observation.cli_bound === true && ['daemon', 'dashboard', 'adapter', 'session-recovery'].every((name) => {
       const service = services[name];
       return service.release_id === manifest.release_id && service.release_root === fs.realpathSync(releaseRoot)
         && (name === 'session-recovery' || service.component_sha256 === manifest.components[name].sha256);
     }));
     checks.process_identity = truth(Object.values(services).every((service) => Number.isSafeInteger(service.pid) && service.pid > 0
       && typeof service.start_token === 'string' && service.start_token !== '' && service.stable === true)
-      && (baseline === null || ['daemon', 'dashboard', 'adapter', 'session-recovery'].every((name) => {
+      && (!requireRestart || baseline === null || ['daemon', 'dashboard', 'adapter', 'session-recovery'].every((name) => {
         const old = baseline.services?.[name]; const current = services[name];
         return !old || old.pid !== current.pid || old.start_token !== current.start_token;
       })));

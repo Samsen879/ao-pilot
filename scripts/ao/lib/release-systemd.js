@@ -3,7 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { assertRelease, fileSha256, readJson, verifyReleaseTree } from './release-manifest.js';
+import { adapterConfiguration, adapterConfigPath } from './release-adapter.js';
+import { assertRelease, fileSha256, inventoryTree, objectSha256, readJson, syncTree, verifyReleaseTree } from './release-manifest.js';
 import { processStartToken } from './release-lock.js';
 import { RELEASE_SERVICES, renderReleaseUnits, validateEnvironmentOverride } from './release-units.js';
 
@@ -12,6 +13,11 @@ export function validateInstallConfiguration(config) {
   assertRelease(/^ao-pilot(?:-staging-[a-z0-9-]+)?$/.test(config.namespace ?? ''), 'unsafe_unit_namespace');
   const names = ['installRoot', 'stateRoot', 'unitRoot', 'dataDir', 'discoveryDir', 'configPath', 'controlPlaneRoot', 'trustedHostDirectory', 'tmuxTmpdir'];
   for (const name of names) assertRelease(path.isAbsolute(config[name] ?? '') && !/[\r\n\0"%\\]/.test(config[name]), 'unsafe_install_configuration');
+  for (const name of names) {
+    let ancestor = path.resolve(config[name]);
+    while (!fs.existsSync(ancestor)) ancestor = path.dirname(ancestor);
+    assertRelease(fs.realpathSync(ancestor) === ancestor, 'unsafe_install_configuration');
+  }
   assertRelease(new Set([config.installRoot, config.dataDir, config.discoveryDir, config.tmuxTmpdir]).size === 4, 'install_namespace_collision');
   assertRelease(/^[a-zA-Z0-9_-]+$/.test(config.tmuxSocket ?? '') && config.tmuxSocket !== 'default', 'invalid_tmux_namespace');
   for (const field of ['daemonURL', 'terminalURL', 'terminalOrigin']) {
@@ -20,7 +26,7 @@ export function validateInstallConfiguration(config) {
       && ['http:', 'ws:'].includes(url.protocol) && url.username === '' && url.password === '', 'non_loopback_install_endpoint');
   }
   assertRelease(config.terminalCanaryPrefix === 'canary:' && Array.isArray(config.listenPorts)
-    && config.listenPorts.length >= 3 && new Set(config.listenPorts).size === config.listenPorts.length
+    && config.listenPorts.length === 5 && new Set(config.listenPorts).size === config.listenPorts.length
     && config.listenPorts.every((port) => Number.isSafeInteger(port) && port >= 1024 && port <= 65535), 'invalid_install_ports');
   if (config.namespace.includes('-staging-')) {
     assertRelease(config.tmuxSocket.startsWith(config.namespace), 'install_namespace_collision');
@@ -28,6 +34,7 @@ export function validateInstallConfiguration(config) {
       assertRelease(path.resolve(config[name]).startsWith(`${path.resolve(config.stateRoot)}/`), 'install_namespace_collision');
     }
   }
+  adapterConfiguration(config);
   return config;
 }
 function execute(command, args, options = {}) {
@@ -87,9 +94,9 @@ async function websocketResult(WebSocket, url, options, prefix, expectRejected) 
     socket.on('close', () => finish(false));
   });
 }
-export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fetchImpl = fetch } = {}) {
+export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fetchImpl = fetch, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), startupAttempts = 60 } = {}) {
   const config = validateInstallConfiguration(rawConfiguration);
-  const unitName = (name) => `${config.namespace}-${name}.service`;
+  const unitName = (name) => `${config.namespace}-${name === 'adapter' ? 'dashboard-adapter' : name}.service`;
   const systemctl = (args) => run('systemctl', ['--user', ...args]);
   const env = { ...process.env, AO_DATA_DIR: config.dataDir, AO_RUN_FILE: path.join(config.discoveryDir, 'running.json'),
     AO_TMUX_SOCKET: config.tmuxSocket, AO_TMUX_UNIT: unitName('tmux'), AO_TMUX_TMPDIR: config.tmuxTmpdir, TMUX_TMPDIR: config.tmuxTmpdir };
@@ -121,6 +128,10 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
           && proc.cwd === root && proc.environment.AO_RELEASE_ID === loaded.release_id
           && proc.environment.AO_DATA_DIR === config.dataDir && proc.environment.AO_RUN_FILE === env.AO_RUN_FILE
           && fileSha256(`/proc/${pid}/exe`) === (component === 'daemon' ? loaded.components.daemon.files.find((file) => file.path === entry).sha256 : loaded.toolchain.node_sha256), 'install_loaded_release_drift');
+        if (component === 'adapter') {
+          assertRelease(proc.environment.AO_DASHBOARD_ADAPTER_CONFIG === adapterConfigPath(config)
+            && JSON.stringify(readJson(adapterConfigPath(config))) === JSON.stringify(adapterConfiguration(config)), 'adapter_config_drift');
+        }
         let unitVerified = properties.FragmentPath === path.join(config.unitRoot, unit)
           && fs.readFileSync(properties.FragmentPath, 'utf8') === expectedUnits[unit];
         const drops = properties.DropInPaths.trim() ? properties.DropInPaths.trim().split(/\s+/) : [];
@@ -135,6 +146,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
           stable: processUnchanged(proc), unit_verified: unitVerified };
       } catch { observations.services[component] = null; }
     }
+    await collect('cli_bound', () => Boolean(config.cliPath) && fs.realpathSync(config.cliPath) === path.join(fs.realpathSync(releaseRoot), 'bin/ao-pilot.js'));
     await collect('ready', () => get('/readyz'));
     await collect('cids', async () => {
       const result = await get('/api/v1/sessions'); const sessions = result.sessions ?? result.data?.sessions ?? result.data;
@@ -198,18 +210,53 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
     configuration: config, observe,
     async preflight({ releaseRoot }) {
       assertRelease(typeof process.execve === 'function', 'release_node_execve_required');
-      assertRelease(fs.statSync(config.configPath).isFile(), 'install_config_missing');
+      const configStat = fs.lstatSync(config.configPath);
+      assertRelease(configStat.isFile() && !configStat.isSymbolicLink() && configStat.uid === process.getuid()
+        && (configStat.mode & 0o077) === 0, 'install_config_missing');
       const baseline = await observe({ releaseRoot });
       assertRelease(Array.isArray(baseline.cids) && baseline.database?.integrity === 'ok' && baseline.tmux?.server_start_token, 'install_baseline_unknown');
       return baseline;
+    },
+    async quiescent() {
+      assertRelease(ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: false }) === true), 'install_previous_locks_held');
+      const database = path.join(config.dataDir, 'ao.db');
+      const rows = JSON.parse(run('sqlite3', ['-readonly', '-json', database, 'SELECT id FROM sessions ORDER BY id;']) || '[]');
+      const state = run('sqlite3', ['-readonly', database, 'SELECT version_id FROM goose_db_version WHERE is_applied=1 ORDER BY id DESC LIMIT 1; PRAGMA integrity_check;']).split('\n');
+      assertRelease(ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: false }) === true), 'install_previous_locks_held');
+      const identities = JSON.parse(run('sqlite3', ['-readonly', '-json', database, 'SELECT s.id AS ao_session_id,s.project_id,s.num,s.kind,s.harness,s.agent_session_id AS native_conversation_id,s.runtime_launch_id,s.runtime_handle_id,s.is_terminated,s.workspace_path,s.branch,s.created_at,a.attempt_id FROM sessions s LEFT JOIN spawn_attempt_sessions a ON a.session_id=s.id ORDER BY s.id;']) || '[]');
+      const attempts = JSON.parse(run('sqlite3', ['-readonly', '-json', database, 'SELECT session_id,attempt_id,project_id,session_num FROM spawn_attempt_sessions ORDER BY session_id;']) || '[]');
+      const custody = attempts.map((entry) => {
+        let outcome = 'unknown';
+        if (/^[a-f0-9-]{36}$/.test(entry.attempt_id ?? '')) {
+          const recordPath = path.join(config.dataDir, 'spawn-attempts', entry.attempt_id, 'record.json');
+          try {
+            assertRelease(fs.realpathSync(recordPath) === recordPath && fs.lstatSync(recordPath).isFile(), 'install_custody_unknown');
+            const record = readJson(recordPath);
+            outcome = record.outcome === 'committed' ? 'committed' : 'hold';
+          } catch { /* unknown remains HOLD evidence; never infer committed */ }
+        }
+        return { ...entry, outcome };
+      });
+      return { cids: rows.map((row) => row.id), identities, custody, database: { schema: Number(state[0]), integrity: state.slice(1).join('\n') } };
     },
     async backupDatabase({ backupRoot }) {
       fs.mkdirSync(backupRoot, { recursive: true, mode: 0o700 });
       const backup = path.join(backupRoot, 'ao.db');
       assertRelease(!backup.includes("'"), 'unsafe_install_configuration');
       run('sqlite3', [path.join(config.dataDir, 'ao.db'), `.backup '${backup}'`]);
-      assertRelease(run('sqlite3', ['-readonly', backup, 'PRAGMA integrity_check;']) === 'ok', 'install_database_backup_invalid');
-      return { path: backup, sha256: fileSha256(backup), completed_at: new Date().toISOString() };
+      assertRelease(run('sqlite3', ['-readonly', backup, 'PRAGMA integrity_check;']) === 'ok'
+        && ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: false }) === true)
+        && run('sqlite3', ['-readonly', backup, 'SELECT id FROM sessions ORDER BY id;']) === run('sqlite3', ['-readonly', path.join(config.dataDir, 'ao.db'), 'SELECT id FROM sessions ORDER BY id;']), 'install_database_backup_invalid');
+      const recoverySource = path.join(config.dataDir, 'spawn-attempts');
+      const recovery = { exists: fs.existsSync(recoverySource), path: path.join(backupRoot, 'spawn-attempts') };
+      if (recovery.exists) {
+        const before = objectSha256(inventoryTree(recoverySource, { exclude: [] }));
+        fs.cpSync(recoverySource, recovery.path, { recursive: true, verbatimSymlinks: true });
+        recovery.sha256 = objectSha256(inventoryTree(recovery.path, { exclude: [] }));
+        assertRelease(recovery.sha256 === before, 'install_database_backup_invalid'); syncTree(recovery.path);
+      }
+      const backupFd = fs.openSync(backup, 'r'); try { fs.fsyncSync(backupFd); } finally { fs.closeSync(backupFd); }
+      return { path: backup, sha256: fileSha256(backup), recovery, completed_at: new Date().toISOString() };
     },
     async stop() {
       const owned = [];
@@ -229,11 +276,25 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
     async start() {
       systemctl(['start', unitName('tmux')]);
       for (const name of ['runtime', 'dashboard', 'session-recovery', 'adapter']) systemctl(['start', unitName(name)]);
+      for (let attempt = 0; attempt < startupAttempts; attempt += 1) {
+        try {
+          const ready = await get('/readyz');
+          if (ready.state === 'ready' && ready.ready !== false && (ready.reasons ?? []).length === 0 && (ready.degraded_reasons ?? []).length === 0) return;
+        } catch { /* startup is bounded; unknown never counts as ready */ }
+        await sleep(250);
+      }
+      assertRelease(false, 'install_startup_not_ready');
     },
     async restoreDatabase({ backup }) {
       assertRelease(fileSha256(backup.path) === backup.sha256, 'install_database_backup_invalid');
       assertRelease(ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: false }) === true), 'install_previous_locks_held');
+      if (backup.recovery?.exists) assertRelease(objectSha256(inventoryTree(backup.recovery.path, { exclude: [] })) === backup.recovery.sha256, 'install_database_backup_invalid');
+      assertRelease(backup.recovery && path.dirname(backup.recovery.path) === path.dirname(backup.path), 'install_database_backup_invalid');
       fs.copyFileSync(backup.path, path.join(config.dataDir, 'ao.db'));
+      const recoveryTarget = path.join(config.dataDir, 'spawn-attempts');
+      try { assertRelease(!fs.lstatSync(recoveryTarget).isSymbolicLink(), 'install_database_backup_invalid'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      fs.rmSync(recoveryTarget, { force: true, recursive: true });
+      if (backup.recovery.exists) fs.cpSync(backup.recovery.path, recoveryTarget, { recursive: true, verbatimSymlinks: true });
       for (const suffix of ['-wal', '-shm']) fs.rmSync(path.join(config.dataDir, `ao.db${suffix}`), { force: true });
     },
     async pins() {

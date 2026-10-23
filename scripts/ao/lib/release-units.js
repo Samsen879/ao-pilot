@@ -6,7 +6,7 @@ import { assertRelease, fileSha256, durableJson, readJson, syncTree } from './re
 const TEMPLATE_ROOT = fileURLToPath(new URL('../../../templates/systemd/', import.meta.url));
 export const RELEASE_SERVICES = ['tmux', 'runtime', 'dashboard', 'session-recovery', 'adapter'];
 export const ALLOWED_ENVIRONMENT = new Set([
-  'AO_MANAGED_RUNTIME_BINARY', 'AO_MANAGED_RUNTIME_BINARY_SHA256', 'AO_HOST', 'AO_PORT', 'AO_DASHBOARD_PORT', 'AO_INSTALL_ROOT', 'AO_DATA_DIR', 'AO_RUN_FILE', 'AO_MANAGED_RUNTIME_DATA_DIR',
+  'AO_DASHBOARD_ADAPTER_CONFIG', 'DIRECT_TERMINAL_PORT', 'TERMINAL_PORT', 'AO_MANAGED_RUNTIME_BINARY', 'AO_MANAGED_RUNTIME_BINARY_SHA256', 'AO_HOST', 'AO_PORT', 'AO_DASHBOARD_PORT', 'AO_INSTALL_ROOT', 'AO_DATA_DIR', 'AO_RUN_FILE', 'AO_MANAGED_RUNTIME_DATA_DIR',
   'AO_MANAGED_RUNTIME_RUN_FILE', 'AO_TMUX_SOCKET', 'AO_TMUX_UNIT', 'AO_TMUX_TMPDIR', 'TMUX_TMPDIR',
   'AO_CONFIG_PATH', 'AO_PILOT_RUNTIME_STORE', 'AO_DASHBOARD_TERMINAL_ACCESS', 'AO_DASHBOARD_READ_ONLY',
   'AO_DASHBOARD_AUTOMATION', 'AO_INSTALL_NAMESPACE', 'AO_INSTALL_CONFIG', 'PATH', 'NODE_ENV',
@@ -34,10 +34,10 @@ export function renderReleaseUnits({ installRoot, stateRoot, envFile, nodePath, 
     ENV_FILE: envFile, NODE: nodePath, TMUX_UNIT: `${namespace}-tmux.service`, RUNTIME_UNIT: `${namespace}-runtime.service` };
   for (const value of Object.values(substitutions)) safe(value);
   return Object.fromEntries(RELEASE_SERVICES.map((component) => {
-    let body = fs.readFileSync(path.join(TEMPLATE_ROOT, `ao-pilot-${component}.service`), 'utf8');
+    let body = fs.readFileSync(path.join(TEMPLATE_ROOT, `ao-pilot-${component === 'adapter' ? 'dashboard-adapter' : component}.service`), 'utf8');
     for (const [key, value] of Object.entries(substitutions)) body = body.replaceAll(`{{${key}}}`, value);
     assertRelease(!body.includes('{{'), 'invalid_unit_template');
-    return [`${namespace}-${component}.service`, body];
+    return [`${namespace}-${component === 'adapter' ? 'dashboard-adapter' : component}.service`, body];
   }));
 }
 export function writeReleaseUnits({ unitRoot, units, lock, environmentOverride = null }) {
@@ -59,7 +59,7 @@ export function backupAndInstallUnits({ unitRoot, backupRoot, units, lock, envir
   if (environmentOverride !== null) validateEnvironmentOverride(environmentOverride);
   const entries = [];
   for (const name of Object.keys(units)) {
-    assertRelease(/^ao-pilot(?:-staging-[a-z0-9-]+)?-(tmux|runtime|dashboard|session-recovery|adapter)\.service$/.test(name), 'unsafe_unit_namespace');
+    assertRelease(/^ao-pilot(?:-staging-[a-z0-9-]+)?-(tmux|runtime|dashboard|session-recovery|dashboard-adapter)\.service$/.test(name), 'unsafe_unit_namespace');
     const unit = path.join(unitRoot, name); const drops = `${unit}.d`;
     for (const target of [unit, drops]) if (fs.existsSync(target)) {
       assertRelease(!fs.lstatSync(target).isSymbolicLink(), 'unsafe_unit_override');

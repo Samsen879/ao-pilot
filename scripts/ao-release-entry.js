@@ -15,5 +15,11 @@ const command = component === 'daemon' ? path.join(release, entry) : manifest.to
 const args = component === 'daemon' ? ['daemon'] : [path.join(release, entry), ...(component === 'session-recovery' ? ['serve'] : [])];
 assertRelease(typeof process.execve === 'function', 'release_node_execve_required');
 process.chdir(release);
-process.execve(command, [command, ...args], { ...process.env,
-  AO_RELEASE_ID: manifest.release_id, AO_RELEASE_ROOT: release });
+const environment = { ...process.env, AO_RELEASE_ID: manifest.release_id, AO_RELEASE_ROOT: release };
+if (component === 'adapter') {
+  // The reviewed JSON is authoritative; inherited site variables cannot silently
+  // override its upstreams or enable an unexpected listener.
+  for (const key of ['LISTEN_HOST', 'LISTEN_PORT', 'DASHBOARD_UPSTREAM_HOST', 'DASHBOARD_UPSTREAM_PORT', 'AO_DAEMON_HOST', 'AO_DAEMON_PORT',
+    'DIRECT_TERMINAL_HOST', 'DIRECT_TERMINAL_PORT', 'DIRECT_TERMINAL_BROWSER_PORT', 'TERMINAL_ORIGIN', 'PROJECT_NAME', 'ISSUE_BASE_URL']) delete environment[key];
+}
+process.execve(command, [command, ...args], environment);

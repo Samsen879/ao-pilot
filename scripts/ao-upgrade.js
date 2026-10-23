@@ -41,7 +41,7 @@ export async function runCli(argv, io = { writeStdout: (text) => process.stdout.
       const root = fs.realpathSync(path.join(configuration.installRoot, 'current'));
       const service = runner ?? createSystemdReleaseRunner(configuration);
       const observation = await service.observe({ releaseRoot: root });
-      const report = inspectInstall({ releaseRoot: root, observation, baseline: observation });
+      const report = inspectInstall({ releaseRoot: root, observation, baseline: observation, requireRestart: false });
       // Inspect output is explicitly private diagnostic data, never a public receipt.
       io.writeStdout(`${JSON.stringify(report, null, 2)}\n`);
       return { exitCode: report.status === 'passed' ? 0 : 2, report };
