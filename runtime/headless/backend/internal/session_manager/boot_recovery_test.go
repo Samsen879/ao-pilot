@@ -320,3 +320,58 @@ func TestExplicitWorkspaceRestoreAppliesEveryOverflowPreserveRef(t *testing.T) {
 		}
 	}
 }
+
+func TestRestoreAllRetainsFailedReplayMarker(t *testing.T) {
+	m, store, _, baseWorkspace, _ := newSpawnFixture(t)
+	m.workspace = &bootRecoveryWorkspace{fakeWorkspace: baseWorkspace, applyErr: errors.New("replay unavailable")}
+	ctx := context.Background()
+	rec := seedBootRecoverySession(t, store, t.TempDir(), 1, domain.KindWorker, true, "removed")
+	const ref = "refs/ao/preserved/retry"
+	rows, err := store.ListSessionWorktrees(ctx, rec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows[0].PreservedRef = ref
+	if err := store.UpsertSessionWorktree(ctx, rows[0]); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RestoreAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	rows, err = store.ListSessionWorktrees(ctx, rec.ID)
+	if err != nil || len(rows) != 1 || rows[0].PreservedRef != ref || rows[0].State != "active" {
+		t.Fatalf("failed replay lost recovery custody: rows=%+v err=%v", rows, err)
+	}
+}
+
+func TestShutdownRecoveryRanksOriginalActivityNotTeardownOrder(t *testing.T) {
+	m, store, runtime, baseWorkspace, _ := newSpawnFixture(t)
+	m.workspace = &bootRecoveryWorkspace{fakeWorkspace: baseWorkspace}
+	ctx := context.Background()
+	root := t.TempDir()
+	var recs []domain.SessionRecord
+	for i := 1; i <= bootRestoreLimit+1; i++ {
+		recs = append(recs, seedBootRecoverySession(t, store, root, i, domain.KindWorker, false, ""))
+	}
+	for i := len(recs) - 1; i >= 0; i-- {
+		if err := m.saveAndTeardownOne(ctx, recs[i], false); err != nil {
+			t.Fatal(err)
+		}
+		got, ok, err := store.SessionWorktreesRecoveryActivity(ctx, recs[i].ID)
+		if err != nil || !ok || !got.Equal(recs[i].Activity.LastActivityAt) {
+			t.Fatalf("recovery timestamp=%v ok=%v err=%v", got, ok, err)
+		}
+	}
+	if err := m.RestoreAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.creates != bootRestoreLimit {
+		t.Fatalf("creates=%d", runtime.creates)
+	}
+	for i, rec := range recs {
+		got, _, err := store.GetSession(ctx, rec.ID)
+		if err != nil || got.IsTerminated != (i == 0) {
+			t.Fatalf("session %s terminated=%v err=%v; oldest must be deferred", rec.ID, got.IsTerminated, err)
+		}
+	}
+}
