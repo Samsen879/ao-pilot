@@ -547,6 +547,19 @@ func (w *Workspace) StashUncommitted(ctx context.Context, info ports.WorkspaceIn
 	// Deferred remove is a best-effort cleanup in case git leaves the file.
 	defer func() { _ = os.Remove(tmpIdxPath) }()
 
+	// Seed the temporary index from HEAD. An empty index loses sparse-excluded
+	// tracked files, turning unrelated hidden paths into preserved deletions.
+	headOut, headErr := w.run(ctx, w.binary, revParseHeadArgs(path)...)
+	headSHA := ""
+	if headErr == nil {
+		headSHA = strings.TrimSpace(string(headOut))
+		seed := exec.CommandContext(ctx, w.binary, "-C", path, "read-tree", headSHA)
+		seed.Env = append(os.Environ(), "GIT_INDEX_FILE="+tmpIdxPath)
+		if out, err := seed.CombinedOutput(); err != nil {
+			return "", fmt.Errorf("gitworktree: seed preserve index: %w: %s", err, out)
+		}
+	}
+
 	// Stage all tracked and non-ignored untracked files into the temp index.
 	// GIT_INDEX_FILE overrides the index so the real index is never touched.
 	addCmd := exec.CommandContext(ctx, w.binary, addAllTempIndexArgs(path)...)
@@ -564,14 +577,7 @@ func (w *Workspace) StashUncommitted(ctx context.Context, info ports.WorkspaceIn
 	}
 	treeSHA := strings.TrimSpace(string(treeOut))
 
-	// Resolve HEAD. An unborn HEAD (no commits yet) means we omit the -p flag
-	// from commit-tree so the preserve commit has no parent.
-	headOut, headErr := w.run(ctx, w.binary, revParseHeadArgs(path)...)
-	headSHA := ""
-	if headErr == nil {
-		headSHA = strings.TrimSpace(string(headOut))
-	}
-	// headErr != nil means unborn HEAD: headSHA stays empty, commit-tree gets no -p.
+	// An unborn HEAD leaves headSHA empty, so commit-tree omits the parent.
 
 	// If the preserve tree SHA equals HEAD's tree SHA the working tree is
 	// effectively clean from git's perspective (only ignored files differ).
@@ -672,6 +678,15 @@ func (w *Workspace) materializePreservedPaths(ctx context.Context, worktree, com
 		bytes, err := w.estimateCheckoutRefBytes(ctx, worktree, commit, all)
 		if err != nil {
 			return err
+		}
+		// Expansion first checks out current HEAD, including files deleted by
+		// the preserve commit. Account for that intermediate view as well.
+		beforeBytes, err := w.estimateCheckoutRefBytes(ctx, worktree, "HEAD", all)
+		if err != nil {
+			return err
+		}
+		if beforeBytes > bytes {
+			bytes = beforeBytes
 		}
 		if err := w.ensureCapacity(bytes); err != nil {
 			return err
