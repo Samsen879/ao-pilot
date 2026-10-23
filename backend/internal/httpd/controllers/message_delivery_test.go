@@ -57,7 +57,7 @@ func TestMessageHTTPAllBusinessOutcomes(t *testing.T) {
 func TestMessageHTTPStrictBodyAndSafeAckID(t *testing.T) {
 	svc := &messageControllerService{}
 	controller := &SessionsController{Svc: svc}
-	for _, body := range []string{`{"message":"task","extra":true}`, `{"message":"task"} {}`, `{"message":"task","require_ack":true,"ack_timeout_ms":0}`, `{"message":"task","ack_timeout_ms":1}`, `{"message":"task","require_ack":true,"ack_timeout_ms":null}`} {
+	for _, body := range []string{`{"message":"task","require_ack":null}`, `{"message":"task","message_id":null}`, `{"message":"task","message_id":""}`, `{"message":"task","message_id":"x;exit"}`, `{"message":"task","extra":true}`, `{"message":"task"} {}`, `{"message":"task","require_ack":true,"ack_timeout_ms":0}`, `{"message":"task","ack_timeout_ms":1}`, `{"message":"task","require_ack":true,"ack_timeout_ms":null}`} {
 		res := httptest.NewRecorder()
 		controller.SendMessage(res, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body)))
 		if res.Code != 400 {

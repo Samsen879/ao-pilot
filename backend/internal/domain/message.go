@@ -74,6 +74,19 @@ func (o *MessageOptions) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return err
 	}
+	for field, raw := range fields {
+		switch field {
+		case "message", "message_id", "require_ack", "ack_timeout_ms":
+		default:
+			return fmt.Errorf("unknown message field %q", field)
+		}
+		if (field == "require_ack" || field == "message_id") && bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return fmt.Errorf("%s cannot be null", field)
+		}
+	}
+	if _, exists := fields["message_id"]; exists && !ValidMessageID(value.MessageID) {
+		return fmt.Errorf("message_id must be a nonempty safe ID")
+	}
 	if raw, exists := fields["ack_timeout_ms"]; exists {
 		var budget int
 		if bytes.Equal(raw, []byte("null")) {

@@ -116,7 +116,7 @@ func TestMessageCLIRejectsUnsafeInputAndMissingCapabilityBeforeMutation(t *testi
 		}
 		return messageHTTPResponse(404, map[string]string{"code": "NOT_FOUND"}), nil
 	})
-	for _, args := range [][]string{{"--session", "s", "--message", "task", "--message-id", "x;exit"}, {"--session", "s", "--message", "task", "--ack-timeout", "2s"}, {"--session", "s", "--message", "task", "--require-ack", "--ack-timeout", "61s"}} {
+	for _, args := range [][]string{{"--session", "s", "--message", "task", "--message-id", ""}, {"--session", "s", "--message", "task", "--message-id", "x;exit"}, {"--session", "s", "--message", "task", "--ack-timeout", "2s"}, {"--session", "s", "--message", "task", "--require-ack", "--ack-timeout", "61s"}} {
 		cmd := newSendCommand(c)
 		cmd.SilenceUsage = true
 		cmd.SetOut(io.Discard)
