@@ -82,7 +82,8 @@ func Build() ([]byte, error) {
 			"Target-isolated desktop browser runtime (loopback only)"),
 	}
 
-	for _, op := range operations() {
+	ops := append(operations(), operation{method: http.MethodGet, path: "/readyz", id: "getReadiness", tag: "daemon", summary: "Strict readiness; degraded returns 503 while recovery APIs remain available", resps: []respUnit{{http.StatusOK, controllers.ReadinessResponse{}}, {http.StatusServiceUnavailable, controllers.ReadinessResponse{}}}})
+	for _, op := range ops {
 		oc, err := r.NewOperationContext(op.method, op.path)
 		if err != nil {
 			return nil, fmt.Errorf("new operation %s %s: %w", op.method, op.path, err)
@@ -1025,6 +1026,12 @@ func sessionOperations() []operation {
 				{http.StatusInternalServerError, envelope.APIError{}},
 				{http.StatusNotImplemented, envelope.APIError{}},
 			},
+		},
+		{
+			method: http.MethodPost, path: "/api/v1/sessions/restore", id: "restoreProjectSessions", tag: "sessions",
+			summary: "Explicitly restore all project sessions; orchestrators first, per-item outcomes",
+			reqBody: controllers.BatchRestoreRequest{},
+			resps:   []respUnit{{http.StatusOK, sessionmanager.BatchRestoreResult{}}, {http.StatusBadRequest, envelope.APIError{}}, {http.StatusNotFound, envelope.APIError{}}, {http.StatusInternalServerError, envelope.APIError{}}, {http.StatusNotImplemented, envelope.APIError{}}},
 		},
 		{
 			method: http.MethodPost, path: "/api/v1/sessions/{sessionId}/restore", id: "restoreSession", tag: "sessions",

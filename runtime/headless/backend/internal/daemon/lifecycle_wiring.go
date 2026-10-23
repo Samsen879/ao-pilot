@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"sync"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters"
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/agent/activitydispatch"
@@ -40,6 +41,8 @@ type lifecycleStack struct {
 	// standing up a second store+LCM pair that would diverge under writes.
 	LCM              *lifecycle.Manager
 	runtimeReaper    *reaper.Reaper
+	reaperAdmission  chan struct{}
+	reaperOnce       sync.Once
 	reaperDone       <-chan struct{}
 	activityDone     <-chan struct{}
 	scmDone          <-chan struct{}
@@ -66,14 +69,38 @@ func startLifecycle(ctx context.Context, store *sqlite.Store, runtime ports.Runt
 	)
 	rp := reaper.New(lcm, store, runtime, reaper.Config{Logger: logger})
 	activityPoller := activityobserver.New(store, lcm, runtime, agents, activityobserver.Config{Logger: logger})
-	return &lifecycleStack{
+	stack := &lifecycleStack{
 		LCM:              lcm,
 		runtimeReaper:    rp,
-		reaperDone:       rp.Start(ctx),
+		reaperAdmission:  make(chan struct{}),
 		activityDone:     activityPoller.Start(ctx),
 		reengagement:     reengagement,
 		reengagementDone: reengagement.Start(ctx),
 	}
+	stack.reaperDone = startAfterRecovery(ctx, stack.reaperAdmission, rp.Start)
+	return stack
+}
+
+// The LCM and hook receivers exist during boot; periodic death observations
+// must not consume live-session recovery eligibility before first Reconcile.
+func startAfterRecovery(ctx context.Context, admission <-chan struct{}, start func(context.Context) <-chan struct{}) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		select {
+		case <-ctx.Done():
+			return
+		case <-admission:
+		}
+		if ctx.Err() == nil {
+			<-start(ctx)
+		}
+	}()
+	return done
+}
+
+func (l *lifecycleStack) StartRuntimeObservation() {
+	l.reaperOnce.Do(func() { close(l.reaperAdmission) })
 }
 
 // ReconcileRuntime runs the same conservative runtime/workload observation as

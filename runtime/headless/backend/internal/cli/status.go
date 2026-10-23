@@ -24,6 +24,7 @@ type daemonState string
 
 const (
 	stateReady     daemonState = "ready"
+	stateDegraded  daemonState = "degraded"
 	stateStopped   daemonState = "stopped"
 	stateStale     daemonState = "stale"
 	stateUnhealthy daemonState = "unhealthy"
@@ -32,25 +33,32 @@ const (
 
 type daemonStatus struct {
 	record    *runfile.Info
-	State     daemonState `json:"state"`
-	PID       int         `json:"pid,omitempty"`
-	Port      int         `json:"port,omitempty"`
-	StartedAt *time.Time  `json:"startedAt,omitempty"`
-	Uptime    string      `json:"uptime,omitempty"`
-	RunFile   string      `json:"runFile"`
-	DataDir   string      `json:"dataDir"`
-	Health    string      `json:"health,omitempty"`
-	Ready     string      `json:"ready,omitempty"`
-	Error     string      `json:"error,omitempty"`
+	State     daemonState   `json:"state"`
+	PID       int           `json:"pid,omitempty"`
+	Port      int           `json:"port,omitempty"`
+	StartedAt *time.Time    `json:"startedAt,omitempty"`
+	Uptime    string        `json:"uptime,omitempty"`
+	RunFile   string        `json:"runFile"`
+	DataDir   string        `json:"dataDir"`
+	Health    string        `json:"health,omitempty"`
+	Ready     string        `json:"ready,omitempty"`
+	Reasons   []probeReason `json:"reasons,omitempty"`
+	Error     string        `json:"error,omitempty"`
 	owned     bool
 }
 
+type probeReason struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
 type probeResult struct {
-	Status           string `json:"status"`
-	Service          string `json:"service"`
-	PID              int    `json:"pid"`
-	ExecutablePath   string `json:"executablePath,omitempty"`
-	WorkingDirectory string `json:"workingDirectory,omitempty"`
+	Reasons          []probeReason `json:"reasons,omitempty"`
+	Status           string        `json:"status"`
+	Service          string        `json:"service"`
+	PID              int           `json:"pid"`
+	ExecutablePath   string        `json:"executablePath,omitempty"`
+	WorkingDirectory string        `json:"workingDirectory,omitempty"`
 }
 
 func newStatusCommand(ctx *commandContext) *cobra.Command {
@@ -133,6 +141,11 @@ func (c *commandContext) inspectDaemon(ctx context.Context) (daemonStatus, error
 		return st, nil
 	}
 	st.Ready = ready.Status
+	st.Reasons = ready.Reasons
+	if ready.Status == string(stateDegraded) {
+		st.State = stateDegraded
+		return st, nil
+	}
 	if ready.Status == string(stateReady) {
 		st.State = stateReady
 		return st, nil
@@ -154,12 +167,15 @@ func (c *commandContext) readProbe(ctx context.Context, port int, path string) (
 		return probeResult{}, fmt.Errorf("%s: %w", path, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	if (resp.StatusCode < 200 || resp.StatusCode >= 300) && !(path == "readyz" && resp.StatusCode == http.StatusServiceUnavailable) {
 		return probeResult{}, fmt.Errorf("%s: HTTP %d", path, resp.StatusCode)
 	}
 	var body probeResult
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		return probeResult{}, fmt.Errorf("%s: decode response: %w", path, err)
+	}
+	if resp.StatusCode == http.StatusServiceUnavailable && body.Status != "starting" && body.Status != "degraded" {
+		return probeResult{}, fmt.Errorf("%s: invalid unavailable readiness status", path)
 	}
 	if body.Status == "" {
 		return probeResult{}, fmt.Errorf("%s: missing status", path)
@@ -210,6 +226,11 @@ func writeStatus(cmd *cobra.Command, st daemonStatus) error {
 	}
 	if st.Health != "" {
 		if _, err := fmt.Fprintf(out, "  healthz: %s\n", st.Health); err != nil {
+			return err
+		}
+	}
+	for _, reason := range st.Reasons {
+		if _, err := fmt.Fprintf(out, "  degraded: %s: %s\n", reason.Code, reason.Message); err != nil {
 			return err
 		}
 	}

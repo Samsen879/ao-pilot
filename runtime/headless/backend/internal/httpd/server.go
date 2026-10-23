@@ -30,7 +30,9 @@ type Server struct {
 
 	shutdownRequested chan struct{}
 	shutdownOnce      sync.Once
-	ready             atomic.Bool
+	ready             atomic.Bool // boot admission; degraded diagnostics do not close recovery APIs
+	readinessMu       sync.RWMutex
+	degraded          map[string]string
 	serveStarted      chan struct{}
 	publisher         *runfile.Publisher
 }
@@ -80,6 +82,7 @@ func NewWithDeps(cfg config.Config, log *slog.Logger, termMgr *terminal.Manager,
 			RequestShutdown: srv.requestShutdown,
 			InstanceID:      publisher.InstanceID(),
 			IsReady:         srv.ready.Load,
+			Readiness:       srv.Readiness,
 		}),
 		// ReadHeaderTimeout guards against slow-loris even on loopback;
 		// per-request body/handler timeouts are applied per-surface.
@@ -97,7 +100,8 @@ func (s *Server) Addr() net.Addr { return s.listen.Addr() }
 // keeping the loopback and LAN surfaces identical.
 func (s *Server) Handler() http.Handler { return s.http.Handler }
 
-// MarkReady opens the REST API and readiness probe after boot reconciliation.
+// MarkReady completes REST admission after boot reconciliation. The readiness
+// probe stays degraded while any separately recorded dependency reason exists.
 func (s *Server) MarkReady() { s.ready.Store(true) }
 
 // ServeStarted closes once the HTTP server enters its accept loop, after the
