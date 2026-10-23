@@ -41,11 +41,11 @@ func New() *Plugin {
 // launch. See ports.ActivitySignaler.
 func (p *Plugin) EmitsSubmitActivity() bool { return true }
 
-// EmitsBlockedActivity is false: although permission requests are marked
-// blocked, Codex installs no post-tool-use hook to clear that state mid-turn.
-// confirmActive must not nudge it. See
-// ports.ActivitySignaler.
-func (p *Plugin) EmitsBlockedActivity() bool { return false }
+// EmitsBlockedActivity signals that Codex reports permission requests as the
+// distinct blocked state. The state remains sticky until a later turn signal,
+// which is sufficient for the guarded post-send confirmation loop to refuse an
+// Enter while a decision dialog is visible.
+func (p *Plugin) EmitsBlockedActivity() bool { return true }
 
 // ExitDetectionMode opts Codex into AO's process supervisor. Codex hooks
 // expose turn boundaries but no reliable session-end event.
