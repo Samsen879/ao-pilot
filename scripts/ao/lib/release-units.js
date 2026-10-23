@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { assertRelease, fileSha256, durableJson, readJson, syncTree } from './release-manifest.js';
+import { assertRelease, fileSha256, durableJson, readJson, syncDirectory, syncTree } from './release-manifest.js';
 
 const TEMPLATE_ROOT = fileURLToPath(new URL('../../../templates/systemd/', import.meta.url));
 export const RELEASE_SERVICES = ['tmux', 'runtime', 'dashboard', 'session-recovery', 'adapter'];
@@ -40,13 +41,25 @@ export function renderReleaseUnits({ installRoot, stateRoot, envFile, nodePath, 
     return [`${namespace}-${component === 'adapter' ? 'dashboard-adapter' : component}.service`, body];
   }));
 }
+function existing(file) {
+  try { return fs.lstatSync(file); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+}
+function assertWritableUnitPaths(unit, drops) {
+  const unitStat = existing(unit); const dropsStat = existing(drops);
+  assertRelease(!unitStat || unitStat.isFile() && !unitStat.isSymbolicLink(), 'unsafe_unit_override');
+  assertRelease(!dropsStat || dropsStat.isDirectory() && !dropsStat.isSymbolicLink(), 'unsafe_unit_override');
+}
 export function writeReleaseUnits({ unitRoot, units, lock, environmentOverride = null }) {
   if (environmentOverride !== null) validateEnvironmentOverride(environmentOverride);
   for (const [name, body] of Object.entries(units)) {
     lock.assertOwned();
     const unit = path.join(unitRoot, name); const drops = `${unit}.d`;
-    if (fs.existsSync(drops)) fs.rmSync(drops, { recursive: true });
-    fs.writeFileSync(unit, body, { mode: 0o600 });
+    assertWritableUnitPaths(unit, drops);
+    if (existing(drops)) fs.rmSync(drops, { recursive: true });
+    const temporary = `${unit}.tmp-${randomUUID()}`;
+    const descriptor = fs.openSync(temporary, 'wx', 0o600);
+    try { fs.writeFileSync(descriptor, body); fs.fsyncSync(descriptor); } finally { fs.closeSync(descriptor); }
+    lock.assertOwned(); fs.renameSync(temporary, unit); syncDirectory(unitRoot);
     if (environmentOverride) {
       fs.mkdirSync(drops, { mode: 0o700 });
       fs.writeFileSync(path.join(drops, '10-environment.conf'), environmentOverride, { mode: 0o600 });
@@ -61,7 +74,8 @@ export function backupAndInstallUnits({ unitRoot, backupRoot, units, lock, envir
   for (const name of Object.keys(units)) {
     assertRelease(/^ao-pilot(?:-staging-[a-z0-9-]+)?-(tmux|runtime|dashboard|session-recovery|dashboard-adapter)\.service$/.test(name), 'unsafe_unit_namespace');
     const unit = path.join(unitRoot, name); const drops = `${unit}.d`;
-    for (const target of [unit, drops]) if (fs.existsSync(target)) {
+    assertWritableUnitPaths(unit, drops);
+    for (const target of [unit, drops]) if (existing(target)) {
       assertRelease(!fs.lstatSync(target).isSymbolicLink(), 'unsafe_unit_override');
       const destination = path.join(backupRoot, path.basename(target));
       fs.cpSync(target, destination, { recursive: true, dereference: false, verbatimSymlinks: true });

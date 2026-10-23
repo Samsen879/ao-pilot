@@ -127,6 +127,15 @@ describe('unified release transaction on real temporary filesystem with fake ser
     expect(runner.calls).toContain('start'); expect(readReleasePointer(config.installRoot, 'current')).toBe(`releases/${old.manifest.release_id}`);
     expect(readJson(path.join(config.installRoot, 'install-journal.json')).phase).toBe('rolled_back');
   });
+  it.each(['unit', 'drop-in'])('preserves dangling %s symlinks and cannot write outside the transaction namespace', async (kind) => {
+    const { root, config } = fixture(); const bundle = createBundle(root);
+    fs.mkdirSync(config.unitRoot, { recursive: true }); const external = path.join(root, 'external-unowned');
+    const unit = path.join(config.unitRoot, 'ao-pilot-staging-fixture-runtime.service');
+    const link = kind === 'unit' ? unit : `${unit}.d`; fs.symlinkSync(external, link);
+    await expect(apply(bundle, config, fakeRunner(root))).rejects.toMatchObject({ code: 'unsafe_unit_override' });
+    expect(fs.readlinkSync(link)).toBe(external); expect(fs.existsSync(external)).toBe(false);
+    expect(readReleasePointer(config.installRoot, 'current')).toBeNull();
+  });
   it('holds on incompatible rollback without explicit backup restoration authority', async () => {
     const { root, config } = fixture(); const old = createBundle(root); const next = createBundle(root, { version: '2.0.0', schema: 44 });
     await apply(old, config, fakeRunner(root));
