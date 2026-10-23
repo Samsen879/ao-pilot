@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { verifyPackedRelease } from './release-tarball.js';
+import { verifyPackedRelease, payloadOnlyPath } from './release-tarball.js';
 import { NATIVE_ADAPTER_SOURCE } from './release-adapter.js';
 import os from 'node:os';
 import path from 'node:path';
@@ -116,7 +116,7 @@ export async function buildRelease({
     const lockFile = path.join(source, 'runtime/agent-orchestrator.lock.json');
     const lock = readJson(lockFile);
     const packageMetadata = readJson(path.join(source, 'package.json'));
-    packageMetadata.files = [...new Set([...(packageMetadata.files ?? []), 'release.json', 'release', 'native', adapterRoot])];
+    packageMetadata.files = [...new Set(['release.json', ...inventoryTree(source).filter((file) => file.type !== 'directory' && !payloadOnlyPath(file.path)).map((file) => file.path)])];
     fs.writeFileSync(path.join(source, 'package.json'), `${JSON.stringify(packageMetadata, null, 2)}\n`);
     const files = inventoryTree(source);
     const scopes = {

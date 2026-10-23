@@ -596,24 +596,38 @@ describe("runtime.getAttachInfo()", () => {
 });
 
 describe("managed installation tmux namespace", () => {
-  const keys = ["AO_INSTALL_ROOT", "AO_TMUX_SOCKET", "AO_TMUX_UNIT", "AO_TMUX_TMPDIR", "TMUX_TMPDIR", "AO_MANAGED_RUNTIME_BINARY"];
+  const native = "/fixture/install/releases/1.0.0+" + "a".repeat(40) + "/native/ao";
+  const keys = ["AO_INSTALL_ROOT", "AO_TMUX_SOCKET", "AO_TMUX_UNIT", "AO_TMUX_TMPDIR", "TMUX_TMPDIR", "AO_MANAGED_RUNTIME_BINARY", "AO_MANAGED_RUNTIME_BINARY_SHA256", "AO_MANAGED_RUNTIME_DATA_DIR", "AO_MANAGED_RUNTIME_RUN_FILE", "AO_DATA_DIR", "AO_RUN_FILE"];
+  const doctor = JSON.stringify({ checks: [{ name: "tmux_cgroup", level: "PASS", details: { status: "ok" } }] });
   function managed() {
     vi.stubEnv("AO_INSTALL_ROOT", "/fixture/install"); vi.stubEnv("AO_TMUX_SOCKET", "ao-pilot-staging-test");
     vi.stubEnv("AO_TMUX_UNIT", "ao-pilot-staging-test-tmux.service"); vi.stubEnv("AO_TMUX_TMPDIR", "/fixture/tmux");
-    vi.stubEnv("TMUX_TMPDIR", "/fixture/tmux"); vi.stubEnv("AO_MANAGED_RUNTIME_BINARY", "/fixture/install/current/native/ao");
+    vi.stubEnv("TMUX_TMPDIR", "/fixture/tmux"); vi.stubEnv("AO_MANAGED_RUNTIME_BINARY", native);
+    vi.stubEnv("AO_MANAGED_RUNTIME_BINARY_SHA256", "a".repeat(64));
+    vi.stubEnv("AO_MANAGED_RUNTIME_DATA_DIR", "/fixture/data"); vi.stubEnv("AO_DATA_DIR", "/fixture/data");
+    vi.stubEnv("AO_MANAGED_RUNTIME_RUN_FILE", "/fixture/run/running.json"); vi.stubEnv("AO_RUN_FILE", "/fixture/run/running.json");
   }
   afterEach(() => { vi.unstubAllEnvs(); });
-  it("starts the owned unit, checks native evidence and always uses -L/-N", async () => {
-    managed(); mockTmuxSuccess();
-    mockTmuxSuccess(JSON.stringify({ checks: [{ name: "tmux_cgroup", level: "PASS", details: { status: "ok" } }] }));
-    mockTmuxSuccess(); mockTmuxSuccess();
+  it("checks an existing server without starting a unit and always uses -L/-N", async () => {
+    managed(); mockTmuxSuccess("99"); mockTmuxSuccess(doctor); mockTmuxSuccess(); mockTmuxSuccess();
     await create().create({ sessionId: "managed", workspacePath: "/tmp/fixture", launchCommand: "echo fake", environment: {} });
-    expect(mockExecFileCustom).toHaveBeenNthCalledWith(1, "systemctl", ["--user", "start", "ao-pilot-staging-test-tmux.service"], expectedTmuxOptions);
+    expect(mockExecFileCustom).not.toHaveBeenCalledWith("systemctl", expect.anything(), expect.anything());
     const calls = mockExecFileCustom.mock.calls.filter(([command]) => command === "tmux");
     expect(calls.length).toBeGreaterThan(0);
     for (const [, args] of calls) expect(args.slice(0, 3)).toEqual(["-L", "ao-pilot-staging-test", "-N"]);
   });
-  it.each(keys.filter((key) => key !== "TMUX_TMPDIR"))("fails closed for missing managed %s", async (key) => {
+  it("only Create starts the unit after a non-starting probe proves the server absent", async () => {
+    managed(); mockExecFileCustom.mockRejectedValueOnce(Error("no server running on /fixture/tmux")); mockTmuxSuccess(); mockTmuxSuccess(doctor); mockTmuxSuccess(); mockTmuxSuccess();
+    await create().create({ sessionId: "managed", workspacePath: "/tmp/fixture", launchCommand: "echo fake", environment: {} });
+    expect(mockExecFileCustom).toHaveBeenNthCalledWith(1, "tmux", ["-L", "ao-pilot-staging-test", "-N", "display-message", "-p", "#{pid}"], expectedTmuxOptions);
+    expect(mockExecFileCustom).toHaveBeenNthCalledWith(2, "systemctl", ["--user", "start", "ao-pilot-staging-test-tmux.service"], expectedTmuxOptions);
+  });
+  it("never starts on an unknown or permission-denied server probe", async () => {
+    managed(); mockExecFileCustom.mockRejectedValueOnce(Error("permission denied"));
+    await expect(create().create({ sessionId: "managed", workspacePath: "/tmp/fixture", launchCommand: "echo fake", environment: {} })).rejects.toThrow("permission denied");
+    expect(mockExecFileCustom).toHaveBeenCalledTimes(1);
+  });
+  it.each(keys)("fails closed for missing managed %s", async (key) => {
     managed(); vi.stubEnv(key, undefined);
     await expect(create().getAttachInfo!(makeHandle("managed"))).rejects.toThrow("namespace");
     expect(mockExecFileCustom).not.toHaveBeenCalled();
@@ -623,14 +637,16 @@ describe("managed installation tmux namespace", () => {
     await expect(create().isAlive(makeHandle("managed"))).rejects.toThrow("namespace");
     expect(mockExecFileCustom).not.toHaveBeenCalled();
   });
-  it("rejects UNKNOWN cgroup evidence before attaching", async () => {
-    managed(); mockTmuxSuccess();
-    mockTmuxSuccess(JSON.stringify({ checks: [{ name: "tmux_cgroup", level: "WARN", details: { status: "unknown" } }] }));
+  it("rejects UNKNOWN cgroup evidence on read-only Attach without starting anything", async () => {
+    managed(); mockTmuxSuccess(JSON.stringify({ checks: [{ name: "tmux_cgroup", level: "WARN", details: { status: "unknown" } }] }));
     await expect(create().getAttachInfo!(makeHandle("managed"))).rejects.toThrow("not verified");
-    expect(mockExecFileCustom.mock.calls.filter(([command]) => command === "tmux")).toHaveLength(0);
+    expect(mockExecFileCustom).toHaveBeenCalledTimes(1);
+    expect(mockExecFileCustom).toHaveBeenCalledWith(native, ["doctor", "--json"], expectedTmuxOptions);
   });
-  it("returns an attach command bound to the same socket and -N", async () => {
-    managed(); mockTmuxSuccess(); mockTmuxSuccess(JSON.stringify({ checks: [{ name: "tmux_cgroup", level: "PASS", details: { status: "ok" } }] }));
+  it("returns a bound read-only Attach command without starting the unit", async () => {
+    managed(); mockTmuxSuccess(doctor);
     expect((await create().getAttachInfo!(makeHandle("managed"))).command).toBe("tmux -L ao-pilot-staging-test -N attach -t managed");
+    expect(mockExecFileCustom).toHaveBeenCalledTimes(1);
+    expect(mockExecFileCustom).toHaveBeenCalledWith(native, ["doctor", "--json"], expectedTmuxOptions);
   });
 });

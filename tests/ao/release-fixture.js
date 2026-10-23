@@ -9,6 +9,7 @@ export function createBundle(root, { version = '1.0.0', commit = 'a'.repeat(40),
   fs.mkdirSync(payload, { recursive: true });
   for (const [file, bytes] of Object.entries({
     'native/ao': native, 'bin/ao-pilot.js': '#!/usr/bin/env node\n',
+    'scripts/ao-release-entry.js': '/* fake immutable launcher */', 'schemas/fixture.json': '{"fixture":true}',
     'scripts/ao-dashboard.js': '/* fake dashboard fixture */', 'scripts/ao-session.js': '/* fake recovery fixture */',
     'adapter/server.mjs': '/* fake adapter test input, not production replacement */',
     'browser/dist.js': '/* fake dashboard build fixture */',
@@ -50,8 +51,8 @@ export function healthyObservation(manifest, releaseRoot, { generation = 2, sche
     release_id: manifest.release_id, release_root: releaseRoot,
     component_sha256: name === 'session-recovery' ? manifest.components.cli.sha256 : manifest.components[name].sha256,
   }]));
-  return { cli_bound: true, services, tmux: { level: 'PASS', status: 'ok', server_pid: 99, server_start_token: 'tmux-token', executable_sha256: manifest.toolchain.tmux_sha256 },
-    ready: { state: 'ready', reasons: [] }, cids: ['cid-worker', 'cid-orchestrator'], database: { schema, integrity: 'ok' },
+  return { native_cids: [{ ao_session_id: 'cid-orchestrator', native_conversation_id: 'native-original-orchestrator' }, { ao_session_id: 'cid-worker', native_conversation_id: 'native-original-worker' }], custody: [], identities: [], cli_bound: true, services, tmux: { level: 'PASS', status: 'ok', server_pid: 99, server_start_token: 'tmux-token', executable_sha256: manifest.toolchain.tmux_sha256 },
+    ready: { status: 'ready', ready: true, reasons: [] }, cids: ['cid-worker', 'cid-orchestrator'], database: { schema, integrity: 'ok' },
     linger: true, listeners_loopback: true, terminal_auth: true, ownership_locks: true, lan_disabled: true, trusted_host_disabled: true, tokenless_lock_safe: true };
 }
 export function fakeRunner(root, { onObserve = null } = {}) {
@@ -60,7 +61,7 @@ export function fakeRunner(root, { onObserve = null } = {}) {
     calls,
     async preflight({ releaseRoot, manifest }) { calls.push('preflight'); return healthyObservation(manifest, releaseRoot, { generation }); },
     async backupDatabase({ backupRoot }) { calls.push('backup'); fs.mkdirSync(backupRoot, { recursive: true }); const file = path.join(backupRoot, 'ao.db'); fs.writeFileSync(file, 'fake consistent database backup'); return { path: file, sha256: fileSha256(file), completed_at: '2026-10-23T00:00:00.000Z' }; },
-    async quiescent() { calls.push('quiescent'); return { cids: ['cid-worker', 'cid-orchestrator'], database: { schema: 43, integrity: 'ok' } }; },
+    async quiescent() { calls.push('quiescent'); return { native_cids: [{ ao_session_id: 'cid-orchestrator', native_conversation_id: 'native-original-orchestrator' }, { ao_session_id: 'cid-worker', native_conversation_id: 'native-original-worker' }], custody: [], identities: [], cids: ['cid-worker', 'cid-orchestrator'], database: { schema: 43, integrity: 'ok' } }; },
     async stop() { calls.push('stop'); }, async reload() { calls.push('reload'); },
     async start() { generation += 1; calls.push('start'); },
     async observe({ releaseRoot }) { calls.push('observe'); const manifest = readJson(path.join(releaseRoot, 'release.json')); const observation = healthyObservation(manifest, fs.realpathSync(releaseRoot), { generation }); return onObserve ? onObserve(observation, calls) : observation; },

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, expect, it } from '@jest/globals';
-import { verifySchemaCompatibility } from '../../scripts/verify-schema-compatibility.js';
+import { verifySchemaCompatibility, assertOwnedHealth } from '../../scripts/verify-schema-compatibility.js';
 import { fixtureRoot } from './release-fixture.js';
 const roots = [];
 afterEach(() => { roots.splice(0).forEach((root) => fs.rmSync(root, { recursive: true, force: true })); });
@@ -35,4 +35,11 @@ it('rejects candidate corruption and artifact replacement during the probe', asy
 it('never suppresses an unknown process exit when probing the old reader', async () => {
   const { options, inspect } = fixture();
   await expect(verifySchemaCompatibility(options, { inspect, probe: async (binary) => { if (binary === options.oldBinary) throw Object.assign(Error('cannot prove exit'), { code: 'compatibility_process_exit_unknown' }); } })).rejects.toMatchObject({ code: 'compatibility_process_exit_unknown' });
+});
+
+it('binds real health DTO to the owned PID and service rather than a different listener on the chosen port', () => {
+  expect(() => assertOwnedHealth({ status: 'ok', service: 'agent-orchestrator-daemon', pid: 123 }, 123)).not.toThrow();
+  for (const payload of [{ status: 'ok', service: 'agent-orchestrator-daemon', pid: 999 }, { status: 'ok', service: 'other', pid: 123 }, { status: 'ok' }]) {
+    expect(() => assertOwnedHealth(payload, 123)).toThrow('compatibility_process_unknown');
+  }
 });

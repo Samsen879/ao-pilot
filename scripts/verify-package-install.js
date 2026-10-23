@@ -56,6 +56,12 @@ try {
     const paths = Object.entries(metadata.exports).filter(([name, value]) => !name.endsWith('.json') && typeof value === 'string').map(([, value]) => value);
     run(process.execPath, ['--input-type=module', '--eval', `import {pathToFileURL} from 'node:url'; import path from 'node:path'; for (const file of ${JSON.stringify(paths)}) await import(pathToFileURL(path.resolve(${JSON.stringify(payload)}, file)));`], { cwd: payload });
     run(process.execPath, [path.join(payload, 'bin/ao-pilot.js'), '--version'], { cwd: payload });
+    // Consume the actual installed payload's dependency trees. npm excludes
+    // node_modules from tgz, so checking only its imports would miss a broken
+    // browser/workspace payload that apply will copy verbatim.
+    const dependencyManifests = manifest.files.filter((file) => file.type === 'file' && !file.path.split('/').includes('node_modules')
+      && (file.path === 'package.json' || file.path === 'browser/package.json' || /^browser\/packages\/.+\/package\.json$/.test(file.path))).map((file) => file.path);
+    run(process.execPath, ['--input-type=module', '--eval', `import fs from 'node:fs'; import path from 'node:path'; import {createRequire} from 'node:module'; for (const relative of ${JSON.stringify(dependencyManifests)}) { const file=path.resolve(${JSON.stringify(payload)},relative); const metadata=JSON.parse(fs.readFileSync(file,'utf8')); const require=createRequire(file); for (const name of Object.keys(metadata.dependencies ?? {})) require.resolve(name); }`], { cwd: payload });
   }
 
 

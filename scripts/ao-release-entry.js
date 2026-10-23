@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { assertManagedReleaseEnvironment } from './ao/lib/release-runtime.js';
 import { assertRelease, fileSha256, verifyReleaseTree } from './ao/lib/release-manifest.js';
 
 // Resolve once before any component imports. All subsequent paths are pinned.
@@ -15,7 +16,10 @@ const command = component === 'daemon' ? path.join(release, entry) : manifest.to
 const args = component === 'daemon' ? ['daemon'] : [path.join(release, entry), ...(component === 'session-recovery' ? ['serve'] : [])];
 assertRelease(typeof process.execve === 'function', 'release_node_execve_required');
 process.chdir(release);
-const environment = { ...process.env, AO_RELEASE_ID: manifest.release_id, AO_RELEASE_ROOT: release };
+const environment = { ...process.env, AO_RELEASE_ID: manifest.release_id, AO_RELEASE_ROOT: release,
+  AO_MANAGED_RUNTIME_BINARY: path.join(release, manifest.components.daemon.entrypoint),
+  AO_MANAGED_RUNTIME_BINARY_SHA256: manifest.components.daemon.files.find((file) => file.path === manifest.components.daemon.entrypoint).sha256 };
+assertManagedReleaseEnvironment(environment, release);
 if (component === 'adapter') {
   // The reviewed JSON is authoritative; inherited site variables cannot silently
   // override its upstreams or enable an unexpected listener.

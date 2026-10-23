@@ -100,7 +100,12 @@ export function resolveInstalledRuntimeServiceBinding({
       namespace: configuration.namespace })[unitName];
     const drops = service.dropInPaths?.trim() ? service.dropInPaths.trim().split(/\s+/) : [];
     if (configuration.installRoot !== root || service.activeState !== 'active'
-      || service.packageRoot !== resolution.runtime_directory || service.fragmentPath !== path.join(configuration.unitRoot, unitName)
+      || service.packageRoot !== realpath(configuration.dataDir)
+      || service.environment.AO_RELEASE_ROOT !== resolution.runtime_directory
+      || service.environment.AO_MANAGED_RUNTIME_BINARY !== resolution.binary_path
+      || service.environment.AO_MANAGED_RUNTIME_BINARY_SHA256 !== resolution.binary_sha256
+      || service.environment.AO_MANAGED_RUNTIME_DATA_DIR !== configuration.dataDir
+      || service.environment.AO_MANAGED_RUNTIME_RUN_FILE !== path.join(configuration.discoveryDir, 'running.json') || service.fragmentPath !== path.join(configuration.unitRoot, unitName)
       || service.unitText !== expected || String(service.mainPid) !== String(service.daemonPid)
       || !service.startToken || service.daemonExecutable !== resolution.binary_path
       || service.daemonSha256 !== resolution.binary_sha256 || JSON.stringify(service.argv) !== JSON.stringify([resolution.binary_path, 'daemon'])
@@ -116,7 +121,9 @@ export function resolveInstalledRuntimeServiceBinding({
     const confirmed = inspectService();
     if (String(confirmed.mainPid) !== String(service.mainPid) || confirmed.startToken !== service.startToken
       || confirmed.daemonSha256 !== service.daemonSha256 || confirmed.unitText !== service.unitText
-      || confirmed.dropInPaths !== service.dropInPaths) throw new Error('Unified runtime changed during inspection; HOLD');
+      || confirmed.dropInPaths !== service.dropInPaths || confirmed.packageRoot !== service.packageRoot
+      || JSON.stringify(confirmed.argv) !== JSON.stringify(service.argv)
+      || ['AO_RELEASE_ROOT', 'AO_MANAGED_RUNTIME_BINARY', 'AO_MANAGED_RUNTIME_BINARY_SHA256', 'AO_MANAGED_RUNTIME_DATA_DIR', 'AO_MANAGED_RUNTIME_RUN_FILE', 'AO_DATA_DIR', 'AO_RUN_FILE'].some((key) => confirmed.environment[key] !== service.environment[key])) throw new Error('Unified runtime changed during inspection; HOLD');
     return { package_root: resolution.runtime_directory, binary_path: resolution.binary_path,
       binary_sha256: resolution.binary_sha256, store_root: root, data_dir: configuration.dataDir,
       run_file: path.join(configuration.discoveryDir, 'running.json') };

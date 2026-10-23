@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { afterEach, expect, it } from '@jest/globals';
 import { buildRelease, releaseCommand, verifyReleaseEnvelope } from '../../scripts/ao/lib/release-builder.js';
 import { durableJson, fileSha256, readJson, sha256, verifyReleaseTree } from '../../scripts/ao/lib/release-manifest.js';
-import { fixtureRoot } from './release-fixture.js';
+import { fixtureRoot, createBundle } from './release-fixture.js';
 const roots = [];
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 function fixture() {
@@ -103,4 +103,12 @@ it('rejects a compatibility descriptor whose old binary is replaced before build
   const options = fixture(); fs.writeFileSync(options.oldBinary, 'different immutable artifact');
   await expect(buildRelease(options)).rejects.toMatchObject({ code: typeof process.execve === 'function' ? 'release_compatibility_artifact_missing' : 'release_node_execve_required' });
   expect(options.calls.some(([command, args]) => command === 'npm' && args[0] === 'ci')).toBe(false);
+});
+
+it.each(['scripts/ao-session.js', 'scripts/ao-release-entry.js', 'schemas/fixture.json'])('rejects a real tarball with missing non-entry component/config/launcher %s', (missing) => {
+  const root = fixtureRoot(); roots.push(root); const bundle = createBundle(root);
+  const repack = path.join(root, 'repack'); fs.mkdirSync(repack); fs.cpSync(bundle.payload, path.join(repack, 'package'), { recursive: true }); fs.rmSync(path.join(repack, 'package', missing));
+  releaseCommand('tar', ['-czf', path.join(bundle.bundle, 'package.tgz'), '-C', repack, 'package']);
+  const envelope = readJson(path.join(bundle.bundle, 'release-envelope.json')); envelope.npm_tarball_sha256 = fileSha256(path.join(bundle.bundle, 'package.tgz')); durableJson(path.join(bundle.bundle, 'release-envelope.json'), envelope);
+  expect(() => verifyReleaseEnvelope(bundle.bundle, fileSha256(path.join(bundle.bundle, 'release-envelope.json')))).toThrow('release_package_file_missing');
 });

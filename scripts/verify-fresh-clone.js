@@ -280,7 +280,9 @@ function commandPath(tools, name) {
 
 export function assertStrictReady(output) {
   const explicit = output?.state === 'ready' || output?.ready === true || output?.ready === 'ready';
-  if (!explicit || (output?.state != null && output.state !== 'ready') || (output?.reasons ?? []).length !== 0 || (output?.degraded_reasons ?? []).length !== 0) {
+  if (!explicit || (output?.ready != null && output.ready !== true && output.ready !== 'ready')
+    || (output?.status != null && output.status !== 'ready') || (output?.state != null && output.state !== 'ready')
+    || ['reasons', 'degraded_reasons'].some((name) => output?.[name] != null && (!Array.isArray(output[name]) || output[name].length !== 0))) {
     fail('fresh_clone_daemon_not_ready', 'Runtime lacks explicit non-degraded readiness');
   }
   return true;

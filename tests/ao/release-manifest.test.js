@@ -1,3 +1,4 @@
+import { assertManagedReleaseEnvironment } from '../../scripts/ao/lib/release-runtime.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, expect, it } from '@jest/globals';
@@ -79,11 +80,31 @@ it('units use current, preserve mixed, isolate tmux, and permit only environment
   for (const text of ['[Service]\nExecStart=/tmp/evil', '[Service]\nKillMode=process', '[Service]\nEnvironment="LD_PRELOAD=evil"', '[Service]\nEnvironment="AO_DATA_DIR=/tmp/a"\nEnvironment="AO_DATA_DIR=/tmp/b"']) expect(() => validateEnvironmentOverride(text)).toThrow('unsafe_unit_override');
 });
 it('strict fresh-clone ready and ownership exit never infer success from HTTP failure', () => {
-  for (const value of [{ health: 'ok' }, { state: 'degraded', health: 'ok' }, { state: 'ready', reasons: ['partial recovery'] }, { state: 'not_ready', ready: true }]) expect(() => assertStrictReady(value)).toThrow('non-degraded');
+  for (const value of [{ health: 'ok' }, { state: 'degraded', health: 'ok' }, { state: 'ready', reasons: ['partial recovery'] }, { state: 'not_ready', ready: true }, { state: 'ready', ready: false }, { state: 'ready', ready: true, status: 'degraded' }, { state: 'ready', ready: 'not_ready' }]) expect(() => assertStrictReady(value)).toThrow('non-degraded');
   expect(assertStrictReady({ state: 'ready', reasons: [] })).toBe(true);
   const owned = { pid: 4321, startToken: 'old', lockFiles: ['/fake/data/.daemon-owner.lock', '/fake/discovery/.daemon-discovery.lock'] };
   expect(() => assertOwnedDaemonGone(owned, { readStartToken: () => 'old', probeLock: () => true })).toThrow('still present');
   expect(() => assertOwnedDaemonGone(owned, { readStartToken: () => { throw Object.assign(Error('unknown'), { code: 'EACCES' }); }, probeLock: () => true })).toThrow('unknown');
   expect(() => assertOwnedDaemonGone(owned, { readStartToken: () => { throw Object.assign(Error(), { code: 'ENOENT' }); }, probeLock: () => null })).toThrow('not proven');
   expect(assertOwnedDaemonGone(owned, { readStartToken: () => 'new-reused-pid-token', probeLock: () => true })).toBe(true);
+});
+
+it('blocks native CID drift and missing custody records independently from equal AO ID sets', () => {
+  const bundle = fixture(); const baseline = healthyObservation(bundle.manifest, bundle.payload, { generation: 1 });
+  const observed = healthyObservation(bundle.manifest, bundle.payload); observed.native_cids[0].native_conversation_id = 'new-native-cid';
+  expect(inspectInstall({ releaseRoot: bundle.payload, baseline, observation: observed }).checks.cid_set).toBe('FAIL');
+  observed.native_cids = structuredClone(baseline.native_cids);
+  baseline.custody = [{ session_id: 'orphan', attempt_id: 'attempt', raw_outcome: 'running', record_sha256: '0'.repeat(64), validation: 'UNKNOWN' }];
+  expect(inspectInstall({ releaseRoot: bundle.payload, baseline, observation: observed }).checks.cid_set).toBe('FAIL');
+  observed.custody = structuredClone(baseline.custody);
+  expect(inspectInstall({ releaseRoot: bundle.payload, baseline, observation: observed }).checks.cid_set).toBe('PASS');
+  expect(observed.custody[0].validation).toBe('UNKNOWN');
+});
+
+it('rejects partial launcher bindings before execution instead of falling back to legacy', () => {
+  const root = '/fixture/install/releases/1.0.0+' + 'a'.repeat(40);
+  const env = { AO_INSTALL_ROOT: '/fixture/install', AO_INSTALL_NAMESPACE: 'ao-pilot-staging-fixture', AO_DATA_DIR: '/fixture/data', AO_MANAGED_RUNTIME_DATA_DIR: '/fixture/data', AO_RUN_FILE: '/fixture/run/running.json', AO_MANAGED_RUNTIME_RUN_FILE: '/fixture/run/running.json',
+    AO_TMUX_SOCKET: 'ao-pilot-staging-fixture', AO_TMUX_UNIT: 'ao-pilot-staging-fixture-tmux.service', AO_TMUX_TMPDIR: '/fixture/tmux', TMUX_TMPDIR: '/fixture/tmux' };
+  expect(() => assertManagedReleaseEnvironment(env, root)).not.toThrow();
+  for (const key of Object.keys(env)) expect(() => assertManagedReleaseEnvironment({ ...env, [key]: undefined }, root)).toThrow('release_managed_environment_incomplete');
 });

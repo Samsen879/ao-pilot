@@ -8,6 +8,21 @@ export const INSTALL_CHECK_IDS = [
   'tokenless_lock_safe', 'cid_set', 'ready', 'unit_provenance', 'process_identity',
 ];
 const truth = (value) => value === true ? 'PASS' : value === false ? 'FAIL' : 'UNKNOWN';
+// /readyz DTO is distinct from the native CLI's status.state response.
+export function isStrictReadyz(value) {
+  return value?.status === 'ready' && value.ready === true
+    && (value.state === undefined || value.state === 'ready')
+    && Array.isArray(value.reasons) && value.reasons.length === 0
+    && (value.degraded_reasons === undefined || Array.isArray(value.degraded_reasons) && value.degraded_reasons.length === 0);
+}
+export function nativeBindingsUnchanged(observation, baseline) {
+  return Array.isArray(observation?.native_cids) && Array.isArray(baseline?.native_cids)
+    && objectSha256(observation.native_cids) === objectSha256(baseline.native_cids)
+    && Array.isArray(observation?.custody) && Array.isArray(baseline?.custody)
+    && observation.custody.every((record) => record.record_state !== 'unknown')
+    && baseline.custody.every((record) => record.record_state !== 'unknown')
+    && objectSha256(observation.custody) === objectSha256(baseline.custody);
+}
 export function inspectInstall({ releaseRoot, observation = {}, baseline = null, mode = 'daily', manifest = null, requireRestart = true }) {
   const checks = Object.fromEntries(INSTALL_CHECK_IDS.map((id) => [id, 'UNKNOWN']));
   try { manifest = verifyReleaseTree(releaseRoot); checks.release_integrity = 'PASS'; } catch { checks.release_integrity = 'FAIL'; }
@@ -53,10 +68,9 @@ export function inspectInstall({ releaseRoot, observation = {}, baseline = null,
   checks.lan_disabled = truth(observation.lan_disabled);
   checks.trusted_host_disabled = truth(observation.trusted_host_disabled);
   checks.tokenless_lock_safe = truth(observation.tokenless_lock_safe);
-  checks.ready = observation.ready ? truth(observation.ready.state === 'ready' && observation.ready.ready !== false
-    && (observation.ready.ready === true || observation.ready.ready === 'ready' || observation.ready.state === 'ready')
-    && (observation.ready.reasons ?? []).length === 0 && (observation.ready.degraded_reasons ?? []).length === 0) : 'UNKNOWN';
+  checks.ready = observation.ready ? truth(isStrictReadyz(observation.ready)) : 'UNKNOWN';
   checks.cid_set = Array.isArray(observation.cids) && baseline && Array.isArray(baseline.cids)
-    ? truth(objectSha256([...observation.cids].sort()) === objectSha256([...baseline.cids].sort())) : 'UNKNOWN';
+    ? truth(objectSha256([...observation.cids].sort()) === objectSha256([...baseline.cids].sort())
+      && nativeBindingsUnchanged(observation, baseline)) : 'UNKNOWN';
   return { status: Object.values(checks).every((value) => value === 'PASS') ? 'passed' : 'blocked', checks, evidence: observation };
 }

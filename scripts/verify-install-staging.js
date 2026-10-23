@@ -29,6 +29,7 @@ export function prepareStaging({ root, id, production, ports = [43001, 43000, 43
     tmuxTmpdir: path.join(root, 'state/tmux'), tmuxSocket: namespace,
     daemonURL: `http://127.0.0.1:${ports[0]}`, terminalURL: `ws://127.0.0.1:${ports[2]}/ao-terminal-ws?sessionId=REPLACE_WITH_FAKE_SESSION_ID`,
     terminalOrigin: `http://127.0.0.1:${ports[2]}`, terminalTokenFile: path.join(root, 'state/staging-terminal-token'), terminalCanaryPrefix: 'canary:',
+    restoreProjects: [], restoreConcurrency: 2,
     listenPorts: ports, cliPath: path.join(root, 'bin/ao-pilot'), mode: 'first', releaseCatalog: {} };
   assertStagingIsolation(config, production);
   fs.mkdirSync(config.stateRoot, { recursive: true, mode: 0o700 });
@@ -38,7 +39,7 @@ export function prepareStaging({ root, id, production, ports = [43001, 43000, 43
   fs.writeFileSync(path.join(root, 'fake-agent.sh'), '#!/bin/sh\nset -eu\nn=0\nwhile :; do n=$((n+1)); printf "canary:%s\\n" "$n"; printf "%s\\n" "$n" > "$AO_CANARY_FILE"; sleep 1; done\n', { mode: 0o700 });
   fs.writeFileSync(config.configPath, '# Staging only: fill with temporary project and fake agent, never a production worktree.\n', { mode: 0o600 });
   durableJson(path.join(root, 'install.json'), config);
-  fs.writeFileSync(path.join(root, 'LOCAL-VALIDATION.md'), `# 本地 staging 待验\n\n仅操作 ${namespace}；先检查端口空闲、systemd/linger 与隔离路径。\n\n1. 初始化 repository/ 临时 Git 仓库。fake-agent.sh 使用 staging AO_CANARY_FILE。配置假 session 的终端 URL/token，不能复用生产项目。\n2. 从 archive 构建 old/new release；adapter 与 schema compatibility 输入必须齐备。把可信构建的 envelope SHA 登记进 install.json.releaseCatalog。\n3. 执行 upgrade apply --release <new-id> --install-config install.json；首次方案B接受计划内中断并按原CID恢复，之后mode=daily。\n4. 分别 restart、stop+start、仅对绑定PID/start-token的 staging daemon SIGKILL。要求tmux PID/start-token和CID集合不变、WebSocket PTY canary连续、无需restore。禁止通配kill/stop。\n5. new→old→new回退演练。不兼容schema必须previous+迁移前DB备份，记录备份完成到停止写者的数据丢失窗口；外部效果不会撤销。\n6. 生产DB仅由本地维护者先做一致性副本，在独立migration harness验证；不启动复制生产session，不连接生产worktree。\n7. 清理仅针对此namespace和自己生成的资源；私有完整回执保留本机，公开只用ao.install-public-receipt.v1字段。\n\n本文件是待执行步骤，不是运行PASS回执。\n`, { mode: 0o600 });
+  fs.writeFileSync(path.join(root, 'LOCAL-VALIDATION.md'), `# 本地 staging 待验\n\n仅操作 ${namespace}；先检查端口空闲、systemd/linger 与隔离路径。\n\n1. 初始化 repository/ 临时 Git 仓库。fake-agent.sh 使用 staging AO_CANARY_FILE。显式填写restoreProjects与restoreConcurrency（first模式缺失会在stop前HOLD），配置假 session 的终端 URL/token，不能复用生产项目。\n2. 从 archive 构建 old/new release；adapter 与 schema compatibility 输入必须齐备。把可信构建的 envelope SHA 登记进 install.json.releaseCatalog。\n3. 执行 upgrade apply --release <new-id> --install-config install.json；首次方案B接受计划内中断并按原CID恢复，之后mode=daily。\n4. 分别 restart、stop+start、仅对绑定PID/start-token的 staging daemon SIGKILL。要求tmux PID/start-token和CID集合不变、WebSocket PTY canary连续、无需restore。禁止通配kill/stop。\n5. new→old→new回退演练。不兼容schema必须previous+迁移前DB备份，记录备份完成到停止写者的数据丢失窗口；外部效果不会撤销。\n6. 生产DB仅由本地维护者先做一致性副本，在独立migration harness验证；不启动复制生产session，不连接生产worktree。\n7. 清理仅针对此namespace和自己生成的资源；私有完整回执保留本机，公开只用ao.install-public-receipt.v1字段。\n\n本文件是待执行步骤，不是运行PASS回执。\n`, { mode: 0o600 });
   return config;
 }
 export function runCli(argv) {

@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { acquireInstallLock } from '../../scripts/ao/lib/release-lock.js';
 import { applyRelease, readReleasePointer } from '../../scripts/ao/lib/release-installer.js';
-import { readJson, durableJson, fileSha256 } from '../../scripts/ao/lib/release-manifest.js';
+import { readJson, durableJson, fileSha256, inventoryTree } from '../../scripts/ao/lib/release-manifest.js';
 import { fixtureRoot, createBundle, configuration, fakeRunner } from './release-fixture.js';
 
 const roots = [];
@@ -194,4 +194,32 @@ describe('kernel installation lock with permanent inode', () => {
     expect(() => lock.assertOwned()).toThrow('install_lock_lost'); expect(() => lock.release()).toThrow('install_lock_lost');
     expect(readJson(owner).nonce).toBe('unknown-successor');
   });
+});
+
+it.each(['stopped', 'verify', 'readback'])('rejects replacement native conversation under the same AO IDs during %s', async (stage) => {
+  const { root, config } = fixture(); const bundle = createBundle(root); let count = 0;
+  const runner = fakeRunner(root, { onObserve: (observation) => {
+    count += 1; if (stage === 'verify' || stage === 'readback' && count === 2) observation.native_cids[0].native_conversation_id = 'replacement-conversation'; return observation;
+  } });
+  if (stage === 'stopped') { const snapshot = runner.quiescent; runner.quiescent = async () => { const result = await snapshot(); result.native_cids[0].native_conversation_id = 'replacement-conversation'; return result; }; }
+  await expect(apply(bundle, config, runner)).rejects.toMatchObject({ code: stage === 'stopped' ? 'install_baseline_changed' : stage === 'verify' ? 'install_verify_failed' : 'install_readback_failed' });
+  expect(readJson(path.join(config.installRoot, 'install-journal.json')).phase).not.toBe('committed');
+});
+it('writes complete immutable managed runtime quartet from verified manifest bytes', async () => {
+  const { root, config } = fixture(); const bundle = createBundle(root); await apply(bundle, config, fakeRunner(root));
+  const environment = fs.readFileSync(path.join(config.stateRoot, 'install.env'), 'utf8');
+  expect(environment).toContain(`AO_MANAGED_RUNTIME_BINARY="${path.join(config.installRoot, 'releases', bundle.manifest.release_id, 'native/ao')}"`);
+  expect(environment).toContain(`AO_MANAGED_RUNTIME_BINARY_SHA256="${bundle.manifest.runtime_lock.binary_sha256}"`);
+  expect(environment).toContain(`AO_MANAGED_RUNTIME_DATA_DIR="${config.dataDir}"`);
+  expect(environment).toContain(`AO_MANAGED_RUNTIME_RUN_FILE="${path.join(config.discoveryDir, 'running.json')}"`);
+});
+it('rejects independent stale runtime lock before stopping or starting any service', async () => {
+  const { root, config } = fixture(); const bundle = createBundle(root); const runner = fakeRunner(root);
+  const lockPath = path.join(bundle.payload, 'runtime/agent-orchestrator.lock.json'); const lock = readJson(lockPath); lock.compatibility.platforms[0].binary_sha256 = '1'.repeat(64); durableJson(lockPath, lock);
+  bundle.manifest.runtime_lock.sha256 = fileSha256(lockPath); bundle.manifest.files = inventoryTree(bundle.payload); durableJson(path.join(bundle.payload, 'release.json'), bundle.manifest);
+  const staging = path.join(root, 'repack'); fs.mkdirSync(staging); fs.cpSync(bundle.payload, path.join(staging, 'package'), { recursive: true });
+  const packed = spawnSync('tar', ['-czf', path.join(bundle.bundle, 'package.tgz'), '-C', staging, 'package']); expect(packed.status).toBe(0);
+  const envelope = readJson(path.join(bundle.bundle, 'release-envelope.json')); envelope.manifest_sha256 = fileSha256(path.join(bundle.payload, 'release.json')); envelope.npm_tarball_sha256 = fileSha256(path.join(bundle.bundle, 'package.tgz')); durableJson(path.join(bundle.bundle, 'release-envelope.json'), envelope);
+  await expect(applyRelease({ bundle: bundle.bundle, expectedEnvelopeSha256: fileSha256(path.join(bundle.bundle, 'release-envelope.json')), configuration: config, runner })).rejects.toMatchObject({ code: 'installed_runtime_lock_drift' });
+  expect(runner.calls).toEqual([]); expect(readReleasePointer(config.installRoot, 'current')).toBeNull();
 });

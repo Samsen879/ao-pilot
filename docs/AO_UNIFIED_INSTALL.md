@@ -29,8 +29,7 @@ and first-party root MIT license; session-recovery remains a separate component.
 
 The builder packs once. `package.tgz` contains the same `release.json` whose
 inventory binds the installed payload; every packed entry must match it.
-Public exports, package CLI, compiled dashboard files, native and adapter entries
-are verified against that exact SHA. The output bundle contains `payload/`,
+Every non-exempt inventory file, including modules, configs, launchers and all public exports, must be present in that exact tarball. npm's node_modules/lockfile/tooling metadata and Next cache exclusions remain bound by the complete payload inventory; the actual payload's public imports, CLI and root/browser/workspace dependency resolution are exercised separately. The output bundle contains `payload/`,
 `package.tgz` and `release-envelope.json`. The envelope binds both manifest and
 tarball hashes. Verification, upload and installer independently recheck these
 pins. Transfer the **whole bundle** and its trusted envelope SHA. A package-only
@@ -69,7 +68,7 @@ build digest> }` in that private file; do not compute trust from arbitrary remot
 bytes at apply time. `legacyCliTarget` explicitly authorizes one prior symlink.
 
 `AO_DASHBOARD_ADAPTER_CONFIG` points at the generated owner-only adapter JSON.
-The launcher removes inherited adapter configuration overrides and execs the
+Managed runtime binary/SHA/data/run bindings form a complete quartet. install.env derives the SHA from the verified native bytes; launchers pin the binary to the immutable release rather than current, and observers require the same binding. The launcher removes inherited adapter configuration overrides and execs the
 actual source entry. Adapter itself has no authentication; upstream terminal
 WS must reject no token, bad token and bad Origin and deliver authorized fake
 PTY canary bytes. HTTP 101 alone cannot pass. No auth is invented by installer.
@@ -112,13 +111,12 @@ read-only template rendering and standalone p0.4 bootstrap remain for existing
 installs; AO_INSTALL_ROOT rejects mixed bootstrap stores.
 
 Verify and readback require all fixed checks PASS: current/CLI/service identity,
-strict ready with no reasons, exact CIDs, schema/integrity, held daemon locks,
+strict readyz status=ready, ready=true with no reasons (distinct from CLI status.state), exact CIDs, schema/integrity, held daemon locks,
 shared Go tmux cgroup doctor, compatible tmux generation, linger, loopback
 listeners, terminal auth/canary, LAN disabled, trusted-host disabled, and control
 lock start-token metadata. UNKNOWN blocks. Daily upgrades preserve tmux server
 PID/start-token; executable incompatibility holds for a planned interruption.
-First scheme-B migration requires locally verified owned resources and the
-planned interruption/recovery runbook; no broad kill or automatic adoption of an
+First scheme-B requires explicit restoreProjects and restoreConcurrency (1..16) before any stop. After boot REST is available, it delegates each named project to native batch restore, accepts only complete restored/skipped_hold result sets, preserves original AOID→native conversation/CID and raw orphan custody/hash snapshots, then requires strict readyz and full readback. Daily mode never restores. Missing projects, failed results, CID drift or removed/changed custody hold. Custody JSON validation remains UNKNOWN; no Node authority algorithm is invented. Migration requires locally verified owned resources and the planned interruption runbook; no broad kill or automatic adoption of an
 unknown server is attempted. Legacy artifacts lacking the new contract fail.
 
 Rollback stops all writers again. Verified old-reader compatibility allows

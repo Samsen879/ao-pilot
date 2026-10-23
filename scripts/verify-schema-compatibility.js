@@ -23,6 +23,9 @@ async function freePort() {
   const server = net.createServer(); await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   const port = server.address().port; await new Promise((resolve) => server.close(resolve)); return port;
 }
+export function assertOwnedHealth(payload, pid) {
+  assertRelease(payload?.status === 'ok' && payload.service === 'agent-orchestrator-daemon' && payload.pid === pid, 'compatibility_process_unknown');
+}
 async function probeBinary(binary, data, root) {
   const port = await freePort(); const home = path.join(root, 'home'); fs.mkdirSync(home, { recursive: true, mode: 0o700 });
   const discovery = path.join(root, 'discovery'); fs.mkdirSync(discovery, { mode: 0o700 });
@@ -43,6 +46,7 @@ async function probeBinary(binary, data, root) {
         const health = await fetch(`http://127.0.0.1:${port}/healthz`, { signal: AbortSignal.timeout(250) });
         const response = await fetch(`http://127.0.0.1:${port}/api/v1/sessions`, { signal: AbortSignal.timeout(250) });
         if (health.ok && response.ok) {
+          assertOwnedHealth(await health.json(), child.pid);
           const sessions = (await response.json()).sessions;
           assertRelease(Array.isArray(sessions) && sessions.length === 0, 'compatibility_fixture_not_empty');
           assertRelease(token && processStartToken(child.pid) === token && !exited

@@ -6,8 +6,9 @@ import { acquireInstallLock } from './release-lock.js';
 import { verifyReleaseEnvelope } from './release-builder.js';
 import { assertRelease, durableJson, fileSha256, objectSha256, readJson, syncDirectory, syncTree, verifyReleaseTree } from './release-manifest.js';
 import { backupAndInstallUnits, restoreUnitBackup, writeReleaseUnits, renderReleaseUnits, validateEnvironmentOverride } from './release-units.js';
-import { inspectInstall } from './install-doctor.js';
+import { inspectInstall, nativeBindingsUnchanged } from './install-doctor.js';
 import { publicInstallReceipt, savePrivateInstallReceipt } from './release-receipt.js';
+import { assertRuntimeLockArtifact } from './release-runtime.js';
 import { createSystemdReleaseRunner } from './release-systemd.js';
 
 function pointer(root, name) {
@@ -30,7 +31,7 @@ function switchPointer(root, name, target, lock) {
   fs.symlinkSync(target, temp);
   fs.renameSync(temp, final); syncDirectory(root);
 }
-function writeEnvironment(configuration, lock) {
+function writeEnvironment(configuration, lock, manifest, releaseRoot) {
   const environment = {
     AO_DASHBOARD_ADAPTER_CONFIG: adapterConfigPath(configuration),
     DIRECT_TERMINAL_PORT: String(configuration.listenPorts[3]), TERMINAL_PORT: String(configuration.listenPorts[4]),
@@ -40,7 +41,8 @@ function writeEnvironment(configuration, lock) {
     AO_MANAGED_RUNTIME_DATA_DIR: configuration.dataDir, AO_MANAGED_RUNTIME_RUN_FILE: path.join(configuration.discoveryDir, 'running.json'),
     AO_TMUX_SOCKET: configuration.tmuxSocket, AO_TMUX_UNIT: `${configuration.namespace}-tmux.service`,
     AO_TMUX_TMPDIR: configuration.tmuxTmpdir, TMUX_TMPDIR: configuration.tmuxTmpdir,
-    AO_MANAGED_RUNTIME_BINARY: path.join(configuration.installRoot, 'current/native/ao'),
+    AO_MANAGED_RUNTIME_BINARY: path.join(releaseRoot, manifest.components.daemon.entrypoint),
+    AO_MANAGED_RUNTIME_BINARY_SHA256: manifest.components.daemon.files.find((file) => file.path === manifest.components.daemon.entrypoint).sha256,
     AO_CONFIG_PATH: configuration.configPath, AO_INSTALL_NAMESPACE: configuration.namespace,
     AO_HOST: '127.0.0.1', AO_PORT: String(new URL(configuration.daemonURL).port),
     AO_DASHBOARD_PORT: String(configuration.listenPorts[1]),
@@ -156,7 +158,7 @@ export async function applyRelease({
   try {
     lock.assertOwned();
     const verified = verifyReleaseEnvelope(bundle, expectedEnvelopeSha256);
-    manifest = verified.manifest; manifestSha256 = verified.envelope.manifest_sha256;
+    manifest = verified.manifest; assertRuntimeLockArtifact(path.join(bundle, 'payload'), manifest); manifestSha256 = verified.envelope.manifest_sha256;
     assertRelease(manifest.platform.os === process.platform && manifest.platform.arch === process.arch, 'release_platform_unsupported');
     fs.mkdirSync(path.join(root, 'releases'), { recursive: true, mode: 0o700 });
     fs.mkdirSync(transactionRoot, { recursive: true, mode: 0o700 });
@@ -229,7 +231,7 @@ export async function applyRelease({
     const stopped = await runner.quiescent();
     journal.stopped_snapshot = stopped; lock.assertOwned(); durableJson(journalPath, journal);
     assertRelease(Array.isArray(stopped.cids) && stopped.database?.integrity === 'ok'
-      && objectSha256([...stopped.cids].sort()) === objectSha256([...journal.baseline.cids].sort()), 'install_baseline_changed');
+      && objectSha256([...stopped.cids].sort()) === objectSha256([...journal.baseline.cids].sort()) && nativeBindingsUnchanged(stopped, journal.baseline), 'install_baseline_changed');
     if (!journal.database_backup) {
       journal.database_backup = await runner.backupDatabase({ backupRoot: path.join(txDir, 'database') });
       assertRelease(journal.database_backup?.sha256 && fs.existsSync(journal.database_backup.path)
@@ -249,7 +251,7 @@ export async function applyRelease({
         onBackup: () => { journal.unit_backup_complete = true; lock.assertOwned(); durableJson(journalPath, journal); } });
     } else writeReleaseUnits({ unitRoot: configuration.unitRoot, units, lock, environmentOverride: configuration.environmentOverride ?? null });
     lock.assertOwned(); durableJson(adapterConfigPath(configuration), adapterConfiguration(configuration));
-    writeEnvironment(configuration, lock);
+    writeEnvironment(configuration, lock, manifest, final);
     lock.assertOwned(); durableJson(path.join(root, 'installation.json'), configuration);
     journal.phase = 'switching'; lock.assertOwned(); durableJson(journalPath, journal);
     switchPointer(root, 'previous', prior, lock); inject('previous', {});
@@ -259,7 +261,9 @@ export async function applyRelease({
     journal.cli_installed = true; lock.assertOwned(); durableJson(journalPath, journal);
     installCliLink(configuration, lock);
     journal.new_services_started = true; lock.assertOwned(); durableJson(journalPath, journal);
-    await runner.reload(); await runner.start({ releaseRoot: final, mode });
+    await runner.reload();
+    journal.start_result = await runner.start({ releaseRoot: final, mode, baseline: journal.stopped_snapshot });
+    lock.assertOwned(); durableJson(journalPath, journal);
     phase = 'verify'; journal.phase = phase; lock.assertOwned(); durableJson(journalPath, journal);
     assertRelease(!configuration.cliPath || fs.realpathSync(configuration.cliPath) === path.join(final, 'bin/ao-pilot.js'), 'install_cli_drift');
     const observed = await runner.observe({ releaseRoot: final });

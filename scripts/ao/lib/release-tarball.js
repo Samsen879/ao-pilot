@@ -46,6 +46,16 @@ export function packedFiles(tarball) {
   }
   assertRelease(files.size > 0, 'invalid_release_tarball'); return files;
 }
+// npm deliberately omits dependencies, lockfiles and tooling metadata. Those
+// bytes remain mandatory in the separately transferred, manifest-verified
+// payload and its actual consumer smoke; no runtime module/config is exempt.
+export function payloadOnlyPath(name) {
+  return name.split('/').includes('node_modules') || /(?:^|\/)\.next\/cache(?:\/|$)/.test(name)
+    || /(?:^|\/)(?:package-lock\.json|\.gitignore|\.npmignore|\.npmrc|\.DS_Store|npm-debug\.log|config\.gypi)$/.test(name);
+}
+export function requiredPackageFiles(manifest) {
+  return manifest.files.filter((file) => file.type !== 'directory' && !payloadOnlyPath(file.path));
+}
 export function verifyPackedRelease(tarball, payloadRoot, manifest) {
   const packed = packedFiles(tarball);
   assertRelease(packed.get('release.json')?.sha256 === fileSha256(`${payloadRoot}/release.json`), 'packed_manifest_mismatch');
@@ -57,6 +67,16 @@ export function verifyPackedRelease(tarball, payloadRoot, manifest) {
     if (entry.type === 'file') assertRelease(installed.sha256 === entry.sha256
       && Boolean(installed.mode & 0o111) === Boolean(entry.mode & 0o111), 'packed_payload_mismatch');
     else if (entry.type === 'symlink') assertRelease(installed.target === entry.target, 'packed_payload_mismatch');
+  }
+  for (const file of requiredPackageFiles(manifest)) assertRelease(packed.has(file.path), 'release_package_file_missing');
+  const metadataFile = `${payloadRoot}/package.json`;
+  if (fs.existsSync(metadataFile)) {
+    const metadata = readJson(metadataFile);
+    const values = (value) => typeof value === 'string' ? [value] : value && typeof value === 'object' ? Object.values(value).flatMap(values) : [];
+    for (const entry of [...values(metadata.exports), ...values(metadata.bin)]) {
+      const name = entry.replace(/^\.\//, '');
+      assertRelease(packed.get(name)?.type === 'file', 'release_package_export_missing');
+    }
   }
   for (const component of Object.values(manifest.components)) assertRelease(packed.get(component.entrypoint)?.type === 'file', 'release_package_component_missing');
   assertRelease(packed.has('browser/packages/web/.next/BUILD_ID') && packed.has('browser/packages/web/dist-server/start-all.js'), 'release_package_component_missing');
