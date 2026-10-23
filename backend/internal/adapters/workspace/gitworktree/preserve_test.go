@@ -341,3 +341,47 @@ func TestPreserveProvenUnbornHEAD(t *testing.T) {
 		t.Fatalf("unborn parent %q", parents)
 	}
 }
+
+func TestPreserveRecreatedPathRetainsTrustedHEADMode(t *testing.T) {
+	for _, mode := range []string{"100755", "120000"} {
+		t.Run(mode, func(t *testing.T) {
+			repo, _, workspace := newSparseRepoFixture(t)
+			name := "keep/recreated-mode"
+			if mode == "120000" {
+				if err := os.Symlink("old-target", filepath.Join(repo, name)); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				writeSparseFile(t, repo, name, "old")
+				if err := os.Chmod(filepath.Join(repo, name), 0755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runGitTest(t, repo, "add", ".")
+			runGitTest(t, repo, "commit", "-m", "trusted mode fixture")
+			runGitTest(t, repo, "config", "core.fileMode", "false")
+			if mode == "120000" {
+				runGitTest(t, repo, "config", "core.symlinks", "false")
+			}
+			ctx := context.Background()
+			cfg := ports.WorkspaceConfig{ProjectID: "project", SessionID: "recreated-1", Branch: "feature/recreated", BaseBranch: "main", SparseCheckout: []string{"keep"}}
+			info, err := workspace.Create(ctx, cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runGitTest(t, info.Path, "rm", "--", name)
+			writeSparseFile(t, info.Path, name, "new-target")
+			ref, err := workspace.StashUncommitted(ctx, info)
+			if err != nil || ref == "" {
+				t.Fatalf("preserve %q: %v", ref, err)
+			}
+			entry := runGitTest(t, info.Path, "ls-tree", ref, "--", name)
+			if !strings.HasPrefix(entry, mode+" ") {
+				t.Fatalf("mode %s want %s", entry, mode)
+			}
+			if data := runGitTest(t, info.Path, "show", ref+":"+name); data != "new-target" {
+				t.Fatalf("saved bytes %q", data)
+			}
+		})
+	}
+}
