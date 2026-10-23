@@ -291,9 +291,10 @@ type BrowserCapabilityIssuer interface {
 // Send. AO has no delivery ack: ao send returns 200 the moment tmux send-keys
 // exits 0, and for a large multiline paste the single Enter may not submit the
 // prompt — so UserPromptSubmit never fires and the orchestrator cannot tell the
-// worker started. confirmActive observes the durable Activity.State (written by
-// the user-prompt-submit hook) and re-sends Enter until the session is active or
-// the budget is exhausted. It never fails the send.
+// worker started. confirmActive observes a durable ActivityActive timestamp
+// newer than the pre-send baseline (written by the user-prompt-submit hook) and
+// re-sends Enter until that confirmation arrives or the budget is exhausted.
+// It never fails the send.
 type sendConfirmConfig struct {
 	// pollInterval is the gap between activity reads.
 	pollInterval time.Duration
@@ -2242,15 +2243,16 @@ func (m *Manager) applyWorkspaceProjectPreserved(ctx context.Context, rows []por
 // silently dropping the message. AO has no delivery ack: the messenger returns
 // nil the moment the runtime paste + Enter commands exit 0, and for a large
 // multiline prompt a single Enter may not submit (claude-code leaves it as an
-// unsubmitted draft). confirmActive observes the durable Activity.State
-// (flipped to active by the user-prompt-submit hook) and re-sends Enter until
-// the session is active or the budget is exhausted. Confirmation never fails
-// the send: it only decides whether to nudge again.
+// unsubmitted draft). confirmActive observes a fresh durable ActivityActive
+// timestamp (written by the user-prompt-submit hook) and re-sends Enter until
+// the message is confirmed or the budget is exhausted. Confirmation never
+// fails the send: it only decides whether to nudge again.
 func (m *Manager) Send(ctx context.Context, id domain.SessionID, message string) error {
-	message, err := m.prepareOutboundMessage(ctx, id, message)
+	before, beforeOK, err := m.store.GetSession(ctx, id)
 	if err != nil {
-		return err
+		return fmt.Errorf("send %s: session: %w", id, err)
 	}
+	message = prepareOutboundMessage(before, beforeOK, message)
 	outcome, err := m.messenger.Deliver(ctx, id, message)
 	if err != nil {
 		return fmt.Errorf("send %s: %w", id, err)
@@ -2273,10 +2275,10 @@ func (m *Manager) Send(ctx context.Context, id domain.SessionID, message string)
 	}
 	// confirmActive only helps — and is only SAFE — when the harness reports
 	// both a prompt-submit signal (so the loop can observe active) and a
-	// blocked signal it can clear mid-turn (so it can tell an unsubmitted
-	// draft from a pending permission dialog and never Enter into the latter).
-	// Only claude-code and its hook-delegators (grok/continueagent/devin)
-	// satisfy both; every other harness opts out via EmitsBlockedActivity —
+	// distinct blocked signal (so it can tell an unsubmitted draft from a
+	// pending permission dialog and never Enter into the latter).
+	// Codex and Claude Code report both signals. Harnesses that collapse a
+	// permission request into waiting_input opt out via EmitsBlockedActivity —
 	// see ports.ActivitySignaler.
 	rec, ok, err := m.store.GetSession(ctx, id)
 	if err != nil {
@@ -2290,23 +2292,19 @@ func (m *Manager) Send(ctx context.Context, id domain.SessionID, message string)
 		return nil
 	}
 	if m.harnessNudgeSafe(rec.Harness) {
-		m.confirmActive(ctx, m.messenger, id)
+		m.confirmActive(ctx, m.messenger, id, before.Activity.LastActivityAt)
 	}
 	return nil
 }
 
-func (m *Manager) prepareOutboundMessage(ctx context.Context, id domain.SessionID, message string) (string, error) {
-	rec, ok, err := m.store.GetSession(ctx, id)
-	if err != nil {
-		return "", fmt.Errorf("send %s: session: %w", id, err)
-	}
+func prepareOutboundMessage(rec domain.SessionRecord, ok bool, message string) string {
 	if !ok {
-		return message, nil
+		return message
 	}
 	if rec.Harness != domain.HarnessCopilot || rec.Kind != domain.KindOrchestrator {
-		return message, nil
+		return message
 	}
-	return copilotOrchestratorMessage(rec.ProjectID, message), nil
+	return copilotOrchestratorMessage(rec.ProjectID, message)
 }
 
 func copilotOrchestratorMessage(projectID domain.ProjectID, message string) string {
@@ -2361,8 +2359,9 @@ const (
 	waitBlocked
 )
 
-// confirmActive re-sends Enter until the session reports ActivityActive or the
-// attempt budget is exhausted. The initial Send already submitted one Enter;
+// confirmActive re-sends Enter until the session reports ActivityActive with a
+// timestamp newer than activityBaseline, or the attempt budget is exhausted.
+// The initial Send already submitted one Enter;
 // each additional attempt sends Enter again (an empty message is an Enter-only
 // nudge, see ports.AgentMessenger) after waiting for Activity.State to flip. It
 // is best-effort: on context cancellation, store failure, or budget exhaustion
@@ -2375,9 +2374,9 @@ const (
 // answer it for the user. Sticky ActivityWaitingInput does NOT stop the loop:
 // an idle-prompt session with an unsubmitted pasted draft is exactly the case
 // the nudge exists for.
-func (m *Manager) confirmActive(ctx context.Context, guard *sessionguard.Guard, id domain.SessionID) {
+func (m *Manager) confirmActive(ctx context.Context, guard *sessionguard.Guard, id domain.SessionID, activityBaseline time.Time) {
 	for attempt := 1; ; attempt++ {
-		outcome, err := m.waitForActive(ctx, id)
+		outcome, err := m.waitForActive(ctx, id, activityBaseline)
 		if err != nil || outcome == waitActive {
 			return
 		}
@@ -2410,12 +2409,13 @@ func (m *Manager) confirmActive(ctx context.Context, guard *sessionguard.Guard, 
 	}
 }
 
-// waitForActive polls Activity.State for up to attemptDeadline and reports
-// whether another nudge could help (see waitOutcome). Blocked is checked every
-// poll so a permission dialog appearing mid-wait aborts immediately instead of
-// burning the deadline. A non-nil error means polling cannot continue (ctx
-// cancelled, store failure, session gone).
-func (m *Manager) waitForActive(ctx context.Context, id domain.SessionID) (waitOutcome, error) {
+// waitForActive polls Activity for up to attemptDeadline and reports whether
+// another nudge could help (see waitOutcome). A pre-existing active state is
+// ignored until LastActivityAt advances beyond activityBaseline. Blocked is
+// checked every poll so a permission dialog appearing mid-wait aborts
+// immediately instead of burning the deadline. A non-nil error means polling
+// cannot continue (ctx cancelled, store failure, session gone).
+func (m *Manager) waitForActive(ctx context.Context, id domain.SessionID, activityBaseline time.Time) (waitOutcome, error) {
 	deadlineAt := m.clock().Add(m.sendConfirm.attemptDeadline)
 	ticker := time.NewTicker(m.sendConfirm.pollInterval)
 	defer ticker.Stop()
@@ -2429,7 +2429,13 @@ func (m *Manager) waitForActive(ctx context.Context, id domain.SessionID) (waitO
 		}
 		switch rec.Activity.State {
 		case domain.ActivityActive:
-			return waitActive, nil
+			// A session may already be active because an earlier turn is still
+			// running. Only a newer user-prompt-submit activity timestamp proves
+			// this message left the composer; the stale active state must not
+			// suppress the Enter retry.
+			if rec.Activity.LastActivityAt.After(activityBaseline) {
+				return waitActive, nil
+			}
 		case domain.ActivityBlocked:
 			return waitBlocked, nil
 		}
