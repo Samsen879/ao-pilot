@@ -1,0 +1,14 @@
+{
+  "LISTEN_HOST": "localhost",
+  "LISTEN_PORT": 8080,
+  "DASHBOARD_UPSTREAM_HOST": "localhost",
+  "DASHBOARD_UPSTREAM_PORT": 8081,
+  "AO_DAEMON_HOST": "localhost",
+  "AO_DAEMON_PORT": 8082,
+  "DIRECT_TERMINAL_HOST": "localhost",
+  "DIRECT_TERMINAL_PORT": 8083,
+  "DIRECT_TERMINAL_BROWSER_PORT": 8083,
+  "TERMINAL_ORIGIN": "http://localhost:8080",
+  "PROJECT_NAME": "Example project",
+  "ISSUE_BASE_URL": "https://example.com/issues"
+}

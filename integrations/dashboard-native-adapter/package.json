@@ -1,0 +1,11 @@
+{
+  "name": "ao-pilot-dashboard-native-adapter",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test test/*.test.mjs"
+  }
+}
