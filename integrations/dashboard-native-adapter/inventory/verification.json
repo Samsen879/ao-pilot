@@ -1,0 +1,29 @@
+{
+  "ao-pilot-runtime.service": {
+    "unit_and_all_dropins_unchanged": true,
+    "effective_configuration_pid_and_start_time_unchanged": true,
+    "process_start_token_unchanged": true,
+    "cmdline_unchanged": true
+  },
+  "ao-pilot-dashboard.service": {
+    "unit_and_all_dropins_unchanged": true,
+    "effective_configuration_pid_and_start_time_unchanged": true,
+    "process_start_token_unchanged": true,
+    "cmdline_unchanged": true
+  },
+  "ao-pilot-dashboard-adapter.service": {
+    "unit_and_all_dropins_unchanged": true,
+    "effective_configuration_pid_and_start_time_unchanged": true,
+    "process_start_token_unchanged": true,
+    "cmdline_unchanged": true
+  },
+  "original_inputs": {
+    "all_sha256_unchanged": true,
+    "all_mtime_unchanged": true,
+    "count": 127
+  },
+  "public_scan": {
+    "pass": true,
+    "issues": []
+  }
+}

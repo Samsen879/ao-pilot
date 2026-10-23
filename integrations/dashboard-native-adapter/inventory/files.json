@@ -1,0 +1,1204 @@
+{
+  "observed_at_utc": "2026-10-23T14:14:41.735362+00:00",
+  "repository_base": "28b4fc767880b6529f38efa87d72a99f4e2007a9",
+  "services": [
+    {
+      "service": "ao-pilot-runtime.service",
+      "need_daemon_reload": "no",
+      "files": [
+        {
+          "path": "$USER_UNITS/ao-pilot-runtime.service",
+          "sha256": "4982a684f3ae9175cc70a428f1a26d33a90f8b055088dd17e3efa5d007ed994c",
+          "mtime_utc": "2026-09-13T05:36:27.410750+00:00",
+          "classification": "仓库中没有"
+        },
+        {
+          "path": "$USER_UNITS/ao-pilot-runtime.service.d/10-proxy.conf",
+          "sha256": "02e71e084f06b06656fc16030af84832d255f64c5a577601d69bfde6ad819da2",
+          "mtime_utc": "2026-09-22T16:09:38.724105+00:00",
+          "classification": "仓库中没有"
+        },
+        {
+          "path": "$USER_UNITS/ao-pilot-runtime.service.d/20-request-timeout.conf",
+          "sha256": "53d8eb6b697f8e6cbc3603473fa576d79c705b471dbe518209a0e0ff0f832393",
+          "mtime_utc": "2026-09-23T05:22:23.264991+00:00",
+          "classification": "仓库中没有"
+        },
+        {
+          "path": "$USER_UNITS/ao-pilot-runtime.service.d/30-send-enter-hotfix.conf",
+          "sha256": "92036cf7a554a84437aba40ae80449c1b0b167f6a5259650cac2ed4bf4188936",
+          "mtime_utc": "2026-09-23T17:16:39.556437+00:00",
+          "classification": "仓库中没有"
+        },
+        {
+          "path": "$USER_UNITS/ao-pilot-runtime.service.d/40-worktree-capacity.conf",
+          "sha256": "42365ef4e33fc1fe71e233d617af3da4af11a20969e78819c1de95c4504e84d2",
+          "mtime_utc": "2026-09-25T16:02:18.539685+00:00",
+          "classification": "仓库中没有"
+        },
+        {
+          "path": "$USER_UNITS/ao-pilot-runtime.service.d/50-runtime-capacity-watch.conf",
+          "sha256": "10f0c1a56642193f574a2d46e8c77a4e16cde5625e2e50c682323b4e134dfee8",
+          "mtime_utc": "2026-09-24T06:15:11.984605+00:00",
+          "classification": "仓库中没有"
+        },
+        {
+          "path": "$USER_UNITS/ao-pilot-runtime.service.d/60-sparse-worktree.conf",
+          "sha256": "4751ebfafe05a7a4209788b3ac4993e35e3e2b7c8ed55a41c11d5bb5014f8bed",
+          "mtime_utc": "2026-09-26T09:41:40.322376+00:00",
+          "classification": "仓库中没有"
+        },
+        {
+          "path": "$USER_UNITS/ao-pilot-runtime.service.d/70-codex-path.conf",
+          "sha256": "ec1dcf8d375f7bc9ee16f2d4e7996fe9b19863d53f8c624a55246f386d8fbcea",
+          "mtime_utc": "2026-10-03T16:56:02.650495+00:00",
+          "classification": "仓库中没有"
+        },
+        {
+          "path": "$USER_UNITS/ao-pilot-runtime.service.d/90-fresh-instance.conf",
+          "sha256": "5996eede3e0cdeccc3f84cd7318c68cb63a84bfedbb5db65f5313487b2bda051",
+          "mtime_utc": "2026-10-14T14:26:36.637884+00:00",
+          "classification": "仓库中没有"
+        },
+        {
+          "path": "$USER_UNITS/ao-pilot-runtime.service.d/91-reliability-main.conf",
+          "sha256": "625fd4b211525eb835bce1e994c24f918e9c7a63b097e5982e6aa3442d6b6ab2",
+          "mtime_utc": "2026-10-23T12:10:26.125689+00:00",
+          "classification": "仓库中没有"
+        },
+        {
+          "path": "$SITE_CONFIG/ao-runtime-proxy.env",
+          "sha256": "3d3c830630acd63b6640a4e47dfe16d607128064920cf5644dbd0f8a8e1cdcbc",
+          "mtime_utc": "2026-09-22T16:09:38.724105+00:00",
+          "classification": "仓库中没有"
+        }
+      ],
+      "environment_file_keys": [
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "no_proxy"
+      ]
+    },
+    {
+      "service": "ao-pilot-dashboard.service",
+      "need_daemon_reload": "no",
+      "files": [
+        {
+          "path": "$USER_UNITS/ao-pilot-dashboard.service",
+          "sha256": "f33d3a1cffc4f0c2f1bf91c6d47b4e6af757d2d492eb48398014ba5bc8ee25ff",
+          "mtime_utc": "2026-09-13T11:51:13.933056+00:00",
+          "classification": "仓库中没有"
+        },
+        {
+          "path": "$USER_UNITS/ao-pilot-dashboard.service.d/20-native-adapter-upstream.conf",
+          "sha256": "88c794614d01f1469279a38a96ed19378a8d160014197f4613f0fe69caf50f9a",
+          "mtime_utc": "2026-09-22T16:51:42.195850+00:00",
+          "classification": "仓库中没有"
+        },
+        {
+          "path": "$USER_UNITS/ao-pilot-dashboard.service.d/90-fresh-instance.conf",
+          "sha256": "5996eede3e0cdeccc3f84cd7318c68cb63a84bfedbb5db65f5313487b2bda051",
+          "mtime_utc": "2026-10-14T14:26:36.637884+00:00",
+          "classification": "仓库中没有"
+        }
+      ],
+      "environment_file_keys": []
+    },
+    {
+      "service": "ao-pilot-dashboard-adapter.service",
+      "need_daemon_reload": "no",
+      "files": [
+        {
+          "path": "$USER_UNITS/ao-pilot-dashboard-adapter.service",
+          "sha256": "eda8efcf2e1505ef562f1122702e67b9c85c366961108201d637aebe2e964005",
+          "mtime_utc": "2026-09-22T16:51:42.838250+00:00",
+          "classification": "仓库中没有"
+        },
+        {
+          "path": "$USER_UNITS/ao-pilot-dashboard-adapter.service.d/20-wsl-browser-access.conf",
+          "sha256": "e6d96ab3cb292506e7442fecafd123e7b473190ee7f170c6ccc310ea509f654a",
+          "mtime_utc": "2026-09-28T05:07:16.815138+00:00",
+          "classification": "仓库中没有"
+        }
+      ],
+      "environment_file_keys": []
+    }
+  ],
+  "files": [
+    {
+      "path": "$SITE_CONFIG/ao-runtime-proxy.env",
+      "sha256": "3d3c830630acd63b6640a4e47dfe16d607128064920cf5644dbd0f8a8e1cdcbc",
+      "mtime_utc": "2026-09-22T16:09:38.724105+00:00",
+      "classification": "仓库中没有"
+    },
+    {
+      "path": "$USER_UNITS/ao-pilot-dashboard-adapter.service",
+      "sha256": "eda8efcf2e1505ef562f1122702e67b9c85c366961108201d637aebe2e964005",
+      "mtime_utc": "2026-09-22T16:51:42.838250+00:00",
+      "classification": "仓库中没有"
+    },
+    {
+      "path": "$USER_UNITS/ao-pilot-dashboard-adapter.service.d/20-wsl-browser-access.conf",
+      "sha256": "e6d96ab3cb292506e7442fecafd123e7b473190ee7f170c6ccc310ea509f654a",
+      "mtime_utc": "2026-09-28T05:07:16.815138+00:00",
+      "classification": "仓库中没有"
+    },
+    {
+      "path": "$USER_UNITS/ao-pilot-dashboard.service",
+      "sha256": "f33d3a1cffc4f0c2f1bf91c6d47b4e6af757d2d492eb48398014ba5bc8ee25ff",
+      "mtime_utc": "2026-09-13T11:51:13.933056+00:00",
+      "classification": "仓库中没有"
+    },
+    {
+      "path": "$USER_UNITS/ao-pilot-dashboard.service.d/20-native-adapter-upstream.conf",
+      "sha256": "88c794614d01f1469279a38a96ed19378a8d160014197f4613f0fe69caf50f9a",
+      "mtime_utc": "2026-09-22T16:51:42.195850+00:00",
+      "classification": "仓库中没有"
+    },
+    {
+      "path": "$USER_UNITS/ao-pilot-dashboard.service.d/90-fresh-instance.conf",
+      "sha256": "5996eede3e0cdeccc3f84cd7318c68cb63a84bfedbb5db65f5313487b2bda051",
+      "mtime_utc": "2026-10-14T14:26:36.637884+00:00",
+      "classification": "仓库中没有"
+    },
+    {
+      "path": "$USER_UNITS/ao-pilot-runtime.service",
+      "sha256": "4982a684f3ae9175cc70a428f1a26d33a90f8b055088dd17e3efa5d007ed994c",
+      "mtime_utc": "2026-09-13T05:36:27.410750+00:00",
+      "classification": "仓库中没有"
+    },
+    {
+      "path": "$USER_UNITS/ao-pilot-runtime.service.d/10-proxy.conf",
+      "sha256": "02e71e084f06b06656fc16030af84832d255f64c5a577601d69bfde6ad819da2",
+      "mtime_utc": "2026-09-22T16:09:38.724105+00:00",
+      "classification": "仓库中没有"
+    },
+    {
+      "path": "$USER_UNITS/ao-pilot-runtime.service.d/20-request-timeout.conf",
+      "sha256": "53d8eb6b697f8e6cbc3603473fa576d79c705b471dbe518209a0e0ff0f832393",
+      "mtime_utc": "2026-09-23T05:22:23.264991+00:00",
+      "classification": "仓库中没有"
+    },
+    {
+      "path": "$USER_UNITS/ao-pilot-runtime.service.d/30-send-enter-hotfix.conf",
+      "sha256": "92036cf7a554a84437aba40ae80449c1b0b167f6a5259650cac2ed4bf4188936",
+      "mtime_utc": "2026-09-23T17:16:39.556437+00:00",
+      "classification": "仓库中没有"
+    },
+    {
+      "path": "$USER_UNITS/ao-pilot-runtime.service.d/40-worktree-capacity.conf",
+      "sha256": "42365ef4e33fc1fe71e233d617af3da4af11a20969e78819c1de95c4504e84d2",
+      "mtime_utc": "2026-09-25T16:02:18.539685+00:00",
+      "classification": "仓库中没有"
+    },
+    {
+      "path": "$USER_UNITS/ao-pilot-runtime.service.d/50-runtime-capacity-watch.conf",
+      "sha256": "10f0c1a56642193f574a2d46e8c77a4e16cde5625e2e50c682323b4e134dfee8",
+      "mtime_utc": "2026-09-24T06:15:11.984605+00:00",
+      "classification": "仓库中没有"
+    },
+    {
+      "path": "$USER_UNITS/ao-pilot-runtime.service.d/60-sparse-worktree.conf",
+      "sha256": "4751ebfafe05a7a4209788b3ac4993e35e3e2b7c8ed55a41c11d5bb5014f8bed",
+      "mtime_utc": "2026-09-26T09:41:40.322376+00:00",
+      "classification": "仓库中没有"
+    },
+    {
+      "path": "$USER_UNITS/ao-pilot-runtime.service.d/70-codex-path.conf",
+      "sha256": "ec1dcf8d375f7bc9ee16f2d4e7996fe9b19863d53f8c624a55246f386d8fbcea",
+      "mtime_utc": "2026-10-03T16:56:02.650495+00:00",
+      "classification": "仓库中没有"
+    },
+    {
+      "path": "$USER_UNITS/ao-pilot-runtime.service.d/90-fresh-instance.conf",
+      "sha256": "5996eede3e0cdeccc3f84cd7318c68cb63a84bfedbb5db65f5313487b2bda051",
+      "mtime_utc": "2026-10-14T14:26:36.637884+00:00",
+      "classification": "仓库中没有"
+    },
+    {
+      "path": "$USER_UNITS/ao-pilot-runtime.service.d/91-reliability-main.conf",
+      "sha256": "625fd4b211525eb835bce1e994c24f918e9c7a63b097e5982e6aa3442d6b6ab2",
+      "mtime_utc": "2026-10-23T12:10:26.125689+00:00",
+      "classification": "仓库中没有"
+    },
+    {
+      "path": "$HOME/.local/bin/ao-pilot",
+      "sha256": "ba8afa67abf9c05c63ba8a782d0ee9e33ecb6404487238e6329d9d84a5aadbf2",
+      "mtime_utc": "2026-09-13T11:51:19+00:00",
+      "repository_path": "bin/ao-pilot.js",
+      "classification": "有对应但版本不同",
+      "symlink_target": "$CLI_INSTALL/bin/ao-pilot.js"
+    },
+    {
+      "path": "$FOREGROUND_INSTALL/package.json",
+      "sha256": "003a1d1e7709be9e8de991085a83b9bc93e0a4c915863c39c93a0e788f2febae",
+      "mtime_utc": "2026-09-13T05:36:24.272829+00:00",
+      "repository_path": "package.json",
+      "classification": "有对应但版本不同"
+    },
+    {
+      "path": "$FOREGROUND_INSTALL/runtime/agent-orchestrator.lock.json",
+      "sha256": "029480cbfc8b7af892bc50cb0dfffb0564ad1eb296d9e1e6f03aa645bddb63ef",
+      "mtime_utc": "2026-09-13T05:36:24.220029+00:00",
+      "repository_path": "runtime/agent-orchestrator.lock.json",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$FOREGROUND_INSTALL/scripts/ao-runtime-foreground.js",
+      "sha256": "2855f199703f3c26e90539a6c50637edbc94e931ca6044f39aa3c8e0612effea",
+      "mtime_utc": "2026-09-13T05:36:24.110029+00:00",
+      "repository_path": "scripts/ao-runtime-foreground.js",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/package-lock.json",
+      "sha256": "2ba3c6cd2d9ba94e6a7786e22dd81b803f881c288ec7bfb73183a8b0f0953478",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/package-lock.json",
+      "classification": "有对应但版本不同"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/package.json",
+      "sha256": "ff06eb418cbbad701b08dff73eac267423b061589e8457c5e2efcd7fedbced30",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/package.json",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/agent-selection.js",
+      "sha256": "8a17fb21cae873e4e379a1e0126091517dc7aea056da77b80141f5ac9882c972",
+      "mtime_utc": "2026-09-13T11:50:41.734152+00:00",
+      "repository_path": "browser/packages/core/src/agent-selection.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "f27b06f6185501cf01d590092371e57fc55d2786cd6f29137065d4ab618766c9",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/atomic-write.js",
+      "sha256": "9c7e6782e5ef796bb14842424e59dee29097f9700e3112fa9ff9e72d64f03e67",
+      "mtime_utc": "2026-09-13T11:50:41.738227+00:00",
+      "repository_path": "browser/packages/core/src/atomic-write.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "84afba0779ea82f9265897b5c7a7398923f17875a8b0cc7a92848a85b848224b",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/config-generator.js",
+      "sha256": "185f5e6ae420e48fb1b0b7d5c68c4c30e8fe0445c3bd7d8aa3657f47308e240e",
+      "mtime_utc": "2026-09-13T11:50:41.742303+00:00",
+      "repository_path": "browser/packages/core/src/config-generator.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "3d79ab83d546a319dff1a23b730ce34ca5c1a5de203ef2aeadca20c4c8ec9010",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/config.js",
+      "sha256": "fabbb69a521e6a63ef67212784fd47d97634a51d33349914bec658d19acf7fb2",
+      "mtime_utc": "2026-09-13T11:50:41.750454+00:00",
+      "repository_path": "browser/packages/core/src/config.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "e8adbc1a2755bb22b73415569cadb0860f091729669ec2c730295a1b14b52976",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/decomposer.js",
+      "sha256": "d6faf42d2f2b03764f8d9fb8e5a780e8b642107e35e8f4f87fcbf9693954e5c6",
+      "mtime_utc": "2026-09-13T11:50:41.754529+00:00",
+      "repository_path": "browser/packages/core/src/decomposer.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "c8ec1d7952a4a41ac66c1aea0330a1685a904de1fde11ffb4b2ab23319d8a9ef",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/feedback-tools.js",
+      "sha256": "b36d4ce946d6b27af834305312067e9e1617bda1405d7d6ec9e568e4ebaa4385",
+      "mtime_utc": "2026-09-13T11:50:41.766756+00:00",
+      "repository_path": "browser/packages/core/src/feedback-tools.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "9c1f0846555651114a8cb0707ac743c86ebf917f9e3264975902d4a5ceb2983c",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/global-pause.js",
+      "sha256": "fa32cb0152026bb6f3ba8e7114bb4473509de9408ecb0476560a0133acd6990d",
+      "mtime_utc": "2026-09-13T11:50:41.774907+00:00",
+      "repository_path": "browser/packages/core/src/global-pause.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "4af9c7d6cb415b9bbf44f2a35866fd851d3c7dfef6012ff53561925979d3d90f",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/index.js",
+      "sha256": "6250e9c832caa1963f93533844b5d45849ae86d1bab171e39df04a647586c849",
+      "mtime_utc": "2026-09-13T11:50:41.852342+00:00",
+      "repository_path": "browser/packages/core/src/index.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "e5c0a5477741ce0f4fd884f4965dba52cc17bfabe965f52b5126545670ca2ad4",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/key-value.js",
+      "sha256": "5f135929f2a593548fa3ea050f314969afaad59c5330a331191375e5be265f43",
+      "mtime_utc": "2026-09-13T11:50:41.758605+00:00",
+      "repository_path": "browser/packages/core/src/key-value.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "db7816256302976cf957d697fcc61fce7dc00c02345a9807933f5b8850cc0632",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/lifecycle-manager.js",
+      "sha256": "37c977a5e10ab4c004c9083699a34ee04fd963e595d137c4bbed53cf9f269f10",
+      "mtime_utc": "2026-09-13T11:50:41.844191+00:00",
+      "repository_path": "browser/packages/core/src/lifecycle-manager.ts",
+      "classification": "有对应但版本不同",
+      "compiled_artifact": true,
+      "source_sha256": "8e293ae652401f2ba4ab3a68f045b557f2844dfaf34fc2818496b8100e4947c4",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/metadata.js",
+      "sha256": "cf13c9db8612a1512659c73abc66c171fdc1bb918d52fb04de941d519e704cd5",
+      "mtime_utc": "2026-09-13T11:50:41.783058+00:00",
+      "repository_path": "browser/packages/core/src/metadata.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "fbf4929a293bf0283320288fbfb290a4f8bf6f38ea436c73a529c91c161aee58",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/observability.js",
+      "sha256": "df6d2ed94cc17adf18aaa412d302821fbefccbebdaa07b20388dd1b081d65924",
+      "mtime_utc": "2026-09-13T11:50:41.831964+00:00",
+      "repository_path": "browser/packages/core/src/observability.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "cf58fef79838a89da074ca5386eb4aac098bccf790fa492464dccdff8c884c7a",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/opencode-session-id.js",
+      "sha256": "67ebdc03dabc2f461f47e0eb13c5dd716305b1fde2e005e15bd52f0970a8f770",
+      "mtime_utc": "2026-09-13T11:50:41.791209+00:00",
+      "repository_path": "browser/packages/core/src/opencode-session-id.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "ec8c701c87406ba7daffb1722479254e71e2d7b2b8a1ee0535264d8dd346a09b",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/orchestrator-prompt.js",
+      "sha256": "f2d0089c0032d9f7f94e6557093641c3cdaf2909add249ea9d70aff87f70990a",
+      "mtime_utc": "2026-09-13T11:50:41.791209+00:00",
+      "repository_path": "browser/packages/core/src/orchestrator-prompt.ts",
+      "classification": "有对应但版本不同",
+      "compiled_artifact": true,
+      "source_sha256": "26d08fc0f3d04c9fb4d6cf0f2440ce5ae0efd10e712e168006dfca8c2049cbdf",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/orchestrator-session-strategy.js",
+      "sha256": "d197aa2cddf5038601d0c2c212c25b7be3779d24e02e595b505f76101093285f",
+      "mtime_utc": "2026-09-13T11:50:41.791209+00:00",
+      "repository_path": "browser/packages/core/src/orchestrator-session-strategy.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "1a8bb8dbfe531eac7c63453595aeeb5931a470b43e5fe5cbbefa1ca1cf122a84",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/paths.js",
+      "sha256": "3901ceba658b4d608856ce15cffc7356adddb358d54573afb78b54345016c968",
+      "mtime_utc": "2026-09-13T11:50:41.742303+00:00",
+      "repository_path": "browser/packages/core/src/paths.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "015b896eacaa41f08211813eaf1959396900e8e5aa67c1dcf6eaff9be63b9ca7",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/plugin-registry.js",
+      "sha256": "7bd0a25ff36f04685eee3c53270230997fceea38fc58e138ff69431c780302ea",
+      "mtime_utc": "2026-09-13T11:50:41.778983+00:00",
+      "repository_path": "browser/packages/core/src/plugin-registry.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "65cbceb8b33afb0821453af3762aec6f3aa902b90b45bada3d78ba7781baabe4",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/prompt-builder.js",
+      "sha256": "c69c4e4d4dfb0c32f6cc2f22e0c3c14ef166022472f060522f1cc11cfda860bb",
+      "mtime_utc": "2026-09-13T11:50:41.787134+00:00",
+      "repository_path": "browser/packages/core/src/prompt-builder.ts",
+      "classification": "有对应但版本不同",
+      "compiled_artifact": true,
+      "source_sha256": "7211669814b215e3e2908e295e5aa7e7c97209da392d80ee066ecf547e113559",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/scm-webhook-utils.js",
+      "sha256": "0f07681a286f07b00c9424669c36ddda8e56997f9fa62708d91fc6d3679d65db",
+      "mtime_utc": "2026-09-13T11:50:41.848267+00:00",
+      "repository_path": "browser/packages/core/src/scm-webhook-utils.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "a82fd02c849ef4ee1e927b876fe6d7719d6461322528a7d7ebdfc74ffd20c339",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/session-manager.js",
+      "sha256": "691465cbe98cf413e00e8ec3ac4b661f8b33e70054f0ae9dd7a2fbc0b4099eb4",
+      "mtime_utc": "2026-09-13T11:50:41.823813+00:00",
+      "repository_path": "browser/packages/core/src/session-manager.ts",
+      "classification": "有对应但版本不同",
+      "compiled_artifact": true,
+      "source_sha256": "267ad968a49048afa186cb339f09707a92b95342879184d3b0f3a521be9d5be2",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/tmux.js",
+      "sha256": "ede15185c1e8cdc50b0439654798ee0bef421067334d01971714b8f0778a56f2",
+      "mtime_utc": "2026-09-13T11:50:41.783058+00:00",
+      "repository_path": "browser/packages/core/src/tmux.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "0563530e4df8f9e78727fa34a9ddce47921f53b5a46b1a81a1e67968a2c5790e",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/types.js",
+      "sha256": "4a75eb7c72df823498910a086b3a1023367750fc9ec8dd29214a626b90e70553",
+      "mtime_utc": "2026-09-13T11:50:41.709699+00:00",
+      "repository_path": "browser/packages/core/src/types.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "c057fc434bf12c8798ba3fec3ec5b4fe5c5e42578bdc3929ca43955db751fe5d",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/utils.js",
+      "sha256": "e851065ac67ab5428f0396477353788d95d71bf05403b3bb63fb374f5b7ee2bf",
+      "mtime_utc": "2026-09-13T11:50:41.848267+00:00",
+      "repository_path": "browser/packages/core/src/utils.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "c086cc369a15ac8db3b4c77d772a781e836ac8500edb2a26e302585118246ced",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/utils/pr.js",
+      "sha256": "3add979700b993ed60c2415db1fe4838239258646cfdf090945198e39a7300da",
+      "mtime_utc": "2026-09-13T11:50:41.791209+00:00",
+      "repository_path": "browser/packages/core/src/utils/pr.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "d56abd142f7263bf02d43c6ae07c773ac8e668657b1d928d4d9b2f963629cc46",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/utils/session-from-metadata.js",
+      "sha256": "a3f47c72ab94b87c31bf1fb3774b52783e4bdbfa1259f6c58bc291df9cfc8e67",
+      "mtime_utc": "2026-09-13T11:50:41.795285+00:00",
+      "repository_path": "browser/packages/core/src/utils/session-from-metadata.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "eaa8c5fd958ea5745a747a6ccdf290035e0e852d00f69d0184e9c45ef1b8bded",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/dist/utils/validation.js",
+      "sha256": "eb79d2f8eeae08e82e774eb0ea863dfb1fded67825c5a45eb0d01a22eabd0c1e",
+      "mtime_utc": "2026-09-13T11:50:41.795285+00:00",
+      "repository_path": "browser/packages/core/src/utils/validation.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "e7acf094761e90e3fa8329813a2723fb6cf5735efda2af6552547d286d717d48",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/package.json",
+      "sha256": "f0e61a837e1ecdaa6b5109eb3039f1abe691aa4222906429122fd73265c3f399",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/package.json",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/agent-selection.ts",
+      "sha256": "f27b06f6185501cf01d590092371e57fc55d2786cd6f29137065d4ab618766c9",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/agent-selection.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/atomic-write.ts",
+      "sha256": "84afba0779ea82f9265897b5c7a7398923f17875a8b0cc7a92848a85b848224b",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/atomic-write.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/config-generator.ts",
+      "sha256": "3d79ab83d546a319dff1a23b730ce34ca5c1a5de203ef2aeadca20c4c8ec9010",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/config-generator.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/config.ts",
+      "sha256": "e8adbc1a2755bb22b73415569cadb0860f091729669ec2c730295a1b14b52976",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/config.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/decomposer.ts",
+      "sha256": "c8ec1d7952a4a41ac66c1aea0330a1685a904de1fde11ffb4b2ab23319d8a9ef",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/decomposer.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/feedback-tools.ts",
+      "sha256": "9c1f0846555651114a8cb0707ac743c86ebf917f9e3264975902d4a5ceb2983c",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/feedback-tools.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/global-pause.ts",
+      "sha256": "4af9c7d6cb415b9bbf44f2a35866fd851d3c7dfef6012ff53561925979d3d90f",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/global-pause.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/index.ts",
+      "sha256": "e5c0a5477741ce0f4fd884f4965dba52cc17bfabe965f52b5126545670ca2ad4",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/index.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/key-value.ts",
+      "sha256": "db7816256302976cf957d697fcc61fce7dc00c02345a9807933f5b8850cc0632",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/key-value.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/lifecycle-manager.ts",
+      "sha256": "8e293ae652401f2ba4ab3a68f045b557f2844dfaf34fc2818496b8100e4947c4",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/lifecycle-manager.ts",
+      "classification": "有对应但版本不同"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/metadata.ts",
+      "sha256": "fbf4929a293bf0283320288fbfb290a4f8bf6f38ea436c73a529c91c161aee58",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/metadata.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/observability.ts",
+      "sha256": "cf58fef79838a89da074ca5386eb4aac098bccf790fa492464dccdff8c884c7a",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/observability.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/opencode-session-id.ts",
+      "sha256": "ec8c701c87406ba7daffb1722479254e71e2d7b2b8a1ee0535264d8dd346a09b",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/opencode-session-id.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/orchestrator-prompt.ts",
+      "sha256": "26d08fc0f3d04c9fb4d6cf0f2440ce5ae0efd10e712e168006dfca8c2049cbdf",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/orchestrator-prompt.ts",
+      "classification": "有对应但版本不同"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/orchestrator-session-strategy.ts",
+      "sha256": "1a8bb8dbfe531eac7c63453595aeeb5931a470b43e5fe5cbbefa1ca1cf122a84",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/orchestrator-session-strategy.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/paths.ts",
+      "sha256": "015b896eacaa41f08211813eaf1959396900e8e5aa67c1dcf6eaff9be63b9ca7",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/paths.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/plugin-registry.ts",
+      "sha256": "65cbceb8b33afb0821453af3762aec6f3aa902b90b45bada3d78ba7781baabe4",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/plugin-registry.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/prompt-builder.ts",
+      "sha256": "7211669814b215e3e2908e295e5aa7e7c97209da392d80ee066ecf547e113559",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/prompt-builder.ts",
+      "classification": "有对应但版本不同"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/scm-webhook-utils.ts",
+      "sha256": "a82fd02c849ef4ee1e927b876fe6d7719d6461322528a7d7ebdfc74ffd20c339",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/scm-webhook-utils.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/session-manager.ts",
+      "sha256": "267ad968a49048afa186cb339f09707a92b95342879184d3b0f3a521be9d5be2",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/session-manager.ts",
+      "classification": "有对应但版本不同"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/tmux.ts",
+      "sha256": "0563530e4df8f9e78727fa34a9ddce47921f53b5a46b1a81a1e67968a2c5790e",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/tmux.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/types.ts",
+      "sha256": "c057fc434bf12c8798ba3fec3ec5b4fe5c5e42578bdc3929ca43955db751fe5d",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/types.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/utils.ts",
+      "sha256": "c086cc369a15ac8db3b4c77d772a781e836ac8500edb2a26e302585118246ced",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/utils.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/utils/pr.ts",
+      "sha256": "d56abd142f7263bf02d43c6ae07c773ac8e668657b1d928d4d9b2f963629cc46",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/utils/pr.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/utils/session-from-metadata.ts",
+      "sha256": "eaa8c5fd958ea5745a747a6ccdf290035e0e852d00f69d0184e9c45ef1b8bded",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/utils/session-from-metadata.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/core/src/utils/validation.ts",
+      "sha256": "e7acf094761e90e3fa8329813a2723fb6cf5735efda2af6552547d286d717d48",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/core/src/utils/validation.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/plugins/agent-claude-code/package.json",
+      "sha256": "43caf4c942fe3076ad81a50905ffa46924b9f240a504a1591631dcdecf0fc26a",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/plugins/agent-claude-code/package.json",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/plugins/agent-codex/dist/app-server-client.js",
+      "sha256": "7557e2b059bd6f6ef4b52bf5606572ecaa0b5c955b985f06a991db715d654ee3",
+      "mtime_utc": "2026-09-13T11:50:42.792674+00:00",
+      "repository_path": "browser/packages/plugins/agent-codex/src/app-server-client.ts",
+      "classification": "有对应但版本不同",
+      "compiled_artifact": true,
+      "source_sha256": "18075d98d1359c441c99452f2f16659d564bedb4fd9b39785c0031baab6c6631",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/plugins/agent-codex/dist/index.js",
+      "sha256": "7596cd4430c04759f66ce3eb7b7ea6eb19f5a81861146bd9d1a69833cff529dd",
+      "mtime_utc": "2026-09-13T11:50:42.820864+00:00",
+      "repository_path": "browser/packages/plugins/agent-codex/src/index.ts",
+      "classification": "有对应但版本不同",
+      "compiled_artifact": true,
+      "source_sha256": "277fc275d390e793e10b2e66e7e144512fcc444d47d3ce5d95a3b98254acda62",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/plugins/agent-codex/package.json",
+      "sha256": "0f2da4e0d9a44e71e9b6e052efeb7ecb2f9987bcbb5c982bc354a6ca0b22616b",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/plugins/agent-codex/package.json",
+      "classification": "有对应但版本不同"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/plugins/agent-codex/src/app-server-client.ts",
+      "sha256": "18075d98d1359c441c99452f2f16659d564bedb4fd9b39785c0031baab6c6631",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/plugins/agent-codex/src/app-server-client.ts",
+      "classification": "有对应但版本不同"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/plugins/agent-codex/src/index.ts",
+      "sha256": "277fc275d390e793e10b2e66e7e144512fcc444d47d3ce5d95a3b98254acda62",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/plugins/agent-codex/src/index.ts",
+      "classification": "有对应但版本不同"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/plugins/agent-opencode/package.json",
+      "sha256": "8dbc47883c021fcdb80f35cae0aa79b49282b51a0a3c6b0f5304e0a5b5db0dba",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/plugins/agent-opencode/package.json",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/plugins/runtime-tmux/dist/index.js",
+      "sha256": "f69c0f20d50f502af4abc7b439c8fad9fb50b0165c8ee88b3dbb7bcbc9e70970",
+      "mtime_utc": "2026-09-13T11:50:44.572669+00:00",
+      "repository_path": "browser/packages/plugins/runtime-tmux/src/index.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "1d0f68c9fa393faf9632fe61c9bb17001118007ddfea391e038d1b3a5c5de2c8",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/plugins/runtime-tmux/package.json",
+      "sha256": "12c201451478fbde57993a1f2aaec56ff7afaea0b250698089852f051a4740b8",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/plugins/runtime-tmux/package.json",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/plugins/runtime-tmux/src/index.ts",
+      "sha256": "1d0f68c9fa393faf9632fe61c9bb17001118007ddfea391e038d1b3a5c5de2c8",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/plugins/runtime-tmux/src/index.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/plugins/scm-github/dist/index.js",
+      "sha256": "192e4647a5ffbe5e585fecc077047962a473b0202723e920773eec5f218d19af",
+      "mtime_utc": "2026-09-13T11:50:46.433206+00:00",
+      "repository_path": "browser/packages/plugins/scm-github/src/index.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "4e6de0d78294cf0cfe04ce25fec9087d0ebcc249d9fab2ae8d9196ceef61ba48",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/plugins/scm-github/package.json",
+      "sha256": "c59c5ada64ca72448190cd525f47ae2933d2af8aacbeefea4aeae54dcbe4f4c4",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/plugins/scm-github/package.json",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/plugins/scm-github/src/index.ts",
+      "sha256": "4e6de0d78294cf0cfe04ce25fec9087d0ebcc249d9fab2ae8d9196ceef61ba48",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/plugins/scm-github/src/index.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/plugins/tracker-github/dist/index.js",
+      "sha256": "603e93a2bcfc7ded7a7b1074317cc78a16d5b2e90d88a60dfcd8d2fc153c30e7",
+      "mtime_utc": "2026-09-13T11:50:47.206416+00:00",
+      "repository_path": "browser/packages/plugins/tracker-github/src/index.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "17116a67794b8f9114f780c5d383002fad71a5b8f747a7583c04eed3ff30dbc7",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/plugins/tracker-github/package.json",
+      "sha256": "cf8211b700cecd0ed30fa064138ec3db825c7d24b6bacdae2baf51ff888e1006",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/plugins/tracker-github/package.json",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/plugins/tracker-github/src/index.ts",
+      "sha256": "17116a67794b8f9114f780c5d383002fad71a5b8f747a7583c04eed3ff30dbc7",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/plugins/tracker-github/src/index.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/plugins/tracker-linear/package.json",
+      "sha256": "af1a6dc3fc56124877a5efd6135d9b9feb381eea81c40991f21849a8d5d77943",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/plugins/tracker-linear/package.json",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/plugins/workspace-worktree/dist/index.js",
+      "sha256": "96dddd722c402094e41ac52795637c4fc5aade3a4e05488e804202e2653d9dbe",
+      "mtime_utc": "2026-09-13T11:50:45.563344+00:00",
+      "repository_path": "browser/packages/plugins/workspace-worktree/src/index.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "5245c21f22392beea3d17110a52d666fcc18095908907d7fb25cdc3fbf012f78",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/plugins/workspace-worktree/package.json",
+      "sha256": "7e32ccc698251b693ebdf2b0eae6676dfb13114311e35ef4c9f7e68b90da9641",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/plugins/workspace-worktree/package.json",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/plugins/workspace-worktree/src/index.ts",
+      "sha256": "5245c21f22392beea3d17110a52d666fcc18095908907d7fb25cdc3fbf012f78",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/plugins/workspace-worktree/src/index.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/web/.next/BUILD_ID",
+      "sha256": "9dd39f8a9417b0c6d3395fc618bdb1df0f7a9424e3738584d1d3f491b065c774",
+      "mtime_utc": "2026-09-13T11:51:05.765946+00:00",
+      "classification": "有对应但版本不同",
+      "repository_path": "browser/packages/web",
+      "comparison_basis": "generated Next production output, not a missing source file; deployment commit 8a2dce40ce267260650789b762b06b8a6f5c9ed4"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/web/dist-server/direct-terminal-ws.js",
+      "sha256": "a33edbc81665af1ad18e9ca4be941c084cbda6eb581b39aec2b672738df7bd2a",
+      "mtime_utc": "2026-09-13T11:51:13.824811+00:00",
+      "repository_path": "browser/packages/web/server/direct-terminal-ws.ts",
+      "classification": "有对应但版本不同",
+      "compiled_artifact": true,
+      "source_sha256": "77ce26dc1c7f20c79bb90e6fa942da1b269f48c819ff553bdce50211d0d62232",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/web/dist-server/start-all.js",
+      "sha256": "0e1783a1d68d6b508b50b0ba299dfb918584466a308336e981516ee4ec47a2f6",
+      "mtime_utc": "2026-09-13T11:51:13.828820+00:00",
+      "repository_path": "browser/packages/web/server/start-all.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "d968bdef8a207419436f4a56b20ee425533a28906ae1361f25de3ffc821cd066",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/web/dist-server/terminal-observability.js",
+      "sha256": "a1463013e4935ec5c3895891bef13d4f8122911f5f095bda1d095b2f0a93263a",
+      "mtime_utc": "2026-09-13T11:51:13.816792+00:00",
+      "repository_path": "browser/packages/web/server/terminal-observability.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "125efc90b68c9f30cbf3e583e7033bf045fcbd299e72711de47a364e3d1cf589",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/web/dist-server/terminal-websocket.js",
+      "sha256": "32c11c831a29387026b9f64627406148dd8bdf4b46f56031204e9d960fd5272b",
+      "mtime_utc": "2026-09-13T11:51:13.832829+00:00",
+      "repository_path": "browser/packages/web/server/terminal-websocket.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "9b9aec55fb200ac65e91d759a55b80b7cc9a0b0cab1f00549498c6501800b5ba",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/web/dist-server/tmux-utils.js",
+      "sha256": "a9dfecf2737587adc329065080632db60dae7a24f59fd8c916050f21bb84b4b4",
+      "mtime_utc": "2026-09-13T11:51:13.816792+00:00",
+      "repository_path": "browser/packages/web/server/tmux-utils.ts",
+      "classification": "仓库中有对应源码且一致",
+      "compiled_artifact": true,
+      "source_sha256": "963552374d5d0793f2026375db9005c3712894b6a9ffe6745b0cfdef2b34e695",
+      "comparison_basis": "installed TypeScript source vs repository; generated JavaScript byte reproducibility NOT_RUN"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/web/next.config.js",
+      "sha256": "262112a7242f61eb4a928332b6593bc7ed68f6d2af629a2bf2c977beed352609",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/web/next.config.js",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/web/package.json",
+      "sha256": "f4b5190681ea388f93c9df7e3d61672e2e7ca40db8a54a521faf7087c101f9c9",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/web/package.json",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/web/server/direct-terminal-ws.ts",
+      "sha256": "77ce26dc1c7f20c79bb90e6fa942da1b269f48c819ff553bdce50211d0d62232",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/web/server/direct-terminal-ws.ts",
+      "classification": "有对应但版本不同"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/web/server/start-all.ts",
+      "sha256": "d968bdef8a207419436f4a56b20ee425533a28906ae1361f25de3ffc821cd066",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/web/server/start-all.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/web/server/terminal-observability.ts",
+      "sha256": "125efc90b68c9f30cbf3e583e7033bf045fcbd299e72711de47a364e3d1cf589",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/web/server/terminal-observability.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/web/server/terminal-websocket.ts",
+      "sha256": "9b9aec55fb200ac65e91d759a55b80b7cc9a0b0cab1f00549498c6501800b5ba",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/web/server/terminal-websocket.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/browser/packages/web/server/tmux-utils.ts",
+      "sha256": "963552374d5d0793f2026375db9005c3712894b6a9ffe6745b0cfdef2b34e695",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "browser/packages/web/server/tmux-utils.ts",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/package-lock.json",
+      "sha256": "9de2d0080d13da2ccb2ed5f7b85fff3a4214a88c1346d79d2ccad2f2de92705b",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "package-lock.json",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/package.json",
+      "sha256": "4defdbe24310e48b67729cf504989e082bee0db01a7f7b09a98fee7130aa950b",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "package.json",
+      "classification": "有对应但版本不同"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/runtime/agent-orchestrator.lock.json",
+      "sha256": "029480cbfc8b7af892bc50cb0dfffb0564ad1eb296d9e1e6f03aa645bddb63ef",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "runtime/agent-orchestrator.lock.json",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$DASHBOARD_INSTALL/scripts/ao-dashboard.js",
+      "sha256": "9602a75e2af1855b085fff149781b44bb19a82a54a1452f394357e3fb6c16a45",
+      "mtime_utc": "2026-09-13T11:50:23+00:00",
+      "repository_path": "scripts/ao-dashboard.js",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$CLI_INSTALL/bin/ao-pilot.js",
+      "sha256": "ba8afa67abf9c05c63ba8a782d0ee9e33ecb6404487238e6329d9d84a5aadbf2",
+      "mtime_utc": "2026-09-13T11:51:19+00:00",
+      "repository_path": "bin/ao-pilot.js",
+      "classification": "有对应但版本不同"
+    },
+    {
+      "path": "$CLI_INSTALL/package-lock.json",
+      "sha256": "9de2d0080d13da2ccb2ed5f7b85fff3a4214a88c1346d79d2ccad2f2de92705b",
+      "mtime_utc": "2026-09-13T11:51:19+00:00",
+      "repository_path": "package-lock.json",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$CLI_INSTALL/package.json",
+      "sha256": "4defdbe24310e48b67729cf504989e082bee0db01a7f7b09a98fee7130aa950b",
+      "mtime_utc": "2026-09-13T11:51:19+00:00",
+      "repository_path": "package.json",
+      "classification": "有对应但版本不同"
+    },
+    {
+      "path": "$CLI_INSTALL/runtime/agent-orchestrator.lock.json",
+      "sha256": "029480cbfc8b7af892bc50cb0dfffb0564ad1eb296d9e1e6f03aa645bddb63ef",
+      "mtime_utc": "2026-09-13T11:51:19+00:00",
+      "repository_path": "runtime/agent-orchestrator.lock.json",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$CLI_INSTALL/scripts/ao-session.js",
+      "sha256": "de0344fda857ebd3a13baa60e3787c124b3a8f01eb465a18a91fc4af7eae0956",
+      "mtime_utc": "2026-09-13T11:51:19+00:00",
+      "repository_path": "scripts/ao-session.js",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$CLI_INSTALL/scripts/ao/lib/config.js",
+      "sha256": "49ec55013b5121fd29c550ab097901522c183f1470d756e6ef5b8a1752ff26a5",
+      "mtime_utc": "2026-09-13T11:51:19+00:00",
+      "repository_path": "scripts/ao/lib/config.js",
+      "classification": "仓库中有对应源码且一致"
+    },
+    {
+      "path": "$CLI_INSTALL/scripts/ao/lib/session-recovery.js",
+      "sha256": "0e8c09ff6f4b8a2306731d2d58ca82198ec60dbf405857e79099f1016bb2a03b",
+      "mtime_utc": "2026-09-13T11:51:19+00:00",
+      "repository_path": "scripts/ao/lib/session-recovery.js",
+      "classification": "有对应但版本不同"
+    },
+    {
+      "path": "$HOME/.local/share/ao-pilot/cie-dashboard-adapter/server.mjs",
+      "sha256": "f583b09d7a9898798ee44aa4b67d2284d49837fb4838116f03bb3063cb7fc7e1",
+      "mtime_utc": "2026-09-28T05:14:15.496435+00:00",
+      "classification": "仓库中没有"
+    },
+    {
+      "path": "$HOTFIXES/recovery-20260924/bin/ao",
+      "sha256": "2fa0d593b3e5ac0c3849b7bdfb5169bb2834bac7f7fde069b85eeb060fe922c7",
+      "mtime_utc": "2026-09-23T17:36:13.929439+00:00",
+      "classification": "有对应但版本不同",
+      "repository_path": "runtime/headless/backend/cmd/ao",
+      "comparison_basis": "native Go source exists; executable bytes are a generated local build, not a source byte equality claim",
+      "source_commit": "NOT_ESTABLISHED: historical override is shadowed; do not promote to a verified build"
+    },
+    {
+      "path": "$HOTFIXES/runtime-capacity-20260924/bin/ao",
+      "sha256": "9f2f9d855ee840eb14f38a07570e3181269b98ef67989450a3b7fa1ac3771db0",
+      "mtime_utc": "2026-09-24T06:42:01.005927+00:00",
+      "classification": "有对应但版本不同",
+      "repository_path": "runtime/headless/backend/cmd/ao",
+      "comparison_basis": "native Go source exists; executable bytes are a generated local build, not a source byte equality claim",
+      "source_commit": "NOT_ESTABLISHED: historical override is shadowed; do not promote to a verified build"
+    },
+    {
+      "path": "$HOTFIXES/sparse-worktree-20260926/bin/ao",
+      "sha256": "abe237e6e59a4600dbbcb7b3fc80914c30a36116bf3dd482c6ebd1c54dc21034",
+      "mtime_utc": "2026-09-26T09:41:36.334852+00:00",
+      "classification": "有对应但版本不同",
+      "repository_path": "runtime/headless/backend/cmd/ao",
+      "comparison_basis": "native Go source exists; executable bytes are a generated local build, not a source byte equality claim",
+      "source_commit": "NOT_ESTABLISHED: historical override is shadowed; do not promote to a verified build"
+    },
+    {
+      "path": "$UPGRADE/installed-provenance.json",
+      "sha256": "eac6344b6666b558f87934aecd72b40ede686b765d85c73ab375a9b3fbdb5144",
+      "mtime_utc": "2026-10-23T12:10:26.125689+00:00",
+      "classification": "仓库中没有",
+      "disposition": "sanitized public provenance fields recorded in README; private receipt is not copied"
+    },
+    {
+      "path": "$UPGRADE/runtime/bin/ao",
+      "sha256": "45705237dcda7a8916b8291364869c181a1d9d70f7cd636932c301242268909a",
+      "mtime_utc": "2026-10-23T12:08:42.455546+00:00",
+      "classification": "有对应但版本不同",
+      "repository_path": "runtime/headless/backend/cmd/ao",
+      "comparison_basis": "native Go source exists; executable bytes are a generated local build, not a source byte equality claim",
+      "source_commit": "092227ab425e8293ce8ce2e6f6b23409c751330b"
+    },
+    {
+      "path": "$NODE",
+      "sha256": "243fd8938011479f41b3de101842150fa990f33fbbb3f7aabd330857f2d79e1d",
+      "mtime_utc": "2026-03-04T18:03:36+00:00",
+      "classification": "仓库中没有"
+    },
+    {
+      "path": "$PROJECT_CONFIG",
+      "sha256": "359988e33eaf8fdd5e8151a1df9d0f0fd1e5929805f703366508374a61aaefbd",
+      "mtime_utc": "2026-09-13T11:16:47.216511+00:00",
+      "classification": "仓库中没有"
+    }
+  ],
+  "external_imports": [
+    "@anthropic-ai/sdk",
+    "@composio/ao-core",
+    "@composio/ao-core/scm-webhook-utils",
+    "next",
+    "node-pty",
+    "ws",
+    "yaml",
+    "zod"
+  ],
+  "notes": [
+    "Snapshot is on-disk inputs plus effective systemd and proc identity, not proof of in-memory JS contents.",
+    "Third party node_modules and Next build outputs are generated dependency artifacts bound by lock/build receipts, not missing first-party source.",
+    "Local units and private configuration are absent site inputs; publish sanitized configuration records, never production environment files or binaries."
+  ],
+  "dependencies": [
+    {
+      "package": "next",
+      "version": "15.5.12",
+      "manifest_sha256": "df9472918dbedf029d389787153e68529dff9fca61808635448ee4db4992e73f",
+      "path": "$DASHBOARD_INSTALL/browser/node_modules/next/package.json",
+      "classification": "仓库中没有",
+      "disposition": "third-party dependency; browser/package-lock.json is the build input, not vendored source",
+      "cli_entrypoint": "$DASHBOARD_INSTALL/browser/node_modules/next/dist/bin/next",
+      "cli_sha256": "01076a021fe6b096221e33203e33f35e892f887eada918debff1b513d17e41b9"
+    },
+    {
+      "package": "node-pty",
+      "version": "1.1.0",
+      "manifest_sha256": "f8b6a14f7022c14f1cd5d109486f5dacd32bffb63a9a63e38eced37dacb47439",
+      "path": "$DASHBOARD_INSTALL/browser/node_modules/node-pty/package.json",
+      "classification": "仓库中没有",
+      "disposition": "third-party dependency; browser/package-lock.json is the build input, not vendored source"
+    },
+    {
+      "package": "ws",
+      "version": "8.19.0",
+      "manifest_sha256": "d2d2ae64c64a15f3bb20c40904ea7feee2dc23da34a59918edce5f484012f12e",
+      "path": "$DASHBOARD_INSTALL/browser/node_modules/ws/package.json",
+      "classification": "仓库中没有",
+      "disposition": "third-party dependency; browser/package-lock.json is the build input, not vendored source"
+    },
+    {
+      "package": "yaml",
+      "version": "2.8.2",
+      "manifest_sha256": "1a541263c65ace454cc9ddaa9157c335855a4ce1617b0c562b67373049e395d7",
+      "path": "$DASHBOARD_INSTALL/browser/node_modules/yaml/package.json",
+      "classification": "仓库中没有",
+      "disposition": "third-party dependency; browser/package-lock.json is the build input, not vendored source"
+    },
+    {
+      "package": "zod",
+      "version": "3.25.76",
+      "manifest_sha256": "70eedbe34fd52385a4ae2f3e5759b19682189f0118ea73a6e7c32c677f61668e",
+      "path": "$DASHBOARD_INSTALL/browser/node_modules/zod/package.json",
+      "classification": "仓库中没有",
+      "disposition": "third-party dependency; browser/package-lock.json is the build input, not vendored source"
+    },
+    {
+      "package": "@anthropic-ai/sdk",
+      "version": "0.52.0",
+      "manifest_sha256": "30884106d97ea9d3dbbe57693b6ee1bc9a84f3b02c201229019e5d6828264ec2",
+      "path": "$DASHBOARD_INSTALL/browser/node_modules/@anthropic-ai/sdk/package.json",
+      "classification": "仓库中没有",
+      "disposition": "third-party dependency; browser/package-lock.json is the build input, not vendored source"
+    }
+  ],
+  "aliases": {
+    "$USER_UNITS": "user systemd configuration directory",
+    "$SITE_CONFIG": "owner-only ao-pilot configuration directory",
+    "$PROJECT_CONFIG": "existing project YAML (namespace-sensitive)",
+    "$DASHBOARD_INSTALL": "original Dashboard deployment 8a2dce40ce267260650789b762b06b8a6f5c9ed4",
+    "$CLI_INSTALL": "session-recovery deployment 97d0ef20b41f172cbaeba50fd8f8a5db92d7b0a6",
+    "$FOREGROUND_INSTALL": "historical Dashboard package installation d01d076 (shadowed launcher)",
+    "$UPGRADE": "local runtime build 092227ab425e8293ce8ce2e6f6b23409c751330b",
+    "$HOTFIXES": "retained historical hotfix installations",
+    "$NODE": "external Node.js 22.22.1 interpreter",
+    "$HOME": "portable home-directory placeholder, not the machine account path"
+  }
+}

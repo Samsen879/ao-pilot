@@ -1,0 +1,240 @@
+[
+  {
+    "input": "$USER_UNITS/ao-pilot-runtime.service",
+    "sanitized_lines": [
+      "[Unit]",
+      "Description=AO Pilot verified CIE headless runtime",
+      "After=network-online.target",
+      "",
+      "[Service]",
+      "Type=simple",
+      "WorkingDirectory=$FOREGROUND_INSTALL",
+      "Environment=\"PATH=<PATH>\"",
+      "Environment=\"AO_DATA_DIR=<AO_DATA_DIR>\"",
+      "Environment=\"AO_RUN_FILE=<AO_RUN_FILE>\"",
+      "Restart=on-failure",
+      "RestartSec=3",
+      "TimeoutStopSec=30",
+      "UMask=0077",
+      "ExecStart=\"$NODE\" \"$FOREGROUND_INSTALL/scripts/ao-runtime-foreground.js\"",
+      "KillMode=mixed",
+      "",
+      "[Install]",
+      "WantedBy=default.target",
+      ""
+    ],
+    "executable_template": false
+  },
+  {
+    "input": "$USER_UNITS/ao-pilot-runtime.service.d/10-proxy.conf",
+    "sanitized_lines": [
+      "[Service]",
+      "EnvironmentFile=<OWNER_ONLY_ENV_FILE>",
+      ""
+    ],
+    "executable_template": false
+  },
+  {
+    "input": "$USER_UNITS/ao-pilot-runtime.service.d/20-request-timeout.conf",
+    "sanitized_lines": [
+      "[Service]",
+      "Environment=\"AO_REQUEST_TIMEOUT=<AO_REQUEST_TIMEOUT>\"",
+      ""
+    ],
+    "executable_template": false
+  },
+  {
+    "input": "$USER_UNITS/ao-pilot-runtime.service.d/30-send-enter-hotfix.conf",
+    "sanitized_lines": [
+      "[Service]",
+      "ExecStart=",
+      "ExecStart=$HOTFIXES/recovery-20260924/bin/ao daemon",
+      ""
+    ],
+    "executable_template": false
+  },
+  {
+    "input": "$USER_UNITS/ao-pilot-runtime.service.d/40-worktree-capacity.conf",
+    "sanitized_lines": [
+      "[Service]",
+      "Environment=\"AO_WORKTREE_CAPACITY_PATH=<AO_WORKTREE_CAPACITY_PATH>\"",
+      "Environment=\"AO_WORKTREE_MIN_FREE_BYTES=<AO_WORKTREE_MIN_FREE_BYTES>\"",
+      ""
+    ],
+    "executable_template": false
+  },
+  {
+    "input": "$USER_UNITS/ao-pilot-runtime.service.d/50-runtime-capacity-watch.conf",
+    "sanitized_lines": [
+      "[Service]",
+      "ExecStart=",
+      "ExecStart=$HOTFIXES/runtime-capacity-20260924/bin/ao daemon",
+      ""
+    ],
+    "executable_template": false
+  },
+  {
+    "input": "$USER_UNITS/ao-pilot-runtime.service.d/60-sparse-worktree.conf",
+    "sanitized_lines": [
+      "[Service]",
+      "ExecStart=",
+      "ExecStart=$HOTFIXES/sparse-worktree-20260926/bin/ao daemon",
+      ""
+    ],
+    "executable_template": false
+  },
+  {
+    "input": "$USER_UNITS/ao-pilot-runtime.service.d/70-codex-path.conf",
+    "sanitized_lines": [
+      "[Service]",
+      "Environment=\"PATH=<PATH>\"",
+      ""
+    ],
+    "executable_template": false
+  },
+  {
+    "input": "$USER_UNITS/ao-pilot-runtime.service.d/90-fresh-instance.conf",
+    "sanitized_lines": [
+      "[Service]",
+      "Environment=\"AO_DATA_DIR=<AO_DATA_DIR>\"",
+      "Environment=\"AO_RUN_FILE=<AO_RUN_FILE>\"",
+      ""
+    ],
+    "executable_template": false
+  },
+  {
+    "input": "$USER_UNITS/ao-pilot-runtime.service.d/91-reliability-main.conf",
+    "sanitized_lines": [
+      "[Service]",
+      "ExecStart=",
+      "ExecStart=$UPGRADE/runtime/bin/ao daemon"
+    ],
+    "executable_template": false
+  },
+  {
+    "input": "$USER_UNITS/ao-pilot-dashboard.service",
+    "sanitized_lines": [
+      "[Unit]",
+      "Description=AO Pilot original localhost browser Dashboard",
+      "Requires=ao-pilot-runtime.service",
+      "After=ao-pilot-runtime.service",
+      "",
+      "[Service]",
+      "Type=simple",
+      "WorkingDirectory=$DASHBOARD_INSTALL",
+      "Environment=\"PATH=<PATH>\"",
+      "Environment=\"AO_DATA_DIR=<AO_DATA_DIR>\"",
+      "Environment=\"AO_RUN_FILE=<AO_RUN_FILE>\"",
+      "Restart=on-failure",
+      "RestartSec=3",
+      "TimeoutStopSec=30",
+      "UMask=0077",
+      "Environment=\"AO_DASHBOARD_TERMINAL_ACCESS=<AO_DASHBOARD_TERMINAL_ACCESS>\"",
+      "Environment=\"NODE_ENV=<NODE_ENV>\"",
+      "Environment=\"AO_CONFIG_PATH=<AO_CONFIG_PATH>\"",
+      "Environment=\"AO_DASHBOARD_READ_ONLY=<AO_DASHBOARD_READ_ONLY>\"",
+      "Environment=\"AO_DASHBOARD_AUTOMATION=<AO_DASHBOARD_AUTOMATION>\"",
+      "ExecStart=\"$NODE\" \"$DASHBOARD_INSTALL/scripts/ao-dashboard.js\"",
+      "",
+      "[Install]",
+      "WantedBy=default.target",
+      ""
+    ],
+    "executable_template": false
+  },
+  {
+    "input": "$USER_UNITS/ao-pilot-dashboard.service.d/20-native-adapter-upstream.conf",
+    "sanitized_lines": [
+      "[Service]",
+      "ExecStart=",
+      "ExecStart=$NODE $DASHBOARD_INSTALL/scripts/ao-dashboard.js --port 3002",
+      ""
+    ],
+    "executable_template": false
+  },
+  {
+    "input": "$USER_UNITS/ao-pilot-dashboard.service.d/90-fresh-instance.conf",
+    "sanitized_lines": [
+      "[Service]",
+      "Environment=\"AO_DATA_DIR=<AO_DATA_DIR>\"",
+      "Environment=\"AO_RUN_FILE=<AO_RUN_FILE>\""
+    ],
+    "executable_template": false
+  },
+  {
+    "input": "$USER_UNITS/ao-pilot-dashboard-adapter.service",
+    "sanitized_lines": [
+      "[Unit]",
+      "Description=AO Pilot browser Dashboard native-session adapter",
+      "Requires=ao-pilot-dashboard.service ao-pilot-runtime.service",
+      "After=ao-pilot-dashboard.service ao-pilot-runtime.service",
+      "",
+      "[Service]",
+      "Type=simple",
+      "Environment=\"LISTEN_PORT=<LISTEN_PORT>\"",
+      "Environment=\"DASHBOARD_UPSTREAM_PORT=<DASHBOARD_UPSTREAM_PORT>\"",
+      "Environment=\"AO_DAEMON_PORT=<AO_DAEMON_PORT>\"",
+      "ExecStart=$NODE $HOME/.local/share/ao-pilot/cie-dashboard-adapter/server.mjs",
+      "Restart=on-failure",
+      "RestartSec=3",
+      "UMask=0077",
+      "",
+      "[Install]",
+      "WantedBy=default.target",
+      ""
+    ],
+    "executable_template": false
+  },
+  {
+    "input": "$USER_UNITS/ao-pilot-dashboard-adapter.service.d/20-wsl-browser-access.conf",
+    "sanitized_lines": [
+      "[Service]",
+      "Environment=\"LISTEN_HOST=<LISTEN_HOST>\""
+    ],
+    "executable_template": false
+  },
+  {
+    "input": "$SITE_CONFIG/ao-runtime-proxy.env",
+    "keys": [
+      "HTTP_PROXY",
+      "HTTPS_PROXY",
+      "ALL_PROXY",
+      "NO_PROXY",
+      "http_proxy",
+      "https_proxy",
+      "all_proxy",
+      "no_proxy"
+    ],
+    "example": {
+      "HTTP_PROXY": "<HTTP_PROXY>",
+      "HTTPS_PROXY": "<HTTPS_PROXY>",
+      "ALL_PROXY": "<ALL_PROXY>",
+      "NO_PROXY": "<NO_PROXY>",
+      "http_proxy": "<http_proxy>",
+      "https_proxy": "<https_proxy>",
+      "all_proxy": "<all_proxy>",
+      "no_proxy": "<no_proxy>"
+    },
+    "executable_template": false
+  },
+  {
+    "input": "$PROJECT_CONFIG",
+    "top_level_keys": [
+      "port",
+      "terminalPort",
+      "directTerminalPort",
+      "defaults",
+      "projects"
+    ],
+    "values": "PRIVATE: project paths, session namespace and any credentials omitted; do not regenerate or relocate production YAML",
+    "executable_template": false
+  },
+  {
+    "input": "$UPGRADE/installed-provenance.json",
+    "source_commit": "092227ab425e8293ce8ce2e6f6b23409c751330b",
+    "source_tree": "6cd987d8fb5aa893c905900ae4fa74fe61b0bb39",
+    "binary_sha256": "45705237dcda7a8916b8291364869c181a1d9d70f7cd636932c301242268909a",
+    "version": "0.11.2-local.20261023",
+    "runtime_lock_changed": false
+  }
+]
