@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -421,5 +422,52 @@ func TestMissingManagedNamespaceFailsWithoutDefaultSocket(t *testing.T) {
 				t.Fatalf("missing namespace used defaults: %+v %v calls=%v", result, err, fixture.calls)
 			}
 		})
+	}
+}
+
+func TestV1SystemdOwnershipAllowsSharedResourceControllers(t *testing.T) {
+	read := func(which string) []byte {
+		data, err := os.ReadFile(filepath.Join("testdata", "v1-shared-resources-"+which+".cgroup"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	server, err := ParseCgroups(read("tmux"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	daemon, err := ParseCgroups(read("daemon"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := IndependentCgroups(server, daemon); err != nil || !ok {
+		t.Fatalf("shared resource roots mistaken for daemon ownership: %v", err)
+	}
+	fixture := newServerFixture()
+	fixture.files["/proc/111/cgroup"] = read("tmux")
+	fixture.files["/proc/222/cgroup"] = read("daemon")
+	if result := NewManagedServer(fixture.options()).Inspect(context.Background()); result.Status != "ok" {
+		t.Fatalf("legitimate v1 layout not usable: %+v", result)
+	}
+	for _, group := range []string{daemon["v1:name=systemd"], daemon["v1:name=systemd"] + "/child"} {
+		changed := maps.Clone(server)
+		changed["v1:name=systemd"] = group
+		if ok, err := IndependentCgroups(changed, daemon); err != nil || ok {
+			t.Fatalf("daemon ownership accepted: %q %v", group, err)
+		}
+	}
+	for _, group := range []map[string]string{{"v1:cpu": "/"}, {"v1:memory": "/user.slice"}} {
+		if _, err := IndependentCgroups(group, group); err == nil {
+			t.Fatal("missing ownership hierarchy treated as known")
+		}
+	}
+	// Hybrid resource-only unified hierarchy is not systemd's unit ownership.
+	server["v2"], daemon["v2"] = "/", "/"
+	if ok, err := IndependentCgroups(server, daemon); err != nil || !ok {
+		t.Fatalf("hybrid resource root mistaken for ownership: %v", err)
+	}
+	if actual, _ := systemdCgroup(server); actual != "/user/ao-tmux.service" {
+		t.Fatalf("wrong hybrid authority: %s", actual)
 	}
 }

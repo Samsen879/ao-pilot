@@ -56,10 +56,14 @@ tmux -L <socket> -N display-message -p '#{pid}'
 使用 discovery 中的 daemon PID，不拿 doctor 自己的 cgroup 冒充 daemon。
 检查末尾重读 PID/start-token、socket PID、unit identity 和 cgroups；变化为 unknown。
 
-v2 使用统一 hierarchy；v1 按排序后的 controller 集合比较，systemd hierarchy
-`name=systemd` 绑定 unit ControlGroup。**所有** hierarchy 必须对应。server 与 daemon
-同组或位于任何 daemon 子组为 violation；路径分量判断，不把 `runtime.service-other`
-误认作 `runtime.service` 子组。格式错误、不可读、层级不对应、PID 复用、unit PID/group
+全部 v1/v2 hierarchy 的格式与 controller 集合必须完整对应；实际 ownership/kill
+归属只比较 systemd 使用的 hierarchy：v1 的 `name=systemd` 或 v2 unified，并用它
+绑定 unit ControlGroup。v1 的 cpu/memory 等资源 controller 可合法共享 `/` 或
+`user.slice`，不能据此认定 server 属于 daemon。hybrid 同时出现 resource-only v2
+与 v1 `name=systemd` 时，以后者作为 systemd ownership authority。
+server 在这个 ownership hierarchy 中与 daemon 同组或为其后代才是 violation；
+路径分量判断，不把 `runtime.service-other` 误认作 `runtime.service` 子组。
+格式错误、不可读、层级不对应/缺失 systemd hierarchy、PID 复用、unit PID/group
 不匹配均 unknown。不会仅检查 pane/worker cgroup 或进程父子关系。
 
 Go doctor `--json` 的 `checks` 中新增：

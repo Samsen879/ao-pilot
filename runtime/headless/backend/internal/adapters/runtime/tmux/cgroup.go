@@ -50,29 +50,36 @@ func inCgroup(child, parent string) bool {
 	return child == parent || parent == "/" || strings.HasPrefix(child, parent+"/")
 }
 
-// IndependentCgroups fails closed if any hierarchy cannot be compared. Being
-// outside the daemon only on one controller is insufficient for v1.
+// IndependentCgroups validates the complete observation, then compares only
+// the hierarchy systemd uses for unit ownership and KillMode. Resource-only v1
+// controllers may legitimately place sibling units in the same root/user group.
 func IndependentCgroups(server, daemon map[string]string) (bool, error) {
 	if len(server) != len(daemon) || len(server) == 0 {
 		return false, fmt.Errorf("cgroup hierarchies do not correspond")
 	}
-	for key, group := range daemon {
-		current, found := server[key]
-		if !found {
+	for key := range daemon {
+		if _, found := server[key]; !found {
 			return false, fmt.Errorf("missing cgroup hierarchy %s", key)
 		}
-		if inCgroup(current, group) {
-			return false, nil
-		}
 	}
-	return true, nil
+	serverOwner, err := systemdCgroup(server)
+	if err != nil {
+		return false, err
+	}
+	daemonOwner, err := systemdCgroup(daemon)
+	if err != nil {
+		return false, err
+	}
+	return !inCgroup(serverOwner, daemonOwner), nil
 }
 
 func systemdCgroup(groups map[string]string) (string, error) {
-	if group, ok := groups["v2"]; ok {
+	// In a hybrid layout, a resource-only unified mount may coexist with the
+	// v1 named systemd hierarchy. The named hierarchy remains ownership authority.
+	if group, ok := groups["v1:name=systemd"]; ok {
 		return group, nil
 	}
-	if group, ok := groups["v1:name=systemd"]; ok {
+	if group, ok := groups["v2"]; ok {
 		return group, nil
 	}
 	return "", fmt.Errorf("systemd cgroup hierarchy unavailable")
