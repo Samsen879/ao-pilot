@@ -143,6 +143,9 @@ func (c ProjectConfig) Validate() error {
 		}
 	}
 	for _, s := range c.SparseCheckout {
+		if strings.TrimSpace(s) == "" {
+			return fmt.Errorf("sparseCheckout: directory must not be empty")
+		}
 		if err := validateRepoRelative(s); err != nil {
 			return fmt.Errorf("sparseCheckout %q: %w", s, err)
 		}
@@ -157,6 +160,17 @@ func (c ProjectConfig) Validate() error {
 	}
 	if err := c.TrackerIntake.Validate(); err != nil {
 		return err
+	}
+	return nil
+}
+
+// ValidateForKind rejects settings with no materialization consumer for a kind.
+func (c ProjectConfig) ValidateForKind(kind ProjectKind) error {
+	if err := c.Validate(); err != nil {
+		return err
+	}
+	if len(c.SparseCheckout) > 0 && kind.WithDefault() != ProjectKindSingleRepo {
+		return fmt.Errorf("sparseCheckout is supported only for single_repo projects")
 	}
 	return nil
 }

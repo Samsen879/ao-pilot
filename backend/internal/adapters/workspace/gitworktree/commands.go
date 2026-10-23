@@ -50,7 +50,7 @@ func sparseCheckoutInitArgs(path string) []string {
 }
 
 func sparseCheckoutSetArgs(path string, directories []string) []string {
-	args := []string{"-C", path, "sparse-checkout", "set", "--cone", "--skip-checks"}
+	args := []string{"-C", path, "sparse-checkout", "set", "--cone", "--skip-checks", "--"}
 	return append(args, directories...)
 }
 

@@ -204,7 +204,11 @@ func (m *Service) Add(ctx context.Context, in AddInput) (Project, error) {
 
 	var projectConfig domain.ProjectConfig
 	if in.Config != nil {
-		if err := in.Config.Validate(); err != nil {
+		kind := domain.ProjectKindSingleRepo
+		if in.AsWorkspace {
+			kind = domain.ProjectKindWorkspace
+		}
+		if err := in.Config.ValidateForKind(kind); err != nil {
 			return Project{}, apierr.Invalid("INVALID_PROJECT_CONFIG", err.Error(), nil)
 		}
 		projectConfig = *in.Config
@@ -527,6 +531,9 @@ func (m *Service) UpdateSettings(ctx context.Context, id domain.ProjectID, in Up
 	if !ok || !row.ArchivedAt.IsZero() {
 		return Project{}, apierr.NotFound("PROJECT_NOT_FOUND", "Unknown project")
 	}
+	if err := in.Config.ValidateForKind(row.Kind); err != nil {
+		return Project{}, apierr.Invalid("INVALID_PROJECT_CONFIG", err.Error(), nil)
+	}
 	if row.Kind.WithDefault() == domain.ProjectKindScratch {
 		if err := validateScratchProjectConfig(in.Config); err != nil {
 			return Project{}, apierr.Invalid("INVALID_PROJECT_CONFIG", err.Error(), nil)
@@ -610,6 +617,9 @@ func (m *Service) SetConfig(ctx context.Context, id domain.ProjectID, in SetConf
 	}
 	if !ok || !row.ArchivedAt.IsZero() {
 		return Project{}, apierr.NotFound("PROJECT_NOT_FOUND", "Unknown project")
+	}
+	if err := in.Config.ValidateForKind(row.Kind); err != nil {
+		return Project{}, apierr.Invalid("INVALID_PROJECT_CONFIG", err.Error(), nil)
 	}
 	if row.Kind.WithDefault() == domain.ProjectKindScratch {
 		if err := validateScratchProjectConfig(in.Config); err != nil {
