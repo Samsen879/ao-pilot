@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -26,19 +27,26 @@ const verificationRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-pilot-package
 const packageRoot = process.cwd();
 
 try {
-  const packResult = run(npmCommand, [
-    'pack',
-    '--json',
-    '--pack-destination',
-    verificationRoot,
-  ], {
-    cwd: packageRoot,
-  });
-  const packReport = JSON.parse(packResult.stdout);
-  const filename = packReport?.[0]?.filename;
-  if (typeof filename !== 'string' || filename === '') {
-    throw new Error('npm pack did not return a package filename');
+  const args = process.argv.slice(2);
+  const argument = (name) => { const index = args.indexOf(name); return index < 0 ? null : args[index + 1]; };
+  const suppliedTarball = argument('--tarball') ?? process.env.AO_RELEASE_TARBALL;
+  const expectedSha = argument('--sha256') ?? process.env.AO_RELEASE_TARBALL_SHA256;
+  let packReport;
+  let tarball;
+  if (suppliedTarball) {
+    if (!/^[a-f0-9]{64}$/.test(expectedSha ?? '')) throw new Error('A pinned SHA256 is required for the supplied package');
+    tarball = path.resolve(suppliedTarball);
+    const actual = createHash('sha256').update(fs.readFileSync(tarball)).digest('hex');
+    if (actual !== expectedSha) throw new Error('Supplied package SHA256 mismatch');
+    packReport = [{ filename: path.basename(tarball), entryCount: null, unpackedSize: null }];
+  } else {
+    const packResult = run(npmCommand, ['pack', '--json', '--pack-destination', verificationRoot], { cwd: packageRoot });
+    packReport = JSON.parse(packResult.stdout);
+    tarball = path.join(verificationRoot, packReport?.[0]?.filename ?? '');
   }
+  const filename = packReport?.[0]?.filename;
+  if (typeof filename !== 'string' || filename === '') throw new Error('npm pack did not return a package filename');
+  const tarballSha256 = createHash('sha256').update(fs.readFileSync(tarball)).digest('hex');
 
   const installRoot = path.join(verificationRoot, 'install');
   fs.mkdirSync(installRoot, { recursive: true });
@@ -51,7 +59,7 @@ try {
   run(npmCommand, [
     'install',
     '--ignore-scripts',
-    path.join(verificationRoot, filename),
+    tarball,
   ], {
     cwd: installRoot,
   });
@@ -61,6 +69,12 @@ try {
     '--eval',
     [
       "const root = await import('ao-pilot');",
+      "const packageJson = JSON.parse((await import('node:fs')).readFileSync(new URL('./node_modules/ao-pilot/package.json', import.meta.url), 'utf8'));",
+      "for (const key of Object.keys(packageJson.exports)) {",
+      "  const specifier = key === '.' ? 'ao-pilot' : `ao-pilot${key.slice(1)}`;",
+      "  if (key.endsWith('.json')) (await import('node:module')).createRequire(import.meta.url).resolve(specifier);",
+      "  else await import(specifier);",
+      "}",
       "const cli = await import('ao-pilot/cli');",
       "const contracts = await import('ao-pilot/contracts');",
       "const repository = await import('ao-pilot/repository');",
@@ -230,9 +244,11 @@ try {
     throw new Error('Installed CLI did not execute its bundled evaluation pack');
   }
 
+  if (createHash('sha256').update(fs.readFileSync(tarball)).digest('hex') !== tarballSha256) throw new Error('Package bytes changed during verification');
   process.stdout.write(`${JSON.stringify({
     status: 'pass',
     package: filename,
+    tarball_sha256: tarballSha256,
     entry_count: packReport[0].entryCount,
     unpacked_size: packReport[0].unpackedSize,
     project_id: stateReport.project_id,

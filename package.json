@@ -40,7 +40,10 @@
     "dashboard",
     "browser",
     "templates",
-    "tests/ao/fixtures"
+    "tests/ao/fixtures",
+    "release.json",
+    "native",
+    "adapter"
   ],
   "engines": {
     "node": "^20.0.0 || >=22.0.0"

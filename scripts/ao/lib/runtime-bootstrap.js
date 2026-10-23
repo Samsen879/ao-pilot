@@ -838,6 +838,7 @@ export async function bootstrapManagedRuntime({
   download = null,
   buildOverride = null,
 } = {}) {
+  if (env.AO_INSTALL_ROOT) fail('mixed_runtime_installation', 'Unified installations use ao-pilot upgrade; legacy bootstrap cannot replace their runtime.');
   const normalizedStore = assertManagedRoot(storeRoot, 'runtime store');
   const normalizedCache = assertManagedRoot(cacheRoot, 'runtime cache');
   const toolchainContract = getToolchainContract(toolchainLock, platform, arch);

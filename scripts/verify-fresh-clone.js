@@ -6,6 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { processStartToken } from './ao/lib/release-lock.js';
+import { probeExclusiveLock } from './ao/lib/release-systemd.js';
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const REPOSITORY_ROOT = path.resolve(path.dirname(SCRIPT_PATH), '..');
@@ -37,11 +39,17 @@ export function parseArgs(argv) {
     receiptOut: null,
     expectedHead: null,
     keepOnFailure: false,
+    tarball: process.env.AO_RELEASE_TARBALL ?? null,
+    tarballSha256: process.env.AO_RELEASE_TARBALL_SHA256 ?? null,
     help: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    if (argument === '--source') {
+    if (argument === '--tarball') {
+      options.tarball = path.resolve(requiredValue(argv, index, argument)); index += 1;
+    } else if (argument === '--sha256') {
+      options.tarballSha256 = requiredValue(argv, index, argument); index += 1;
+    } else if (argument === '--source') {
       options.source = requiredValue(argv, index, argument);
       index += 1;
     } else if (argument === '--ref') {
@@ -113,6 +121,7 @@ function createSafeToolPath(root, env = process.env) {
     gzip: findExecutable('gzip', env),
     dirname: findExecutable('dirname', env),
     sh: findExecutable('sh', env),
+    flock: findExecutable('flock', env),
   };
   for (const [name, target] of Object.entries(tools)) {
     fs.symlinkSync(target, path.join(directory, name));
@@ -166,6 +175,8 @@ function isolatedEnvironment(root, safePath, cacheRoot, inherited = process.env)
     XDG_STATE_HOME: xdg.state,
     XDG_CACHE_HOME: xdg.cache,
     XDG_RUNTIME_DIR: xdg.runtime,
+    AO_DATA_DIR: path.join(root, 'native-data'),
+    AO_RUN_FILE: path.join(root, 'discovery/running.json'),
     NPM_CONFIG_CACHE: path.join(xdg.cache, 'npm'),
     GIT_CONFIG_NOSYSTEM: '1',
     GIT_CONFIG_GLOBAL: '/dev/null',
@@ -267,6 +278,26 @@ function commandPath(tools, name) {
   return tools[name] ?? fail('fresh_clone_tool_missing', `Missing safe tool: ${name}`);
 }
 
+export function assertStrictReady(output) {
+  const explicit = output?.state === 'ready' || output?.ready === true || output?.ready === 'ready';
+  if (!explicit || (output?.state != null && output.state !== 'ready') || (output?.reasons ?? []).length !== 0 || (output?.degraded_reasons ?? []).length !== 0) {
+    fail('fresh_clone_daemon_not_ready', 'Runtime lacks explicit non-degraded readiness');
+  }
+  return true;
+}
+export function assertOwnedDaemonGone({ pid, startToken, lockFiles }, {
+  readStartToken = processStartToken, probeLock = (file) => probeExclusiveLock(file, { expectHeld: false }),
+} = {}) {
+  if (!Number.isSafeInteger(pid) || pid <= 0 || !startToken || !Array.isArray(lockFiles) || lockFiles.length !== 2) {
+    fail('fresh_clone_exit_unknown', 'Owned daemon identity or lock evidence is unavailable');
+  }
+  try {
+    if (readStartToken(pid) === startToken) fail('fresh_clone_daemon_leaked', 'Owned daemon is still present after stop');
+  } catch (error) { if (!['ENOENT', 'ESRCH'].includes(error.code)) throw error; }
+  if (!lockFiles.every((file) => probeLock(file) === true)) fail('fresh_clone_exit_unknown', 'Daemon ownership locks were not proven available');
+  return true;
+}
+
 export async function verifyFreshClone(options, {
   inheritedEnv = process.env,
   now = () => new Date().toISOString(),
@@ -316,7 +347,16 @@ export async function verifyFreshClone(options, {
     const cleanAfterInstall = run(git, ['status', '--porcelain'], { cwd: cloneRoot, env }).stdout.trim() === '';
     if (!cleanAfterInstall) fail('fresh_clone_install_dirty', 'npm ci changed tracked or unignored source files');
 
-    const cli = path.join(cloneRoot, 'bin', 'ao-pilot.js');
+    let installedPackage = cloneRoot;
+    if (options.tarball) {
+      if (!/^[a-f0-9]{64}$/.test(options.tarballSha256 ?? '')
+        || createHash('sha256').update(fs.readFileSync(options.tarball)).digest('hex') !== options.tarballSha256) fail('fresh_clone_tarball_mismatch', 'Pinned package is unavailable or changed');
+      const consumer = path.join(root, 'packed-consumer'); fs.mkdirSync(consumer);
+      fs.writeFileSync(path.join(consumer, 'package.json'), '{"private":true}');
+      run(npm, ['install', '--ignore-scripts', options.tarball], { cwd: consumer, env });
+      installedPackage = path.join(consumer, 'node_modules/ao-pilot');
+    }
+    const cli = path.join(installedPackage, 'bin', 'ao-pilot.js');
     const preBootstrap = run(node, [cli, 'runtime-path', '--runtime-store', storeRoot, '--json'], {
       cwd: cloneRoot,
       env,
@@ -326,7 +366,7 @@ export async function verifyFreshClone(options, {
     const preBootstrapFailure = parseJsonOutput(preBootstrap, 'stderr');
     assertEqual(preBootstrapFailure.code, 'runtime_missing', 'fresh_clone_missing_runtime_wrong_code', 'Missing runtime returned the wrong blocker');
 
-    const bootstrapScript = path.join(cloneRoot, 'scripts', 'bootstrap.sh');
+    const bootstrapScript = path.join(installedPackage, 'scripts', 'bootstrap.sh');
     const firstBootstrap = parseJsonOutput(run(bootstrapScript, [
       '--store', storeRoot,
       '--cache', cacheRoot,
@@ -455,9 +495,12 @@ export async function verifyFreshClone(options, {
       timeout: 30_000,
     }));
     assertEqual(status.status, 'completed', 'fresh_clone_status_failed', 'Verified runtime status command failed');
-    if (!['ready', 'ok'].includes(status.output?.state) && status.output?.ready !== 'ready' && status.output?.health !== 'ok') {
-      fail('fresh_clone_daemon_not_ready', 'Verified runtime daemon did not report ready', { output: status.output });
-    }
+    assertStrictReady(status.output);
+    const ownedPid = status.output?.pid ?? start.daemon_status?.pid;
+    if (!Number.isSafeInteger(ownedPid) || ownedPid <= 0) fail('fresh_clone_exit_unknown', 'Runtime did not expose an owned PID');
+    const ownedStartToken = processStartToken(ownedPid);
+    if (fs.realpathSync(`/proc/${ownedPid}/exe`) !== fs.realpathSync(runtimePath.binary_path)
+      || processStartToken(ownedPid) !== ownedStartToken) fail('fresh_clone_exit_unknown', 'Runtime identity changed during binding');
 
     const doctor = parseJsonOutput(run(node, [cli, 'doctor', '--runtime-store', storeRoot, '--json'], {
       cwd: cloneRoot,
@@ -484,20 +527,19 @@ export async function verifyFreshClone(options, {
       timeout: 30_000,
     }));
     assertEqual(stop.status, 'completed', 'fresh_clone_stop_failed', 'Verified runtime daemon did not stop');
-    started = false;
-    runtimeStopRequired = false;
-    const stoppedStatus = run(node, [cli, 'status', '--runtime-store', storeRoot, '--json'], {
-      cwd: cloneRoot,
-      env,
-      allowFailure: true,
-      timeout: 30_000,
-    });
-    if (stoppedStatus.status === 0) {
-      const stopped = parseJsonOutput(stoppedStatus);
-      if (stopped.output?.state === 'ready' || stopped.output?.ready === 'ready') {
-        fail('fresh_clone_daemon_leaked', 'Runtime daemon remained ready after stop');
-      }
+    const exitDeadline = Date.now() + 5000;
+    while (Date.now() < exitDeadline) {
+      try { if (processStartToken(ownedPid) !== ownedStartToken) break; }
+      catch (error) { if (['ENOENT', 'ESRCH'].includes(error.code)) break; throw error; }
+      await new Promise((resolve) => setTimeout(resolve, 20));
     }
+    assertOwnedDaemonGone({ pid: ownedPid, startToken: ownedStartToken, lockFiles: [
+      path.join(env.AO_DATA_DIR, '.daemon-owner.lock'), path.join(path.dirname(env.AO_RUN_FILE), '.daemon-discovery.lock'),
+    ] }, { probeLock: (file) => probeExclusiveLock(file, { expectHeld: false,
+      run: (_command, args, settings) => spawnSync(commandPath(safe.tools, 'flock'), args, { ...settings, env }),
+    }) });
+    started = false; runtimeStopRequired = false;
+    if (options.tarball && createHash('sha256').update(fs.readFileSync(options.tarball)).digest('hex') !== options.tarballSha256) fail('fresh_clone_tarball_mismatch', 'Package bytes changed during fresh-clone verification');
 
     const finalClean = run(git, ['status', '--porcelain'], { cwd: cloneRoot, env }).stdout.trim() === '';
     if (!finalClean) fail('fresh_clone_source_dirty', 'Fresh clone was dirty after runtime smoke');
@@ -568,6 +610,7 @@ export async function verifyFreshClone(options, {
         codex_auth_available: doctor.authentication?.codex?.available === true,
         stop: stop.status,
         daemon_leaked: false,
+        ownership_locks_verified: true,
       },
       worker_worktree_fixture: {
         adapter: 'local_git',

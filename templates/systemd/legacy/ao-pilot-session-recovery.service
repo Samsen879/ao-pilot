@@ -1,0 +1,12 @@
+[Unit]
+Description=AO Pilot pinned original-session recovery lifecycle
+Requires=ao-pilot-runtime.service
+After=network-online.target ao-pilot-runtime.service
+
+[Service]
+Type=simple
+{{COMMON}}{{RUNTIME_ENVIRONMENT}}Environment="AO_CONFIG_PATH={{HOME}}/agent-orchestrator.yaml"
+ExecStart={{COMMAND_RECOVERY}} serve
+
+[Install]
+WantedBy=default.target

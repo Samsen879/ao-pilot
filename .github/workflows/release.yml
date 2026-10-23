@@ -32,10 +32,25 @@ jobs:
         run: |
           echo "AO_PHASE_ZERO_EXPECTED_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           echo "AO_PHASE_ZERO_EXPECTED_TREE=$(git rev-parse HEAD^{tree})" >> "$GITHUB_ENV"
+      - name: Pack once and bind the consumer artifact
+        run: |
+          mkdir -p "$RUNNER_TEMP/ao-pack-once"
+          npm pack --json --pack-destination "$RUNNER_TEMP/ao-pack-once" > "$RUNNER_TEMP/ao-pack-once/pack.json"
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import crypto from 'node:crypto';
+          const directory = path.join(process.env.RUNNER_TEMP, 'ao-pack-once');
+          const report = JSON.parse(fs.readFileSync(path.join(directory, 'pack.json'), 'utf8'));
+          const file = path.join(directory, report[0].filename);
+          const digest = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+          fs.appendFileSync(process.env.GITHUB_ENV, `AO_RELEASE_TARBALL=${file}\nAO_RELEASE_TARBALL_SHA256=${digest}\n`);
+          JS
       - run: npm run release:check
-      - run: npm pack
+      - name: Recheck exact bytes before upload
+        run: node --input-type=module -e "import fs from 'node:fs'; import crypto from 'node:crypto'; if (crypto.createHash('sha256').update(fs.readFileSync(process.env.AO_RELEASE_TARBALL)).digest('hex') !== process.env.AO_RELEASE_TARBALL_SHA256) process.exit(1);"
       - uses: actions/upload-artifact@v4
         with:
           name: ao-pilot-package
-          path: ao-pilot-*.tgz
+          path: ${{ env.AO_RELEASE_TARBALL }}
           if-no-files-found: error

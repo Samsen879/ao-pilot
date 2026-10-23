@@ -1,0 +1,243 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "release_id",
+    "commit",
+    "tree",
+    "manifest_sha256",
+    "platform",
+    "phase",
+    "result",
+    "checks",
+    "failure_code",
+    "warning_count",
+    "performed_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "ao.install-public-receipt.v1"
+    },
+    "release_id": {
+      "type": "string",
+      "pattern": "^[0-9][A-Za-z0-9._-]*\\+[a-f0-9]{40}$"
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "tree": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "manifest_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "os",
+        "arch"
+      ],
+      "properties": {
+        "os": {
+          "const": "linux"
+        },
+        "arch": {
+          "enum": [
+            "x64",
+            "arm64"
+          ]
+        }
+      }
+    },
+    "phase": {
+      "enum": [
+        "preflight",
+        "install",
+        "switch",
+        "verify",
+        "readback",
+        "committed",
+        "rollback"
+      ]
+    },
+    "result": {
+      "enum": [
+        "passed",
+        "failed",
+        "hold"
+      ]
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "release_integrity",
+        "version_drift",
+        "runtime_lock",
+        "tmux_cgroup",
+        "tmux_generation",
+        "linger",
+        "listeners",
+        "terminal_auth",
+        "schema",
+        "ownership_locks",
+        "lan_disabled",
+        "trusted_host_disabled",
+        "tokenless_lock_safe",
+        "cid_set",
+        "ready",
+        "unit_provenance",
+        "process_identity"
+      ],
+      "properties": {
+        "release_integrity": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        },
+        "version_drift": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        },
+        "runtime_lock": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        },
+        "tmux_cgroup": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        },
+        "tmux_generation": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        },
+        "linger": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        },
+        "listeners": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        },
+        "terminal_auth": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        },
+        "schema": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        },
+        "ownership_locks": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        },
+        "lan_disabled": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        },
+        "trusted_host_disabled": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        },
+        "tokenless_lock_safe": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        },
+        "cid_set": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        },
+        "ready": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        },
+        "unit_provenance": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        },
+        "process_identity": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        }
+      }
+    },
+    "failure_code": {
+      "enum": [
+        "none",
+        "preflight_failed",
+        "install_failed",
+        "switch_failed",
+        "verify_failed",
+        "readback_failed",
+        "rollback_required",
+        "interrupted_transaction",
+        "gc_warning",
+        "invalid_input"
+      ]
+    },
+    "warning_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "performed_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
