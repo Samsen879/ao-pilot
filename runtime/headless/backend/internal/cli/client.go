@@ -143,6 +143,9 @@ func (c *commandContext) doJSONPathWithHeaders(
 	// give daemon API calls far more headroom than the 2s status-probe timeout.
 	client := *c.deps.HTTPClient
 	client.Timeout = commandTimeout
+	if path == "/api/v1/sessions/restore" {
+		client.Timeout = 15*time.Minute + 5*time.Second
+	}
 	resp, err := client.Do(req) // #nosec G704 -- request target is the fixed loopback daemon URL above.
 	if err != nil {
 		return fmt.Errorf("call daemon: %w", err)

@@ -103,6 +103,9 @@ func (a *API) Register(root chi.Router, isReady func() bool) {
 			a.sessions.RegisterActivity(r)
 		})
 
+		// Batch restoration has its own bounded budget; a whole project may need
+		// longer than a single request's normal session launch timeout.
+		r.With(requireReady(isReady), middleware.Timeout(controllers.BatchRestoreTimeout)).Post("/sessions/restore", a.sessions.RestoreProject)
 		r.Group(func(r chi.Router) {
 			r.Use(requireReady(isReady))
 			r.Use(middleware.Timeout(timeout))

@@ -30,6 +30,7 @@ type ControlDeps struct {
 	RequestShutdown func()
 	InstanceID      string
 	IsReady         func() bool
+	Readiness       func() ReadinessSnapshot
 }
 
 // NewRouterWithControl builds the root router with the standard middleware
@@ -65,7 +66,7 @@ func NewRouterWithControl(cfg config.Config, log *slog.Logger, termMgr *terminal
 	r.NotFound(notFoundJSON)
 	r.MethodNotAllowed(methodNotAllowedJSON)
 
-	mountHealth(r, cfg, control.IsReady)
+	mountHealth(r, cfg, control.IsReady, control.Readiness)
 	mountTerminalMux(r, termMgr, log)
 	mountControl(r, control)
 	mountTelemetry(r, cfg, deps.Telemetry)
@@ -88,16 +89,24 @@ func previewOriginMiddleware(sessions *controllers.SessionsController) func(http
 
 // mountHealth registers the liveness and readiness probes the Electron
 // supervisor polls before letting the renderer connect.
-func mountHealth(r chi.Router, cfg config.Config, isReady func() bool) {
+func mountHealth(r chi.Router, cfg config.Config, isReady func() bool, readiness func() ReadinessSnapshot) {
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		envelope.WriteJSON(w, http.StatusOK, daemonProbePayload("ok", cfg))
 	})
 	r.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) {
-		if isReady != nil && !isReady() {
-			envelope.WriteJSON(w, http.StatusServiceUnavailable, daemonProbePayload("starting", cfg))
-			return
+		snapshot := ReadinessSnapshot{Status: "ready", Ready: true, Reasons: []ReadinessReason{}}
+		if readiness != nil {
+			snapshot = readiness()
+		} else if isReady != nil && !isReady() {
+			snapshot.Status, snapshot.Ready = "starting", false
 		}
-		envelope.WriteJSON(w, http.StatusOK, daemonProbePayload("ready", cfg))
+		payload := daemonProbePayload(snapshot.Status, cfg)
+		payload["ready"], payload["reasons"] = snapshot.Ready, snapshot.Reasons
+		status := http.StatusOK
+		if !snapshot.Ready {
+			status = http.StatusServiceUnavailable
+		}
+		envelope.WriteJSON(w, status, payload)
 	})
 }
 

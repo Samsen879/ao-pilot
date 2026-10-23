@@ -149,8 +149,9 @@ const (
 
 // RestoreResult is the command result for a restored session.
 type RestoreResult struct {
-	Session domain.SessionRecord
-	Mode    RestoreMode
+	Session              domain.SessionRecord
+	Mode                 RestoreMode
+	PreservedWorkPending bool
 }
 
 type bootRestoreCandidate struct {
@@ -1332,6 +1333,10 @@ func (m *Manager) retireWorkspaceProjectForReplacement(ctx context.Context, rec 
 // runs before any durable session write, so a failure never resurrects the row
 // or destroys the worktree (it may hold the agent's prior work).
 func (m *Manager) RestoreWithMode(ctx context.Context, id domain.SessionID) (RestoreResult, error) {
+	if !m.beginAgentResume(id) {
+		return RestoreResult{}, ErrResumeInProgress
+	}
+	defer m.endAgentResume(id)
 	if !m.spawnAttemptAllowed(ctx, id) {
 		return RestoreResult{}, spawnattempt.ErrHold
 	}
@@ -1380,7 +1385,9 @@ func (m *Manager) RestoreWithMode(ctx context.Context, id domain.SessionID) (Res
 	} else if err := m.markSessionWorktreesActive(ctx, markerRows, keepPreserved); err != nil {
 		return RestoreResult{}, fmt.Errorf("restore %s: mark worktrees active: %w", id, err)
 	}
-	return m.relaunchRestoredSession(ctx, rec, project, ws)
+	result, err := m.relaunchRestoredSession(ctx, rec, project, ws)
+	result.PreservedWorkPending = keepPreserved
+	return result, err
 }
 
 func (m *Manager) relaunchRestoredSession(ctx context.Context, rec domain.SessionRecord, project domain.ProjectRecord, ws ports.WorkspaceInfo) (RestoreResult, error) {
@@ -1803,9 +1810,10 @@ func (m *Manager) reconcileReap(ctx context.Context, rec domain.SessionRecord) e
 // Best-effort throughout: a per-session failure is logged and never aborts the
 // pass or blocks boot.
 func (m *Manager) Reconcile(ctx context.Context) error {
+	var failures []error
 	recs, err := m.store.ListAllSessions(ctx)
 	if err != nil {
-		return fmt.Errorf("reconcile: list sessions: %w", err)
+		return fmt.Errorf("%w: list sessions: %w", ErrRecoveryUnavailable, err)
 	}
 	live := make([]domain.SessionRecord, 0, len(recs))
 	for _, rec := range recs {
@@ -1824,6 +1832,7 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 			recoveryAttempts++
 		}
 		if err != nil {
+			failures = append(failures, fmt.Errorf("session %s: %w", rec.ID, err))
 			m.logger.Error("reconcile: live pass failed, skipping", "sessionID", rec.ID, "error", err)
 		}
 	}
@@ -1835,10 +1844,11 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 			continue
 		}
 		if err := m.reconcileReap(ctx, rec); err != nil {
+			failures = append(failures, fmt.Errorf("session %s: %w", rec.ID, err))
 			m.logger.Error("reconcile: reap pass failed, skipping", "sessionID", rec.ID, "error", err)
 		}
 	}
-	return m.RestoreAll(ctx)
+	return errors.Join(append(failures, m.RestoreAll(ctx))...)
 }
 
 // RestoreAll relaunches a bounded set of terminated sessions saved by the last
@@ -1854,9 +1864,10 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 //
 // Failures on individual sessions are logged and do not abort the loop.
 func (m *Manager) RestoreAll(ctx context.Context) error {
+	var failures []error
 	recs, err := m.store.ListAllSessions(ctx)
 	if err != nil {
-		return fmt.Errorf("restore-all: list sessions: %w", err)
+		return fmt.Errorf("%w: list sessions: %w", ErrRecoveryUnavailable, err)
 	}
 	candidates := make([]bootRestoreCandidate, 0)
 	for _, rec := range recs {
@@ -1869,6 +1880,7 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 		// Check the shutdown-saved marker: is there a session_worktrees row?
 		rows, err := m.store.ListSessionWorktrees(ctx, rec.ID)
 		if err != nil {
+			failures = append(failures, fmt.Errorf("session %s: %w", rec.ID, err))
 			m.logger.Error("restore-all: list worktrees failed", "sessionID", rec.ID, "error", err)
 			continue
 		}
@@ -1882,6 +1894,7 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 		}
 		activityAt, ok, err := m.store.SessionWorktreesRecoveryActivity(ctx, rec.ID)
 		if err != nil {
+			failures = append(failures, fmt.Errorf("session %s: %w", rec.ID, err))
 			m.logger.Error("restore-all: read recovery activity failed", "sessionID", rec.ID, "error", err)
 			continue
 		}
@@ -1902,6 +1915,7 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 		rec, rows := saved.rec, saved.rows
 		if runtimeAttempts >= bootRestoreLimit {
 			if err := m.store.MarkSessionWorktreesNonRestorable(ctx, rec.ID); err != nil {
+				failures = append(failures, fmt.Errorf("session %s: %w", rec.ID, err))
 				m.logger.Error("restore-all: quarantine overflow marker failed", "sessionID", rec.ID, "error", err)
 				continue
 			}
@@ -1914,6 +1928,7 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 		// if it was removed by SaveAndTeardownAll.
 		project, err := m.loadProject(ctx, rec.ProjectID)
 		if err != nil {
+			failures = append(failures, fmt.Errorf("session %s: %w", rec.ID, err))
 			m.logger.Error("restore-all: load project failed", "sessionID", rec.ID, "error", err)
 			continue
 		}
@@ -1924,11 +1939,13 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 			var rowErr error
 			projectRows, rowErr = m.workspaceProjectRestoreRowsFromMarkers(ctx, project, rec, rows)
 			if rowErr != nil {
+				failures = append(failures, fmt.Errorf("session %s: %w", rec.ID, rowErr))
 				m.logger.Error("restore-all: workspace rows failed", "sessionID", rec.ID, "error", rowErr)
 				continue
 			}
 			root, restoreErr := m.restoreWorkspaceProjectRows(ctx, projectRows)
 			if restoreErr != nil {
+				failures = append(failures, fmt.Errorf("session %s: %w", rec.ID, restoreErr))
 				m.logger.Error("restore-all: workspace project restore failed", "sessionID", rec.ID, "error", restoreErr)
 				continue
 			}
@@ -1945,17 +1962,22 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 				SparseCheckout: append([]string(nil), project.Config.SparseCheckout...),
 			})
 			if restoreErr != nil {
+				failures = append(failures, fmt.Errorf("session %s: %w", rec.ID, restoreErr))
 				m.logger.Error("restore-all: workspace restore failed", "sessionID", rec.ID, "error", restoreErr)
 				continue
 			}
 		}
 		if ws.Path == "" {
+			failures = append(failures, fmt.Errorf("session %s: %w", rec.ID, errors.New("empty restored root path")))
 			m.logger.Error("restore-all: workspace restore failed", "sessionID", rec.ID, "error", "empty restored root path")
 			continue
 		}
 
 		// Step 2: replay preserve ref when one was recorded.
 		keepPreserved := m.applySessionPreserved(ctx, rec, ws, projectRows, rows, "restore-all")
+		if keepPreserved {
+			failures = append(failures, fmt.Errorf("session %s: preserved work replay pending", rec.ID))
+		}
 
 		// Step 3: relaunch the agent in the restored workspace.
 		if _, err := m.relaunchRestoredSessionWithAttempt(ctx, rec, project, ws, func() { runtimeAttempts++ }); err != nil {
@@ -1965,6 +1987,7 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 				// expected, not an operational failure, so log it quietly.
 				m.logger.Warn("restore-all: session left terminated (nothing to resume)", "sessionID", rec.ID)
 				if markerErr := m.store.MarkSessionWorktreesNonRestorable(ctx, rec.ID); markerErr != nil {
+					failures = append(failures, fmt.Errorf("session %s: %w", rec.ID, markerErr))
 					m.logger.Error("restore-all: quarantine unresumable marker failed", "sessionID", rec.ID, "error", markerErr)
 				}
 			case errors.Is(err, ErrNotFound):
@@ -1972,6 +1995,7 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 				// reconciliation): skip it and keep restoring the rest.
 				m.logger.Warn("restore-all: session vanished before relaunch, skipping", "sessionID", rec.ID)
 			default:
+				failures = append(failures, fmt.Errorf("session %s: %w", rec.ID, err))
 				m.logger.Error("restore-all: relaunch failed", "sessionID", rec.ID, "error", err)
 			}
 			continue
@@ -1981,21 +2005,24 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 		// (#2319). A still-live session re-acquires it at the next quit.
 		if restoredWorkspaceProject {
 			if err := m.markWorkspaceProjectRowsActive(ctx, projectRows, rows, keepPreserved); err != nil {
+				failures = append(failures, fmt.Errorf("session %s: %w", rec.ID, err))
 				m.logger.Warn("restore-all: marking workspace active failed", "sessionID", rec.ID, "error", err)
 			}
 		} else {
 			if err := m.markSessionWorktreesActive(ctx, rows, keepPreserved); err != nil {
+				failures = append(failures, fmt.Errorf("session %s: %w", rec.ID, err))
 				m.logger.Warn("restore-all: marking worktrees active failed", "sessionID", rec.ID, "error", err)
 				continue
 			}
 			if !keepPreserved {
 				if err := m.store.DeleteSessionWorktrees(ctx, rec.ID); err != nil {
+					failures = append(failures, fmt.Errorf("session %s: %w", rec.ID, err))
 					m.logger.Warn("restore-all: delete restore marker failed", "sessionID", rec.ID, "error", err)
 				}
 			}
 		}
 	}
-	return nil
+	return errors.Join(failures...)
 }
 
 func bootRecoveryBefore(a, b domain.SessionRecord) bool {
