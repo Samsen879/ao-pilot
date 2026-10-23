@@ -142,23 +142,31 @@ describe('controller lease authority design audit', () => {
   it('pins deterministic semantic authority evidence and exhaustive selector coverage', () => {
     expect(validateControllerLeaseInventory(inventory, repositoryRoot)).toMatchObject({
       schema_version: 'ao.controller-lease-authority-evidence.v2',
-      semantic_manifest_digest: 'c6894ebf2cecc3e153ac38526ce65bf9767dfb6c38d05e7255b7dbb6f89ab187',
-      authority_site_count: 17,
-      binding_count: 31,
-      semantic_region_count: 11,
+      semantic_manifest_digest: '3ebc4e88551bf71eb0ff313074a7fa1717e47d520c1f8bad4fb1a1ea936405b3',
+      authority_site_count: 18,
+      binding_count: 33,
+      semantic_region_count: 13,
       selector_counts: {
-        'atomic-api': 5,
+        'atomic-api': 6,
         'file-name': 4,
         'isolated-path': 12,
-        'persist-state-api': 8,
+        'persist-state-api': 9,
         'state-property': 26,
-        'upsert-api': 9,
+        'upsert-api': 10,
       },
-      semantic_usage_count: 64,
-      selector_evidence_digest: '096126d73c456698aea286bd509a43bf35265458fa95f68d453f35adb0ff71f3',
-      authority_evidence_digest: '903ecb5a93e5766e8a065e49f2000a3a0b843733a7400c6f2a2cd31afe767282',
+      semantic_usage_count: 67,
+      selector_evidence_digest: 'f2c0839f0a19fb1ca9efaa339336b311008ff8a4e64e107484d571b26037abb7',
+      authority_evidence_digest: '97cca857a51a49f1499bec5b82e6492e3e8963e928e6435f910ad223353aa332',
     });
-    expect(scanControllerLeaseSources(inventory, repositoryRoot).match_count).toBe(64);
+    expect(scanControllerLeaseSources(inventory, repositoryRoot).match_count).toBe(67);
+  });
+
+  it('rejects removing the controller commit epoch check without changing selector counts', () => {
+    const mutatedRoot = materializeSourceRoot();
+    replaceSource(mutatedRoot, 'scripts/ao/lib/state-repository.js',
+      'lease?.incarnation_id === controllerCommitFence.incarnationId', 'true');
+    expect(() => validateControllerLeaseInventory(inventory, mutatedRoot))
+      .toThrow('repository.controller-commit-fence.operation drifted');
   });
 
   it('rejects an unregistered or changed managed-task persistence call', () => {
@@ -532,7 +540,7 @@ describe('controller lease authority design audit', () => {
     });
     expect(inventory.migrated_from.accepted_match_count).toBe(61);
     expect(Object.values(inventory.source_scan.expected_selector_counts)
-      .reduce((total, count) => total + count, 0)).toBe(64);
+      .reduce((total, count) => total + count, 0)).toBe(67);
   });
 
   it('fails closed when frozen authority or semantic manifest evidence drifts', () => {

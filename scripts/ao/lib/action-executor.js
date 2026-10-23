@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   BLOCKED_NOTIFICATION_DELIVERY_SEMANTICS,
   buildBlockedNotificationIntent,
@@ -602,7 +603,7 @@ function normalizeExecutionReason(record, model) {
 }
 
 function buildEffectAttemptId(record, timestamp) {
-  return `${String(record?.action_id ?? 'unknown-action')}@${timestamp}`;
+  return `${String(record?.action_id ?? 'unknown-action')}@${timestamp}@${randomUUID()}`;
 }
 
 function hasUnconfirmedEffectClaim(record) {
@@ -641,13 +642,14 @@ function isConfirmedBlockedNotificationReceipt(receipt, intent) {
 }
 
 function persistEffectAttempt(repository, {
+  commitAction,
   record,
   model,
   timestamp,
   reason,
   effect,
 } = {}) {
-  repository.upsertAction(buildAttemptedActionRecord(record, model, timestamp, {
+  commitAction(buildAttemptedActionRecord(record, model, timestamp, {
     reason,
     effect,
   }));
@@ -717,17 +719,35 @@ export async function executeAssistActions({
   commandRunner = null,
   commandCwd = null,
   blockedNotificationTransport = createBlockedNotificationWebhookTransport(),
+  abortSignal = null,
 } = {}) {
   const timestamp = resolveNow(now);
   const uniqueActionIds = [...new Set((actionIds ?? []).map((value) => String(value)))];
   const executedActionIds = [];
   const blockedActionIds = [];
 
+  function assertNotAborted() {
+    if (abortSignal?.aborted) throw abortSignal.reason ?? new Error('Action execution aborted');
+  }
   for (const actionId of uniqueActionIds) {
+    assertNotAborted();
     const record = repository.getSnapshot().state.actions.find((item) => item.action_id === actionId);
     if (!record || record.status !== 'proposed') {
       continue;
     }
+
+    let expectedRecord = record;
+    const commitAction = (nextRecord) => {
+      assertNotAborted();
+      const saved = repository.upsertAction(nextRecord, { expectedRecord });
+      if (saved == null) {
+        throw Object.assign(new Error(`Action attempt superseded: ${record.action_id}`), {
+          code: 'action_attempt_superseded',
+        });
+      }
+      expectedRecord = saved;
+      return saved;
+    };
 
     const model = isPlainObject(record.payload?.action_model)
       ? cloneJsonValue(record.payload.action_model)
@@ -765,7 +785,7 @@ export async function executeAssistActions({
     if (record.action_kind === 'auto_merge_ready_pr') {
       const retiredModel = buildFallbackActionModel(record, controllerId, task);
       const reason = 'legacy_auto_merge_executor_removed_or_effect_only';
-      repository.upsertAction(buildBlockedActionRecord(record, retiredModel, timestamp, {
+      commitAction(buildBlockedActionRecord(record, retiredModel, timestamp, {
         reason,
         matchedOverrideIds: [],
         structural: true,
@@ -799,7 +819,7 @@ export async function executeAssistActions({
         matchedOverrideIds: [],
         structural: true,
       });
-      repository.upsertAction(blockedRecord);
+      commitAction(blockedRecord);
       repository.appendAuditEntry({
         entityKind: 'action',
         entityId: record.action_id,
@@ -841,7 +861,7 @@ export async function executeAssistActions({
           structural: true,
           details: releaseDecisionValidation,
         });
-        repository.upsertAction(blockedRecord);
+        commitAction(blockedRecord);
         repository.appendAuditEntry({
           entityKind: 'action',
           entityId: record.action_id,
@@ -884,7 +904,7 @@ export async function executeAssistActions({
         matchedOverrideIds: blockingOverrides.map((entry) => entry.override.override_id),
         structural: false,
       });
-      repository.upsertAction(blockedRecord);
+      commitAction(blockedRecord);
       repository.appendAuditEntry({
         entityKind: 'action',
         entityId: record.action_id,
@@ -920,7 +940,7 @@ export async function executeAssistActions({
         matchedOverrideIds: [],
         structural: true,
       });
-      repository.upsertAction(blockedRecord);
+      commitAction(blockedRecord);
       repository.appendAuditEntry({
         entityKind: 'action',
         entityId: record.action_id,
@@ -982,6 +1002,7 @@ export async function executeAssistActions({
 
       if (typeof blockedNotificationTransport?.sendBlockedNotification === 'function') {
         persistEffectAttempt(repository, {
+          commitAction,
           record,
           model,
           timestamp,
@@ -999,7 +1020,8 @@ export async function executeAssistActions({
 
         let transportResult;
         try {
-          transportResult = await blockedNotificationTransport.sendBlockedNotification(intent);
+          assertNotAborted();
+          transportResult = await blockedNotificationTransport.sendBlockedNotification(intent, { abortSignal });
         } catch (error) {
           transportResult = {
             status: 'failed',
@@ -1008,6 +1030,7 @@ export async function executeAssistActions({
             reason: error?.name == null ? 'transport_threw' : `transport_threw_${String(error.name)}`,
           };
         }
+        assertNotAborted();
         const transportReceipt = sanitizeTransportReceipt(transportResult);
         if (!isConfirmedBlockedNotificationReceipt(transportReceipt, intent)) {
           effect = buildEffectReceipt({
@@ -1021,7 +1044,7 @@ export async function executeAssistActions({
             deliverySemantics: ASSIST_EXTERNAL_EFFECT_DELIVERY_SEMANTICS,
           });
           const failureReason = 'blocked_notification_transport_failed';
-          repository.upsertAction(buildFailedEffectActionRecord(record, model, timestamp, {
+          commitAction(buildFailedEffectActionRecord(record, model, timestamp, {
             reason: failureReason,
             details: { notification_intent: cloneJsonValue(intent) },
             effect,
@@ -1077,7 +1100,7 @@ export async function executeAssistActions({
           },
         });
         const missingTransportReason = 'blocked_notification_transport_missing';
-        repository.upsertAction(buildBlockedActionRecord(record, model, timestamp, {
+        commitAction(buildBlockedActionRecord(record, model, timestamp, {
           reason: missingTransportReason,
           structural: false,
           details: { notification_intent: cloneJsonValue(intent) },
@@ -1116,7 +1139,7 @@ export async function executeAssistActions({
       details: executionDetails,
       effect,
     });
-    repository.upsertAction(executedRecord);
+    commitAction(executedRecord);
     repository.appendAuditEntry({
       entityKind: 'action',
       entityId: record.action_id,

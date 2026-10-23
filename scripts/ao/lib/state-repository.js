@@ -203,6 +203,7 @@ export function createStateRepository({
   projectId,
   clock = () => new Date().toISOString(),
   auditIdGenerator = randomUUID,
+  controllerCommitFence = null,
 } = {}) {
   const paths = resolveControlPlanePaths({
     repoRoot,
@@ -346,6 +347,9 @@ export function createStateRepository({
   }
 
   function ensureBootstrapped() {
+    // Fenced views are created only after leadership admission/bootstrap. Never
+    // reacquire the canonical lease lock inside a fenced synchronous write.
+    if (controllerCommitFence != null) return;
     if (activeManagedTaskLocks.has(stateLockIdentity())) {
       throw new Error('Durable repository writes cannot reenter a managed-task transaction');
     }
@@ -386,6 +390,7 @@ export function createStateRepository({
       details,
     });
     const writeState = () => {
+      if (controllerCommitFence != null) assertFence();
       recoverPendingStateMutation({ stateLockHeld: true });
       const priorState = readJsonFile(paths.statePath);
       const existingAudit = readControlPlaneAuditEntries({ auditPath: paths.auditPath })
@@ -758,7 +763,14 @@ export function createStateRepository({
     });
   }
 
-  return {
+  const repository = {
+    createControllerFencedRepository(fence) {
+      return createStateRepository({
+        repoRoot, projectId, clock, auditIdGenerator, controllerCommitFence: fence,
+      });
+    },
+
+
     mutateManagedTaskAtomically,
 
     getSnapshot() {
@@ -804,6 +816,30 @@ export function createStateRepository({
     },
 
     ...collectionUpsertMethods,
+
+    upsertAction(record, options = {}) {
+      // Legacy callers retain unconditional upsert semantics. Executors opt in
+      // to a strict precondition; even an explicit null expectation fails closed.
+      if (!Object.hasOwn(options, 'expectedRecord')) return collectionUpsertMethods.upsertAction(record);
+      const { expectedRecord } = options;
+      ensureBootstrapped();
+      return withFileLockSync(stateWriteLockPath, () => {
+        const snapshot = readSnapshot({ stateLockHeld: true });
+        const current = snapshot.state.actions.find((entry) => entry.action_id === record.action_id);
+        // Includes status, attempt id and payload: stale proposals cannot erase
+        // a newer attempt or its successful receipt, even at the same timestamp.
+        if (expectedRecord == null || JSON.stringify(current) !== JSON.stringify(expectedRecord)) return null;
+        const nextState = cloneJsonValue(snapshot.state);
+        const descriptor = STATE_REPOSITORY_COLLECTIONS.find((entry) => entry.collectionKey === 'actions');
+        const normalized = upsertRepositoryCollectionRecord({ state: nextState, descriptor, record });
+        persistState({
+          state: nextState, entityKind: 'action', entityId: normalized.action_id,
+          summary: `Conditionally persisted action ${normalized.action_id}.`,
+          details: normalized, stateLockHeld: true,
+        });
+        return normalized;
+      });
+    },
 
     createCompletionRecord(record, transitionEvidence = {}) {
       return writeCompletionRecord(record, { operation: 'create', transitionEvidence });
@@ -1133,4 +1169,45 @@ export function createStateRepository({
       return readJsonFile(path.join(paths.evalBaselineRoot, `${normalizedBaselineName}.json`));
     },
   };
+  if (controllerCommitFence == null) return repository;
+
+  // All controller-owned publications share the canonical lease lock with
+  // admission/renew/release. Check and commit are one synchronous critical
+  // section, in the existing controller -> state lock order. No lease format
+  // or reclamation rule changes here.
+  const readMethods = new Set([
+    'getSnapshot', 'getDiagnosticSnapshot', 'listAuditEntries',
+    'getCompletionRecord', 'getCompletionRecordForChild', 'queryCompletionRecords',
+    'getTaskRelation', 'listTaskRelations', 'readEvalScorecardArtifact', 'readEvalBaselineArtifact',
+  ]);
+  const forbiddenMethods = new Set([
+    'upsertControllerLease',
+    'mutateControllerLeasesAtomically',
+    'createControllerFencedRepository',
+  ]);
+  function assertFence() {
+    const active = readControllerLeaseRecords().filter((lease) => (
+      lease.controller_id === controllerCommitFence.controllerId && lease.status === 'active'
+    ));
+    const lease = active[0];
+    const valid = controllerCommitFence.isActive()
+      && active.length === 1
+      && lease?.lease_id === controllerCommitFence.leaseId
+      && lease?.incarnation_id === controllerCommitFence.incarnationId
+      && new Date(lease.expires_at).getTime() > new Date(resolveNow(controllerCommitFence.now)).getTime();
+    if (!valid) {
+      throw Object.assign(new Error('Controller lease is no longer active at commit.'), {
+        code: 'controller_commit_fenced',
+      });
+    }
+  }
+  const fencedRepository = Object.fromEntries(Object.entries(repository).map(([name, method]) => {
+    if (readMethods.has(name)) return [name, method];
+    if (forbiddenMethods.has(name)) return [name, () => { throw new Error('Controller fenced view cannot mutate lease authority'); }];
+    return [name, (...args) => withFileLockSync(controllerLeaseLockPath, () => {
+      assertFence();
+      return method(...args);
+    })];
+  }));
+  return fencedRepository;
 }

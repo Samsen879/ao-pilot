@@ -1035,4 +1035,87 @@ describe('ao action executor', () => {
       },
     });
   });
+  it('CAS rejects an old failure arriving after a newer attempt succeeds', async () => {
+    const repository = createStateRepository({ repoRoot: createTempRepo(), projectId: PROJECT_ID });
+    seedActiveTask(repository);
+    seedAllowedAction(repository, {
+      actionId: 'action-race', actionKind: 'notify_human_blocked', actionClass: 'notify_human', summary: 'Blocked',
+    });
+    let enterTransport;
+    let finishTransport;
+    const entered = new Promise((resolve) => { enterTransport = resolve; });
+    const barrier = new Promise((resolve) => { finishTransport = resolve; });
+    const options = {
+      repository, controllerId: 'default', task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: ['action-race'], now: '2026-10-23T00:00:00.000Z',
+    };
+    const old = executeAssistActions({
+      ...options,
+      blockedNotificationTransport: { async sendBlockedNotification() {
+        enterTransport(); await barrier; return { status: 'failed', transport: 'old', reason: 'late' };
+      } },
+    });
+    await entered;
+    const claim = repository.getSnapshot().state.actions[0];
+    // Simulate an explicit reconciliation of the uncertain old attempt. The
+    // executor itself never retries an in-flight claim without such a decision.
+    const retryable = structuredClone(claim);
+    retryable.payload.execution.outcome = 'effect_failed';
+    retryable.payload.execution.effect.status = 'failed';
+    expect(repository.upsertAction(retryable, { expectedRecord: claim })).not.toBeNull();
+    await expect(executeAssistActions({
+      ...options,
+      blockedNotificationTransport: { async sendBlockedNotification(intent) {
+        return { status: 'succeeded', transport: 'new', attempts: 1,
+          delivery_semantics: 'at_least_once', idempotency_key: intent.delivery_id };
+      } },
+    })).resolves.toMatchObject({ executedActionIds: ['action-race'] });
+    const success = repository.getSnapshot().state.actions[0];
+    expect(success.payload.execution.effect.attempt_id).not.toBe(claim.payload.execution.effect.attempt_id);
+    const auditBefore = repository.listAuditEntries();
+    finishTransport();
+    await expect(old).rejects.toMatchObject({ code: 'action_attempt_superseded' });
+    expect(repository.getSnapshot().state.actions[0]).toEqual(success);
+    expect(repository.listAuditEntries()).toEqual(auditBefore);
+  });
+
+  it('does not commit a transport result after lease loss', async () => {
+    const repository = createStateRepository({ repoRoot: createTempRepo(), projectId: PROJECT_ID });
+    seedActiveTask(repository);
+    seedAllowedAction(repository, {
+      actionId: 'action-fenced', actionKind: 'notify_human_blocked', actionClass: 'notify_human', summary: 'Blocked',
+    });
+    const timestamp = '2026-10-23T00:00:00.000Z';
+    const lease = repository.upsertControllerLease({
+      lease_id: 'lease-old', controller_id: 'default', holder_id: 'old', holder_type: 'manual',
+      incarnation_id: 'old', status: 'active', acquired_at: timestamp, heartbeat_at: timestamp,
+      expires_at: '2026-10-23T00:01:00.000Z', lease_timeout_ms: 60000, runtime_kind: 'oneshot',
+    });
+    const fenced = repository.createControllerFencedRepository({
+      controllerId: 'default', leaseId: lease.lease_id, incarnationId: 'old',
+      now: () => timestamp, isActive: () => true,
+    });
+    let release;
+    let enter;
+    const barrier = new Promise((resolve) => { release = resolve; });
+    const entered = new Promise((resolve) => { enter = resolve; });
+    const run = executeAssistActions({
+      repository: fenced, controllerId: 'default', task: repository.getSnapshot().state.managed_tasks[0],
+      actionIds: ['action-fenced'], now: timestamp,
+      blockedNotificationTransport: { async sendBlockedNotification(intent) {
+        enter(); await barrier;
+        return { status: 'succeeded', transport: 'fake', attempts: 1,
+          delivery_semantics: 'at_least_once', idempotency_key: intent.delivery_id };
+      } },
+    });
+    await entered;
+    repository.upsertControllerLease({ ...lease, status: 'expired' });
+    const stateBefore = fs.readFileSync(repository.getSnapshot().paths.statePath, 'utf8');
+    const auditBefore = repository.listAuditEntries();
+    release();
+    await expect(run).rejects.toMatchObject({ code: 'controller_commit_fenced' });
+    expect(fs.readFileSync(repository.getSnapshot().paths.statePath, 'utf8')).toBe(stateBefore);
+    expect(repository.listAuditEntries()).toEqual(auditBefore);
+  });
+
 });
