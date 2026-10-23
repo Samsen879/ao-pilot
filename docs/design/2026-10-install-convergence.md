@@ -175,7 +175,11 @@ verify 必须同时满足：前后期望 CID 集合相等（不只比较数量�
 
 ## 10. 回退、schema 与 release promotion
 
-当前源码最高 migration 为 **43**，`0043` 向 `session_worktrees` 添加 `recovery_activity_at`；锁定 p0.4 不能仅因版本较旧就认定可读/不可读。release 构建须在**DB 副本**测试候选 old binary 打开 schema 43、查询、关键恢复操作与不写坏数据；记录其精确 digest 和读写兼容区间。A4 若添加消息表，建议作为 migration **44**（以届时 main 的下一个序号为准），需前向迁移、重复启动及 old-reader fixture。不能在本设计预先认证尚未存在的迁移。
+本设计批准时源码最高 migration 为 **43**，`0043` 向 `session_worktrees` 添加 `recovery_activity_at`；锁定 p0.4 不能仅因版本较旧就认定可读/不可读。release 构建须在**DB 副本**测试候选 old binary 打开 schema 43、查询、关键恢复操作与不写坏数据；记录其精确 digest 和读写兼容区间。A4 若添加消息表，建议作为 migration **44**（以届时 main 的下一个序号为准），需前向迁移、重复启动及 old-reader fixture。不能在本设计预先认证尚未存在的迁移。
+
+A4 实施补充：现新增 migration **44** `session_messages`，只保存消息ID、session、caller text SHA256、outcome/evidence、尝试次数和时间/内部CAS版本，不保存正文、不建持久意图队列。43→44、重复open、原CID/launch保留、跨连接占位/CAS有临时SQLite fixture；pre44 migration集合配合相同Goose loader读取44并保留记录的fixture不等于已发布old artifact验证。真实old/new exact binary的44读写兼容、staging回退仍为本地待验。线上回退绝不运行Down或删消息/ACK表，不能把pending记录变成自动重放；兼容unknown仍按下述一致性备份恢复，保留备份后ACK丢失窗口。
+
+A4 新增worker ACK helper保留在 `DataDir/message-cli/bin/<sha256>/ao`，SHA验证后独立copy/原子发布，session私有ao-pilot shim固定该helper及同DataDir/discovery；每次执行检查SHA。长会话不依赖旧release路径，不被release GC清除。该目录本轮无自动清理，须等整个namespace退役、全部worker/daemon停止、无存活/HOLD会话引用且完成备份后，operator才可显式删除；不能因release过旧、暂时terminated或某条ACK已到而删。回退/恢复元数据备份应包含helper；原ao hooks稳定PATH能力保留，其既有旧release全面pin问题属于范围外。本地待验跨多次升级/GC后的实际worker ACK与精确old artifact回退。
 
 - old binary 经验证可安全读取/写入当前 schema：停止所有旧/新写者并确认 ownership locks，pin `previous`，恢复旧 units/环境，重启 old，执行相同 verify/readback。不能仅切 symlink 而保留旧新进程混跑。
 - 不兼容或 unknown：回退是 **previous release + 迁移前一致性 DB 备份**（包含所需 WAL/SHM 一致性处理、配置和恢复元数据）。不在线运行 Down migration，不强开旧程序。停止全部写者、按 backup manifest 恢复、校验 integrity，再启动 old 并回读。WIP/worktree 不随 DB 回滚盲目覆盖，逐项核对身份和 cone_drift。
