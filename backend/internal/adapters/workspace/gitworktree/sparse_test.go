@@ -2,6 +2,7 @@ package gitworktree
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -101,14 +102,13 @@ func TestNestedConeIncludesAncestorFilesInCapacityEstimate(t *testing.T) {
 }
 
 func TestOptionNamedSparseDirectoryIsMaterialized(t *testing.T) {
-	repo, managed, workspace := newSparseRepoFixture(t)
+	repo, _, workspace := newSparseRepoFixture(t)
 	writeSparseFile(t, repo, "--stdin/input.json", "literal option directory")
 	runGitTest(t, repo, "add", ".")
 	runGitTest(t, repo, "commit", "-m", "option directory")
 	info, err := workspace.Create(context.Background(), ports.WorkspaceConfig{
 		ProjectID: "project", SessionID: "literal-1", Branch: "feature/literal", BaseBranch: "main", SparseCheckout: []string{"--stdin"},
 	})
-	_ = managed
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func newSparseRepoFixture(t *testing.T) (string, string, *Workspace) {
 	runGitTest(t, repo, "init", "--initial-branch=main")
 	runGitTest(t, repo, "config", "user.name", "AO Test")
 	runGitTest(t, repo, "config", "user.email", "ao@example.com")
-	for name, data := range map[string]string{"README.md": "root", "keep/input.json": "{}", "outside/edited.txt": "original", "outside/deleted.txt": "delete later"} {
+	for name, data := range map[string]string{"README.md": "root", "keep/input.json": "{}", "outside/edited.txt": "original", "outside/deleted.txt": "delete later", "untouched/hidden.txt": "must survive"} {
 		writeSparseFile(t, repo, name, data)
 	}
 	runGitTest(t, repo, "add", ".")
@@ -181,8 +181,19 @@ func TestRestoreMaterializesPreservedChangesOutsideNarrowedCone(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(restored.Path, "outside/edited.txt")); !os.IsNotExist(err) {
 		t.Fatalf("restore fixture not sparse: %v", err)
 	}
+	workspace.minFreeBytes = 1
+	workspace.capacityPath = restored.Path
+	workspace.availableBytes = func(string) (uint64, error) { return 1, nil }
+	if err := workspace.ApplyPreserved(ctx, restored, ref); !errors.Is(err, ports.ErrWorkspaceInsufficientSpace) {
+		t.Fatalf("cone expansion bypassed reserve: %v", err)
+	}
+	runGitTest(t, restored.Path, "rev-parse", "--verify", ref)
+	workspace.availableBytes = func(string) (uint64, error) { return 1 << 40, nil }
 	if err := workspace.ApplyPreserved(ctx, restored, ref); err != nil {
 		t.Fatal(err)
+	}
+	if got := runGitTest(t, restored.Path, "show", ":untouched/hidden.txt"); got != "must survive" {
+		t.Fatalf("unrelated hidden file lost: %q", got)
 	}
 	for name, want := range map[string]string{"outside/edited.txt": "edited WIP", "outside/new.txt": "new WIP"} {
 		got, err := os.ReadFile(filepath.Join(restored.Path, name))
