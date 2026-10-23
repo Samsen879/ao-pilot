@@ -19,7 +19,9 @@ import (
 // Info is the on-disk handshake payload.
 type Info struct {
 	// PID is the daemon process id.
-	PID int `json:"pid"`
+	PID        int    `json:"pid"`
+	InstanceID string `json:"instanceId,omitempty"`
+	DataDir    string `json:"dataDir,omitempty"`
 	// Port is the loopback port the daemon bound.
 	Port int `json:"port"`
 	// StartedAt is when the daemon came up (RFC 3339).
@@ -39,13 +41,13 @@ type Info struct {
 	BrowserRuntimeAddress string `json:"browserRuntimeAddress,omitempty"`
 }
 
-// Write atomically writes running.json at path, creating parent directories
+// write atomically writes running.json at path, creating parent directories
 // as needed. It writes to a temp file in the same directory and then calls
 // atomicReplace — POSIX rename(2) on Unix, MoveFileEx with
 // MOVEFILE_REPLACE_EXISTING on Windows — so a reader never observes a
 // partial file and a stale running.json from a crashed predecessor is
 // overwritten without an intermediate "no file" window.
-func Write(path string, info Info) error {
+func write(path string, info Info) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("create run-file dir: %w", err)
 	}
@@ -75,10 +77,10 @@ func Write(path string, info Info) error {
 	return nil
 }
 
-// RestoreIfMissing rewrites the daemon handshake only when no record exists.
+// restoreIfMissing rewrites the daemon handshake only when no record exists.
 // It deliberately leaves an observed existing record untouched, including one
 // owned by another PID, so the normal overlapping-restart path is preserved.
-func RestoreIfMissing(path string, info Info) (bool, error) {
+func restoreIfMissing(path string, info Info) (bool, error) {
 	current, err := Read(path)
 	if err != nil {
 		return false, err
@@ -137,27 +139,13 @@ func Read(path string) (*Info, error) {
 	return &info, nil
 }
 
-// Remove deletes running.json. A missing file is not an error — graceful
+// remove deletes running.json. A missing file is not an error — graceful
 // shutdown should be idempotent.
-func Remove(path string) error {
+func remove(path string) error {
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove run-file: %w", err)
 	}
 	return nil
-}
-
-// RemoveIfOwned deletes running.json only if it still belongs to ownerPID. This
-// prevents a shutting-down daemon from removing a successor's freshly written
-// handshake after an overlapping restart.
-func RemoveIfOwned(path string, ownerPID int) error {
-	info, err := Read(path)
-	if err != nil {
-		return err
-	}
-	if info == nil || info.PID != ownerPID {
-		return nil
-	}
-	return Remove(path)
 }
 
 // CheckStale inspects an existing run-file before the new daemon binds. It

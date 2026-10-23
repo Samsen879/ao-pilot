@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite/gen"
@@ -75,6 +76,35 @@ func (s *Store) MarkSessionWorktreesNonRestorable(ctx context.Context, sessionID
 	defer s.writeMu.Unlock()
 	_, err := s.writeDB.ExecContext(ctx, "UPDATE session_worktrees SET state = 'active' WHERE session_id = ?", string(sessionID))
 	return err
+}
+
+// SetSessionWorktreesRecoveryActivity snapshots the last real agent activity
+// before lifecycle termination replaces it with the teardown time. All rows of
+// a workspace project share the same session recovery priority.
+func (s *Store) SetSessionWorktreesRecoveryActivity(ctx context.Context, sessionID domain.SessionID, at time.Time) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	var nanos int64
+	if !at.IsZero() {
+		nanos = at.UnixNano()
+	}
+	_, err := s.writeDB.ExecContext(ctx, "UPDATE session_worktrees SET recovery_activity_at = ? WHERE session_id = ?", nanos, string(sessionID))
+	return err
+}
+
+// SessionWorktreesRecoveryActivity returns the durable pre-termination
+// activity snapshot. Existing markers migrated with zero return ok=false and
+// use the legacy session timestamp fallback.
+func (s *Store) SessionWorktreesRecoveryActivity(ctx context.Context, sessionID domain.SessionID) (time.Time, bool, error) {
+	var nanos sql.NullInt64
+	err := s.readDB.QueryRowContext(ctx, "SELECT MAX(recovery_activity_at) FROM session_worktrees WHERE session_id = ?", string(sessionID)).Scan(&nanos)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	if !nanos.Valid || nanos.Int64 == 0 {
+		return time.Time{}, false, nil
+	}
+	return time.Unix(0, nanos.Int64).UTC(), true, nil
 }
 
 func sessionWorktreeFromGen(row gen.SessionWorktree) domain.SessionWorktreeRecord {

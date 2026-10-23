@@ -622,13 +622,6 @@ func (w *Workspace) countIgnoredPaths(ctx context.Context, worktree string) (int
 	return count, nil
 }
 
-// ApplyPreserved replays the capture created by StashUncommitted onto the
-// (freshly re-added) worktree using a true three-way merge (cherry-pick --no-commit).
-// On clean success, the preserve ref is deleted.
-// On conflict, the ref is kept, conflict markers are left in the affected files,
-// and ErrPreservedConflict (wrapped) is returned so the caller can surface it.
-//
-// NEVER deletes the preserve ref on a failed or conflicted apply.
 func (w *Workspace) materializePreservedPaths(ctx context.Context, worktree, commit string) error {
 	if w.minFreeBytes > 0 {
 		w.materializeMu.Lock()
@@ -691,6 +684,13 @@ func (w *Workspace) materializePreservedPaths(ctx context.Context, worktree, com
 	return nil
 }
 
+// ApplyPreserved replays the capture created by StashUncommitted onto the
+// (freshly re-added) worktree using a true three-way merge (cherry-pick --no-commit).
+// On clean success, the preserve ref is deleted.
+// On conflict, the ref is kept, conflict markers are left in the affected files,
+// and ErrPreservedConflict (wrapped) is returned so the caller can surface it.
+//
+// NEVER deletes the preserve ref on a failed or conflicted apply.
 func (w *Workspace) ApplyPreserved(ctx context.Context, info ports.WorkspaceInfo, ref string) error {
 	if info.Path == "" {
 		return fmt.Errorf("%w: empty path", ErrUnsafePath)

@@ -30,9 +30,15 @@ func (l *blockedListener) Addr() net.Addr {
 
 func TestServeStartsAfterRunFilePublication(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "running.json")
+	publisher, err := runfile.Admit(filepath.Join(filepath.Dir(path), "data"), path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer publisher.Close()
 	listener := &blockedListener{closed: make(chan struct{})}
 	srv := &Server{
 		cfg:               config.Config{RunFilePath: path, ShutdownTimeout: time.Second},
+		publisher:         publisher,
 		log:               slog.New(slog.NewTextHandler(os.Stderr, nil)),
 		http:              &http.Server{Handler: http.NewServeMux()},
 		listen:            listener,
