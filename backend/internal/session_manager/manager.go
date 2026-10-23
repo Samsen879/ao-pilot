@@ -1981,9 +1981,12 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 		} else {
 			if err := m.markSessionWorktreesActive(ctx, rows, keepPreserved); err != nil {
 				m.logger.Warn("restore-all: marking worktrees active failed", "sessionID", rec.ID, "error", err)
+				continue
 			}
-			if err := m.store.DeleteSessionWorktrees(ctx, rec.ID); err != nil {
-				m.logger.Warn("restore-all: delete restore marker failed", "sessionID", rec.ID, "error", err)
+			if !keepPreserved {
+				if err := m.store.DeleteSessionWorktrees(ctx, rec.ID); err != nil {
+					m.logger.Warn("restore-all: delete restore marker failed", "sessionID", rec.ID, "error", err)
+				}
 			}
 		}
 	}
