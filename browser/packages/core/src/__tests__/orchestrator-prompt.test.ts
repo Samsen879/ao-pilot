@@ -32,6 +32,19 @@ const config: OrchestratorConfig = {
 };
 
 describe("generateOrchestratorPrompt", () => {
+  it("only advertises acknowledged task dispatch after a verified native capability", () => {
+    const options = { config, projectId: "my-app", project: config.projects["my-app"]!, managedCli: true };
+    const old = generateOrchestratorPrompt(options);
+    expect(old).toContain("task dispatch is unavailable");
+    expect(old).not.toContain("--require-ack");
+    const native = generateOrchestratorPrompt({ ...options, nativeMessages: true });
+    expect(native).toContain("ao send --session app-1 --message");
+    expect(native).not.toContain("ao-pilot send");
+    expect(native).toContain("--message-id <stable-dispatch-id> --require-ack --json");
+    expect(native).toContain("Only acknowledged proves the worker explicitly read it");
+    expect(native).toContain("Never retry by creating a new ID");
+  });
+
   it("requires read-only investigation from the orchestrator session", () => {
     const prompt = generateOrchestratorPrompt({
       config,

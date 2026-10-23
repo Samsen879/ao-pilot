@@ -17,6 +17,8 @@ const PACKAGE_VERSION = JSON.parse(
 
 const COMMAND_MODULES = {
   upgrade: '../scripts/ao-upgrade.js',
+  send: '../scripts/ao-messages.js',
+  ack: '../scripts/ao-messages.js',
   restore: '../scripts/ao-runtime.js',
   controller: '../scripts/ao-controller.js',
   dashboard: '../scripts/ao-dashboard.js',
@@ -48,6 +50,8 @@ const RUNTIME_COMMANDS = new Set(['runtime-path', 'runtime-project-get', 'start'
 const PROJECT_SCOPED_COMMANDS = new Set(Object.keys(COMMAND_MODULES).filter(
   (command) => ![
     'upgrade',
+    'send',
+    'ack',
     'restore',
     'init',
     'publication-preflight',
@@ -77,6 +81,8 @@ function renderHelp() {
     'Commands:',
     '  upgrade     Apply or inspect a pinned unified release',
     '  restore     Restore native sessions in current installation',
+    '  send        Send once through verified native message authority',
+    '  ack         Acknowledge one native message in the same namespace',
     '  init        Create ao.config.json',
     '  controller  Run the control loop',
     '  doctor      Diagnose control-plane, runtime, and auth state',
@@ -169,6 +175,7 @@ export function applyConfiguredEvaluation(argv, evaluation, configPath = null) {
 
 export async function runCli(argv, io = createDefaultIo(), {
   cwd = process.cwd(),
+  nativeMessages = null,
 } = {}) {
   const [command, ...commandArgs] = argv;
   const packageRoot = fileURLToPath(new URL('../', import.meta.url));
@@ -187,6 +194,11 @@ export async function runCli(argv, io = createDefaultIo(), {
   if (!(command in COMMAND_MODULES)) {
     io.writeStderr(`Unknown command: ${command}\n`);
     return { exitCode: 4, result: null };
+  }
+
+  if (command === 'send' || command === 'ack') {
+    const delegate = nativeMessages ?? (await import('../scripts/ao-messages.js')).runCli;
+    return delegate([command, ...commandArgs], io, { cwd });
   }
 
   let extracted;

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
+import {randomUUID} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {defaultBindingsPath,readBindings,writeBindings,verifyTranscript,createRecoveryAdapter,recoverySweep,withRecoveryLock} from './ao/lib/session-recovery.js';
 
@@ -41,7 +42,7 @@ export async function runCli(args,io={writeStdout:s=>process.stdout.write(s),wri
       await withRecoveryLock(file,async()=>{const latest=readBindings(file,configPath);if(latest.sessions[id] && JSON.stringify(latest.sessions[id])!==JSON.stringify(binding))throw new Error('Recovery pin changed concurrently; HOLD');latest.sessions[id]=binding;writeBindings(file,latest);});
       print({id,binding,state:'BOUND',session_unchanged:true});return {exitCode:0};
     }
-    if(command==='send') {const binding=manifest.sessions[id];if(!binding)throw new Error('Unpinned session; HOLD');await adapter.validate(id,binding);if(!await adapter.alive(id,binding))throw new Error('Session not alive; HOLD');await adapter.manager.send(id,message);print({id,delivered:true});return {exitCode:0};}
+    if(command==='send') {const binding=manifest.sessions[id];if(!binding)throw new Error('Unpinned session; HOLD');await adapter.validate(id,binding);if(!await adapter.alive(id,binding))throw new Error('Session not alive; HOLD');const result=await adapter.manager.send(id,message);print(result ?? {message_id:randomUUID(),outcome:'submitted_unconfirmed',evidence:{code:'LEGACY_UNCONFIRMED',signal:'none',attempts:1,recorded_at:new Date().toISOString()}});return {exitCode:result?.outcome==='acknowledged'||result?.outcome==='submitted_confirmed'?0:3};}
     if(command==='restore' && !manifest.sessions[id])throw new Error('Unpinned session; HOLD');
     const scope=command==='restore'?{...manifest,sessions:{[id]:manifest.sessions[id]}}:manifest;
     const attempts=new Set();

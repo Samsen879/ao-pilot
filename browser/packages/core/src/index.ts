@@ -177,3 +177,6 @@ export type {
   DetectedProjectInfo,
   GenerateConfigOptions,
 } from "./config-generator.js";
+
+export { isMessageResult, isNativeMessageContract, messageHttpStatus, messageExitCode, localMessageResult } from "./message-contract.js";
+export { probeNativeMessageCapability } from "./native-message-client.js";

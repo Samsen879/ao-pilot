@@ -140,7 +140,7 @@ func (c *SessionsController) Register(r chi.Router) {
 	r.Post("/sessions/{sessionId}/resume-agent", c.resumeAgent)
 	r.Post("/sessions/{sessionId}/kill", c.kill)
 	r.Post("/sessions/{sessionId}/rollback", c.rollback)
-	r.Post("/sessions/{sessionId}/send", c.send)
+
 	r.Get("/orchestrators", c.listOrchestrators)
 	r.Post("/orchestrators", c.spawnOrchestrator)
 	r.Get("/orchestrators/{id}", c.getOrchestrator)
@@ -846,32 +846,6 @@ func (c *SessionsController) cleanup(w http.ResponseWriter, r *http.Request) {
 	envelope.WriteJSON(w, http.StatusOK, CleanupSessionsResponse{OK: true, Cleaned: out.Cleaned, Skipped: skipped})
 }
 
-func (c *SessionsController) send(w http.ResponseWriter, r *http.Request) {
-	if c.Svc == nil {
-		apispec.NotImplemented(w, r, "POST", "/api/v1/sessions/{sessionId}/send")
-		return
-	}
-	var in SendSessionMessageRequest
-	if err := decodeJSON(r, &in); err != nil {
-		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
-		return
-	}
-	if in.Message == "" {
-		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "MESSAGE_REQUIRED", "Message is required", nil)
-		return
-	}
-	if len(in.Message) > maxMessageLen {
-		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "MESSAGE_TOO_LONG", "Message is too long", nil)
-		return
-	}
-	message := domain.SanitizeControlChars(in.Message)
-	if err := c.Svc.Send(r.Context(), sessionID(r), message); err != nil {
-		envelope.WriteError(w, r, err)
-		return
-	}
-	envelope.WriteJSON(w, http.StatusOK, SendSessionMessageResponse{OK: true, SessionID: sessionID(r), Message: message})
-}
-
 // activity records an agent activity-state signal reported by an agent hook
 // (via `ao hooks <agent> <event>`). It funnels through the single
 // lifecycle.Manager so the reaper and hooks never race on the session's
@@ -1047,8 +1021,12 @@ func writeSessionPRError(w http.ResponseWriter, r *http.Request, err error) {
 		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_PR_REF", "PR reference must be a github.com PR URL or a number", nil)
 	case errors.Is(err, sessionsvc.ErrPRNotFound):
 		envelope.WriteAPIError(w, r, http.StatusNotFound, "not_found", "PR_NOT_FOUND", "Unknown PR", nil)
-	case errors.Is(err, sessionsvc.ErrPRNotOpen):
-		envelope.WriteAPIError(w, r, http.StatusConflict, "conflict", "PR_NOT_OPEN", "PR is not open", nil)
+	case errors.Is(err, sessionsvc.ErrPRDraft):
+		envelope.WriteAPIError(w, r, http.StatusConflict, "conflict", "PR_DRAFT", "PR is draft", nil)
+	case errors.Is(err, sessionsvc.ErrPRMerged):
+		envelope.WriteAPIError(w, r, http.StatusConflict, "conflict", "PR_MERGED", "PR is merged", nil)
+	case errors.Is(err, sessionsvc.ErrPRClosed):
+		envelope.WriteAPIError(w, r, http.StatusConflict, "conflict", "PR_CLOSED", "PR is closed", nil)
 	case errors.As(err, &claimed):
 		envelope.WriteAPIError(w, r, http.StatusConflict, "conflict", "PR_CLAIMED_BY_ACTIVE_SESSION", "PR is already claimed by active session "+string(claimed.Owner)+" (omit --no-takeover to steal)", map[string]any{"ownerSessionId": string(claimed.Owner)})
 	case errors.Is(err, sessionsvc.ErrSessionNotClaimable):

@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { generateOrchestratorPrompt } from "@composio/ao-core";
+import { generateOrchestratorPrompt, probeNativeMessageCapability } from "@composio/ao-core";
 import { getServices } from "@/lib/services";
 import { validateIdentifier } from "@/lib/validation";
 
@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Unknown project: ${projectId}` }, { status: 404 });
     }
 
-    const systemPrompt = generateOrchestratorPrompt({ config, projectId, project });
+    const systemPrompt = generateOrchestratorPrompt({ config, projectId, project, nativeMessages: await probeNativeMessageCapability() });
     const session = await sessionManager.spawnOrchestrator({ projectId, systemPrompt });
 
     return NextResponse.json(

@@ -342,7 +342,17 @@ export interface Agent {
   setupWorkspaceHooks?(workspacePath: string, config: WorkspaceHooksConfig): Promise<void>;
 }
 
+export interface NativeMessageBinding {
+  sessionId: string;
+  projectId: string;
+  binarySha256: string;
+  dataDir: string;
+  runFile: string;
+}
+
 export interface AgentLaunchConfig {
+  /** Explicit native ownership; absent for newly created legacy browser sessions. */
+  nativeMessageBinding?: NativeMessageBinding;
   sessionId: SessionId;
   projectConfig: ProjectConfig;
   issueId?: string;
@@ -880,6 +890,7 @@ export interface ReactionResult {
   action: string;
   message?: string;
   escalated: boolean;
+  delivery?: MessageResult;
 }
 
 // =============================================================================
@@ -1175,6 +1186,8 @@ export interface SessionMetadata {
 
 /** Session manager — CRUD for sessions */
 export interface SessionManager {
+  /** This manager gates requireAck before any legacy side effect. Not a native capability assertion. */
+  readonly messageContract?: "ao.message-contract.v1";
   spawn(config: SessionSpawnConfig): Promise<Session>;
   spawnOrchestrator(config: OrchestratorSpawnConfig): Promise<Session>;
   restore(sessionId: SessionId): Promise<Session>;
@@ -1185,12 +1198,22 @@ export interface SessionManager {
     projectId?: string,
     options?: { dryRun?: boolean; purgeOpenCode?: boolean },
   ): Promise<CleanupResult>;
-  send(sessionId: SessionId, message: string, options?: SendOptions): Promise<void>;
+  send(sessionId: SessionId, message: string, options?: SendOptions): Promise<MessageResult | void>;
   claimPR(sessionId: SessionId, prRef: string, options?: ClaimPROptions): Promise<ClaimPRResult>;
 }
 
 export interface SendOptions {
+  /** Legacy observation only; never proves native durable acknowledgement. */
   requireConfirmation?: boolean;
+  requireAck?: boolean;
+  messageId?: string;
+  ackTimeoutMs?: number;
+}
+export type MessageOutcome = "submitted_confirmed" | "submitted_unconfirmed" | "rejected" | "acknowledged" | "ack_timeout";
+export interface MessageResult {
+  message_id: string;
+  outcome: MessageOutcome;
+  evidence: { code: string; signal: "none" | "activity_active" | "explicit_ack"; attempts: number; recorded_at: string; acknowledged_at?: string; existing_outcome?: MessageOutcome };
 }
 
 /** OpenCode-specific session manager with remap capability */

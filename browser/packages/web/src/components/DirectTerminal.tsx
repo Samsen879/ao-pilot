@@ -1,5 +1,6 @@
 "use client";
 
+import { messageResponseNotice } from "@/lib/message-outcome";
 import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/cn";
@@ -135,9 +136,8 @@ export function DirectTerminal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: commandToSend }),
       });
-      if (!sendRes.ok) {
-        throw new Error(`Failed to send reload command: ${sendRes.status}`);
-      }
+      const notice = await messageResponseNotice(sendRes);
+      if (notice) throw new Error(notice);
     } catch (err) {
       setReloadError(err instanceof Error ? err.message : "Failed to reload OpenCode session");
     } finally {

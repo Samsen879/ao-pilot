@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { isMessageResult, messageHttpStatus, localMessageResult } from "@composio/ao-core/message-contract";
 import { type NextRequest } from "next/server";
 import { validateIdentifier, validateString, stripControlChars } from "@/lib/validation";
 import { getServices } from "@/lib/services";
@@ -39,25 +41,37 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     );
   }
 
+  const messageId = body?.message_id === undefined ? randomUUID() : body.message_id;
+  if (typeof messageId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(messageId)
+    || (body?.require_ack !== undefined && typeof body.require_ack !== "boolean")
+    || (body?.ack_timeout_ms !== undefined && (body.require_ack !== true || !Number.isInteger(body.ack_timeout_ms) || Number(body.ack_timeout_ms) < 1 || Number(body.ack_timeout_ms) > 60000))) {
+    return jsonWithCorrelation({ error: "Invalid message options" }, { status: 400 }, correlationId);
+  }
+  const requireAck = body?.require_ack === true;
   try {
     const { config, sessionManager } = await getServices();
     const projectId = resolveProjectIdForSessionId(config, id);
-    await sessionManager.send(id, message);
+    const delivered = requireAck && sessionManager.messageContract !== "ao.message-contract.v1"
+      ? localMessageResult(messageId, "rejected", "ACK_UNSUPPORTED_AUTHORITY")
+      : await sessionManager.send(id, message, { messageId, requireAck, ...(body?.ack_timeout_ms !== undefined ? { ackTimeoutMs: Number(body.ack_timeout_ms) } : {}) });
+    const result = delivered === undefined ? localMessageResult(messageId, "submitted_unconfirmed", "LEGACY_UNCONFIRMED") : delivered;
+    if (!isMessageResult(result) || result.message_id !== messageId) throw new Error("Invalid message result");
+    const status = messageHttpStatus(result);
     recordApiObservation({
       config,
       method: "POST",
       path: "/api/sessions/[id]/send",
       correlationId,
       startedAt,
-      outcome: "success",
-      statusCode: 200,
+      outcome: status === 200 ? "success" : "failure",
+      statusCode: status,
       projectId,
       sessionId: id,
-      data: { messageLength: message.length },
+      data: { messageLength: message.length, messageOutcome: result.outcome, messageId: result.message_id },
     });
     return jsonWithCorrelation(
-      { ok: true, sessionId: id, message },
-      { status: 200 },
+      result,
+      { status },
       correlationId,
     );
   } catch (err) {

@@ -10,7 +10,7 @@
  * Reference: scripts/claude-session-status, scripts/claude-review-check
  */
 
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import {
   SESSION_STATUS,
   TERMINAL_STATUSES,
@@ -35,8 +35,11 @@ import {
   type EventPriority,
   type ProjectConfig,
   type MergeReadiness,
+  type MessageResult,
   isOrchestratorSession,
 } from "./types.js";
+import { probeNativeMessageCapability } from "./native-message-client.js";
+import { isMessageResult, localMessageResult } from "./message-contract.js";
 import { updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
 import { createCorrelationId, createProjectObserver } from "./observability.js";
@@ -209,6 +212,10 @@ export interface LifecycleManagerDeps {
 
 /** Track attempt counts for reactions per session. */
 interface ReactionTracker {
+  episode?: string | null;
+  escalationSent?: boolean;
+  messageAttempted?: boolean;
+  delivery?: MessageResult;
   attempts: number;
   firstTriggered: Date;
   lastTriggered: Date;
@@ -221,6 +228,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
   const states = new Map<SessionId, SessionStatus>();
   const consecutiveIdleEvidence = new Map<SessionId, number>();
+  const dispatches = new Map<string, MessageResult | undefined>();
   const reactionTrackers = new Map<string, ReactionTracker>(); // "sessionId:reactionKey"
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let polling = false; // re-entrancy guard
@@ -530,6 +538,33 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     return session.status;
   }
 
+  async function dispatchEpisode(sessionId: string, projectId: string, reactionKey: string): Promise<string | null> {
+    const session = await sessionManager.get(sessionId).catch(() => null);
+    if (!session) return null;
+    const operatorEpisode = session.metadata["messageDispatchEpisode"]?.trim();
+    const project = config.projects[projectId];
+    const scm = project?.scm ? registry.get<SCM>("scm", project.scm.plugin) : null;
+    if (session.pr && scm) {
+      try {
+        if (reactionKey === "changes-requested" || reactionKey === "bugbot-comments") {
+          const comments = reactionKey === "changes-requested"
+            ? await scm.getPendingComments(session.pr) : await scm.getAutomatedComments(session.pr);
+          if (Array.isArray(comments) && comments.length) {
+            return `review:${JSON.stringify([session.pr.owner, session.pr.repo, session.pr.number, makeFingerprint(comments.map((comment) => comment.id))])}`;
+          }
+        }
+        if (reactionKey === "ci-failed") {
+          const checks = (await scm.getCIChecks(session.pr)).filter((check) => check.status === "failed");
+          if (checks.length && checks.every((check) => check.url || check.startedAt || check.completedAt)) {
+            const facts = checks.map((check) => [check.name, check.url ?? null, check.startedAt?.toISOString() ?? null, check.completedAt?.toISOString() ?? null]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+            return `ci:${JSON.stringify([session.pr.owner, session.pr.repo, session.pr.number, facts])}`;
+          }
+        }
+      } catch { /* Unknown SCM evidence requires an explicit persisted operator episode. */ }
+    }
+    return operatorEpisode ? `operator:${operatorEpisode}` : null;
+  }
+
   /** Execute a reaction for a session. */
   async function executeReaction(
     sessionId: SessionId,
@@ -545,8 +580,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const now = new Date();
     const countAttempt = options?.countAttempt ?? true;
 
-    if (!tracker) {
-      tracker = { attempts: 0, firstTriggered: now, lastTriggered: now };
+    const episode = reactionConfig.action === "send-to-agent" ? await dispatchEpisode(sessionId, projectId, reactionKey) : null;
+    if (!tracker || tracker.episode !== episode) {
+      tracker = { episode, attempts: 0, firstTriggered: now, lastTriggered: now };
       reactionTrackers.set(trackerKey, tracker);
     }
 
@@ -578,6 +614,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     }
 
     const escalateReaction = async (reason: string): Promise<ReactionResult> => {
+      if (tracker!.escalationSent) return { reactionType: reactionKey, success: false, action: "escalated", escalated: true, delivery: tracker!.delivery };
       if (reactionConfig.escalateTo === "orchestrator") {
         const routed = await routeReactionToOrchestrator({
           sessionId,
@@ -587,6 +624,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           escalationReason: reason,
         });
         if (routed) {
+          tracker!.escalationSent = true;
           return routed;
         }
       }
@@ -597,10 +635,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         message: `Reaction '${reactionKey}' escalated after ${tracker?.attempts ?? 0} attempts`,
         data: { reactionKey, attempts: tracker?.attempts ?? 0, reason },
       });
-      await notifyHuman(event, reactionConfig.priority ?? "urgent");
+      const notified = await notifyHuman(event, reactionConfig.priority ?? "urgent");
+      tracker!.escalationSent = notified;
       return {
         reactionType: reactionKey,
-        success: true,
+        success: notified,
         action: "escalated",
         escalated: true,
       };
@@ -618,16 +657,30 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     switch (action) {
       case "send-to-agent": {
         if (reactionConfig.message) {
+          if (!episode) return escalateReaction("Task dispatch episode cannot be established; explicit operator dispatch required.");
+          const messageId = `reaction_${createHash("sha256").update(JSON.stringify([projectId, sessionId, reactionKey, reactionConfig.message, episode])).digest("hex")}`;
+          if (dispatches.has(messageId)) {
+            tracker.delivery = dispatches.get(messageId);
+            if (tracker.delivery?.outcome === "acknowledged") return { reactionType: reactionKey, success: true, action: "send-to-agent", escalated: false, delivery: tracker.delivery };
+            if (!countAttempt) tracker.attempts++;
+            if (tracker.attempts > maxRetries || (typeof escalateAfter === "number" && tracker.attempts > escalateAfter) || (maxRetries === Infinity && !escalateAfter)) return escalateReaction("Prior dispatch remains unacknowledged; it was not resubmitted.");
+            return { reactionType: reactionKey, success: false, action: "send-to-agent", escalated: tracker.escalationSent ?? false, delivery: tracker.delivery };
+          }
+          dispatches.set(messageId, undefined);
+          tracker.messageAttempted = true;
           try {
-            await sessionManager.send(sessionId, reactionConfig.message, {
-              requireConfirmation: true,
-            });
+            const result = sessionManager.messageContract === "ao.message-contract.v1"
+              ? await sessionManager.send(sessionId, reactionConfig.message, { requireAck: true, messageId })
+              : localMessageResult(messageId, "rejected", "ACK_UNSUPPORTED_AUTHORITY");
+            if (isMessageResult(result) && result.message_id === messageId) { tracker.delivery = result; dispatches.set(messageId, result); }
+            if (!isMessageResult(result) || result.message_id !== messageId || result.outcome !== "acknowledged") throw new Error(`Task delivery not acknowledged: ${isMessageResult(result) ? result.outcome : "unknown"}`);
 
             return {
               reactionType: reactionKey,
               success: true,
               action: "send-to-agent",
               message: reactionConfig.message,
+              delivery: tracker.delivery,
               escalated: false,
             };
           } catch (err) {
@@ -649,12 +702,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
                 failureReason: err instanceof Error ? err.message : String(err),
               });
               if (routed) {
+                tracker.escalationSent = true;
                 return routed;
               }
             }
 
-            // Send failed — allow retry on next poll cycle when we are not
-            // immediately handing the problem to the orchestrator.
+            // Keep observing/escalating the episode; never submit it again.
+            // A new dispatch needs a new persistent event identity.
             return {
               reactionType: reactionKey,
               success: false,
@@ -815,6 +869,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     return sessionManager.spawnOrchestrator({
       projectId,
       systemPrompt: generateOrchestratorPrompt({
+        nativeMessages: await probeNativeMessageCapability(),
         config,
         projectId,
         project,
@@ -911,9 +966,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         escalationReason: opts.escalationReason,
       });
 
-      await sessionManager.send(orchestrator.id, message, {
-        requireConfirmation: true,
-      });
+      const delivery = await sessionManager.send(orchestrator.id, message, { requireConfirmation: true });
+      if (!isMessageResult(delivery) || !["submitted_confirmed", "acknowledged"].includes(delivery.outcome)) return null;
       return {
         reactionType: opts.reactionKey,
         success: true,
@@ -1023,7 +1077,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         });
       } else if (
         transitionReaction?.key === humanReactionKey &&
-        transitionReaction.result?.success
+        transitionReaction.result?.success && transitionReaction.result?.action === "send-to-agent"
       ) {
         if (lastPendingDispatchHash !== pendingFingerprint) {
           updateSessionMetadata(session, {
@@ -1047,7 +1101,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             humanReactionKey,
             reactionConfig,
           );
-          if (result.success) {
+          if (result.success && result.action === "send-to-agent") {
             updateSessionMetadata(session, {
               lastPendingReviewDispatchHash: pendingFingerprint,
               lastPendingReviewDispatchAt: new Date().toISOString(),
@@ -1090,7 +1144,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
             automatedReactionKey,
             reactionConfig,
           );
-          if (result.success) {
+          if (result.success && result.action === "send-to-agent") {
             updateSessionMetadata(session, {
               lastAutomatedReviewDispatchHash: automatedFingerprint,
               lastAutomatedReviewDispatchAt: new Date().toISOString(),
@@ -1102,7 +1156,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   }
 
   /** Send a notification to all configured notifiers. */
-  async function notifyHuman(event: OrchestratorEvent, priority: EventPriority): Promise<void> {
+  async function notifyHuman(event: OrchestratorEvent, priority: EventPriority): Promise<boolean> {
+    let delivered = false;
     const eventWithPriority = { ...event, priority };
     const notifierNames = config.notificationRouting[priority] ?? config.defaults.notifiers;
 
@@ -1111,11 +1166,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       if (notifier) {
         try {
           await notifier.notify(eventWithPriority);
+          delivered = true;
         } catch {
-          // Notifier failed — not much we can do
+          // Keep a failed escalation eligible for a later ordinary notification.
         }
       }
     }
+    return delivered;
   }
 
   async function maybeRepeatUnchangedReaction(

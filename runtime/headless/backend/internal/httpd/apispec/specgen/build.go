@@ -15,6 +15,7 @@ import (
 	openapi "github.com/swaggest/openapi-go"
 	"github.com/swaggest/openapi-go/openapi31"
 
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/controllers"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/envelope"
 	projectsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/project"
@@ -136,6 +137,10 @@ var schemaNames = map[string]string{
 	// httpd/envelope
 	"EnvelopeAPIError": "APIError",
 	// domain
+	"DomainMessageOptions":      "SendSessionMessageRequest",
+	"DomainMessageResult":       "SendSessionMessageResponse",
+	"DomainMessageEvidence":     "MessageEvidence",
+	"DomainMessageContract":     "MessageContract",
 	"DomainProjectID":           "ProjectID",
 	"DomainSessionID":           "SessionID",
 	"DomainIssueID":             "IssueID",
@@ -336,6 +341,7 @@ type operation struct {
 
 func operations() []operation {
 	ops := append([]operation{}, eventOperations()...)
+	ops = append(ops, startupGated(messageOperations(), nil)...)
 	ops = append(ops, startupGated(agentOperations(), nil)...)
 	ops = append(ops, startupGated(projectOperations(), nil)...)
 	ops = append(ops, startupGated(sessionOperations(), func(op operation) bool { return op.id != "setSessionActivity" })...)
@@ -978,7 +984,7 @@ func sessionOperations() []operation {
 		},
 		{
 			method: http.MethodPost, path: "/api/v1/sessions/{sessionId}/pr/claim", id: "claimSessionPR", tag: "sessions",
-			summary:    "Claim an existing pull request for a session",
+			summary:    "Claim an existing PR; reject PR_MERGED, PR_CLOSED, or PR_DRAFT (in that precedence)",
 			pathParams: []any{controllers.SessionIDParam{}},
 			reqBody:    controllers.ClaimPRRequest{},
 			resps: []respUnit{
@@ -1079,22 +1085,6 @@ func sessionOperations() []operation {
 			},
 		},
 		{
-			method: http.MethodPost, path: "/api/v1/sessions/{sessionId}/send", id: "sendSessionMessage", tag: "sessions",
-			summary:    "Send a message to a running session's agent",
-			pathParams: []any{controllers.SessionIDParam{}},
-			reqBody:    controllers.SendSessionMessageRequest{},
-			resps: []respUnit{
-				{http.StatusOK, controllers.SendSessionMessageResponse{}},
-				{http.StatusBadRequest, envelope.APIError{}},
-				{http.StatusNotFound, envelope.APIError{}},
-				// Conflict: the session is terminated, or paused on a permission
-				// decision (SESSION_AWAITING_DECISION) — the guarded send refuses
-				// to paste into a pending dialog.
-				{http.StatusConflict, envelope.APIError{}},
-				{http.StatusInternalServerError, envelope.APIError{}},
-			},
-		},
-		{
 			method: http.MethodPost, path: "/api/v1/sessions/{sessionId}/activity", id: "setSessionActivity", tag: "sessions",
 			summary:    "Report an agent activity-state signal for a session",
 			pathParams: []any{controllers.SessionIDParam{}},
@@ -1184,5 +1174,15 @@ func prOperations() []operation {
 				{http.StatusNotImplemented, envelope.APIError{}},
 			},
 		},
+	}
+}
+
+func messageOperations() []operation {
+	result := []respUnit{{200, domain.MessageResult{}}, {202, domain.MessageResult{}}, {409, domain.MessageResult{}}, {504, domain.MessageResult{}}, {400, envelope.APIError{}}, {500, envelope.APIError{}}}
+	return []operation{
+		{method: http.MethodPost, path: "/api/v1/sessions/{sessionId}/messages", id: "createSessionMessage", tag: "sessions", summary: "Send once with durable outcomes; protocol-specific path fails closed against old daemons", pathParams: []any{controllers.SessionIDParam{}}, reqBody: domain.MessageOptions{}, resps: result},
+		{method: http.MethodPost, path: "/api/v1/sessions/{sessionId}/send", id: "sendSessionMessage", tag: "sessions", summary: "Compatibility alias for messages; submitted_unconfirmed returns202, never ordinary200ok", pathParams: []any{controllers.SessionIDParam{}}, reqBody: domain.MessageOptions{}, resps: result},
+		{method: http.MethodPost, path: "/api/v1/sessions/{sessionId}/messages/{messageId}/ack", id: "ackSessionMessage", tag: "sessions", summary: "Acknowledge reading a message for the bound target session", pathParams: []any{controllers.SessionIDParam{}, controllers.MessageIDParam{}}, reqBody: controllers.AckMessageRequest{}, resps: []respUnit{{200, domain.MessageResult{}}, {409, domain.MessageResult{}}, {400, envelope.APIError{}}, {500, envelope.APIError{}}}},
+		{method: http.MethodGet, path: "/api/v1/message-contract", id: "getMessageContract", tag: "sessions", summary: "Read native message protocol capabilities before any mutation", resps: []respUnit{{200, domain.MessageContract{}}}},
 	}
 }

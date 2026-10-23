@@ -44,6 +44,7 @@ import {
   type RuntimeHandle,
   type Issue,
   type SendOptions,
+  type MessageResult,
   isOrchestratorSession,
   PR_STATE,
 } from "./types.js";
@@ -78,6 +79,9 @@ import {
 import { sessionFromMetadata } from "./utils/session-from-metadata.js";
 import { safeJsonParse } from "./utils/validation.js";
 import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
+
+import { sendNativeMessage, probeNativeMessageCapability } from "./native-message-client.js";
+import { localMessageResult } from "./message-contract.js";
 
 const execFileAsync = promisify(execFile);
 const OPENCODE_DISCOVERY_TIMEOUT_MS = 2_000;
@@ -313,6 +317,7 @@ function metadataToSession(
 export interface SessionManagerDeps {
   config: OrchestratorConfig;
   registry: PluginRegistry;
+  nativeMessageSend?: typeof sendNativeMessage;
 }
 
 /** Create a SessionManager instance. */
@@ -1936,7 +1941,24 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     return result;
   }
 
-  async function send(sessionId: SessionId, message: string, options?: SendOptions): Promise<void> {
+  async function send(sessionId: SessionId, message: string, options: SendOptions = {}): Promise<MessageResult> {
+    const messageId = options.messageId ?? randomUUID();
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(messageId) || (options.ackTimeoutMs !== undefined
+      && (!options.requireAck || !Number.isInteger(options.ackTimeoutMs) || options.ackTimeoutMs < 1 || options.ackTimeoutMs > 60000))) throw new Error("Invalid message options");
+    const { raw } = requireSessionRecord(sessionId);
+    const bindingKeys = ["nativeSessionId", "nativeProjectId", "nativeRuntimeBinarySHA256", "nativeDataDir", "nativeRunFile"];
+    if (bindingKeys.some((key) => raw[key] !== undefined)) {
+      if (!bindingKeys.every((key) => Boolean(raw[key]))) return localMessageResult(messageId, "rejected", "NATIVE_TARGET_UNVERIFIED");
+      return (deps.nativeMessageSend ?? sendNativeMessage)({ sessionId: raw["nativeSessionId"]!, projectId: raw["nativeProjectId"]!,
+        binarySha256: raw["nativeRuntimeBinarySHA256"]!, dataDir: raw["nativeDataDir"]!, runFile: raw["nativeRunFile"]! }, message, { ...options, messageId });
+    }
+    if (options.requireAck) return localMessageResult(messageId, "rejected", "ACK_UNSUPPORTED_AUTHORITY");
+    try { await sendLegacy(sessionId, message, options); }
+    catch (error) { if (options.requireConfirmation || !(error instanceof MessageDeliveryUnconfirmedError)) throw error; }
+    return localMessageResult(messageId, "submitted_unconfirmed", "LEGACY_UNCONFIRMED");
+  }
+
+  async function sendLegacy(sessionId: SessionId, message: string, options?: SendOptions): Promise<void> {
     const { raw, sessionsDir, project } = requireSessionRecord(sessionId);
     const pause = getProjectPause(project);
     const orchestratorId = `${project.sessionPrefix}-orchestrator`;
@@ -2580,6 +2602,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       writeFileSync(
         systemPromptFile,
         generateOrchestratorPrompt({
+          nativeMessages: await probeNativeMessageCapability(),
           config,
           projectId,
           project,
@@ -2679,5 +2702,5 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     return restoredSession;
   }
 
-  return { spawn, spawnOrchestrator, restore, list, get, kill, cleanup, send, claimPR, remap };
+  return { messageContract: "ao.message-contract.v1", spawn, spawnOrchestrator, restore, list, get, kill, cleanup, send, claimPR, remap };
 }

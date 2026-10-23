@@ -51,9 +51,12 @@ vi.mock("node:fs/promises", () => ({
   stat: mockStat,
   lstat: mockLstat,
   open: mockOpen,
+  realpath: vi.fn(),
+  chmod: vi.fn(),
 }));
 
-vi.mock("node:crypto", () => ({
+vi.mock("node:crypto", async (importOriginal) => ({
+  ...await importOriginal<typeof import("node:crypto")>(),
   randomBytes: () => ({ toString: () => "abc123" }),
 }));
 
@@ -66,12 +69,18 @@ vi.mock("node:os", () => ({
   homedir: mockHomedir,
 }));
 
+vi.mock("./managed-ack.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./managed-ack.js")>(),
+  setupManagedMessageAck: vi.fn().mockResolvedValue(true),
+}));
+import { setupManagedMessageAck } from "./managed-ack.js";
 import { Readable } from "node:stream";
 import {
   create,
   manifest,
   default as defaultExport,
   resolveCodexBinary,
+  setupManagedAoLauncher,
   _resetSessionFileCache,
 } from "./index.js";
 
@@ -2161,5 +2170,17 @@ describe("shell wrapper content", () => {
       expect(content).toContain("source");
       expect(content).toContain("ao-metadata-helper.sh");
     });
+  });
+});
+
+describe("explicit native ACK setup entry", () => {
+  it("does not prepare ACK for default browser launch and forwards only an explicit binding", async () => {
+    vi.mocked(setupManagedMessageAck).mockClear();
+    await setupManagedAoLauncher();
+    expect(setupManagedMessageAck).not.toHaveBeenCalled();
+    const binding = { sessionId: "original-native", projectId: "native-project", binarySha256: "a".repeat(64), dataDir: "/private/native", runFile: "/private/run/running.json" };
+    await setupManagedAoLauncher(binding);
+    expect(setupManagedMessageAck).toHaveBeenCalledTimes(1);
+    expect(setupManagedMessageAck).toHaveBeenCalledWith(process.env, binding);
   });
 });

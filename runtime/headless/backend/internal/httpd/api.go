@@ -1,7 +1,10 @@
 package httpd
 
 import (
+	"context"
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -106,6 +109,18 @@ func (a *API) Register(root chi.Router, isReady func() bool) {
 		// Batch restoration has its own bounded budget; a whole project may need
 		// longer than a single request's normal session launch timeout.
 		r.With(requireReady(isReady), middleware.Timeout(controllers.BatchRestoreTimeout)).Post("/sessions/restore", a.sessions.RestoreProject)
+		r.With(requireReady(isReady), middleware.Timeout(domain.MessageSendTimeout)).Post("/sessions/{sessionId}/send", a.sessions.SendMessage)
+		r.With(requireReady(isReady), middleware.Timeout(domain.MessageSendTimeout)).Post("/sessions/{sessionId}/messages", a.sessions.SendMessage)
+		r.With(requireReady(isReady), middleware.Timeout(10*time.Second)).Post("/sessions/{sessionId}/messages/{messageId}/ack", a.sessions.AckMessage)
+		r.With(requireReady(isReady)).Get("/message-contract", func(w http.ResponseWriter, r *http.Request) {
+			if _, ok := a.sessions.Svc.(interface {
+				SendMessage(context.Context, domain.SessionID, domain.MessageOptions) (domain.MessageResult, error)
+			}); !ok {
+				envelope.WriteAPIError(w, r, 503, "unavailable", "MESSAGE_CUSTODY_UNAVAILABLE", "message custody is unavailable", nil)
+				return
+			}
+			envelope.WriteJSON(w, http.StatusOK, domain.NativeMessageContract())
+		})
 		r.Group(func(r chi.Router) {
 			r.Use(requireReady(isReady))
 			r.Use(middleware.Timeout(timeout))
