@@ -11,7 +11,7 @@ Paths below are symbolic aliases; full hashes and mtimes are in `files.json`. Al
 | runtime | `$UPGRADE/runtime/bin/ao daemon`; local build source `092227ab425e8293ce8ce2e6f6b23409c751330b`; inherited package WorkingDirectory, process stabilizes cwd to configured DataDir. Proxy EnvironmentFile plus all runtime drop-ins below. No native YAML config: `internal/config/config.go` reads environment. | 有对应但版本不同; runtime lock remains p0.4, installed source differs from inventory base. Binary reproducibility NOT_RUN. |
 | Dashboard | `$NODE $DASHBOARD_INSTALL/scripts/ao-dashboard.js --port <configured>` → `browser/packages/web/dist-server/start-all.js` → resolved Next CLI (`start`), `terminal-websocket.js`, `direct-terminal-ws.js`; shared `$PROJECT_CONFIG`, data/run-file env. Compiled helper source mappings listed below. | Launcher byte-identical; installed browser helpers checked through TS source. Generated output reproducibility NOT_RUN. |
 | adapter | `$NODE` → standalone local `server.mjs`; listen/upstream ports from unit; private listen host from drop-in. No sibling files, package.json, node_modules or nonstandard imports. | 仓库中没有; imported by this PR. |
-| PATH `ao-pilot` | `$HOME/.local/bin/ao-pilot` symlink → `$CLI_INSTALL/bin/ao-pilot.js`; env shebang resolves Node 22.22.1. Command routing reads `scripts/ao/lib/config.js`; session/lifecycle recovery routes to `scripts/ao-session.js` and `scripts/ao/lib/session-recovery.js`. | Entry byte-identical to base; installed dispatch modules classified individually below. CLI target remains untouched. |
+| PATH `ao-pilot` | `$HOME/.local/bin/ao-pilot` symlink → `$CLI_INSTALL/bin/ao-pilot.js`; env shebang resolves Node 22.22.1. Command routing reads `scripts/ao/lib/config.js`; session/lifecycle recovery routes to `scripts/ao-session.js` and `scripts/ao/lib/session-recovery.js`. | Entry differs from base; installed dispatch modules classified individually below. CLI target remains untouched. |
 | PATH `ao` | No PATH wrapper found. Native daemon starts using the absolute service override. | 仓库中没有 (no file to import). |
 
 `NeedDaemonReload=no` for all three services. Readback confirmed each MainPID command line matched its effective entrypoint; adapter process cwd is the user home. PIDs/start tokens and full Environment stay private. This does not prove already-loaded JavaScript equals current disk bytes. SQLite/session metadata and runtime-generated authority/discovery files are private mutable state, not source inputs to vendor.
@@ -186,3 +186,18 @@ External tools absent from first-party source: `$NODE` and the third-party packa
 | `@anthropic-ai/sdk` | `0.52.0` | 仓库中没有 (external package); existing browser lockfile |
 
 Workspace imports `@composio/ao-core` and its webhook utility resolve to first-party browser core source, included in the file mapping above. Next.js reads its generated `.next` manifests/chunks and installed package dependencies; those generated trees are bound by the existing deployment receipt/lock/build ID, not individually claimed byte-reproducible here. Static import closure is not a trace of every lazy-loaded module or every file ever read by a live process. Browser rebuild and exact generated-tree attestation: NOT_RUN.
+
+## Path aliases
+
+| Alias | Meaning |
+| --- | --- |
+| `$USER_UNITS` | user systemd configuration directory |
+| `$SITE_CONFIG` | owner-only ao-pilot configuration directory |
+| `$PROJECT_CONFIG` | existing project YAML (namespace-sensitive) |
+| `$DASHBOARD_INSTALL` | original Dashboard deployment 8a2dce40ce267260650789b762b06b8a6f5c9ed4 |
+| `$CLI_INSTALL` | session-recovery deployment 97d0ef20b41f172cbaeba50fd8f8a5db92d7b0a6 |
+| `$FOREGROUND_INSTALL` | historical Dashboard package installation d01d076 (shadowed launcher) |
+| `$UPGRADE` | local runtime build 092227ab425e8293ce8ce2e6f6b23409c751330b |
+| `$HOTFIXES` | retained historical hotfix installations |
+| `$NODE` | external Node.js 22.22.1 interpreter |
+| `$HOME` | portable home-directory placeholder, not the machine account path |
