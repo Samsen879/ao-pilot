@@ -60,7 +60,11 @@ it("separates wrappers by verified native session and refuses an ambient collisi
     expect(launch.AO_MESSAGE_ACK_AVAILABLE).toBe(""); expect(launch.PATH).not.toContain("message-cli/wrappers");
   }
   const launch = agent.getEnvironment({ sessionId: "browser-id-is-not-owner", projectConfig, nativeMessageBinding: binding });
-  expect(launch.AO_MESSAGE_ACK_AVAILABLE).toBe("1"); expect(launch.AO_SESSION_ID).toBe(binding.sessionId);
+  expect(launch.AO_MESSAGE_ACK_AVAILABLE).toBe("1"); expect(launch.AO_SESSION_ID).toBe("browser-id-is-not-owner");
+  const receipt = path.join(root, "explicit-owner-receipt");
+  const ack = spawnSync("/bin/sh", ["-c", "ao-pilot ack message-1"], { encoding: "utf8", env: { ...process.env, ...launch, RECEIPT: receipt } });
+  expect(ack.status).toBe(0);
+  expect(fs.readFileSync(receipt, "utf8")).toBe(`${binding.dataDir}|${binding.runFile}|${binding.sessionId}`);
   expect(launch.PATH?.split(":")[0]).toBe(managedAckDirectory(env, binding));
 });
 it("missing or partial explicit ownership does no native probes and publishes no wrapper", async () => {

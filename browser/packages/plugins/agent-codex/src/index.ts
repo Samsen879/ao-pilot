@@ -1052,7 +1052,6 @@ function createCodexAgent(): Agent {
       const ackAvailable = ackDirectory && existsSync(join(ackDirectory, "ao-pilot"));
       env["PATH"] = `${ackAvailable ? `${ackDirectory}:` : ""}${buildAgentPath(process.env["PATH"])}`;
       env["AO_MESSAGE_ACK_AVAILABLE"] = ackAvailable ? "1" : "";
-      if (ackAvailable) env["AO_SESSION_ID"] = config.nativeMessageBinding!.sessionId;
       env["GH_PATH"] = PREFERRED_GH_PATH;
       // Disable Codex's version check/update prompt for non-interactive AO sessions.
       env["CODEX_DISABLE_UPDATE_CHECK"] = "1";
