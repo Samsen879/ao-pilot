@@ -6,7 +6,9 @@ export function isMessageResult(value: unknown): value is MessageResult {
   return typeof result.message_id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(result.message_id)
     && MESSAGE_OUTCOMES.includes(result.outcome) && !!result.evidence
     && typeof result.evidence.code === "string" && result.evidence.code.length > 0
-    && ["none", "activity_active", "explicit_ack"].includes(result.evidence.signal)
+    && (result.outcome === "submitted_confirmed" ? result.evidence.signal === "activity_active"
+      : result.outcome === "acknowledged" ? result.evidence.signal === "explicit_ack"
+      : ["none", "activity_active"].includes(result.evidence.signal))
     && Number.isInteger(result.evidence.attempts) && result.evidence.attempts >= 0
     && typeof result.evidence.recorded_at === "string" && Number.isFinite(Date.parse(result.evidence.recorded_at));
 }

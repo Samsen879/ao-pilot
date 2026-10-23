@@ -342,7 +342,17 @@ export interface Agent {
   setupWorkspaceHooks?(workspacePath: string, config: WorkspaceHooksConfig): Promise<void>;
 }
 
+export interface NativeMessageBinding {
+  sessionId: string;
+  projectId: string;
+  binarySha256: string;
+  dataDir: string;
+  runFile: string;
+}
+
 export interface AgentLaunchConfig {
+  /** Explicit native ownership; absent for newly created legacy browser sessions. */
+  nativeMessageBinding?: NativeMessageBinding;
   sessionId: SessionId;
   projectConfig: ProjectConfig;
   issueId?: string;

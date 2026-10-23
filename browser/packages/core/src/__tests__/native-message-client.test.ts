@@ -18,7 +18,7 @@ function fixture() {
 }
 it.each([["submitted_confirmed", 0], ["submitted_unconfirmed", 3], ["rejected", 4], ["acknowledged", 0], ["ack_timeout", 5]] as [MessageOutcome, number][])("preserves %s after capability and exact native ownership checks", async (outcome, exitCode) => {
   const { binding, env } = fixture(); const calls: string[][] = [];
-  const result = { message_id: "same-id", outcome, evidence: { code: "FIXTURE", signal: "none", attempts: 1, recorded_at: new Date().toISOString() } };
+  const result = { message_id: "same-id", outcome, evidence: { code: "FIXTURE", signal: outcome === "submitted_confirmed" ? "activity_active" : outcome === "acknowledged" ? "explicit_ack" : "none", attempts: 1, recorded_at: new Date().toISOString() } };
   const run: NativeMessageCommand = async (_binary, args, options) => {
     calls.push(args); expect(options.env["AO_DATA_DIR"]).toBe(binding.dataDir); expect(options.env["AO_RUN_FILE"]).toBe(binding.runFile);
     return { stdout: JSON.stringify(args[0] === "message-contract" ? contract : args[0] === "session" ? { session: { id: binding.sessionId, projectId: binding.projectId } } : result), stderr: "", exitCode: args[0] === "send" ? exitCode : 0 };
@@ -48,4 +48,9 @@ it("daemon downgrade after handshake fails without retry, restoration, a new ID 
   const run: NativeMessageCommand = async (_binary, args) => { calls.push(args); return { stdout: args[0] === "send" ? "" : JSON.stringify(args[0] === "message-contract" ? contract : { session: { id: binding.sessionId, projectId: binding.projectId } }), stderr: "new /messages returned404", exitCode: args[0] === "send" ? 1 : 0 }; };
   await expect(sendNativeMessage(binding, "task", { messageId: "original-id", requireAck: true }, { env, run })).rejects.toThrow("NATIVE_MESSAGE_PROTOCOL_ERROR");
   expect(calls.map((args) => args[0])).toEqual(["message-contract", "session", "send"]); expect(calls[2]).toContain("original-id");
+});
+it.each(["submitted_confirmed", "acknowledged"])("rejects %s with absent confirmation signal instead of exposing success", async (outcome) => {
+  const { binding, env } = fixture();
+  const run: NativeMessageCommand = async (_binary, args) => ({ stdout: JSON.stringify(args[0] === "message-contract" ? contract : args[0] === "session" ? { session: { id: binding.sessionId, projectId: binding.projectId } } : { message_id: "same-id", outcome, evidence: { code: "INVALID_EVIDENCE", signal: "none", attempts: 0, recorded_at: new Date().toISOString() } }), stderr: "", exitCode: 0 });
+  await expect(sendNativeMessage(binding, "task", { messageId: "same-id", requireAck: true }, { env, run })).rejects.toThrow("NATIVE_MESSAGE_PROTOCOL_ERROR");
 });

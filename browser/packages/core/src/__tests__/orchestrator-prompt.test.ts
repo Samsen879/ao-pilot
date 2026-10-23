@@ -38,6 +38,8 @@ describe("generateOrchestratorPrompt", () => {
     expect(old).toContain("task dispatch is unavailable");
     expect(old).not.toContain("--require-ack");
     const native = generateOrchestratorPrompt({ ...options, nativeMessages: true });
+    expect(native).toContain("ao send --session app-1 --message");
+    expect(native).not.toContain("ao-pilot send");
     expect(native).toContain("--message-id <stable-dispatch-id> --require-ack --json");
     expect(native).toContain("Only acknowledged proves the worker explicitly read it");
     expect(native).toContain("Never retry by creating a new ID");

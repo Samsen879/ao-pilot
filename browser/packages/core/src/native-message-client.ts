@@ -3,10 +3,9 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { MessageResult, SendOptions } from "./types.js";
+import type { MessageResult, SendOptions, NativeMessageBinding } from "./types.js";
 import { isMessageResult, messageExitCode, isNativeMessageContract } from "./message-contract.js";
 const execFileAsync = promisify(execFile);
-export interface NativeMessageBinding { sessionId: string; projectId: string; binarySha256: string; dataDir: string; runFile: string }
 interface CommandResult { stdout: string; stderr: string; exitCode: number }
 export type NativeMessageCommand = (binary: string, args: string[], options: { env: NodeJS.ProcessEnv; timeout: number }) => Promise<CommandResult>;
 async function execute(binary: string, args: string[], options: { env: NodeJS.ProcessEnv; timeout: number }): Promise<CommandResult> {

@@ -615,7 +615,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
     const escalateReaction = async (reason: string): Promise<ReactionResult> => {
       if (tracker!.escalationSent) return { reactionType: reactionKey, success: false, action: "escalated", escalated: true, delivery: tracker!.delivery };
-      tracker!.escalationSent = true;
       if (reactionConfig.escalateTo === "orchestrator") {
         const routed = await routeReactionToOrchestrator({
           sessionId,
@@ -625,6 +624,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           escalationReason: reason,
         });
         if (routed) {
+          tracker!.escalationSent = true;
           return routed;
         }
       }
@@ -635,10 +635,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         message: `Reaction '${reactionKey}' escalated after ${tracker?.attempts ?? 0} attempts`,
         data: { reactionKey, attempts: tracker?.attempts ?? 0, reason },
       });
-      await notifyHuman(event, reactionConfig.priority ?? "urgent");
+      const notified = await notifyHuman(event, reactionConfig.priority ?? "urgent");
+      tracker!.escalationSent = notified;
       return {
         reactionType: reactionKey,
-        success: true,
+        success: notified,
         action: "escalated",
         escalated: true,
       };
@@ -1155,7 +1156,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   }
 
   /** Send a notification to all configured notifiers. */
-  async function notifyHuman(event: OrchestratorEvent, priority: EventPriority): Promise<void> {
+  async function notifyHuman(event: OrchestratorEvent, priority: EventPriority): Promise<boolean> {
+    let delivered = false;
     const eventWithPriority = { ...event, priority };
     const notifierNames = config.notificationRouting[priority] ?? config.defaults.notifiers;
 
@@ -1164,11 +1166,13 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       if (notifier) {
         try {
           await notifier.notify(eventWithPriority);
+          delivered = true;
         } catch {
-          // Notifier failed — not much we can do
+          // Keep a failed escalation eligible for a later ordinary notification.
         }
       }
     }
+    return delivered;
   }
 
   async function maybeRepeatUnchangedReaction(

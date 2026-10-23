@@ -25,7 +25,9 @@ proof that the requested work is complete.
 
 Infrastructure errors use exit 1 and usage errors exit 2. Results contain
 `message_id`, `outcome`, and `evidence` (`code`, `signal`, `attempts`,
-`recorded_at`, and native optional receipt fields). Dashboard and terminal reload
+`recorded_at`, and native optional receipt fields). `submitted_confirmed` requires
+`signal=activity_active`; `acknowledged` requires `signal=explicit_ack`.
+Contradictory success evidence is an unknown/protocol failure. Dashboard and terminal reload
 flows validate both the body and HTTP status. HTTP 202 / `res.ok`, old `ok:true`
 or `success:true`, malformed bodies, and transport errors cannot count as
 confirmation. The `/message` browser alias shares the `/send` result handler.
@@ -74,21 +76,37 @@ native duplicate protection remains authoritative. A new legitimate episode gets
 a new ID, while ACK timeout/unconfirmed/rejected/unknown outcomes never do.
 Only `acknowledged` marks a task reaction delivered. Ordinary notifications keep
 their separate non-ACK path; unconfirmed notification results can escalate to a
-human. This is not an automated retry/recovery queue.
+human. Failed human notifications remain eligible on later polls; only a
+successful notifier or confirmed ordinary orchestrator notification marks that
+escalation sent. A notification retry never resubmits the worker task. This is not
+an automated retry/recovery queue.
 
 ## Worker helper lifetime and namespace
 
-Managed Codex environments publish an ACK-only `ao-pilot` wrapper after verifying
-the complete managed binary/SHA/data/run binding and a fresh read-only native
-capability. Native bytes are retained at
-`DataDir/message-cli/bin/<sha256>/ao`, independent of release directories and
-release GC. Namespace wrappers are under
-`DataDir/message-cli/wrappers/<run-file-hash>/<binary-sha>/ao-pilot`. They check
-retained bytes on every invocation, require a valid `AO_SESSION_ID`, force their
-original data/run namespace, and execute the helper's native `ack` command. Missing
-or tampered evidence refuses without an ambient CLI fallback. Two namespaces
-have distinct wrappers. An ACK command from a legacy browser worker cannot
-establish native ownership merely by sharing an ID; native checks still apply.
+Default legacy browser launches never advertise native ACK, including browser
+IDs that happen to equal a native ID. New browser spawns have no native mapping;
+this change does not infer or automatically create one. The explicit public
+`setupManagedAoLauncher(binding)` entry accepts a `NativeMessageBinding` with
+native session/project ID and binary SHA/data/run tuple. It must match the managed
+environment, pass the capability probe, and return the same native session/project
+from read-only `session get`. The caller supplies that same explicit binding as
+`AgentLaunchConfig.nativeMessageBinding`; only its session-private wrapper is
+eligible for the worker PATH and `AO_MESSAGE_ACK_AVAILABLE`. Ordinary `ao` wrappers
+remain available independently of ACK.
+
+Native bytes are retained at `DataDir/message-cli/bin/<sha256>/ao`, independent of
+release directories and release GC. Session wrappers are under
+`DataDir/message-cli/wrappers/<run-file-hash>/<binary-sha>/<native-session-project-hash>/ao-pilot`.
+They check retained bytes on every invocation, force the verified native session
+ID and original data/run namespace, and execute native `ack`. An ambient browser
+`AO_SESSION_ID` cannot change that target. Missing or tampered evidence refuses
+without an ambient CLI fallback. Both namespaces and sessions have distinct
+wrappers. A same-named browser ID alone proves no native ownership; no ACK helper
+is advertised for it.
+
+The wrapper remains ACK-only. Managed task prompts use the existing verified
+`ao send ... --require-ack --message-id ... --json` entry, which reaches the same
+native authority without colliding with the worker's `ao-pilot ack` spelling.
 
 Go native workers install their corresponding retained helper directly. This
 Node lane does not change those Go paths. No helper GC is introduced: only an

@@ -573,9 +573,15 @@ describe("API Routes", () => {
       expect(await response.json()).toMatchObject({ message_id: "stable-id", outcome: "rejected", evidence: { code: "ACK_UNSUPPORTED_AUTHORITY", attempts: 0 } });
       expect(mockSessionManager.send).not.toHaveBeenCalled();
     });
+    it.each(["submitted_confirmed", "acknowledged"])("does not return success for %s with contradictory evidence", async (outcome) => {
+      vi.mocked(mockSessionManager.send).mockImplementationOnce(async (_id, _message, options) => ({ message_id: options!.messageId!, outcome, evidence: { code: "INVALID_EVIDENCE", signal: "none", attempts: 0, recorded_at: new Date().toISOString() } }) as never);
+      const response = await sendPOST(makeRequest("/api/sessions/backend-3/send", { method: "POST", body: JSON.stringify({ message: "task" }) }), { params: Promise.resolve({ id: "backend-3" }) });
+      expect(response.status).toBe(500);
+      expect(await response.json()).toMatchObject({ error: "Invalid message result" });
+    });
     it.each([["submitted_confirmed", 200], ["submitted_unconfirmed", 202], ["rejected", 409], ["acknowledged", 200], ["ack_timeout", 504]])("preserves native %s as HTTP %s", async (outcome, status) => {
       Object.assign(mockSessionManager, { messageContract: "ao.message-contract.v1" });
-      const result = { message_id: "stable-id", outcome, evidence: { code: "FIXTURE", signal: "none", attempts: 1, recorded_at: new Date().toISOString() } };
+      const result = { message_id: "stable-id", outcome, evidence: { code: "FIXTURE", signal: outcome === "submitted_confirmed" ? "activity_active" : outcome === "acknowledged" ? "explicit_ack" : "none", attempts: 1, recorded_at: new Date().toISOString() } };
       vi.mocked(mockSessionManager.send).mockResolvedValueOnce(result as never);
       const response = await sendPOST(makeRequest("/api/sessions/backend-3/send", { method: "POST", body: JSON.stringify({ message: "task", message_id: "stable-id", require_ack: true, ack_timeout_ms: 1200 }) }), { params: Promise.resolve({ id: "backend-3" }) });
       expect(response.status).toBe(status);

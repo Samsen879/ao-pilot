@@ -1289,6 +1289,25 @@ describe("reactions", () => {
     expect(notify).toHaveBeenCalledWith(expect.objectContaining({ type: "reaction.escalated" }));
   });
 
+  it.each(["missing-episode", "worker-unconfirmed", "invalid-ack"])("retries failed human escalation for %s without resubmitting the task", async (mode) => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-23T00:00:00Z"));
+    const session = makeSession({ status: "working", metadata: { messageDispatchEpisode: mode === "missing-episode" ? "" : "same-episode" } });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+    vi.mocked(mockAgent.getActivityState).mockResolvedValue({ state: "idle", timestamp: new Date(0) });
+    const notify = vi.fn().mockRejectedValueOnce(new Error("transient notifier failure")).mockResolvedValue(undefined);
+    const registry = { ...mockRegistry, get: vi.fn((slot: string) => slot === "notifier" ? { name: "desktop", notify } : mockRegistry.get(slot as Parameters<PluginRegistry["get"]>[0], "mock")) } as PluginRegistry;
+    vi.mocked(mockSessionManager.send).mockImplementation(async (_id, _message, options) => ({ message_id: options!.messageId!, outcome: mode === "invalid-ack" ? "acknowledged" : "submitted_unconfirmed", evidence: { code: "UNCONFIRMED", signal: "none", attempts: 1, recorded_at: new Date().toISOString() } }));
+    config.reactions = { "agent-idle": { action: "send-to-agent", auto: true, message: "task", repeatEvery: "1s" } };
+    writeMetadata(sessionsDir, "app-1", { worktree: "/tmp", branch: "main", status: "working", project: "my-app" });
+    const manager = createLifecycleManager({ config, registry, sessionManager: mockSessionManager });
+    await manager.check("app-1");
+    for (let index = 0; index < 4; index++) { vi.advanceTimersByTime(1000); await manager.check("app-1"); }
+    expect(notify).toHaveBeenCalledTimes(2);
+    await expect(notify.mock.results[0]?.value).rejects.toThrow("transient notifier failure");
+    await expect(notify.mock.results[1]?.value).resolves.toBeUndefined();
+    expect(mockSessionManager.send).toHaveBeenCalledTimes(mode === "missing-episode" ? 0 : 1);
+  });
+
   it("calls scm.mergePR for approved-and-green auto-merge reactions", async () => {
     config.reactions = {
       "approved-and-green": {
