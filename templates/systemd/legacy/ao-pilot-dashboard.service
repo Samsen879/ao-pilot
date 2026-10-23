@@ -1,0 +1,15 @@
+[Unit]
+Description=AO Pilot original localhost browser Dashboard
+Requires=ao-pilot-runtime.service
+After=ao-pilot-runtime.service
+
+[Service]
+Type=simple
+{{COMMON}}{{RUNTIME_ENVIRONMENT}}{{TERMINAL_ENVIRONMENT}}Environment="NODE_ENV=production"
+Environment="AO_CONFIG_PATH={{HOME}}/agent-orchestrator.yaml"
+Environment="AO_DASHBOARD_READ_ONLY=1"
+Environment="AO_DASHBOARD_AUTOMATION=0"
+ExecStart={{COMMAND_DASHBOARD}}
+
+[Install]
+WantedBy=default.target

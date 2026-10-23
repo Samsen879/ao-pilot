@@ -3,15 +3,19 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import * as childProcess from 'node:child_process';
+import { resolveUnifiedRuntime } from './release-runtime.js';
+import { validateInstallConfiguration } from './release-systemd.js';
+import { renderReleaseUnits, validateEnvironmentOverride } from './release-units.js';
+import { processStartToken } from './release-lock.js';
 import { getDefaultRuntimeStore } from './runtime-bootstrap.js';
 export function deploymentBinding(home) {
   const root = path.join(home, '.local/share/ao-pilot/cie-runtime');
   return {schema_version:'ao.runtime-deployment.v1',data_dir:path.join(root,'data'),run_file:path.join(root,'running.json')};
 }
 
-function inspectActiveRuntimeService(execute, readFile, realpath) {
+function inspectActiveRuntimeService(execute, readFile, realpath, unitName = 'ao-pilot-runtime.service') {
   const property = name => String(execute('systemctl', [
-    '--user', 'show', 'ao-pilot-runtime.service', `--property=${name}`, '--value',
+    '--user', 'show', unitName, `--property=${name}`, '--value',
   ], {encoding:'utf8',stdio:['ignore','pipe','pipe']})).trim();
   const activeState = property('ActiveState');
   const mainPid = property('MainPID');
@@ -28,7 +32,7 @@ function inspectActiveRuntimeService(execute, readFile, realpath) {
       const separator = entry.indexOf('=');
       return separator < 1 ? [entry, ''] : [entry.slice(0, separator), entry.slice(separator + 1)];
     }));
-  const children = readFile(path.join(procRoot, 'task', mainPid, 'children'), 'utf8')
+  const children = environment.AO_INSTALL_ROOT ? [mainPid] : readFile(path.join(procRoot, 'task', mainPid, 'children'), 'utf8')
     .trim().split(/\s+/).filter(Boolean);
   if (children.length !== 1 || !/^[1-9][0-9]*$/.test(children[0])) {
     throw new Error('Installed runtime service does not own exactly one daemon child; HOLD');
@@ -45,13 +49,14 @@ function inspectActiveRuntimeService(execute, readFile, realpath) {
   const daemonExecutable = realpath(path.join(daemonRoot, 'exe'));
   const daemonSha256 = crypto.createHash('sha256')
     .update(readFile(path.join(daemonRoot, 'exe'))).digest('hex');
-  if (!path.isAbsolute(fragmentPath) || dropInPaths !== '') {
+  if (!path.isAbsolute(fragmentPath) || (!environment.AO_INSTALL_ROOT && dropInPaths !== '')) {
     throw new Error('Installed runtime service effective unit is not immutable; HOLD');
   }
   return {
     activeState,mainPid,packageRoot:realpath(path.join(procRoot, 'cwd')),argv,environment,
     daemonPid,daemonArgv,daemonEnvironment,daemonExecutable,daemonSha256,
     fragmentPath,dropInPaths,unitText:readFile(fragmentPath, 'utf8'),
+    ...(environment.AO_INSTALL_ROOT ? { startToken: processStartToken(Number(mainPid)) } : {}),
   };
 }
 
@@ -78,9 +83,52 @@ export function resolveInstalledRuntimeServiceBinding({
   lstat = fs.lstatSync,
   realpath = fs.realpathSync,
   execute = childProcess.execFileSync,
-  inspectService = () => inspectActiveRuntimeService(execute, readFile, realpath),
+  inspectService = () => inspectActiveRuntimeService(execute, readFile, realpath, env.AO_INSTALL_ROOT
+    ? `${JSON.parse(readFile(path.join(env.AO_INSTALL_ROOT, 'installation.json'), 'utf8')).namespace}-runtime.service`
+    : 'ao-pilot-runtime.service'),
 } = {}) {
   const service = inspectService();
+  if (service.environment?.AO_INSTALL_ROOT) {
+    const root = service.environment.AO_INSTALL_ROOT;
+    const resolution = resolveUnifiedRuntime({ env: { ...service.environment, AO_INSTALL_ROOT: root } });
+    const configFile = service.environment.AO_INSTALL_CONFIG;
+    if (!configFile || !path.isAbsolute(configFile)) throw new Error('Unified install config identity unknown; HOLD');
+    const configuration = validateInstallConfiguration(JSON.parse(readFile(configFile, 'utf8')));
+    const unitName = `${configuration.namespace}-runtime.service`;
+    const expected = renderReleaseUnits({ installRoot: root, stateRoot: configuration.stateRoot,
+      envFile: path.join(configuration.stateRoot, 'install.env'), nodePath: resolution.manifest.toolchain.node_executable,
+      namespace: configuration.namespace })[unitName];
+    const drops = service.dropInPaths?.trim() ? service.dropInPaths.trim().split(/\s+/) : [];
+    if (configuration.installRoot !== root || service.activeState !== 'active'
+      || service.packageRoot !== realpath(configuration.dataDir)
+      || service.environment.AO_RELEASE_ROOT !== resolution.runtime_directory
+      || service.environment.AO_MANAGED_RUNTIME_BINARY !== resolution.binary_path
+      || service.environment.AO_MANAGED_RUNTIME_BINARY_SHA256 !== resolution.binary_sha256
+      || service.environment.AO_MANAGED_RUNTIME_DATA_DIR !== configuration.dataDir
+      || service.environment.AO_MANAGED_RUNTIME_RUN_FILE !== path.join(configuration.discoveryDir, 'running.json') || service.fragmentPath !== path.join(configuration.unitRoot, unitName)
+      || service.unitText !== expected || String(service.mainPid) !== String(service.daemonPid)
+      || !service.startToken || service.daemonExecutable !== resolution.binary_path
+      || service.daemonSha256 !== resolution.binary_sha256 || JSON.stringify(service.argv) !== JSON.stringify([resolution.binary_path, 'daemon'])
+      || service.environment.AO_DATA_DIR !== configuration.dataDir
+      || service.environment.AO_RUN_FILE !== path.join(configuration.discoveryDir, 'running.json')
+      || drops.length > 1 || drops.some((file) => file !== path.join(configuration.unitRoot, `${unitName}.d/10-environment.conf`))) {
+      throw new Error('Unified runtime service binding drifted; HOLD');
+    }
+    for (const drop of drops) {
+      const values = validateEnvironmentOverride(readFile(drop, 'utf8'));
+      if (Object.entries(values).some(([key, value]) => service.environment[key] !== value)) throw new Error('Unified environment override drifted; HOLD');
+    }
+    const confirmed = inspectService();
+    if (String(confirmed.mainPid) !== String(service.mainPid) || confirmed.startToken !== service.startToken
+      || confirmed.daemonSha256 !== service.daemonSha256 || confirmed.unitText !== service.unitText
+      || confirmed.dropInPaths !== service.dropInPaths || confirmed.packageRoot !== service.packageRoot
+      || JSON.stringify(confirmed.argv) !== JSON.stringify(service.argv)
+      || ['AO_RELEASE_ROOT', 'AO_MANAGED_RUNTIME_BINARY', 'AO_MANAGED_RUNTIME_BINARY_SHA256', 'AO_MANAGED_RUNTIME_DATA_DIR', 'AO_MANAGED_RUNTIME_RUN_FILE', 'AO_DATA_DIR', 'AO_RUN_FILE'].some((key) => confirmed.environment[key] !== service.environment[key])) throw new Error('Unified runtime changed during inspection; HOLD');
+    return { package_root: resolution.runtime_directory, binary_path: resolution.binary_path,
+      binary_sha256: resolution.binary_sha256, store_root: root, data_dir: configuration.dataDir,
+      run_file: path.join(configuration.discoveryDir, 'running.json') };
+  }
+
   const packageRoot = service.packageRoot;
   const expected = deploymentBinding(home);
   const dataDir = service.environment.AO_DATA_DIR;
@@ -201,6 +249,17 @@ export function resolveInstalledRuntimeServiceBinding({
   };
 }
 export function resolveDeploymentEnvironment(env = process.env) {
+  if (env.AO_INSTALL_ROOT) {
+    const configuration = validateInstallConfiguration(JSON.parse(fs.readFileSync(path.join(env.AO_INSTALL_ROOT, 'installation.json'), 'utf8')));
+    const runFile = path.join(configuration.discoveryDir, 'running.json');
+    if (configuration.installRoot !== env.AO_INSTALL_ROOT
+      || (env.AO_DATA_DIR && env.AO_DATA_DIR !== configuration.dataDir)
+      || (env.AO_RUN_FILE && env.AO_RUN_FILE !== runFile)) throw new Error('Unified CLI namespace drifted; HOLD');
+    return { ...env, AO_DATA_DIR: configuration.dataDir, AO_RUN_FILE: runFile,
+      AO_CONFIG_PATH: configuration.configPath, AO_TMUX_SOCKET: configuration.tmuxSocket,
+      AO_TMUX_UNIT: `${configuration.namespace}-tmux.service`, AO_TMUX_TMPDIR: configuration.tmuxTmpdir,
+      TMUX_TMPDIR: configuration.tmuxTmpdir };
+  }
   // Explicit test/private runtime bindings must never be mixed with deployment.
   if (env.AO_DATA_DIR || env.AO_RUN_FILE) return env;
   if (!env.HOME && env !== process.env) return env;

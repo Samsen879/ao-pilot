@@ -1,0 +1,11 @@
+[Unit]
+Description=AO Pilot verified CIE headless runtime
+After=network-online.target
+
+[Service]
+Type=simple
+{{COMMON}}{{RUNTIME_ENVIRONMENT}}ExecStart={{COMMAND_RUNTIME}}
+KillMode=mixed
+
+[Install]
+WantedBy=default.target

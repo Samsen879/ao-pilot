@@ -4,7 +4,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, isAbsolute } from "node:path";
 import type {
   PluginModule,
   Runtime,
@@ -61,11 +61,46 @@ function isMissingSessionError(error: unknown): boolean {
   return MISSING_SESSION_PATTERNS.some((pattern) => pattern.test(errorText));
 }
 
-/** Run a tmux command and return stdout */
+function managedTmuxConfiguration(): { socket: string; unit: string; native: string } | null {
+  const configured = ["AO_INSTALL_ROOT", "AO_TMUX_SOCKET", "AO_TMUX_UNIT", "AO_TMUX_TMPDIR"]
+    .some((name) => process.env[name] !== undefined);
+  if (!configured) return null;
+  const socket = process.env["AO_TMUX_SOCKET"];
+  const unit = process.env["AO_TMUX_UNIT"];
+  const temporaryDirectory = process.env["AO_TMUX_TMPDIR"];
+  const root = process.env["AO_INSTALL_ROOT"];
+  const native = process.env["AO_MANAGED_RUNTIME_BINARY"];
+  const digest = process.env["AO_MANAGED_RUNTIME_BINARY_SHA256"];
+  if (!root || !isAbsolute(root) || !socket || !/^[a-zA-Z0-9_-]+$/.test(socket) || socket === "default"
+    || !unit || !/^ao-pilot(?:-staging-[a-z0-9-]+)?-tmux\.service$/.test(unit)
+    || !temporaryDirectory || !isAbsolute(temporaryDirectory) || process.env["TMUX_TMPDIR"] !== temporaryDirectory
+    || !native || !isAbsolute(native) || !native.startsWith(join(root, "releases") + "/") || !/\/[0-9][A-Za-z0-9._-]*\+[a-f0-9]{40}\/native\/ao$/.test(native)
+    || !digest || !/^[a-f0-9]{64}$/.test(digest)
+    || !process.env["AO_MANAGED_RUNTIME_DATA_DIR"] || process.env["AO_MANAGED_RUNTIME_DATA_DIR"] !== process.env["AO_DATA_DIR"]
+    || !process.env["AO_MANAGED_RUNTIME_RUN_FILE"] || process.env["AO_MANAGED_RUNTIME_RUN_FILE"] !== process.env["AO_RUN_FILE"]) {
+    throw new Error("Managed tmux namespace is missing; refusing implicit server startup");
+  }
+  return { socket, unit, native };
+}
+async function verifyManagedServer(configuration: { unit: string; native: string }): Promise<void> {
+  const result = await execFileAsync(configuration.native, ["doctor", "--json"], { timeout: TMUX_COMMAND_TIMEOUT_MS });
+  const check = JSON.parse(result.stdout).checks?.find((item: { name: string }) => item.name === "tmux_cgroup");
+  if (check?.level !== "PASS" || check?.details?.status !== "ok") throw new Error("Managed tmux ownership is not verified");
+}
+/** Every managed client uses -N: a vanished server cannot respawn inside a caller cgroup. */
 async function tmux(...args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync("tmux", args, {
-    timeout: TMUX_COMMAND_TIMEOUT_MS,
-  });
+  const configuration = managedTmuxConfiguration();
+  if (configuration && args[0] === "new-session") {
+    try {
+      await execFileAsync("tmux", ["-L", configuration.socket, "-N", "display-message", "-p", "#{pid}"], { timeout: TMUX_COMMAND_TIMEOUT_MS });
+    } catch (error) {
+      if (!/no server running|error connecting to [^\r\n]+ \(No such file or directory\)/i.test(getErrorText(error))) throw error;
+      await execFileAsync("systemctl", ["--user", "start", configuration.unit], { timeout: TMUX_COMMAND_TIMEOUT_MS });
+    }
+    await verifyManagedServer(configuration);
+  }
+  const commandArgs = configuration ? ["-L", configuration.socket, "-N", ...args] : args;
+  const { stdout } = await execFileAsync("tmux", commandArgs, { timeout: TMUX_COMMAND_TIMEOUT_MS });
   return stdout.trimEnd();
 }
 
@@ -251,10 +286,15 @@ export function create(): Runtime {
     },
 
     async getAttachInfo(handle: RuntimeHandle): Promise<AttachInfo> {
+      assertValidSessionId(handle.id);
+      const configuration = managedTmuxConfiguration();
+      if (configuration) await verifyManagedServer(configuration);
       return {
         type: "tmux",
         target: handle.id,
-        command: `tmux attach -t ${handle.id}`,
+        command: configuration
+          ? `tmux -L ${configuration.socket} -N attach -t ${handle.id}`
+          : `tmux attach -t ${handle.id}`,
       };
     },
   };

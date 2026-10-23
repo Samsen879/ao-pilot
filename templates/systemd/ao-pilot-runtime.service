@@ -1,0 +1,18 @@
+[Unit]
+Description=AO Pilot immutable native runtime
+Wants={{TMUX_UNIT}}
+After={{TMUX_UNIT}}
+
+[Service]
+Type=simple
+WorkingDirectory={{STATE_ROOT}}
+EnvironmentFile={{ENV_FILE}}
+ExecStart="{{NODE}}" "{{CURRENT}}/scripts/ao-release-entry.js" daemon
+KillMode=mixed
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+UMask=0077
+
+[Install]
+WantedBy=default.target

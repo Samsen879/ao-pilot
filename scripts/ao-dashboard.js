@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 export async function runCli(args, io = {writeStdout:text=>process.stdout.write(text),writeStderr:text=>process.stderr.write(text)}) {
 if (args.includes('--help') || args.includes('-h')) { io.writeStdout('Usage: ao-pilot dashboard [--port 3000]\nOriginal browser Dashboard; requires browser build and AO_CONFIG_PATH.\n'); return {exitCode:0}; }
-let port = 3000;
+let port = Number(process.env.AO_DASHBOARD_PORT ?? 3000);
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--port') port = Number(args[++i]);
   else throw new Error(`Unknown Dashboard argument: ${args[i]}`);

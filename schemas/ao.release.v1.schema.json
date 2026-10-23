@@ -1,0 +1,528 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "release_id",
+    "version",
+    "commit",
+    "tree",
+    "built_at",
+    "platform",
+    "toolchain",
+    "database",
+    "runtime_lock",
+    "components",
+    "inputs",
+    "files"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "ao.release.v1"
+    },
+    "release_id": {
+      "type": "string",
+      "pattern": "^[0-9][0-9A-Za-z._-]*\\+[a-f0-9]{40}$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9][0-9A-Za-z._-]*$"
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "tree": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "built_at": {
+      "type": "string"
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "os",
+        "arch"
+      ],
+      "properties": {
+        "os": {
+          "const": "linux"
+        },
+        "arch": {
+          "enum": [
+            "x64",
+            "arm64"
+          ]
+        }
+      }
+    },
+    "toolchain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "go",
+        "CGO_ENABLED",
+        "node",
+        "npm",
+        "git",
+        "tmux",
+        "node_executable",
+        "node_sha256",
+        "tmux_executable",
+        "tmux_sha256"
+      ],
+      "properties": {
+        "go": {
+          "type": "string"
+        },
+        "CGO_ENABLED": {
+          "const": "0"
+        },
+        "node": {
+          "type": "string"
+        },
+        "npm": {
+          "type": "string"
+        },
+        "git": {
+          "type": "string"
+        },
+        "tmux": {
+          "type": "string"
+        },
+        "node_executable": {
+          "type": "string"
+        },
+        "node_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "tmux_executable": {
+          "type": "string"
+        },
+        "tmux_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_current",
+        "schema_min_readable",
+        "schema_max_readable",
+        "compatibility_evidence_sha256",
+        "previous_binary_sha256",
+        "previous_reader_compatible"
+      ],
+      "properties": {
+        "schema_current": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "schema_min_readable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "schema_max_readable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "compatibility_evidence_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "previous_binary_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "previous_reader_compatible": {
+          "type": "boolean"
+        }
+      }
+    },
+    "runtime_lock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime_ref",
+        "sha256",
+        "commit",
+        "tree",
+        "binary_sha256"
+      ],
+      "properties": {
+        "runtime_ref": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "tree": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "binary_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "daemon",
+        "cli",
+        "dashboard",
+        "adapter"
+      ],
+      "properties": {
+        "daemon": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "entrypoint",
+            "sha256",
+            "source_commit",
+            "files"
+          ],
+          "properties": {
+            "entrypoint": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "source_commit": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{40}$"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "type",
+                  "mode",
+                  "size"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "enum": [
+                      "file",
+                      "directory",
+                      "symlink"
+                    ]
+                  },
+                  "mode": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "target": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "cli": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "entrypoint",
+            "sha256",
+            "source_commit",
+            "files"
+          ],
+          "properties": {
+            "entrypoint": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "source_commit": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{40}$"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "type",
+                  "mode",
+                  "size"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "enum": [
+                      "file",
+                      "directory",
+                      "symlink"
+                    ]
+                  },
+                  "mode": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "target": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "dashboard": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "entrypoint",
+            "sha256",
+            "source_commit",
+            "files"
+          ],
+          "properties": {
+            "entrypoint": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "source_commit": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{40}$"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "type",
+                  "mode",
+                  "size"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "enum": [
+                      "file",
+                      "directory",
+                      "symlink"
+                    ]
+                  },
+                  "mode": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "target": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "adapter": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "entrypoint",
+            "sha256",
+            "source_commit",
+            "files"
+          ],
+          "properties": {
+            "entrypoint": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "source_commit": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{40}$"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "type",
+                  "mode",
+                  "size"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "enum": [
+                      "file",
+                      "directory",
+                      "symlink"
+                    ]
+                  },
+                  "mode": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "target": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "archive_sha256",
+        "root_lock_sha256",
+        "browser_lock_sha256",
+        "source_import_sha256",
+        "unit_templates_sha256",
+        "adapter_source",
+        "adapter_license_sha256"
+      ],
+      "properties": {
+        "archive_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "root_lock_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "browser_lock_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "source_import_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "unit_templates_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "adapter_source": {
+          "type": "string"
+        },
+        "adapter_license_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "type",
+          "mode",
+          "size"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "file",
+              "directory",
+              "symlink"
+            ]
+          },
+          "mode": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "target": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

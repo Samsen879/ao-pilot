@@ -119,6 +119,10 @@ export async function runCli(argv, io = createDefaultIo(), {
   env = process.env,
   inspectRuntime = inspectRuntimeControl,
 } = {}) {
+  if (argv.includes('--install')) {
+    const upgrade = await import('./ao-upgrade.js');
+    return upgrade.runCli(['inspect', ...argv.filter((arg) => arg !== '--install' && arg !== '--json')], io, { env });
+  }
   const parsed = parseArgs(argv);
   if (!parsed.ok) {
     io.writeStderr(`${parsed.error}\n`);

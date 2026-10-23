@@ -1,0 +1,16 @@
+[Unit]
+Description=AO Pilot independent tmux server
+RefuseManualStop=yes
+
+[Service]
+Type=simple
+WorkingDirectory={{STATE_ROOT}}
+EnvironmentFile={{ENV_FILE}}
+ExecStart="{{NODE}}" "{{CURRENT}}/scripts/ao-tmux-server.js"
+KillMode=control-group
+Restart=on-failure
+RestartSec=3
+UMask=0077
+
+[Install]
+WantedBy=default.target

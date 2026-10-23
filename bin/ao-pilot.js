@@ -2,6 +2,9 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { resolveDeploymentEnvironment } from '../scripts/ao/lib/runtime-deployment.js';
+import { resolveUnifiedRuntime } from '../scripts/ao/lib/release-runtime.js';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -13,6 +16,8 @@ const PACKAGE_VERSION = JSON.parse(
 ).version;
 
 const COMMAND_MODULES = {
+  upgrade: '../scripts/ao-upgrade.js',
+  restore: '../scripts/ao-runtime.js',
   controller: '../scripts/ao-controller.js',
   dashboard: '../scripts/ao-dashboard.js',
   doctor: '../scripts/ao-doctor.js',
@@ -42,6 +47,8 @@ const RUNTIME_COMMANDS = new Set(['runtime-path', 'runtime-project-get', 'start'
 
 const PROJECT_SCOPED_COMMANDS = new Set(Object.keys(COMMAND_MODULES).filter(
   (command) => ![
+    'upgrade',
+    'restore',
     'init',
     'publication-preflight',
     'dashboard',
@@ -68,6 +75,8 @@ function renderHelp() {
     'Usage: ao-pilot <command> [options]',
     '',
     'Commands:',
+    '  upgrade     Apply or inspect a pinned unified release',
+    '  restore     Restore native sessions in current installation',
     '  init        Create ao.config.json',
     '  controller  Run the control loop',
     '  doctor      Diagnose control-plane, runtime, and auth state',
@@ -162,6 +171,11 @@ export async function runCli(argv, io = createDefaultIo(), {
   cwd = process.cwd(),
 } = {}) {
   const [command, ...commandArgs] = argv;
+  const packageRoot = fileURLToPath(new URL('../', import.meta.url));
+  if (!process.env.AO_INSTALL_ROOT && fs.existsSync(path.join(packageRoot, 'release.json'))) {
+    const pinned = fs.realpathSync(packageRoot);
+    if (path.basename(path.dirname(pinned)) === 'releases') process.env.AO_INSTALL_ROOT = path.dirname(path.dirname(pinned));
+  }
   if (command == null || command === '--help' || command === '-h') {
     io.writeStdout(`${renderHelp()}\n`);
     return { exitCode: 0, result: null };
@@ -183,7 +197,16 @@ export async function runCli(argv, io = createDefaultIo(), {
     return { exitCode: 4, result: null };
   }
 
+  if (command === 'restore') {
+    try {
+      const runtime = resolveUnifiedRuntime();
+      const result = spawnSync(runtime.binary_path, ['session', 'restore', ...extracted.argv], { stdio: 'inherit', env: resolveDeploymentEnvironment(process.env) });
+      return { exitCode: result.error ? 2 : result.status ?? 2, result: null };
+    } catch (error) { io.writeStderr(`${error.code ?? 'restore_failed'}\n`); return { exitCode: 2, result: null }; }
+  }
   const commandModule = await import(COMMAND_MODULES[command]);
+  if (command === 'upgrade') return commandModule.runCli(extracted.argv, io, { cwd });
+  if (command === 'doctor' && extracted.argv.includes('--install')) return commandModule.runCli(extracted.argv, io, { cwd });
   if (command === 'session' || (command === 'lifecycle' && ['serve', 'recover', 'status'].includes(extracted.argv[0]))) {
     const recoveryModule = command === 'session' ? commandModule : await import('../scripts/ao-session.js');
     return recoveryModule.runCli([...extracted.argv, ...(extracted.configPath ? ['--config', extracted.configPath] : [])], io, { cwd });

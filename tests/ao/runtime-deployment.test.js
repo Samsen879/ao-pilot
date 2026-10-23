@@ -1,3 +1,5 @@
+import { configuration, createBundle, fixtureRoot } from './release-fixture.js';
+import { renderReleaseUnits } from '../../scripts/ao/lib/release-units.js';
 import {test,expect,afterEach,jest} from '@jest/globals';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -199,4 +201,20 @@ test('default inspection derives identity from systemd MainPID and proc state',(
   expect(execute).toHaveBeenCalledWith('systemctl',expect.arrayContaining(['--property=MainPID']),expect.any(Object));
   expect(readFile).toHaveBeenCalledWith('/proc/123/cmdline');
   expect(readFile).toHaveBeenCalledWith('/proc/123/environ');
+});
+
+test('unified native binding accepts DataDir cwd and requires immutable release provenance', () => {
+  root = fixtureRoot(); const config = configuration(root); const bundle = createBundle(root);
+  const release = path.join(config.installRoot, 'releases', bundle.manifest.release_id); fs.mkdirSync(path.dirname(release), { recursive: true }); fs.cpSync(bundle.payload, release, { recursive: true }); fs.symlinkSync(`releases/${bundle.manifest.release_id}`, path.join(config.installRoot, 'current'));
+  fs.mkdirSync(config.dataDir, { recursive: true }); const configPath = path.join(config.stateRoot, 'install.json'); fs.writeFileSync(configPath, JSON.stringify(config));
+  const binary = path.join(release, 'native/ao'); const sha = bundle.manifest.runtime_lock.binary_sha256; const unitName = `${config.namespace}-runtime.service`;
+  const service = { activeState: 'active', mainPid: '123', daemonPid: '123', startToken: 'stable-token', packageRoot: config.dataDir,
+    argv: [binary, 'daemon'], daemonExecutable: binary, daemonSha256: sha, fragmentPath: path.join(config.unitRoot, unitName), dropInPaths: '',
+    unitText: renderReleaseUnits({ ...config, envFile: path.join(config.stateRoot, 'install.env'), nodePath: process.execPath })[unitName],
+    environment: { AO_INSTALL_ROOT: config.installRoot, AO_INSTALL_CONFIG: configPath, AO_RELEASE_ROOT: release, AO_DATA_DIR: config.dataDir, AO_RUN_FILE: path.join(config.discoveryDir, 'running.json'),
+      AO_MANAGED_RUNTIME_BINARY: binary, AO_MANAGED_RUNTIME_BINARY_SHA256: sha, AO_MANAGED_RUNTIME_DATA_DIR: config.dataDir, AO_MANAGED_RUNTIME_RUN_FILE: path.join(config.discoveryDir, 'running.json') } };
+  expect(resolveInstalledRuntimeServiceBinding({ inspectService: () => service }).package_root).toBe(release);
+  let inspections = 0; expect(() => resolveInstalledRuntimeServiceBinding({ inspectService: () => ++inspections === 1 ? service : { ...service, packageRoot: release } })).toThrow('changed during inspection');
+  expect(() => resolveInstalledRuntimeServiceBinding({ inspectService: () => ({ ...service, packageRoot: release }) })).toThrow('drifted');
+  expect(() => resolveInstalledRuntimeServiceBinding({ inspectService: () => ({ ...service, environment: { ...service.environment, AO_MANAGED_RUNTIME_BINARY_SHA256: undefined } }) })).toThrow('drifted');
 });

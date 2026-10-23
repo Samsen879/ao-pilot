@@ -10,6 +10,7 @@ import { loadBootstrapToolchainLock } from './runtime-bootstrap-contract.js';
 import { computeRuntimeLockDigest, loadRuntimeLock } from './runtime-lock.js';
 import { resolveDeploymentEnvironment } from './runtime-deployment.js';
 import { resolveManagedRuntime } from './runtime-resolver.js';
+import { resolveUnifiedRuntime } from './release-runtime.js';
 
 const PACKAGE_VERSION = JSON.parse(
   fs.readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'),
@@ -49,6 +50,10 @@ export function resolveRuntimeControl({
   runtimeLock = loadRuntimeLock().lock,
   toolchainLock = loadBootstrapToolchainLock().lock,
 } = {}) {
+  if (env.AO_INSTALL_ROOT) {
+    if (storeRoot && path.resolve(storeRoot) !== path.resolve(env.AO_INSTALL_ROOT)) throw Object.assign(new Error('Refusing mixed legacy/unified runtime binding'), { code: 'mixed_runtime_installation' });
+    return resolveUnifiedRuntime({ env });
+  }
   const effectiveStore = normalizeStoreRoot(storeRoot, env);
   const resolution = resolveManagedRuntime({
     lock: runtimeLock,
