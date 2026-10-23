@@ -278,6 +278,7 @@ func Run() error {
 		}
 		return err
 	}
+	tmuxHealthDone := startTmuxHealthWatch(ctx, srv, runtimeAdapter)
 	previewDone := preview.NewPoller(store, sessionSvc, "http://"+srv.Addr().String(), preview.PollerConfig{Logger: log}).Start(ctx)
 	_ = os.Unsetenv(browserruntime.RuntimeAddressEnv)
 	if ln, addr, err := browserruntime.Listen(cfg.RunFilePath); err != nil {
@@ -383,6 +384,7 @@ func Run() error {
 	stop()
 	<-reconcileDone
 	<-capacityDone
+	<-tmuxHealthDone
 	managedPreview.Close()
 	<-previewDone
 	lcStack.Stop()

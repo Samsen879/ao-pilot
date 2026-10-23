@@ -32,7 +32,7 @@ func (r *failLaterChunkRunner) Run(_ context.Context, _ []string, _ string, args
 
 func TestLaterChunkFailureLeavesPendingDraft(t *testing.T) {
 	runner := &failLaterChunkRunner{}
-	runtime := New(Options{Binary: "tmux", Shell: "/bin/sh"})
+	runtime := New(Options{Binary: "tmux", Shell: "/bin/sh", Server: healthyTestServer{}, Socket: "ao-staging-test", Unit: "ao-staging-tmux.service", TmpDir: "/staging/tmux"})
 	runtime.runner = runner
 	runtime.chunkSize = 2
 	runtime.enterDelay = 0
@@ -66,7 +66,7 @@ func (r *recordingRunner) contains(fragment string) bool {
 }
 
 func TestNewUsesOneSecondEnterSettleDelay(t *testing.T) {
-	runtime := New(Options{Binary: "tmux", Shell: "/bin/sh"})
+	runtime := New(Options{Binary: "tmux", Shell: "/bin/sh", Server: healthyTestServer{}, Socket: "ao-staging-test", Unit: "ao-staging-tmux.service", TmpDir: "/staging/tmux"})
 
 	if runtime.enterDelay != time.Second {
 		t.Fatalf("enter delay = %s, want %s", runtime.enterDelay, time.Second)
@@ -74,7 +74,7 @@ func TestNewUsesOneSecondEnterSettleDelay(t *testing.T) {
 }
 
 func TestSendLockSerializesOneSessionOnly(t *testing.T) {
-	runtime := New(Options{Binary: "tmux", Shell: "/bin/sh"})
+	runtime := New(Options{Binary: "tmux", Shell: "/bin/sh", Server: healthyTestServer{}, Socket: "ao-staging-test", Unit: "ao-staging-tmux.service", TmpDir: "/staging/tmux"})
 
 	first := runtime.sendLock("session-a")
 	if first != runtime.sendLock("session-a") {
@@ -105,7 +105,7 @@ func TestSendLockSerializesOneSessionOnly(t *testing.T) {
 
 func TestSendMessageGuardedRechecksBeforeEnter(t *testing.T) {
 	runner := &recordingRunner{}
-	runtime := New(Options{Binary: "tmux", Shell: "/bin/sh"})
+	runtime := New(Options{Binary: "tmux", Shell: "/bin/sh", Server: healthyTestServer{}, Socket: "ao-staging-test", Unit: "ao-staging-tmux.service", TmpDir: "/staging/tmux"})
 	runtime.runner = runner
 	runtime.enterDelay = time.Millisecond
 	checks := 0
@@ -126,7 +126,7 @@ func TestSendMessageGuardedRechecksBeforeEnter(t *testing.T) {
 
 func TestInterruptWaitsForPendingSend(t *testing.T) {
 	runner := &recordingRunner{entered: make(chan struct{}), release: make(chan struct{})}
-	runtime := New(Options{Binary: "tmux", Shell: "/bin/sh"})
+	runtime := New(Options{Binary: "tmux", Shell: "/bin/sh", Server: healthyTestServer{}, Socket: "ao-staging-test", Unit: "ao-staging-tmux.service", TmpDir: "/staging/tmux"})
 	runtime.runner = runner
 	runtime.enterDelay = 0
 	done := make(chan struct{})
@@ -155,7 +155,7 @@ func TestInterruptWaitsForPendingSend(t *testing.T) {
 
 func TestDestroyWaitsForPendingSend(t *testing.T) {
 	runner := &recordingRunner{entered: make(chan struct{}), release: make(chan struct{})}
-	runtime := New(Options{Binary: "tmux", Shell: "/bin/sh"})
+	runtime := New(Options{Binary: "tmux", Shell: "/bin/sh", Server: healthyTestServer{}, Socket: "ao-staging-test", Unit: "ao-staging-tmux.service", TmpDir: "/staging/tmux"})
 	runtime.runner = runner
 	runtime.enterDelay = 0
 	sent := make(chan struct{})

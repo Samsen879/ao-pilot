@@ -1,4 +1,4 @@
-// Package tmux implements ports.Runtime using tmux sessions on Darwin/Linux.
+// Package tmux implements Linux ports.Runtime using independently managed tmux sessions.
 package tmux
 
 import (
@@ -47,15 +47,17 @@ var sessionIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 var getenv = os.Getenv
 
-// Options configures a tmux Runtime. Every field has a sensible default (see
-// New), so the zero value is usable.
+// Options configures a tmux Runtime. Managed namespace configuration must be
+// supplied explicitly in Options or AO_TMUX_SOCKET/UNIT/TMPDIR.
 type Options struct {
-	Binary     string        // default "tmux" (resolved via exec.LookPath)
-	Shell      string        // default $SHELL else /bin/sh
-	Timeout    time.Duration // default 5s
-	ChunkSize  int           // default 16*1024
-	EnterDelay time.Duration // pause after pasting a non-empty message before pressing Enter; default defaultEnterDelay. Conpty already does this (ptyInputEnterDelay); tmux lacked it, so a large multiline paste could absorb the trailing Enter and leave the prompt unsubmitted (issue #2342).
-	ReapGrace  time.Duration // grace between SIGTERM and SIGKILL when reaping a pane's leftover background processes on Destroy; default defaultReapGrace.
+	Binary               string           // default "tmux" (resolved via exec.LookPath)
+	Shell                string           // default $SHELL else /bin/sh
+	Timeout              time.Duration    // default 5s
+	ChunkSize            int              // default 16*1024
+	EnterDelay           time.Duration    // pause after pasting a non-empty message before pressing Enter; default defaultEnterDelay. Conpty already does this (ptyInputEnterDelay); tmux lacked it, so a large multiline paste could absorb the trailing Enter and leave the prompt unsubmitted (issue #2342).
+	ReapGrace            time.Duration    // grace between SIGTERM and SIGKILL when reaping a pane's leftover background processes on Destroy; default defaultReapGrace.
+	Socket, Unit, TmpDir string           // required via Options or AO_TMUX_{SOCKET,UNIT,TMPDIR}; no default socket fallback.
+	Server               ServerController // optional test injection; production uses ManagedServer.
 }
 
 // Runtime runs agent sessions inside tmux sessions, driving them via the tmux
@@ -68,6 +70,11 @@ type Runtime struct {
 	enterDelay   time.Duration
 	reapGrace    time.Duration
 	runner       runner
+	server       ServerController
+	socket       string
+	tmuxEnv      []string
+	configErr    error
+	attachSpawn  func(context.Context, []string, []string, uint16, uint16) (ports.Stream, error)
 	reapSessions func(ctx context.Context, pids []int, grace time.Duration)
 	sendLocksMu  sync.Mutex
 	sendLocks    map[string]*sync.Mutex
@@ -274,7 +281,13 @@ func New(opts Options) *Runtime {
 	if reapGrace <= 0 {
 		reapGrace = defaultReapGrace
 	}
+	options := ResolveServerOptions(ServerOptions{Binary: binary, Socket: opts.Socket, Unit: opts.Unit, TmpDir: opts.TmpDir})
+	server := opts.Server
+	if server == nil {
+		server = NewManagedServer(options)
+	}
 	return &Runtime{
+		server: server, socket: options.Socket, tmuxEnv: []string{"TMUX_TMPDIR=" + options.TmpDir, "TMUX="}, configErr: validateServerOptions(options), attachSpawn: ptyexec.Spawn,
 		binary:       binary,
 		shell:        shellPath,
 		timeout:      timeout,
@@ -466,6 +479,12 @@ func (r *Runtime) Destroy(ctx context.Context, handle ports.RuntimeHandle) error
 	if err != nil {
 		return err
 	}
+	if err := r.checkServer(ctx, false, false); err != nil {
+		if errors.Is(err, ErrServerAbsent) {
+			return nil
+		}
+		return fmt.Errorf("tmux runtime: destroy prerequisite: %w", err)
+	}
 	lock := r.sendLock(id)
 	lock.Lock()
 	defer lock.Unlock()
@@ -475,12 +494,18 @@ func (r *Runtime) Destroy(ctx context.Context, handle ports.RuntimeHandle) error
 	sessionIDs := r.paneSessionIDs(ctx, id)
 
 	out, err := r.run(ctx, killSessionArgs(id)...)
+	if errors.Is(err, ports.ErrRuntimePrerequisite) {
+		return fmt.Errorf("tmux runtime: destroy prerequisite: %w", err)
+	}
 	// Reap regardless of the kill-session result: orphaned children outlive the
 	// session, so they must be cleaned up even when the session was already
 	// gone (a benign double-kill).
 	r.reapSessions(ctx, sessionIDs, r.reapGrace)
 
 	if err != nil {
+		if errors.Is(err, ErrServerAbsent) {
+			return nil
+		}
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && killSessionMissingOutput(string(out)) {
 			return nil
@@ -524,6 +549,9 @@ func (r *Runtime) IsAlive(ctx context.Context, handle ports.RuntimeHandle) (bool
 	}
 	out, err := r.run(ctx, hasSessionArgs(id)...)
 	if err != nil {
+		if errors.Is(err, ErrServerAbsent) {
+			return false, nil
+		}
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && sessionMissingOutput(string(out)) {
 			return false, nil
@@ -697,7 +725,12 @@ func (r *Runtime) Attach(ctx context.Context, handle ports.RuntimeHandle, rows, 
 	if err != nil {
 		return nil, err
 	}
-	return ptyexec.Spawn(ctx, argv, attachEnv(os.Environ()), rows, cols)
+	if err := r.checkServer(ctx, false, false); err != nil {
+		return nil, err
+	}
+	env := attachEnv(os.Environ())
+	env = append(env, r.tmuxEnv...)
+	return r.attachSpawn(ctx, argv, env, rows, cols)
 }
 
 // attachCommand returns the argv to attach a terminal to the session.
@@ -726,7 +759,7 @@ func (r *Runtime) attachCommand(handle ports.RuntimeHandle) ([]string, error) {
 	// The embedded xterm renderer supports 24-bit SGR colors. Tell this tmux
 	// client explicitly so tmux forwards RGB instead of quantizing it to the
 	// xterm-256color palette. -T is available in AO's minimum tmux version (3.2).
-	return []string{r.binary, "-u", "-T", "RGB", "attach-session", "-t", id}, nil
+	return []string{r.binary, "-L", r.socket, "-N", "-u", "-T", "RGB", "attach-session", "-t", id}, nil
 }
 
 func attachEnv(base []string) []string {
@@ -754,13 +787,58 @@ func attachEnv(base []string) []string {
 
 // run wraps runner.Run with a per-call timeout context.
 func (r *Runtime) run(ctx context.Context, args ...string) ([]byte, error) {
-	return r.runCommand(ctx, r.binary, args...)
+	if len(args) == 0 {
+		return nil, fmt.Errorf("tmux command required")
+	}
+	starts := args[0] == "new-session" || args[0] == "respawn-pane"
+	readonly := args[0] == "has-session" || args[0] == "capture-pane" || args[0] == "list-panes" || args[0] == "display-message"
+	if err := r.checkServer(ctx, starts, readonly); err != nil {
+		return nil, err
+	}
+	// -N closes the check/use race: if the checked server exits, even a creating
+	// command may only fail, never create a server inside the daemon cgroup.
+	return r.runCommand(ctx, r.binary, append([]string{"-L", r.socket, "-N"}, args...)...)
 }
+
+func (r *Runtime) checkServer(ctx context.Context, start, readonly bool) error {
+	if r.configErr != nil {
+		return fmt.Errorf("%w: %v", ports.ErrRuntimePrerequisite, r.configErr)
+	}
+	var diagnostic ServerDiagnostic
+	if start {
+		var err error
+		diagnostic, err = r.server.Ensure(ctx)
+		if err != nil {
+			return fmt.Errorf("%w: %s: %w", ports.ErrRuntimePrerequisite, diagnostic.Reason, err)
+		}
+	} else {
+		diagnostic = r.server.Inspect(ctx)
+	}
+	if diagnostic.Absent {
+		return ErrServerAbsent
+	}
+	if diagnostic.Status == "ok" {
+		return nil
+	}
+	// Reads remain available for diagnosis of a verified old dangerous server.
+	// Unknown identity never collapses to a definitive dead-session observation.
+	if readonly && diagnostic.Status == "violation" && diagnostic.ServerPID > 1 && diagnostic.ServerStartToken != "" {
+		return nil
+	}
+	return fmt.Errorf("%w: %s: %s", ports.ErrRuntimePrerequisite, diagnostic.Reason, diagnostic.Message)
+}
+
+// InspectServer is shared with daemon readiness; it never starts a server.
+func (r *Runtime) InspectServer(ctx context.Context) ServerDiagnostic { return r.server.Inspect(ctx) }
 
 func (r *Runtime) runCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmdCtx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	out, err := r.runner.Run(cmdCtx, nil, name, args...)
+	var env []string
+	if name == r.binary {
+		env = r.tmuxEnv
+	}
+	out, err := r.runner.Run(cmdCtx, env, name, args...)
 	if cmdCtx.Err() != nil {
 		return out, cmdCtx.Err()
 	}
