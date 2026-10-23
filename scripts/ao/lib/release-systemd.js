@@ -328,7 +328,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
         await wait(async () => Array.isArray((await get('/api/v1/sessions')).sessions));
         for (const project of config.restoreProjects) {
           const result = JSON.parse(run(path.join(releaseRoot, 'native/ao'), ['session', 'restore', '--project', project,
-            '--all', '--concurrency', String(config.restoreConcurrency), '--json'], { env }));
+            '--all', '--concurrency', String(config.restoreConcurrency), '--json'], { env, timeout: 15 * 60 * 1000 + 10000 }));
           const expected = baseline.identities.filter((row) => row.project_id === project).map((row) => row.ao_session_id).sort();
           assertRelease(result.projectId === project && Array.isArray(result.results)
             && result.results.every((row) => ['restored', 'skipped_hold'].includes(row.outcome) && typeof row.reason === 'string'

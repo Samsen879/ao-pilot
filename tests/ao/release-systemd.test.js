@@ -72,12 +72,13 @@ it('requires explicit first restore inputs before effects and never restores in 
 it('restores first-only explicit projects after boot REST while degraded, preserves native skipped_hold, then requires strict ready', async () => {
   const { root, config } = fixture(); Object.assign(config, { restoreProjects: ['fixture'], restoreConcurrency: 2 }); const events = [];
   const result = { projectId: 'fixture', results: [{ sessionId: 'original', outcome: 'restored', reason: 'restored', restoreMode: 'native' }, { sessionId: 'held', outcome: 'skipped_hold', reason: 'spawn_hold_or_pending' }] };
-  const runner = createSystemdReleaseRunner(config, { run: (command, args) => { events.push([command, args]); return JSON.stringify(result); }, fetchImpl: async (url) => {
+  const runner = createSystemdReleaseRunner(config, { run: (command, args, options) => { events.push([command, args, options]); return JSON.stringify(result); }, fetchImpl: async (url) => {
     events.push(['fetch', url.pathname]); return { ok: true, json: async () => url.pathname.includes('sessions') ? { sessions: [] } : { status: 'ready', ready: true, reasons: [] } };
   }, sleep: async () => {} });
   expect(await runner.start({ releaseRoot: root, mode: 'first', baseline: { projects: ['fixture'], identities: [{ ao_session_id: 'original', project_id: 'fixture' }, { ao_session_id: 'held', project_id: 'fixture' }] } })).toEqual({ restore_results: [result] });
   const restore = events.findIndex(([command]) => command === path.join(root, 'native/ao'));
   expect(events[restore][1]).toEqual(['session', 'restore', '--project', 'fixture', '--all', '--concurrency', '2', '--json']);
+  expect(events[restore][2]).toMatchObject({ timeout: 15 * 60 * 1000 + 10000, env: { AO_TMUX_SOCKET: config.tmuxSocket } });
   expect(events.findIndex(([command, arg]) => command === 'fetch' && arg === '/api/v1/sessions')).toBeLessThan(restore);
   expect(events.findIndex(([command, arg]) => command === 'fetch' && arg === '/readyz')).toBeGreaterThan(restore);
   result.results[0].restoreMode = 'fresh';
