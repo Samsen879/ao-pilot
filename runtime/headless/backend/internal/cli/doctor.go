@@ -285,9 +285,9 @@ func (c *commandContext) checkGit(ctx context.Context) doctorCheck {
 		return doctorCheck{Level: doctorWarn, Section: doctorSectionTools, Name: "git", Message: fmt.Sprintf("%s (version unknown: %s)", path, firstOutputLine(out))}
 	}
 	if cmp < 0 {
-		return doctorCheck{Level: doctorFail, Section: doctorSectionTools, Name: "git", Message: fmt.Sprintf("%s (version %s; AO requires >= %s for worktrees)", path, version, minGitVersion)}
+		return doctorCheck{Level: doctorFail, Section: doctorSectionTools, Name: "git", Message: fmt.Sprintf("%s (version %s; AO requires >= %s for worktrees and explicit sparse WIP pathspecs)", path, version, minGitVersion)}
 	}
-	return doctorCheck{Level: doctorPass, Section: doctorSectionTools, Name: "git", Message: fmt.Sprintf("%s (version %s; supports worktrees)", path, version)}
+	return doctorCheck{Level: doctorPass, Section: doctorSectionTools, Name: "git", Message: fmt.Sprintf("%s (version %s; supports worktrees and explicit sparse WIP pathspecs)", path, version)}
 }
 
 // checkTerminalRuntime checks the runtime multiplexer used on this platform:
