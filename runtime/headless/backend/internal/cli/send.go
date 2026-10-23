@@ -37,7 +37,7 @@ func (c *commandContext) sendMessageCommand(cmd *cobra.Command, o sendOptions) e
 	if strings.TrimSpace(o.session) == "" || strings.TrimSpace(o.message) == "" {
 		return usageError{errors.New("--session and --message are required")}
 	}
-	if o.messageID != "" && !domain.ValidMessageID(o.messageID) {
+	if (o.messageID != "" || cmd.Flags().Changed("message-id")) && !domain.ValidMessageID(o.messageID) {
 		return usageError{errors.New("invalid --message-id")}
 	}
 	if o.requireAck && (o.ackTimeout < time.Millisecond || o.ackTimeout > domain.MessageMaxAckTimeout) {

@@ -2451,7 +2451,24 @@ func (m *Manager) Send(ctx context.Context, id domain.SessionID, message string)
 		return err
 	}
 	if result.Outcome == "rejected" {
-		return fmt.Errorf("send %s: %s", id, result.Evidence.Code)
+		var rejection error
+		switch result.Evidence.Code {
+		case "SESSION_NOT_FOUND":
+			rejection = ErrNotFound
+		case "SESSION_TERMINATED":
+			rejection = ErrTerminated
+		case "SESSION_AGENT_EXITED":
+			rejection = ErrAgentExited
+		case "SESSION_AWAITING_DECISION":
+			rejection = ErrAwaitingDecision
+		case "SESSION_DRAFT_PENDING":
+			rejection = ErrDraftPending
+		case "SESSION_DRAFT_INCOMPLETE":
+			rejection = ErrDraftIncomplete
+		default:
+			return fmt.Errorf("send %s: %s", id, result.Evidence.Code)
+		}
+		return fmt.Errorf("send %s: %w", id, rejection)
 	}
 	// Internal ordinary notices historically do not require submission/reading ACK.
 	// External API/CLI use SendMessage and must inspect every outcome.

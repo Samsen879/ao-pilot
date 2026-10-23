@@ -241,6 +241,22 @@ func TestAckRejectsWrongSessionOrdinaryAndUnsentReservation(t *testing.T) {
 			t.Fatal(result, err)
 		}
 	}
+	started := domain.MessageRecord{MessageResult: messageResult("started", "submitted_unconfirmed", "INJECTION_STARTED", 1), SessionID: rec.ID, TextSHA256: strings.Repeat("a", 64), RequireAck: true, Phase: "started"}
+	if won, err := store.ReserveMessage(context.Background(), started); err != nil || !won {
+		t.Fatal(won, err)
+	}
+	before, _, err := store.GetMessage(context.Background(), "started")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mismatch, err := m.AckMessage(context.Background(), "another-session", "started")
+	if err != nil || mismatch.Outcome != "rejected" || mismatch.Evidence.Code != "ACK_RECORD_MISMATCH" {
+		t.Fatal(mismatch, err)
+	}
+	after, _, err := store.GetMessage(context.Background(), "started")
+	if err != nil || after != before {
+		t.Fatalf("wrong-session ACK changed original record before=%+v after=%+v err=%v", before, after, err)
+	}
 	reserved := domain.MessageRecord{MessageResult: messageResult("reserved", "submitted_unconfirmed", "RESERVED", 0), SessionID: rec.ID, TextSHA256: strings.Repeat("0", 64), RequireAck: true, Phase: "reserved"}
 	if _, err := store.ReserveMessage(context.Background(), reserved); err != nil {
 		t.Fatal(err)
@@ -303,5 +319,47 @@ func TestAckRacingTimeoutCASWinsAndCancellationKeepsCustody(t *testing.T) {
 	recorded, ok, err := store.GetMessage(context.Background(), "cancelled-ack")
 	if err != nil || !ok || recorded.Outcome != "ack_timeout" {
 		t.Fatal(recorded, err)
+	}
+}
+
+func TestOrdinarySendPreservesTypedRejections(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		state          domain.ActivityState
+		terminated     bool
+		messengerError error
+		want           error
+	}{
+		{name: "missing", want: ErrNotFound},
+		{name: "terminated", terminated: true, want: ErrTerminated},
+		{name: "exited", state: domain.ActivityExited, want: ErrAgentExited},
+		{name: "permission", state: domain.ActivityBlocked, want: ErrAwaitingDecision},
+		{name: "draft_pending", messengerError: ports.ErrPaneDraftPending, want: ErrDraftPending},
+		{name: "draft_incomplete", messengerError: ports.ErrPaneDraftIncomplete, want: ErrDraftIncomplete},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			messenger := &sendConfirmMessenger{}
+			m, store, rec := newSendConfirmFixture(t, messenger)
+			id := rec.ID
+			if tc.name == "missing" {
+				id = "missing"
+			} else {
+				if tc.state != "" {
+					rec.Activity.State = tc.state
+				}
+				rec.IsTerminated = tc.terminated
+				if err := store.UpdateSession(context.Background(), rec); err != nil {
+					t.Fatal(err)
+				}
+			}
+			messenger.after = func(context.Context, int) error { return tc.messengerError }
+			err := m.Send(context.Background(), id, "ordinary notice")
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("typed rejection lost: err=%v want=%v", err, tc.want)
+			}
+			if tc.messengerError == nil && len(messenger.snapshot()) != 0 {
+				t.Fatal("pre-write rejection injected", messenger.snapshot())
+			}
+		})
 	}
 }
