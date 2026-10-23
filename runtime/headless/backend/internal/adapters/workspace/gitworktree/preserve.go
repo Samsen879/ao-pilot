@@ -109,8 +109,23 @@ func (w *Workspace) preserveChanges(ctx context.Context, path string) ([]preserv
 					if configErr != nil && !isGitConfigMissing(configErr) {
 						return nil, configErr
 					}
-					if strings.TrimSpace(string(fileMode)) != "false" && info.Mode().Perm()&0111 != 0 {
+					if strings.TrimSpace(string(fileMode)) == "false" {
+						// A staged deletion has no index mode; git add into our
+						// HEAD-seeded index retains HEAD's trusted executable bit.
+						if c.HeadMode == "100755" {
+							c.Mode = "100755"
+						}
+					} else if info.Mode().Perm()&0111 != 0 {
 						c.Mode = "100755"
+					}
+					if c.HeadMode == "120000" {
+						symlinks, configErr := w.run(ctx, w.binary, "-C", path, "config", "--bool", "core.symlinks")
+						if configErr != nil && !isGitConfigMissing(configErr) {
+							return nil, configErr
+						}
+						if strings.TrimSpace(string(symlinks)) == "false" {
+							c.Mode = "120000"
+						}
 					}
 				}
 			case info.IsDir() && (c.Mode == "160000" || c.HeadMode == "160000"):
