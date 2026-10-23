@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -99,4 +100,34 @@ func TestReadinessAndRESTStayClosedDuringRecovery(t *testing.T) {
 
 	ready = true
 	assertStatus("/readyz", http.StatusOK)
+}
+
+func TestDegradedProbeKeepsRecoveryAPIsAvailable(t *testing.T) {
+	server := &Server{}
+	router := NewRouterWithControl(config.Config{}, nil, nil, APIDeps{}, ControlDeps{IsReady: server.ready.Load, Readiness: server.Readiness})
+	server.MarkDegraded(ReadinessReason{Code: "session_reconcile_failed", Message: "one failed"})
+	check := func(path string, want int) string {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != want {
+			t.Fatalf("%s status %d: %s", path, rec.Code, rec.Body.String())
+		}
+		return rec.Body.String()
+	}
+	check("/api/v1/sessions", http.StatusServiceUnavailable)
+	server.MarkReady()
+	body := check("/readyz", http.StatusServiceUnavailable)
+	if !strings.Contains(body, `"status":"degraded"`) || !strings.Contains(body, "session_reconcile_failed") || !strings.Contains(body, `"ready":false`) {
+		t.Fatal(body)
+	}
+	check("/api/v1/sessions", http.StatusNotImplemented)
+	check("/healthz", http.StatusOK)
+	server.MarkDegraded(ReadinessReason{Code: "tmux_cgroup_violation", Message: "fixture"})
+	if len(server.Readiness().Reasons) != 2 {
+		t.Fatal("dependency reasons overwritten")
+	}
+	server.ClearDegraded("session_reconcile_failed")
+	server.ClearDegraded("tmux_cgroup_violation")
+	check("/readyz", http.StatusOK)
 }

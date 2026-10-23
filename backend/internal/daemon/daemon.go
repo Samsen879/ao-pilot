@@ -347,11 +347,11 @@ func Run() error {
 	case <-srv.ServeStarted():
 		go func() {
 			defer close(capacityDone)
-			if reconcileErr := sessMgr.Reconcile(ctx); reconcileErr != nil {
-				log.Error("reconcile sessions on boot failed", "err", reconcileErr)
-			}
-			if reconcileErr := lcStack.ReconcileRuntime(ctx); reconcileErr != nil {
-				log.Error("reconcile agent processes on boot failed", "err", reconcileErr)
+			if err := completeBootRecovery(ctx, srv, sessMgr.Reconcile, lcStack.ReconcileRuntime, lcStack.StartRuntimeObservation); err != nil {
+				log.Error("boot recovery admission failed", "err", err)
+				close(reconcileDone)
+				srv.RequestShutdown()
+				return
 			}
 			if capacityWatchdog != nil {
 				capacityWatchdog.tick(ctx)

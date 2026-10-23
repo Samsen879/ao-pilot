@@ -153,7 +153,7 @@ func (c *commandContext) runDoctor(ctx context.Context) []doctorCheck {
 		switch st.State {
 		case stateStale, stateNotReady:
 			level = doctorWarn
-		case stateUnhealthy:
+		case stateUnhealthy, stateDegraded:
 			level = doctorFail
 		}
 		msg := string(st.State)
@@ -162,6 +162,9 @@ func (c *commandContext) runDoctor(ctx context.Context) []doctorCheck {
 		}
 		if st.Error != "" {
 			msg += " (" + st.Error + ")"
+		}
+		for _, reason := range st.Reasons {
+			msg += " [" + reason.Code + ": " + reason.Message + "]"
 		}
 		checks = append(checks, doctorCheck{Level: level, Section: doctorSectionCore, Name: "daemon", Message: msg})
 	}

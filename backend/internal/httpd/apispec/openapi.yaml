@@ -2743,6 +2743,56 @@ paths:
       summary: Clean up terminated session workspaces
       tags:
       - sessions
+  /api/v1/sessions/restore:
+    post:
+      operationId: restoreProjectSessions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ControllersBatchRestoreRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionManagerBatchRestoreResult'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Service Unavailable
+      summary: Explicitly restore all project sessions; orchestrators first, per-item
+        outcomes
+      tags:
+      - sessions
   /api/v1/shell-terminals:
     get:
       operationId: listShellTerminals
@@ -2962,6 +3012,25 @@ paths:
       summary: Inspect native spawn custody without effects
       tags:
       - sessions
+  /readyz:
+    get:
+      operationId: getReadiness
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControllersReadinessResponse'
+          description: OK
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControllersReadinessResponse'
+          description: Service Unavailable
+      summary: Strict readiness; degraded returns 503 while recovery APIs remain available
+      tags:
+      - daemon
 components:
   schemas:
     APIError:
@@ -3153,6 +3222,62 @@ components:
       required:
       - ok
       - sessionId
+      type: object
+    ControllersBatchRestoreRequest:
+      properties:
+        concurrency:
+          maximum: 16
+          minimum: 1
+          type: integer
+        project:
+          minLength: 1
+          type: string
+      required:
+      - project
+      - concurrency
+      type: object
+    ControllersReadinessReason:
+      properties:
+        code:
+          description: Stable diagnostic code; additional dependency codes may be
+            added.
+          type: string
+        message:
+          type: string
+      required:
+      - code
+      - message
+      type: object
+    ControllersReadinessResponse:
+      properties:
+        executablePath:
+          type: string
+        pid:
+          type: integer
+        ready:
+          type: boolean
+        reasons:
+          items:
+            $ref: '#/components/schemas/ControllersReadinessReason'
+          type: array
+        service:
+          type: string
+        startupWorkingDirectory:
+          type: string
+        status:
+          enum:
+          - starting
+          - ready
+          - degraded
+          type: string
+        workingDirectory:
+          type: string
+      required:
+      - status
+      - ready
+      - reasons
+      - service
+      - pid
       type: object
     ControllersSessionView:
       properties:
@@ -4094,6 +4219,41 @@ components:
       - ok
       - sessionId
       - message
+      type: object
+    SessionManagerBatchRestoreItem:
+      properties:
+        outcome:
+          enum:
+          - restored
+          - skipped_hold
+          - failed
+          type: string
+        reason:
+          type: string
+        restoreMode:
+          enum:
+          - native
+          - saved_prompt
+          - fresh
+          type: string
+        sessionId:
+          type: string
+      required:
+      - sessionId
+      - outcome
+      - reason
+      type: object
+    SessionManagerBatchRestoreResult:
+      properties:
+        projectId:
+          type: string
+        results:
+          items:
+            $ref: '#/components/schemas/SessionManagerBatchRestoreItem'
+          type: array
+      required:
+      - projectId
+      - results
       type: object
     SessionManagerSpawnAttemptDiagnosis:
       properties:

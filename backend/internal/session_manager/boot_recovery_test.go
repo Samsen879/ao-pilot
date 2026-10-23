@@ -335,8 +335,8 @@ func TestRestoreAllRetainsFailedReplayMarker(t *testing.T) {
 	if err := store.UpsertSessionWorktree(ctx, rows[0]); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.RestoreAll(ctx); err != nil {
-		t.Fatal(err)
+	if err := m.RestoreAll(ctx); err == nil {
+		t.Fatal("partial replay failure must be reported for readiness degradation")
 	}
 	rows, err = store.ListSessionWorktrees(ctx, rec.ID)
 	if err != nil || len(rows) != 1 || rows[0].PreservedRef != ref || rows[0].State != "active" {

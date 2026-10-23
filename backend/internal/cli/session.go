@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	sessionmanager "github.com/aoagents/agent-orchestrator/backend/internal/session_manager"
 	"github.com/spf13/cobra"
 )
 
@@ -209,11 +210,29 @@ func newSessionKillCommand(ctx *commandContext) *cobra.Command {
 
 func newSessionRestoreCommand(ctx *commandContext) *cobra.Command {
 	var opts sessionOptions
+	var all bool
+	var concurrency int
 	cmd := &cobra.Command{
-		Use:   "restore <id>",
-		Short: "Relaunch a terminated session",
-		Args:  oneSessionIDArg,
+		Use: "restore [id]", Short: "Relaunch one session, or explicitly restore a project with --all",
+		Args: func(cmd *cobra.Command, args []string) error {
+			if all {
+				if len(args) != 0 || strings.TrimSpace(opts.project) == "" {
+					return usageError{errors.New("--all requires --project and no session id")}
+				}
+				if concurrency < 1 || concurrency > sessionmanager.MaxRestoreConcurrency {
+					return usageError{fmt.Errorf("concurrency must be 1..%d", sessionmanager.MaxRestoreConcurrency)}
+				}
+				return nil
+			}
+			if cmd.Flags().Changed("concurrency") {
+				return usageError{errors.New("--concurrency requires --all")}
+			}
+			return oneSessionIDArg(cmd, args)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if all {
+				return ctx.restoreProjectSessions(cmd.Context(), cmd, opts, concurrency)
+			}
 			id, err := normalizeSessionID(args[0])
 			if err != nil {
 				return err
@@ -221,8 +240,43 @@ func newSessionRestoreCommand(ctx *commandContext) *cobra.Command {
 			return ctx.restoreSession(cmd.Context(), cmd, id, opts)
 		},
 	}
-	addSessionProjectFlag(cmd.Flags(), &opts.project, "Project id to scope the lookup")
+	addSessionProjectFlag(cmd.Flags(), &opts.project, "Project id; required with --all")
+	cmd.Flags().BoolVar(&all, "all", false, "Restore all project sessions, orchestrators first")
+	cmd.Flags().IntVar(&concurrency, "concurrency", 4, "Maximum concurrent restores (1..16)")
+	cmd.Flags().BoolVar(&opts.json, "json", false, "Output batch results as JSON")
 	return cmd
+}
+
+func (c *commandContext) restoreProjectSessions(ctx context.Context, cmd *cobra.Command, opts sessionOptions, concurrency int) error {
+	var result sessionmanager.BatchRestoreResult
+	request := struct {
+		Project     string `json:"project"`
+		Concurrency int    `json:"concurrency"`
+	}{opts.project, concurrency}
+	if err := c.postJSON(ctx, "sessions/restore", request, &result); err != nil {
+		return err
+	}
+	failed := 0
+	for _, item := range result.Results {
+		if item.Outcome == "failed" {
+			failed++
+		}
+	}
+	if opts.json {
+		if err := writeJSON(cmd.OutOrStdout(), result); err != nil {
+			return err
+		}
+	} else {
+		for _, item := range result.Results {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s: %s\n", item.SessionID, item.Outcome, item.Reason); err != nil {
+				return err
+			}
+		}
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d session restore(s) failed; recovery records retained", failed)
+	}
+	return nil
 }
 
 func newSessionRenameCommand(ctx *commandContext) *cobra.Command {
