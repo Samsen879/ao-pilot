@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { verifyPackedRelease } from './ao/lib/release-tarball.js';
 import { verifyReleaseTree } from './ao/lib/release-manifest.js';
+import { verifyPackageDependencies } from './ao/lib/package-dependencies.js';
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -61,7 +62,7 @@ try {
     // browser/workspace payload that apply will copy verbatim.
     const dependencyManifests = manifest.files.filter((file) => file.type === 'file' && !file.path.split('/').includes('node_modules')
       && (file.path === 'package.json' || file.path === 'browser/package.json' || /^browser\/packages\/.+\/package\.json$/.test(file.path))).map((file) => file.path);
-    run(process.execPath, ['--input-type=module', '--eval', `import fs from 'node:fs'; import path from 'node:path'; import {createRequire} from 'node:module'; for (const relative of ${JSON.stringify(dependencyManifests)}) { const file=path.resolve(${JSON.stringify(payload)},relative); const metadata=JSON.parse(fs.readFileSync(file,'utf8')); const require=createRequire(file); for (const name of Object.keys(metadata.dependencies ?? {})) require.resolve(name); }`], { cwd: payload });
+    for (const relative of dependencyManifests) verifyPackageDependencies(path.join(payload, relative));
   }
 
 
