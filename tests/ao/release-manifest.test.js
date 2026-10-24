@@ -1,6 +1,7 @@
 import { assertManagedReleaseEnvironment } from '../../scripts/ao/lib/release-runtime.js';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { afterEach, expect, it } from '@jest/globals';
 import { inspectInstall, INSTALL_CHECK_IDS } from '../../scripts/ao/lib/install-doctor.js';
 import { publicInstallReceipt } from '../../scripts/ao/lib/release-receipt.js';
@@ -26,6 +27,32 @@ it.each(['/etc/passwd', '../../escape'])('rejects an escaping archive symlink %s
 it('permits in-release relative dependency symlinks and binds their targets', () => {
   const bundle = fixture(); fs.symlinkSync('browser/dist.js', path.join(bundle.payload, 'inside'));
   expect(inventoryTree(bundle.payload).find((entry) => entry.path === 'inside')).toMatchObject({ type: 'symlink', target: 'browser/dist.js' });
+});
+it('reports every unsupported entry and unsafe symlink while preserving the first failure code', () => {
+  const root = fixtureRoot(); roots.push(root);
+  fs.writeFileSync(path.join(root, 'a-hardlink'), 'must remain rejected');
+  fs.linkSync(path.join(root, 'a-hardlink'), path.join(root, 'b-hardlink'));
+  fs.symlinkSync('missing', path.join(root, 'c-dangling'));
+  fs.symlinkSync('/outside', path.join(root, 'd-escaping'));
+  execFileSync('mkfifo', [path.join(root, 'e-fifo')]);
+  let error;
+  try { inventoryTree(root); } catch (observed) { error = observed; }
+  expect(error).toMatchObject({ code: 'unsupported_release_file', message: 'unsupported_release_file' });
+  expect(error.violations).toEqual([
+    { path: 'a-hardlink', code: 'unsupported_release_file', reason: 'multiple_links', type: 'file', nlink: 2, link_group: expect.any(String) },
+    { path: 'b-hardlink', code: 'unsupported_release_file', reason: 'multiple_links', type: 'file', nlink: 2, link_group: expect.any(String) },
+    { path: 'c-dangling', code: 'dangling_release_symlink', reason: 'dangling_symlink', type: 'symlink' },
+    { path: 'd-escaping', code: 'escaping_release_symlink', reason: 'escaping_symlink', type: 'symlink' },
+    { path: 'e-fifo', code: 'unsupported_release_file', reason: 'unsupported_type', type: 'fifo', nlink: 1 },
+  ]);
+  expect(error.violations[0].link_group).toBe(error.violations[1].link_group);
+});
+it('keeps a first escaping-symlink error even when a later entry has a different violation', () => {
+  const root = fixtureRoot(); roots.push(root);
+  fs.symlinkSync('/outside', path.join(root, 'a-escaping'));
+  fs.symlinkSync('missing', path.join(root, 'b-dangling'));
+  expect(() => inventoryTree(root)).toThrow('escaping_release_symlink');
+  try { inventoryTree(root); } catch (error) { expect(error.violations.map((item) => item.path)).toEqual(['a-escaping', 'b-dangling']); }
 });
 it.each(INSTALL_CHECK_IDS.filter((id) => !['release_integrity', 'runtime_lock'].includes(id)))('doctor detects %s drift or unavailable evidence', (id) => {
   const bundle = fixture(); const good = healthyObservation(bundle.manifest, bundle.payload);
