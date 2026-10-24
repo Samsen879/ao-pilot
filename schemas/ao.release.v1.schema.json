@@ -156,6 +156,9 @@
         "binary_sha256"
       ],
       "properties": {
+        "kind": {
+          "enum": ["candidate"]
+        },
         "runtime_ref": {
           "type": "string"
         },

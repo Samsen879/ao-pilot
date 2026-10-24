@@ -1,6 +1,6 @@
 import fs from 'node:fs';
-import path from 'node:path';
-import { fileSha256, objectSha256, verifyReleaseTree } from './release-manifest.js';
+import { objectSha256, verifyReleaseTree } from './release-manifest.js';
+import { assertRuntimeLockArtifact } from './release-runtime.js';
 
 export const INSTALL_CHECK_IDS = [
   'release_integrity', 'version_drift', 'runtime_lock', 'tmux_cgroup', 'tmux_generation', 'linger',
@@ -43,12 +43,7 @@ export function inspectInstall({ releaseRoot, observation = {}, baseline = null,
     checks.unit_provenance = truth(Object.values(services).every((service) => service.unit_verified === true));
   }
   try {
-    const lock = JSON.parse(fs.readFileSync(path.join(releaseRoot, 'runtime/agent-orchestrator.lock.json'), 'utf8'));
-    checks.runtime_lock = truth(fileSha256(path.join(releaseRoot, 'runtime/agent-orchestrator.lock.json')) === manifest.runtime_lock.sha256
-      && lock.artifact.ref.commit_sha === manifest.runtime_lock.commit && lock.artifact.ref.tree_sha === manifest.runtime_lock.tree
-      && lock.compatibility.platforms.some((platform) => platform.os === 'linux' && platform.arch === manifest.platform.arch
-        && platform.binary_sha256 === manifest.runtime_lock.binary_sha256)
-      && fileSha256(path.join(releaseRoot, manifest.components.daemon.entrypoint)) === manifest.runtime_lock.binary_sha256);
+    assertRuntimeLockArtifact(releaseRoot, manifest); checks.runtime_lock = 'PASS';
   } catch { checks.runtime_lock = 'FAIL'; }
   const tmux = observation.tmux;
   checks.tmux_cgroup = tmux ? truth(tmux.level === 'PASS' && tmux.status === 'ok') : 'UNKNOWN';
