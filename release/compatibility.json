@@ -1,0 +1,6 @@
+{
+  "schema_version": "ao.schema-compatibility-input.v1",
+  "old_binary_sha256": "45705237dcda7a8916b8291364869c181a1d9d70f7cd636932c301242268909a",
+  "fixture_database": "release/fixtures/empty-schema43.db",
+  "fixture_sha256": "03ba28d7eeadb52cd2293fb1fe3fadd6514ed49b54dda6f917bead8b43d30f84"
+}
