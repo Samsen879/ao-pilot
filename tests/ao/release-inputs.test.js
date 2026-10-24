@@ -41,6 +41,16 @@ it('rejects an unaccounted third link without modifying any registered member', 
   expect(fs.statSync(first).nlink).toBe(3);
   expect(() => inventoryTree(root)).toThrow('unsupported_release_file');
 });
+it('preflights every registered pair before materializing any valid pair', () => {
+  const { root, specs } = fixture(); fs.unlinkSync(path.join(root, specs[1].paths[1]));
+  expect(() => materializeRegisteredReleaseFiles(root, { arch: 'x64' })).toThrow('release_inventory_registration_mismatch');
+  expect(fs.lstatSync(path.join(root, specs[0].paths[0])).nlink).toBe(2);
+  try { materializeRegisteredReleaseFiles(root, { arch: 'x64' }); }
+  catch (error) {
+    expect(error.violations.map((item) => item.path)).toEqual(specs[1].paths);
+    expect(error.violations.every((item) => item.reason === 'missing_registered_peer')).toBe(true);
+  }
+});
 it('rejects missing peers, symlink leaves and dependency directory symlinks', () => {
   for (const mode of ['missing', 'leaf', 'parent']) {
     const { root, specs } = fixture(); const [first, alias] = specs[0].paths.map((name) => path.join(root, name));

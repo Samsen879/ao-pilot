@@ -115,6 +115,7 @@ export async function buildRelease({
       && observedCompatibility.fixture_sha256 === compatibility.fixture_sha256
       && observedCompatibility.schema_after === schemaCurrent && observedCompatibility.integrity === 'ok', 'release_compatibility_result_mismatch');
     fs.copyFileSync(compatibilityResult, path.join(source, 'release/compatibility-result.json'));
+    inventoryPhase = 'registered_inputs';
     const materializedFiles = materializeRegisteredReleaseFiles(source);
     durableJson(path.join(source, 'release/materialized-inputs.json'), { schema_version: 'ao.release-materialized-inputs.v1', files: materializedFiles });
     onStage('inputs_materialized', source);
@@ -188,9 +189,20 @@ export async function buildRelease({
       return { release_id: manifest.release_id, bundle: final, envelope_sha256: envelopeSha256, npm_tarball_sha256: tarballSha };
     } catch (error) { fs.rmSync(partial, { recursive: true, force: true }); throw error; }
   } catch (error) {
+    if (inventoryPhase === 'registered_inputs' && Array.isArray(error.violations)) {
+      try { inventoryTree(source); }
+      catch (inventoryError) {
+        if (Array.isArray(inventoryError.violations)) error.violations.push(...inventoryError.violations);
+      }
+      error.violations.sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
+    }
     if (diagnosticsFile && Array.isArray(error.violations)) {
-      durableJson(path.resolve(diagnosticsFile), { schema_version: 'ao.release-build-diagnostics.v1', commit: resolved, tree,
-        phase: inventoryPhase, result: 'FAIL', failure_code: error.code, violation_count: error.violations.length, violations: error.violations });
+      try {
+        durableJson(path.resolve(diagnosticsFile), { schema_version: 'ao.release-build-diagnostics.v1', commit: resolved, tree,
+          phase: inventoryPhase, result: 'FAIL', failure_code: error.code, violation_count: error.violations.length, violations: error.violations });
+      } catch (diagnosticsError) {
+        error.diagnostics_error_code = diagnosticsError.code ?? 'diagnostics_write_failed';
+      }
     }
     throw error;
   } finally { fs.rmSync(buildRoot, { recursive: true, force: true }); }

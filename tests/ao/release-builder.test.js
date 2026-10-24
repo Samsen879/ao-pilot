@@ -5,6 +5,7 @@ import { afterEach, expect, it } from '@jest/globals';
 import { buildRelease, releaseCommand, verifyReleaseEnvelope } from '../../scripts/ao/lib/release-builder.js';
 import { durableJson, fileSha256, readJson, sha256, verifyReleaseTree } from '../../scripts/ao/lib/release-manifest.js';
 import { fixtureRoot, createBundle } from './release-fixture.js';
+import { registeredReleaseFiles } from '../../scripts/ao/lib/release-inputs.js';
 const roots = [];
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 function fixture() {
@@ -82,6 +83,41 @@ it('persists the complete private inventory diagnosis before cleanup without pac
     ] });
   expect(fs.statSync(diagnosticsFile).mode & 0o777).toBe(0o600);
   expect(options.calls.some(([command, args]) => command === 'npm' && args[0] === 'pack')).toBe(false);
+});
+it('keeps registration failures plus missing peers and unrelated inventory violations in one private diagnosis', async () => {
+  const options = fixture(); if (typeof process.execve !== 'function') return;
+  const diagnosticsFile = path.join(options.root, 'registration-diagnostics.json');
+  const specs = registeredReleaseFiles(); const paths = specs.flatMap((spec) => spec.paths);
+  await expect(buildRelease({ ...options, diagnosticsFile, onStage: (stage, source) => {
+    if (stage !== 'root_dependencies') return;
+    for (const relative of paths) fs.mkdirSync(path.dirname(path.join(source, relative)), { recursive: true });
+    for (const spec of specs) {
+      fs.writeFileSync(path.join(source, spec.paths[0]), 'executable fixture', { mode: 0o755 });
+      fs.chmodSync(path.join(source, spec.paths[0]), 0o755);
+      fs.linkSync(path.join(source, spec.paths[0]), path.join(source, spec.paths[1]));
+    }
+    fs.linkSync(path.join(source, specs[0].paths[0]), path.join(options.root, 'external-link'));
+    fs.unlinkSync(path.join(source, specs[1].paths[1]));
+    fs.writeFileSync(path.join(source, 'unregistered-a'), 'unregistered');
+    fs.linkSync(path.join(source, 'unregistered-a'), path.join(source, 'unregistered-b'));
+  } })).rejects.toMatchObject({ code: 'release_inventory_registration_mismatch' });
+  const report = readJson(diagnosticsFile);
+  expect(report.phase).toBe('registered_inputs');
+  expect(new Set(report.violations.map((row) => row.path))).toEqual(new Set([...paths, 'unregistered-a', 'unregistered-b']));
+  expect(report.violations).toEqual(expect.arrayContaining([
+    expect.objectContaining({ path: specs[0].paths[0], reason: 'unaccounted_link_count' }),
+    expect.objectContaining({ path: specs[1].paths[1], reason: 'missing_registered_peer' }),
+    expect.objectContaining({ path: 'unregistered-a', code: 'unsupported_release_file' }),
+  ]));
+  expect(options.calls.some(([command, args]) => command === 'npm' && args[0] === 'pack')).toBe(false);
+});
+it('preserves the first inventory code when private diagnostic persistence fails', async () => {
+  const options = fixture(); if (typeof process.execve !== 'function') return;
+  const diagnosticsFile = path.join(options.root, 'existing-directory'); fs.mkdirSync(diagnosticsFile);
+  await expect(buildRelease({ ...options, diagnosticsFile, onStage: (stage, source) => {
+    if (stage === 'root_dependencies') fs.linkSync(path.join(source, 'node_modules/fixture.txt'), path.join(source, 'node_modules/linked.txt'));
+  } })).rejects.toMatchObject({ code: 'unsupported_release_file', diagnostics_error_code: 'EISDIR' });
+  expect(fs.statSync(diagnosticsFile).isDirectory()).toBe(true);
 });
 it.each(['/etc/passwd', '../../outside'])('rejects an archive symlink before dependency/build execution: %s', async (target) => {
   const options = fixture(); fs.symlinkSync(target, path.join(options.repository, 'outside'));

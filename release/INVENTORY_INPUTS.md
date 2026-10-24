@@ -54,3 +54,8 @@ group IDs. It is private diagnostic data, not an install public receipt. Normal
 CLI output still reports the fixed first error code and does not print paths.
 The collector does not read FIFOs/devices or follow rejected symlinks, does not
 return a partial accepted inventory, and preserves the original first failure.
+All registered pairs are diagnosed before any materialization. If registration
+fails, missing peers and other registered-group failures are combined with a
+safe full inventory scan, including unrelated violations. Failure to persist
+the optional report is attached as `diagnostics_error_code` and cannot replace
+the original build failure code.
