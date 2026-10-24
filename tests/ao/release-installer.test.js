@@ -13,6 +13,29 @@ function fixture() { const root = fixtureRoot(); roots.push(root); return { root
 const apply = (bundle, config, runner, extra = {}) => applyRelease({ bundle: bundle.bundle, expectedEnvelopeSha256: bundle.envelopeSha, configuration: config, runner, ...extra });
 
 describe('unified release transaction on real temporary filesystem with fake services', () => {
+  it('creates private staging HOME/XDG directories and binds them in the generated environment', async () => {
+    const { root, config } = fixture(); const bundle = createBundle(root);
+    await apply(bundle, config, fakeRunner(root));
+    const env = fs.readFileSync(path.join(config.stateRoot, 'install.env'), 'utf8');
+    for (const [key, suffix] of [['HOME', 'home'], ['XDG_CONFIG_HOME', 'home/.config'], ['XDG_DATA_HOME', 'home/.local/share']]) {
+      const directory = path.join(config.stateRoot, suffix);
+      expect(env).toContain(`${key}="${directory}"`);
+      expect(fs.statSync(directory).mode & 0o777).toBe(0o700);
+    }
+  });
+  it.each(['symlink', 'public-directory'])('refuses a non-private staging home: %s', async (kind) => {
+    const { root, config } = fixture(); const bundle = createBundle(root); const home = path.join(config.stateRoot, 'home');
+    const outside = path.join(root, 'outside'); fs.mkdirSync(outside); fs.writeFileSync(path.join(outside, 'sentinel'), 'preserve');
+    if (kind === 'symlink') fs.symlinkSync(outside, home); else { fs.mkdirSync(home); fs.chmodSync(home, 0o755); }
+    await expect(apply(bundle, config, fakeRunner(root))).rejects.toMatchObject({ code: 'unsafe_staging_home' });
+    expect(fs.readdirSync(outside)).toEqual(['sentinel']);
+    expect(fs.readFileSync(path.join(outside, 'sentinel'), 'utf8')).toBe('preserve');
+  });
+  it('does not change HOME/XDG for the production namespace', async () => {
+    const { root, config } = fixture(); config.namespace = 'ao-pilot'; const bundle = createBundle(root);
+    await apply(bundle, config, fakeRunner(root));
+    expect(fs.readFileSync(path.join(config.stateRoot, 'install.env'), 'utf8')).not.toMatch(/^(HOME|XDG_CONFIG_HOME|XDG_DATA_HOME)=/m);
+  });
   it('installs all components, pins CLI/current, and supports new -> old -> new', async () => {
     const { root, config } = fixture(); const old = createBundle(root); const next = createBundle(root, { version: '2.0.0', commit: 'c'.repeat(40), native: '#!/bin/sh\nexit 0 #new\n' });
     const runner = fakeRunner(root);

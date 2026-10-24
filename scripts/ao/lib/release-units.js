@@ -16,14 +16,20 @@ function safe(value) {
   assertRelease(typeof value === 'string' && value !== '' && !/[\r\n\0"%\\]/.test(value), 'unsafe_unit_value');
   return value;
 }
-export function validateEnvironmentOverride(text) {
+export function stagingHomeEnvironment(stateRoot) {
+  const home = path.join(stateRoot, 'home');
+  return { HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), XDG_DATA_HOME: path.join(home, '.local/share') };
+}
+export function validateEnvironmentOverride(text, { stagingRoot = null } = {}) {
   const assignments = {};
+  const privateHome = stagingRoot ? stagingHomeEnvironment(stagingRoot) : {};
   let section = null;
   for (const raw of String(text).split(/\r?\n/)) {
     const line = raw.trim(); if (!line || line.startsWith('#')) continue;
     if (line === '[Service]' && section === null) { section = 'Service'; continue; }
     const match = line.match(/^Environment="([A-Z_][A-Z_0-9]*)=([^"\\\n\r]*)"$/);
-    assertRelease(section === 'Service' && match && ALLOWED_ENVIRONMENT.has(match[1])
+    assertRelease(section === 'Service' && match && (ALLOWED_ENVIRONMENT.has(match[1])
+      || Object.hasOwn(privateHome, match[1]) && privateHome[match[1]] === match[2])
       && !Object.hasOwn(assignments, match[1]), 'unsafe_unit_override');
     assignments[match[1]] = safe(match[2]);
   }

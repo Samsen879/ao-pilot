@@ -5,7 +5,7 @@ import { adapterConfiguration, adapterConfigPath } from './release-adapter.js';
 import { acquireInstallLock } from './release-lock.js';
 import { verifyReleaseEnvelope } from './release-builder.js';
 import { assertRelease, durableJson, fileSha256, objectSha256, readJson, syncDirectory, syncTree, verifyReleaseTree } from './release-manifest.js';
-import { backupAndInstallUnits, restoreUnitBackup, writeReleaseUnits, renderReleaseUnits, validateEnvironmentOverride } from './release-units.js';
+import { backupAndInstallUnits, restoreUnitBackup, writeReleaseUnits, renderReleaseUnits, validateEnvironmentOverride, stagingHomeEnvironment } from './release-units.js';
 import { inspectInstall, nativeBindingsUnchanged } from './install-doctor.js';
 import { publicInstallReceipt, savePrivateInstallReceipt } from './release-receipt.js';
 import { assertRuntimeLockArtifact } from './release-runtime.js';
@@ -48,11 +48,23 @@ function writeEnvironment(configuration, lock, manifest, releaseRoot) {
     AO_DASHBOARD_PORT: String(configuration.listenPorts[1]),
     AO_DASHBOARD_TERMINAL_ACCESS: '1', AO_DASHBOARD_READ_ONLY: '1', AO_DASHBOARD_AUTOMATION: '0', NODE_ENV: 'production',
   };
+  const stagingRoot = configuration.namespace.startsWith('ao-pilot-staging-') ? configuration.stateRoot : null;
+  const privateHome = stagingRoot ? stagingHomeEnvironment(stagingRoot) : {};
+  Object.assign(environment, privateHome);
   const text = `[Service]\n${Object.entries(environment).map(([key, value]) => `Environment="${key}=${value}"`).join('\n')}\n`;
-  validateEnvironmentOverride(text);
+  validateEnvironmentOverride(text, { stagingRoot });
   // EnvironmentFile uses bare quoted assignments, not unit directives.
   const body = Object.entries(environment).map(([key, value]) => `${key}="${value}"`).join('\n') + '\n';
   lock.assertOwned(); fs.mkdirSync(configuration.stateRoot, { recursive: true, mode: 0o700 });
+  if (stagingRoot) {
+    for (const directory of [privateHome.HOME, privateHome.XDG_CONFIG_HOME, path.join(privateHome.HOME, '.local'), privateHome.XDG_DATA_HOME]) {
+      lock.assertOwned();
+      if (!fs.existsSync(directory)) fs.mkdirSync(directory, { mode: 0o700 });
+      const stat = fs.lstatSync(directory);
+      assertRelease(stat.isDirectory() && !stat.isSymbolicLink() && stat.uid === process.getuid()
+        && (stat.mode & 0o077) === 0 && fs.realpathSync(directory) === directory, 'unsafe_staging_home');
+    }
+  }
   const target = path.join(configuration.stateRoot, 'install.env');
   const temp = `${target}.tmp-${randomUUID()}`;
   fs.writeFileSync(temp, body, { mode: 0o600 });
