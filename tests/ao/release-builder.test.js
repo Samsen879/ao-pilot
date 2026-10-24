@@ -9,6 +9,7 @@ import { registeredReleaseFiles } from '../../scripts/ao/lib/release-inputs.js';
 import { packedFiles } from '../../scripts/ao/lib/release-tarball.js';
 import { assertRuntimeLockArtifact, resolveUnifiedRuntime } from '../../scripts/ao/lib/release-runtime.js';
 import { applyRelease } from '../../scripts/ao/lib/release-installer.js';
+import { inspectRuntimeControl } from '../../scripts/ao/lib/runtime-control.js';
 const roots = [];
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 function fixture() {
@@ -83,6 +84,11 @@ it('exports immutable archive and packs once; verifier and installer consume the
   const runtime = resolveUnifiedRuntime({ env: { AO_INSTALL_ROOT: install } });
   expect(runtime.source).toMatchObject({ commit_sha: manifest.commit, tree_sha: manifest.tree, version: manifest.version, tag: null });
   expect(runtime.source_runtime_lock.commit_sha).toBe('a'.repeat(40));
+  const doctor = inspectRuntimeControl({ env: { AO_INSTALL_ROOT: install, AO_PILOT_RUNTIME_STORE: install },
+    storeRoot: install, spawn: () => ({ status: 0, stdout: '', stderr: '' }) });
+  expect(doctor.status).toBe('verified');
+  expect(doctor.runtime.source).toMatchObject({ commit_sha: manifest.commit, tag: null });
+  expect(doctor.runtime.source_runtime_lock).toEqual(runtime.source_runtime_lock);
   // The real installer/doctor path accepts the new pin too (effects are fixture-only).
   const config = configuration(options.root);
   const receipt = await applyRelease({ bundle: result.bundle, expectedEnvelopeSha256: result.envelope_sha256,

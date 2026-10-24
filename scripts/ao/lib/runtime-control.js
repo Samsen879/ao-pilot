@@ -37,6 +37,7 @@ function sanitizeResolution(resolution) {
     source: resolution.source,
     compatibility: resolution.compatibility,
     path_candidate: resolution.path_candidate,
+    ...(resolution.source_runtime_lock ? { source_runtime_lock: resolution.source_runtime_lock } : {}),
   };
 }
 
