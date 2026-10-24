@@ -91,14 +91,38 @@ remains **previous + pre-migration backup** until its complete behavior is
 verified. The loss window is backup completion through writer stop at rollback;
 external effects are not undone, and worktrees are not overwritten by DB restore.
 
-### Remaining verifier blocker
+### Original verifier blocker and corrected boot contract
 
-The real empty-fixture verifier currently returns
+The initial L1 empty-fixture verifier returned
 `compatibility_candidate_failed`: after the candidate daemon starts, schema is
 44 and session/worktree counts remain zero, but it creates one default scratch
-project. The verifier requires the post-start project count to remain zero.
-The old phase of that verifier is therefore NOT_RUN, and no generated
-`previous_reader_compatible` result or complete release PASS is claimed.
-This input-only change does not change or weaken that verifier, the daemon,
+project. The verifier required the post-start project count to remain zero.
+The old phase of that attempt was therefore NOT_RUN, and no generated
+`previous_reader_compatible` result or complete release PASS was claimed for
+that attempt.
+The input-only PR did not change that verifier, the daemon,
 the installer, the runtime lock or any production service. Source review and
 merge of these inputs do not establish L1 staging or production acceptance.
+
+The separate verifier correction retains the empty input requirement. After
+candidate boot it accepts either no projects, or exactly the built-in `scratch`
+row: scratch kind, default name, no origin/archive, the exact private candidate
+DataDir's `scratch/default` path, a registration time within the owned probe
+(with one second of timestamp tolerance),
+and only the default role configuration. The probe explicitly pins the agent
+to `claude-code`; hooks, tracker intake and additional config are rejected.
+All project columns are inspected, not just the count or display name.
+
+The old reader must preserve the complete validated project snapshot, including
+the original candidate path, timestamp and raw config. Deletion, reseeding,
+relocation, any metadata mutation or extra project makes it incompatible.
+Schema/version, integrity, foreign keys, zero sessions/worktrees, exact input
+hashes and owned-process exit checks remain mandatory. The input database is
+never pre-seeded or modified. An older artifact that does not seed is still
+supported, but it may not add a project when reading the candidate's copy.
+
+Real empty-fixture replay with the unchanged native development binary and the
+two exact old artifacts above passed migration 43→44 and old-reader checks.
+This corrects the schema harness contract; complete release construction,
+staging, recovery/write behavior and production acceptance retain their
+separate gates and historical FAIL/NOT_RUN qualifications.

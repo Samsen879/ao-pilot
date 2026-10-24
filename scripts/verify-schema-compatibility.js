@@ -8,16 +8,37 @@ import { fileURLToPath } from 'node:url';
 import { assertRelease, durableJson, fileSha256, objectSha256 } from './ao/lib/release-manifest.js';
 import { processStartToken } from './ao/lib/release-lock.js';
 
-function sql(database, statement) {
-  const result = spawnSync('sqlite3', ['-readonly', database, statement], { encoding: 'utf8', timeout: 10000 });
+function sql(database, statement, json = false) {
+  const result = spawnSync('sqlite3', ['-readonly', ...(json ? ['-json'] : []), database, statement], { encoding: 'utf8', timeout: 10000 });
   assertRelease(!result.error && result.status === 0, 'compatibility_database_unknown'); return result.stdout.trim();
 }
 function databaseEvidence(database) {
   return { schema: Number(sql(database, 'SELECT MAX(version_id) FROM goose_db_version WHERE is_applied=1;')),
     integrity: sql(database, 'PRAGMA integrity_check;'), foreign_keys: sql(database, 'PRAGMA foreign_key_check;'),
     session_count: Number(sql(database, 'SELECT count(*) FROM sessions;')), project_count: Number(sql(database, 'SELECT count(*) FROM projects;')),
+    projects: JSON.parse(sql(database, 'SELECT * FROM projects ORDER BY id;', true) || '[]'),
     worktree_count: Number(sql(database, 'SELECT count(*) FROM session_worktrees;')),
     schema_sha256: objectSha256(sql(database, "SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name;")) };
+}
+function hasProjectSnapshot(evidence) {
+  return Array.isArray(evidence.projects) && evidence.project_count === evidence.projects.length;
+}
+function hasExpectedBootProjects(evidence, data, startedAt, finishedAt) {
+  if (!hasProjectSnapshot(evidence)) return false;
+  if (evidence.project_count === 0) return true; // Older artifacts need not seed.
+  if (evidence.project_count !== 1) return false;
+  const row = evidence.projects[0];
+  if (!row || Object.keys(row).sort().join(',') !== 'archived_at,config,display_name,id,kind,path,registered_at,repo_origin_url') return false;
+  const registered = typeof row.registered_at === 'string' ? Date.parse(row.registered_at) : NaN;
+  if (row.id !== 'scratch' || row.kind !== 'scratch' || row.display_name !== 'Scratch'
+    || row.path !== path.join(data, 'scratch', 'default') || row.repo_origin_url !== '' || row.archived_at !== null
+    || !Number.isFinite(registered) || registered < startedAt - 1000 || registered > finishedAt + 1000) return false;
+  // The probe pins AO_AGENT below. No hooks, tracker intake or user settings
+  // are allowed merely because a project calls itself "scratch".
+  const expectedConfig = { agentConfig: {}, worker: { agent: 'claude-code', agentConfig: {} },
+    orchestrator: { agent: 'claude-code', agentConfig: {} }, trackerIntake: {} };
+  try { return typeof row.config === 'string' && objectSha256(JSON.parse(row.config)) === objectSha256(expectedConfig); }
+  catch { return false; }
 }
 async function freePort() {
   const server = net.createServer(); await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
@@ -32,7 +53,7 @@ async function probeBinary(binary, data, root) {
   const log = fs.openSync(path.join(root, 'private-daemon.log'), 'wx', 0o600);
   const namespace = `ao-pilot-staging-schema-${path.basename(root).replace(/[^a-z0-9]/gi, '').toLowerCase()}`;
   const environment = { PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), XDG_DATA_HOME: path.join(home, '.local/share'),
-    AO_DATA_DIR: data, AO_RUN_FILE: path.join(discovery, 'running.json'), AO_HOST: '127.0.0.1', AO_PORT: String(port), AO_NETWORK_DISABLED: '1',
+    AO_DATA_DIR: data, AO_RUN_FILE: path.join(discovery, 'running.json'), AO_HOST: '127.0.0.1', AO_PORT: String(port), AO_NETWORK_DISABLED: '1', AO_AGENT: 'claude-code',
     AO_TMUX_SOCKET: namespace, AO_TMUX_UNIT: `${namespace}-tmux.service`, AO_TMUX_TMPDIR: path.join(root, 'tmux'), TMUX_TMPDIR: path.join(root, 'tmux') };
   const child = spawn(binary, ['daemon'], { env: environment, cwd: root, stdio: ['ignore', log, log] });
   let exited = false; let spawnError = null;
@@ -72,22 +93,29 @@ export async function verifySchemaCompatibility({ candidateBinary, oldBinary, fi
   assertRelease(process.platform === 'linux', 'release_platform_unsupported');
   const candidateSha = fileSha256(candidateBinary); const oldSha = fileSha256(oldBinary); const fixtureSha = fileSha256(fixtureDatabase);
   const fixture = inspect(fixtureDatabase);
-  assertRelease(fixture.session_count === 0 && fixture.project_count === 0 && fixture.worktree_count === 0 && fixture.integrity === 'ok' && fixture.foreign_keys === '', 'compatibility_fixture_not_empty');
+  assertRelease(fixture.session_count === 0 && fixture.project_count === 0 && hasProjectSnapshot(fixture)
+    && fixture.worktree_count === 0 && fixture.integrity === 'ok' && fixture.foreign_keys === '', 'compatibility_fixture_not_empty');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-schema-compatibility-'));
   try {
     const candidateRoot = path.join(root, 'candidate'); const candidateData = path.join(candidateRoot, 'data'); fs.mkdirSync(candidateData, { recursive: true, mode: 0o700 });
     fs.copyFileSync(fixtureDatabase, path.join(candidateData, 'ao.db'));
+    const candidateStartedAt = Date.now();
     await probe(candidateBinary, candidateData, candidateRoot);
+    const candidateFinishedAt = Date.now();
     const candidate = inspect(path.join(candidateData, 'ao.db'));
     assertRelease(candidate.schema === expectedSchema && candidate.integrity === 'ok' && candidate.foreign_keys === ''
-      && candidate.session_count === 0 && candidate.project_count === 0 && candidate.worktree_count === 0, 'compatibility_candidate_failed');
+      && candidate.session_count === 0 && candidate.worktree_count === 0
+      && hasExpectedBootProjects(candidate, candidateData, candidateStartedAt, candidateFinishedAt), 'compatibility_candidate_failed');
+    const candidateProjectsSha = objectSha256(candidate.projects);
     const oldRoot = path.join(root, 'old'); const oldData = path.join(oldRoot, 'data'); fs.mkdirSync(oldData, { recursive: true, mode: 0o700 });
     fs.copyFileSync(path.join(candidateData, 'ao.db'), path.join(oldData, 'ao.db'));
     let oldResult = 'failed';
     try {
       await probe(oldBinary, oldData, oldRoot); const old = inspect(path.join(oldData, 'ao.db'));
       if (old.schema === expectedSchema && old.schema_sha256 === candidate.schema_sha256 && old.integrity === 'ok'
-        && old.foreign_keys === '' && old.session_count === 0 && old.project_count === 0 && old.worktree_count === 0) oldResult = 'passed';
+        && old.foreign_keys === '' && old.session_count === 0 && old.worktree_count === 0
+        && hasProjectSnapshot(old) && old.project_count === candidate.project_count
+        && objectSha256(old.projects) === candidateProjectsSha) oldResult = 'passed';
     } catch (error) { if (error.code === 'compatibility_process_exit_unknown') throw error; }
     assertRelease(fileSha256(candidateBinary) === candidateSha && fileSha256(oldBinary) === oldSha && fileSha256(fixtureDatabase) === fixtureSha, 'compatibility_input_changed');
     const report = { schema_version: 'ao.schema-compatibility-result.v1', candidate_binary_sha256: candidateSha,
