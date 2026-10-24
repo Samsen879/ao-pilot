@@ -85,6 +85,19 @@ release ID 为 `<version>+<commit-sha>`；用完整 commit 防止缩写冲突。
 - `toolchain`：Go 精确 `1.25.x`（建议沿用锁的 1.25.7）、`CGO_ENABLED:"0"`、Node/npm、Git、tmux 的版本，以及外部 node/tmux executable SHA256。
 - `database`：`schema_current`（当前为 43）、`schema_min_readable` / `schema_max_readable`，明确由兼容性测试产生，不能凭 migration Down 段推定可回退。
 - `runtime_lock`：runtime_ref、lock 文件 SHA256、目标 runtime commit/tree；安装 manifest commit 和 lock 必须显式对齐或被 doctor 报 drift，不能静默从 p0.4 引导旧 binary。
+
+候选在 canonical tag/lock promotion 之前验证：builder 生成固定路径
+`release/runtime-pin.json`（`ao.release-runtime-pin.v1`），manifest 的
+`runtime_lock.kind=candidate` 显式绑定该文件摘要、当前 commit/tree、版本、
+release ID、平台与实际 daemon SHA256。原 `runtime/agent-orchestrator.lock.json`
+保持原字节，仍按严格 annotated-tag schema 验证，并以 `source_lock_sha256`
+作为构建输入绑定；它不再被误认作候选执行目标。安装与 doctor 共用同一判定：
+pin/manifest/daemon component/磁盘 binary/原输入锁须全部一致，缺失、未知 kind、
+跨 release/平台、源 commit 不符或任何摘要改变一律阻断。不带 kind 的旧 manifest
+继续执行原有“binary 必须匹配 annotated-tag lock”判定。CLI 的候选 source
+报告真实 commit/tree/version 与 `tag=null`，另列原输入锁身份，不能冒充已 promotion。
+本规则不改变 legacy bootstrap 的 tag 校验、不提前打 tag 或改仓库 canonical lock；
+L4 再把生产验证过的同一候选 commit/tree/binary 提升为 canonical annotated tag/lock。
 - `components`：daemon、CLI、Dashboard、adapter 各自 entrypoint、SHA256、源 commit；多文件组件的 SHA256 为规范化清单的摘要。清单按相对路径字节排序，记录文件类型、mode、大小、文件 SHA256 或相对 symlink target；拒绝绝对/逃逸 symlink，确保 dist、assets、依赖都被绑定。
 - `inputs`：git archive SHA256、根/browser lock SHA256、source-import identity、最终 npm tarball SHA256、unit 模板摘要；`artifacts` 列出所有 Linux 制品 digest。
 

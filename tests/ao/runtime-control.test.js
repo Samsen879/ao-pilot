@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+const actualRuntimeLock = await import('../../scripts/ao/lib/runtime-lock.js');
 
 const mockResolveManagedRuntime = jest.fn();
 const mockVerifyReceipt = jest.fn();
@@ -29,6 +30,7 @@ jest.unstable_mockModule('../../scripts/ao/lib/runtime-bootstrap.js', () => ({
   verifyRuntimeBootstrapReceipt: mockVerifyReceipt,
 }));
 jest.unstable_mockModule('../../scripts/ao/lib/runtime-lock.js', () => ({
+  ...actualRuntimeLock,
   loadRuntimeLock: mockLoadRuntimeLock,
   computeRuntimeLockDigest: () => 'sha256:runtime-lock',
 }));

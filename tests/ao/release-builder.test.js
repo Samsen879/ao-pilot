@@ -4,9 +4,12 @@ import { spawnSync } from 'node:child_process';
 import { afterEach, expect, it } from '@jest/globals';
 import { buildRelease, releaseCommand, verifyReleaseEnvelope } from '../../scripts/ao/lib/release-builder.js';
 import { durableJson, fileSha256, readJson, sha256, verifyReleaseTree } from '../../scripts/ao/lib/release-manifest.js';
-import { fixtureRoot, createBundle } from './release-fixture.js';
+import { fixtureRoot, createBundle, configuration, fakeRunner } from './release-fixture.js';
 import { registeredReleaseFiles } from '../../scripts/ao/lib/release-inputs.js';
 import { packedFiles } from '../../scripts/ao/lib/release-tarball.js';
+import { assertRuntimeLockArtifact, resolveUnifiedRuntime } from '../../scripts/ao/lib/release-runtime.js';
+import { applyRelease } from '../../scripts/ao/lib/release-installer.js';
+import { inspectRuntimeControl } from '../../scripts/ao/lib/runtime-control.js';
 const roots = [];
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 function fixture() {
@@ -23,7 +26,11 @@ function fixture() {
     'templates/systemd/ao-pilot-runtime.service': '[Service]\nExecStart={{CURRENT}}/native/ao',
   };
   for (const [file, content] of Object.entries(files)) { const absolute = path.join(repository, file); fs.mkdirSync(path.dirname(absolute), { recursive: true }); fs.writeFileSync(absolute, content); }
-  durableJson(path.join(repository, 'runtime/agent-orchestrator.lock.json'), { runtime_ref: 'fixture.runtime', artifact: { ref: { commit_sha: 'a'.repeat(40), tree_sha: 'b'.repeat(40) } }, compatibility: { platforms: [{ os: 'linux', arch: process.arch, binary_sha256: sha256(native) }] } });
+  const sourceLock = readJson(new URL('../../runtime/agent-orchestrator.lock.json', import.meta.url));
+  sourceLock.artifact.ref.commit_sha = 'a'.repeat(40); sourceLock.artifact.ref.tree_sha = 'b'.repeat(40);
+  sourceLock.artifact.integrity.digest = 'b'.repeat(40);
+  sourceLock.compatibility.platforms = [{ os: 'linux', arch: process.arch, binary_sha256: sha256(native) }];
+  durableJson(path.join(repository, 'runtime/agent-orchestrator.lock.json'), sourceLock);
   const oldBinary = path.join(root, 'old-native-artifact'); fs.writeFileSync(oldBinary, native, { mode: 0o755 });
   durableJson(path.join(repository, 'release/compatibility.json'), { schema_version: 'ao.schema-compatibility-input.v1',
     old_binary_sha256: fileSha256(oldBinary), fixture_database: 'release/fixture/ao.db',
@@ -65,6 +72,29 @@ it('exports immutable archive and packs once; verifier and installer consume the
   expect(options.calls.filter(([command, args]) => command === 'npm' && args[0] === 'pack')).toHaveLength(1);
   expect(envelope.npm_tarball_sha256).toBe(result.npm_tarball_sha256);
   expect(verifyReleaseTree(path.join(result.bundle, 'payload')).components.adapter.entrypoint).toBe('adapter/server.mjs');
+  const payload = path.join(result.bundle, 'payload');
+  const { pin, lock } = assertRuntimeLockArtifact(payload, manifest);
+  expect(pin.commit).toBe(manifest.commit);
+  expect(lock.artifact.ref.commit_sha).toBe('a'.repeat(40)); // Input is not promoted.
+  expect(manifest.runtime_lock.commit).toBe(manifest.commit);
+  const install = path.join(options.root, 'candidate-install');
+  const installed = path.join(install, 'releases', result.release_id);
+  fs.mkdirSync(path.dirname(installed), { recursive: true }); fs.cpSync(payload, installed, { recursive: true });
+  fs.symlinkSync(`releases/${result.release_id}`, path.join(install, 'current'));
+  const runtime = resolveUnifiedRuntime({ env: { AO_INSTALL_ROOT: install } });
+  expect(runtime.source).toMatchObject({ commit_sha: manifest.commit, tree_sha: manifest.tree, version: manifest.version, tag: null });
+  expect(runtime.source_runtime_lock.commit_sha).toBe('a'.repeat(40));
+  const doctor = inspectRuntimeControl({ env: { AO_INSTALL_ROOT: install, AO_PILOT_RUNTIME_STORE: install },
+    storeRoot: install, spawn: () => ({ status: 0, stdout: '', stderr: '' }) });
+  expect(doctor.status).toBe('verified');
+  expect(doctor.runtime.source).toMatchObject({ commit_sha: manifest.commit, tag: null });
+  expect(doctor.runtime.source_runtime_lock).toEqual(runtime.source_runtime_lock);
+  // The real installer/doctor path accepts the new pin too (effects are fixture-only).
+  const config = configuration(options.root);
+  const receipt = await applyRelease({ bundle: result.bundle, expectedEnvelopeSha256: result.envelope_sha256,
+    configuration: config, runner: fakeRunner(options.root) });
+  expect(receipt.result).toBe('passed');
+  expect(receipt.checks.runtime_lock).toBe('PASS');
 });
 it('missing adapter rejects a complete release without inventing recovery replacement', async () => {
   const options = fixture();

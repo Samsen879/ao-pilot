@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import { verifyPackedRelease, payloadOnlyPath } from './release-tarball.js';
 import { NATIVE_ADAPTER_SOURCE } from './release-adapter.js';
 import { materializeRegisteredReleaseFiles } from './release-inputs.js';
+import { CANDIDATE_RUNTIME_PIN, candidateRuntimeRef } from './release-runtime.js';
+import { normalizeRuntimeLock } from './runtime-lock.js';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -120,7 +122,11 @@ export async function buildRelease({
     durableJson(path.join(source, 'release/materialized-inputs.json'), { schema_version: 'ao.release-materialized-inputs.v1', files: materializedFiles });
     onStage('inputs_materialized', source);
     const lockFile = path.join(source, 'runtime/agent-orchestrator.lock.json');
-    const lock = readJson(lockFile);
+    normalizeRuntimeLock(readJson(lockFile));
+    const runtimePin = { schema_version: 'ao.release-runtime-pin.v1', release_id: `${version}+${resolved}`, version,
+      runtime_ref: candidateRuntimeRef(version), commit: resolved, tree, platform: { os: 'linux', arch: process.arch },
+      binary_sha256: fileSha256(path.join(source, 'native/ao')), source_lock_sha256: fileSha256(lockFile) };
+    durableJson(path.join(source, CANDIDATE_RUNTIME_PIN), runtimePin);
     const packageMetadata = readJson(path.join(source, 'package.json'));
     inventoryPhase = 'built_payload';
     // npm interprets files entries as glob patterns, including literal Next routes.
@@ -130,7 +136,7 @@ export async function buildRelease({
     const files = inventoryTree(source);
     const scopes = {
       daemon: { entrypoint: 'native/ao', roots: ['native'] },
-      cli: { entrypoint: 'bin/ao-pilot.js', roots: ['bin', 'scripts', 'lib', 'schemas', 'templates', 'runtime', 'node_modules', 'package.json', 'package-lock.json'] },
+      cli: { entrypoint: 'bin/ao-pilot.js', roots: ['bin', 'scripts', 'lib', 'schemas', 'templates', 'runtime', CANDIDATE_RUNTIME_PIN, 'node_modules', 'package.json', 'package-lock.json'] },
       dashboard: { entrypoint: 'scripts/ao-dashboard.js', roots: ['browser', 'scripts/ao-dashboard.js'] },
       adapter: { entrypoint: adapterEntry, roots: [adapterRoot] },
     };
@@ -146,8 +152,8 @@ export async function buildRelease({
         compatibility_evidence_sha256: fileSha256(compatibilityResult), previous_binary_sha256: compatibility.old_binary_sha256,
         previous_reader_compatible: observedCompatibility.old_reader_result === 'passed',
       },
-      runtime_lock: { runtime_ref: lock.runtime_ref, sha256: fileSha256(lockFile), commit: lock.artifact.ref.commit_sha, tree: lock.artifact.ref.tree_sha,
-        binary_sha256: lock.compatibility.platforms.find((platform) => platform.os === 'linux' && platform.arch === process.arch)?.binary_sha256 },
+      runtime_lock: { kind: 'candidate', runtime_ref: runtimePin.runtime_ref, sha256: fileSha256(path.join(source, CANDIDATE_RUNTIME_PIN)),
+        commit: resolved, tree, binary_sha256: runtimePin.binary_sha256 },
       components, files,
       inputs: {
         archive_sha256: fileSha256(archive), root_lock_sha256: fileSha256(path.join(source, 'package-lock.json')),
