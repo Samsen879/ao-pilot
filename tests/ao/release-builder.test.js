@@ -69,6 +69,20 @@ it('missing adapter rejects a complete release without inventing recovery replac
   await expect(buildRelease({ ...options, adapter: null })).rejects.toMatchObject({ code: typeof process.execve === 'function' ? 'release_adapter_source_missing' : 'release_node_execve_required' });
   expect(options.calls.some(([command, args]) => command === 'npm' && args[0] === 'ci')).toBe(false);
 });
+it('persists the complete private inventory diagnosis before cleanup without packing or changing the failure', async () => {
+  const options = fixture(); if (typeof process.execve !== 'function') return;
+  const diagnosticsFile = path.join(options.root, 'private-diagnostics.json');
+  await expect(buildRelease({ ...options, diagnosticsFile, onStage: (stage, source) => {
+    if (stage === 'root_dependencies') fs.linkSync(path.join(source, 'node_modules/fixture.txt'), path.join(source, 'node_modules/linked.txt'));
+  } })).rejects.toMatchObject({ code: 'unsupported_release_file' });
+  expect(readJson(diagnosticsFile)).toMatchObject({ schema_version: 'ao.release-build-diagnostics.v1', phase: 'built_payload', result: 'FAIL',
+    failure_code: 'unsupported_release_file', violation_count: 2, violations: [
+      { path: 'node_modules/fixture.txt', reason: 'multiple_links', type: 'file', nlink: 2 },
+      { path: 'node_modules/linked.txt', reason: 'multiple_links', type: 'file', nlink: 2 },
+    ] });
+  expect(fs.statSync(diagnosticsFile).mode & 0o777).toBe(0o600);
+  expect(options.calls.some(([command, args]) => command === 'npm' && args[0] === 'pack')).toBe(false);
+});
 it.each(['/etc/passwd', '../../outside'])('rejects an archive symlink before dependency/build execution: %s', async (target) => {
   const options = fixture(); fs.symlinkSync(target, path.join(options.repository, 'outside'));
   releaseCommand('git', ['add', 'outside'], { cwd: options.repository }); releaseCommand('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'unsafe fixture'], { cwd: options.repository });

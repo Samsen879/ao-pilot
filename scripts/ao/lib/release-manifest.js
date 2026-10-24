@@ -37,29 +37,55 @@ export function durableJson(file, value) {
   fs.renameSync(temp, file); syncDirectory(path.dirname(file));
 }
 export function inventoryTree(root, { exclude = ['release.json'] } = {}) {
-  const records = [];
+  const records = []; const violations = []; let firstError;
+  function reject(relative, error, reason, details = {}) {
+    firstError ??= error;
+    violations.push({ path: relative || '.', code: error.code, reason, ...details });
+  }
   function walk(relative) {
     const absolute = path.join(root, relative);
-    const stat = fs.lstatSync(absolute);
+    let stat;
+    try { stat = fs.lstatSync(absolute); }
+    catch (error) { reject(relative, error, 'metadata_unreadable'); return; }
     const mode = stat.mode & 0o777;
     if (stat.isSymbolicLink()) {
-      const target = fs.readlinkSync(absolute);
+      let target;
+      try { target = fs.readlinkSync(absolute); }
+      catch (error) { reject(relative, error, 'symlink_unreadable'); return; }
       const destination = path.resolve(path.dirname(absolute), target);
-      assertRelease(!path.isAbsolute(target) && (destination === path.resolve(root) || destination.startsWith(`${path.resolve(root)}${path.sep}`)), 'escaping_release_symlink');
-      assertRelease(fs.existsSync(destination), 'dangling_release_symlink');
+      if (path.isAbsolute(target) || !(destination === path.resolve(root) || destination.startsWith(`${path.resolve(root)}${path.sep}`))) {
+        reject(relative, releaseError('escaping_release_symlink'), 'escaping_symlink', { type: 'symlink' }); return;
+      }
+      if (!fs.existsSync(destination)) {
+        reject(relative, releaseError('dangling_release_symlink'), 'dangling_symlink', { type: 'symlink' }); return;
+      }
       records.push({ path: relative, type: 'symlink', mode, size: Buffer.byteLength(target), target });
     } else if (stat.isDirectory()) {
       if (relative) records.push({ path: relative, type: 'directory', mode, size: 0 });
-      for (const name of fs.readdirSync(absolute).sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)))) {
+      let names;
+      try { names = fs.readdirSync(absolute); }
+      catch (error) { reject(relative, error, 'directory_unreadable', { type: 'directory' }); return; }
+      for (const name of names.sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)))) {
         const child = relative ? `${relative}/${name}` : name;
         if (!exclude.includes(child)) walk(child);
       }
     } else {
-      assertRelease(stat.isFile() && stat.nlink === 1, 'unsupported_release_file');
-      records.push({ path: relative, type: 'file', mode, size: stat.size, sha256: fileSha256(absolute) });
+      if (!stat.isFile() || stat.nlink !== 1) {
+        const type = stat.isFile() ? 'file' : stat.isFIFO() ? 'fifo' : stat.isSocket() ? 'socket'
+          : stat.isBlockDevice() ? 'block_device' : stat.isCharacterDevice() ? 'character_device' : 'unknown';
+        reject(relative, releaseError('unsupported_release_file'), stat.isFile() ? (stat.nlink > 1 ? 'multiple_links' : 'invalid_link_count') : 'unsupported_type',
+          { type, nlink: stat.nlink, ...(stat.isFile() ? { link_group: sha256(`${stat.dev}:${stat.ino}`) } : {}) });
+        return; // Never read a rejected entry (in particular a FIFO or device).
+      }
+      try { records.push({ path: relative, type: 'file', mode, size: stat.size, sha256: fileSha256(absolute) }); }
+      catch (error) { reject(relative, error, 'file_unreadable', { type: 'file' }); }
     }
   }
   walk('');
+  if (firstError) {
+    firstError.violations = violations.sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
+    throw firstError; // Keep the original verdict, first code and message.
+  }
   return records.sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
 }
 function validateSchema(value, schema, label = 'manifest') {

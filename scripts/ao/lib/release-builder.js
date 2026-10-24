@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { verifyPackedRelease, payloadOnlyPath } from './release-tarball.js';
 import { NATIVE_ADAPTER_SOURCE } from './release-adapter.js';
+import { materializeRegisteredReleaseFiles } from './release-inputs.js';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -35,7 +36,7 @@ export function verifyReleaseEnvelope(bundle, expectedSha256) {
   return { envelope, manifest };
 }
 export async function buildRelease({
-  repository, commit = 'HEAD', version, output, adapter = undefined, compatibilityEvidence, oldBinary,
+  repository, commit = 'HEAD', version, output, adapter = undefined, compatibilityEvidence, oldBinary, diagnosticsFile,
   env = process.env, run = releaseCommand, verifyPackage = true,
   now = () => new Date().toISOString(), onStage = () => {},
 } = {}) {
@@ -48,6 +49,7 @@ export async function buildRelease({
   const buildRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-release-build-'));
   const source = path.join(buildRoot, 'payload');
   const archive = path.join(buildRoot, 'source.tar');
+  let inventoryPhase = 'archive';
   try {
     fs.mkdirSync(source, { mode: 0o700 });
     run('git', ['archive', '--format=tar', '-o', archive, resolved], { cwd: repository, env });
@@ -113,9 +115,13 @@ export async function buildRelease({
       && observedCompatibility.fixture_sha256 === compatibility.fixture_sha256
       && observedCompatibility.schema_after === schemaCurrent && observedCompatibility.integrity === 'ok', 'release_compatibility_result_mismatch');
     fs.copyFileSync(compatibilityResult, path.join(source, 'release/compatibility-result.json'));
+    const materializedFiles = materializeRegisteredReleaseFiles(source);
+    durableJson(path.join(source, 'release/materialized-inputs.json'), { schema_version: 'ao.release-materialized-inputs.v1', files: materializedFiles });
+    onStage('inputs_materialized', source);
     const lockFile = path.join(source, 'runtime/agent-orchestrator.lock.json');
     const lock = readJson(lockFile);
     const packageMetadata = readJson(path.join(source, 'package.json'));
+    inventoryPhase = 'built_payload';
     packageMetadata.files = [...new Set(['release.json', ...inventoryTree(source).filter((file) => file.type !== 'directory' && !payloadOnlyPath(file.path)).map((file) => file.path)])];
     fs.writeFileSync(path.join(source, 'package.json'), `${JSON.stringify(packageMetadata, null, 2)}\n`);
     const files = inventoryTree(source);
@@ -149,6 +155,7 @@ export async function buildRelease({
       },
     };
     durableJson(path.join(source, 'release.json'), canonical(manifest));
+    inventoryPhase = 'manifest_verification';
     verifyReleaseTree(source);
     onStage('manifest', source);
     const packDir = path.join(buildRoot, 'pack'); fs.mkdirSync(packDir);
@@ -180,5 +187,11 @@ export async function buildRelease({
       fs.renameSync(partial, final); syncDirectory(output);
       return { release_id: manifest.release_id, bundle: final, envelope_sha256: envelopeSha256, npm_tarball_sha256: tarballSha };
     } catch (error) { fs.rmSync(partial, { recursive: true, force: true }); throw error; }
+  } catch (error) {
+    if (diagnosticsFile && Array.isArray(error.violations)) {
+      durableJson(path.resolve(diagnosticsFile), { schema_version: 'ao.release-build-diagnostics.v1', commit: resolved, tree,
+        phase: inventoryPhase, result: 'FAIL', failure_code: error.code, violation_count: error.violations.length, violations: error.violations });
+    }
+    throw error;
   } finally { fs.rmSync(buildRoot, { recursive: true, force: true }); }
 }
