@@ -123,7 +123,9 @@ export async function buildRelease({
     const lock = readJson(lockFile);
     const packageMetadata = readJson(path.join(source, 'package.json'));
     inventoryPhase = 'built_payload';
-    packageMetadata.files = [...new Set(['release.json', ...inventoryTree(source).filter((file) => file.type !== 'directory' && !payloadOnlyPath(file.path)).map((file) => file.path)])];
+    // npm interprets files entries as glob patterns, including literal Next routes.
+    packageMetadata.files = [...new Set(['release.json', ...inventoryTree(source).filter((file) => file.type !== 'directory' && !payloadOnlyPath(file.path))
+      .map((file) => file.path.replace(/[?*\[\]{}()!+@]/g, '\\$&'))])];
     fs.writeFileSync(path.join(source, 'package.json'), `${JSON.stringify(packageMetadata, null, 2)}\n`);
     const files = inventoryTree(source);
     const scopes = {
