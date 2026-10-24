@@ -38,9 +38,9 @@ export function validateInstallConfiguration(config) {
   adapterConfiguration(config);
   return config;
 }
-function execute(command, args, options = {}) {
+function execute(command, args, { acceptedExitCodes = [0], ...options } = {}) {
   const result = spawnSync(command, args, { encoding: 'utf8', timeout: 30000, maxBuffer: 4 * 1024 * 1024, ...options });
-  assertRelease(!result.error && result.status === 0, 'install_observation_failed', `Observation failed: ${command}`);
+  assertRelease(!result.error && acceptedExitCodes.includes(result.status), 'install_observation_failed', `Observation failed: ${command}`);
   return result.stdout.trim();
 }
 function envOf(pid) {
@@ -204,7 +204,9 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
       return sessions.map((session) => session.cid ?? session.id);
     });
     await collect('tmux', () => {
-      const doctor = JSON.parse(run(path.join(releaseRoot, 'native/ao'), ['doctor', '--json'], { env }));
+      // Doctor exits 1 for a reported FAIL; preserve that evidence for the
+      // legacy baseline. Verify still requires tmux_cgroup PASS after cutover.
+      const doctor = JSON.parse(run(path.join(releaseRoot, 'native/ao'), ['doctor', '--json'], { env, acceptedExitCodes: [0, 1] }));
       const check = doctor.checks?.find((item) => item.name === 'tmux_cgroup');
       assertRelease(check && check.details, 'install_tmux_unknown');
       return { ...check.details, level: check.level, executable_sha256: fileSha256(`/proc/${check.details.server_pid}/exe`) };

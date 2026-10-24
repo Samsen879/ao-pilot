@@ -6,9 +6,33 @@ import { createSystemdReleaseRunner, validateInstallConfiguration, probeExclusiv
 import { prepareStaging, assertStagingIsolation } from '../../scripts/verify-install-staging.js';
 import { runCli } from '../../scripts/ao-upgrade.js';
 import { validateEnvironmentOverride } from '../../scripts/ao/lib/release-units.js';
+import { inspectInstall } from '../../scripts/ao/lib/install-doctor.js';
 const roots = [];
 afterEach(() => { roots.splice(0).forEach((root) => fs.rmSync(root, { recursive: true, force: true })); });
 function fixture() { const root = fixtureRoot(); roots.push(root); return { root, config: configuration(root) }; }
+it.each([
+  [0, 'PASS', 'ok', false],
+  [1, 'FAIL', 'violation', false],
+  [2, 'FAIL', 'violation', true],
+  [1, null, null, true],
+  [1, 'invalid-json', null, true],
+])('preserves doctor status %i evidence without converting FAIL to PASS or accepting unknown output', async (exitCode, level, status, unknown) => {
+  const { root, config } = fixture(); const toolDirectory = path.join(root, 'tools'); fs.mkdirSync(toolDirectory);
+  fs.writeFileSync(path.join(toolDirectory, 'systemctl'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  const report = level ? { checks: [{ name: 'tmux_cgroup', level, details: { status, server_pid: process.pid, server_start_token: 'fixture-token' } }] } : { checks: [] };
+  const stdout = level === 'invalid-json' ? 'invalid-json' : JSON.stringify(report);
+  const bundle = createBundle(root, { native: `#!/bin/sh\nprintf '%s\\n' '${stdout}'\nexit ${exitCode}\n` });
+  const priorPath = process.env.PATH; process.env.PATH = toolDirectory;
+  try {
+    const runner = createSystemdReleaseRunner(config, { fetchImpl: async () => ({ ok: true, json: async () => ({ sessions: [] }) }) });
+    const observation = await runner.observe({ releaseRoot: bundle.payload });
+    if (unknown) expect(observation.tmux).toBeNull();
+    else expect(observation.tmux).toMatchObject({ level, status, server_pid: process.pid, server_start_token: 'fixture-token' });
+    expect(inspectInstall({ releaseRoot: bundle.payload, observation }).checks.tmux_cgroup).toBe(unknown ? 'UNKNOWN' : level);
+    // The diagnostic exception must never admit a nonzero service command.
+    await expect(runner.stop()).rejects.toMatchObject({ code: 'install_observation_failed' });
+  } finally { process.env.PATH = priorPath; }
+});
 it('allows only the generated private HOME with explicit staging context, never a generic HOME override', () => {
   const { config } = fixture(); const home = path.join(config.stateRoot, 'home');
   const text = `[Service]\nEnvironment="HOME=${home}"\n`;
