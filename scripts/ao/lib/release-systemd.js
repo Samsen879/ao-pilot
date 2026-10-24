@@ -7,7 +7,7 @@ import { adapterConfiguration, adapterConfigPath } from './release-adapter.js';
 import { assertRelease, fileSha256, inventoryTree, objectSha256, readJson, syncTree, verifyReleaseTree } from './release-manifest.js';
 import { processStartToken } from './release-lock.js';
 import { isStrictReadyz } from './install-doctor.js';
-import { RELEASE_SERVICES, renderReleaseUnits, validateEnvironmentOverride } from './release-units.js';
+import { RELEASE_SERVICES, renderReleaseUnits, validateEnvironmentOverride, stagingHomeEnvironment } from './release-units.js';
 
 export function validateInstallConfiguration(config) {
   assertRelease(config.schema_version === 'ao.install-config.v1' && process.platform === 'linux', 'invalid_install_configuration');
@@ -122,6 +122,8 @@ export function assertLoadedProcess({ proc, root, manifest, component, config })
     && proc.environment.AO_MANAGED_RUNTIME_BINARY_SHA256 === manifest.components.daemon.files.find((file) => file.path === manifest.components.daemon.entrypoint).sha256
     && proc.environment.AO_MANAGED_RUNTIME_DATA_DIR === config.dataDir
     && proc.environment.AO_MANAGED_RUNTIME_RUN_FILE === path.join(config.discoveryDir, 'running.json')
+    && (!config.namespace.startsWith('ao-pilot-staging-')
+      || Object.entries(stagingHomeEnvironment(config.stateRoot)).every(([key, value]) => proc.environment[key] === value))
     && proc.executable_sha256 === (component === 'daemon' ? manifest.components.daemon.files.find((file) => file.path === entry).sha256 : manifest.toolchain.node_sha256),
   'install_loaded_release_drift');
 }

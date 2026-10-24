@@ -5,9 +5,17 @@ import { configuration, fixtureRoot, createBundle } from './release-fixture.js';
 import { createSystemdReleaseRunner, validateInstallConfiguration, probeExclusiveLock, assertLoadedProcess, assertFirstRestoreConfiguration } from '../../scripts/ao/lib/release-systemd.js';
 import { prepareStaging, assertStagingIsolation } from '../../scripts/verify-install-staging.js';
 import { runCli } from '../../scripts/ao-upgrade.js';
+import { validateEnvironmentOverride } from '../../scripts/ao/lib/release-units.js';
 const roots = [];
 afterEach(() => { roots.splice(0).forEach((root) => fs.rmSync(root, { recursive: true, force: true })); });
 function fixture() { const root = fixtureRoot(); roots.push(root); return { root, config: configuration(root) }; }
+it('allows only the generated private HOME with explicit staging context, never a generic HOME override', () => {
+  const { config } = fixture(); const home = path.join(config.stateRoot, 'home');
+  const text = `[Service]\nEnvironment="HOME=${home}"\n`;
+  expect(() => validateEnvironmentOverride(text)).toThrow('unsafe_unit_override');
+  expect(validateEnvironmentOverride(text, { stagingRoot: config.stateRoot })).toEqual({ HOME: home });
+  expect(() => validateEnvironmentOverride('[Service]\nEnvironment="HOME=/host-profile"\n', { stagingRoot: config.stateRoot })).toThrow('unsafe_unit_override');
+});
 it('default runner issues only explicitly namespaced service commands and waits for strict readiness', async () => {
   const { config } = fixture(); const commands = []; let requests = 0; const sleeps = [];
   const runner = createSystemdReleaseRunner(config, { run: (command, args) => { commands.push([command, args]); return ''; }, fetchImpl: async () => ({ ok: true, json: async () => ++requests === 1 ? { status: 'degraded', ready: false, reasons: [{ code: 'boot' }] } : { status: 'ready', ready: true, reasons: [] } }), sleep: async (ms) => { sleeps.push(ms); } });
@@ -54,11 +62,13 @@ it('checks real native cwd=DataDir while release provenance comes from immutable
   const { root, config } = fixture(); const bundle = createBundle(root); fs.mkdirSync(config.dataDir, { recursive: true });
   const manifest = bundle.manifest; const binary = path.join(bundle.payload, 'native/ao'); const sha = manifest.components.daemon.files[0].sha256;
   const proc = { executable: binary, argv: [binary, 'daemon'], cwd: config.dataDir, executable_sha256: sha,
-    environment: { AO_RELEASE_ID: manifest.release_id, AO_RELEASE_ROOT: bundle.payload, AO_DATA_DIR: config.dataDir, AO_RUN_FILE: path.join(config.discoveryDir, 'running.json'),
+    environment: { HOME: path.join(config.stateRoot, 'home'), XDG_CONFIG_HOME: path.join(config.stateRoot, 'home/.config'), XDG_DATA_HOME: path.join(config.stateRoot, 'home/.local/share'),
+      AO_RELEASE_ID: manifest.release_id, AO_RELEASE_ROOT: bundle.payload, AO_DATA_DIR: config.dataDir, AO_RUN_FILE: path.join(config.discoveryDir, 'running.json'),
       AO_MANAGED_RUNTIME_BINARY: binary, AO_MANAGED_RUNTIME_BINARY_SHA256: sha, AO_MANAGED_RUNTIME_DATA_DIR: config.dataDir, AO_MANAGED_RUNTIME_RUN_FILE: path.join(config.discoveryDir, 'running.json') } };
   const evidence = { proc, root: bundle.payload, manifest, component: 'daemon', config };
   expect(() => assertLoadedProcess(evidence)).not.toThrow();
-  for (const changed of [{ ...proc, cwd: bundle.payload }, { ...proc, executable_sha256: '0'.repeat(64) }, { ...proc, environment: { ...proc.environment, AO_MANAGED_RUNTIME_BINARY_SHA256: undefined } }]) {
+  for (const changed of [{ ...proc, cwd: bundle.payload }, { ...proc, executable_sha256: '0'.repeat(64) }, { ...proc, environment: { ...proc.environment, AO_MANAGED_RUNTIME_BINARY_SHA256: undefined } },
+    ...['HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME'].map((key) => ({ ...proc, environment: { ...proc.environment, [key]: '/host-profile' } }))]) {
     expect(() => assertLoadedProcess({ ...evidence, proc: changed })).toThrow('install_loaded_release_drift');
   }
 });
