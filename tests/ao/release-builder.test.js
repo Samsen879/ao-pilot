@@ -6,6 +6,7 @@ import { buildRelease, releaseCommand, verifyReleaseEnvelope } from '../../scrip
 import { durableJson, fileSha256, readJson, sha256, verifyReleaseTree } from '../../scripts/ao/lib/release-manifest.js';
 import { fixtureRoot, createBundle } from './release-fixture.js';
 import { registeredReleaseFiles } from '../../scripts/ao/lib/release-inputs.js';
+import { packedFiles } from '../../scripts/ao/lib/release-tarball.js';
 const roots = [];
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 function fixture() {
@@ -69,6 +70,36 @@ it('missing adapter rejects a complete release without inventing recovery replac
   const options = fixture();
   await expect(buildRelease({ ...options, adapter: null })).rejects.toMatchObject({ code: typeof process.execve === 'function' ? 'release_adapter_source_missing' : 'release_node_execve_required' });
   expect(options.calls.some(([command, args]) => command === 'npm' && args[0] === 'ci')).toBe(false);
+});
+it('packs literal dynamic routes and required browser build output with the real npm ignore rules', async () => {
+  const options = fixture(); if (typeof process.execve !== 'function') return;
+  const routes = [
+    'api/prs/[id]/merge/route.ts', 'api/sessions/[id]/kill/route.ts',
+    'api/sessions/[id]/message/route.ts', 'api/sessions/[id]/remap/route.ts',
+    'api/sessions/[id]/restore/route.ts', 'api/sessions/[id]/route.ts',
+    'api/sessions/[id]/send/route.ts', 'api/webhooks/[...slug]/route.ts', 'sessions/[id]/page.tsx',
+  ].map((name) => `browser/packages/web/src/app/${name}`);
+  for (const file of routes) {
+    fs.mkdirSync(path.dirname(path.join(options.repository, file)), { recursive: true });
+    fs.writeFileSync(path.join(options.repository, file), `/* ${file} */`);
+  }
+  fs.copyFileSync(new URL('../../browser/.npmignore', import.meta.url), path.join(options.repository, 'browser/.npmignore'));
+  releaseCommand('git', ['add', '.'], { cwd: options.repository });
+  releaseCommand('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'actual browser ignore and route inputs'], { cwd: options.repository });
+  const generated = ['browser/packages/core/dist/index.js', 'browser/packages/web/.next/server/app/sessions/[id]/page.js'];
+  const result = await buildRelease({ ...options, onStage: (stage, source) => {
+    if (stage !== 'dashboard') return;
+    for (const file of generated) {
+      fs.mkdirSync(path.dirname(path.join(source, file)), { recursive: true });
+      fs.writeFileSync(path.join(source, file), `/* ${file} */`);
+    }
+  } });
+  verifyReleaseEnvelope(result.bundle, result.envelope_sha256);
+  const packed = packedFiles(path.join(result.bundle, 'package.tgz'));
+  for (const file of [...routes, ...generated, 'browser/packages/web/.next/BUILD_ID', 'browser/packages/web/dist-server/start-all.js']) {
+    expect(packed.get(file)?.type).toBe('file');
+  }
+  expect(options.calls.filter(([command, args]) => command === 'npm' && args[0] === 'pack')).toHaveLength(1);
 });
 it('persists the complete private inventory diagnosis before cleanup without packing or changing the failure', async () => {
   const options = fixture(); if (typeof process.execve !== 'function') return;
