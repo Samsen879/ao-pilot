@@ -278,6 +278,10 @@ type WorkspaceInfo struct {
 	// when the normal workspace lifecycle primitives operate on one child repo
 	// inside a workspace project.
 	RepoPath string
+	// RecoveryChildren are exact participating nested worktree paths. Each child
+	// must independently verify before its owned recovery artifacts are accounted
+	// for in the parent manifest; they are never a generic exclusion rule.
+	RecoveryChildren []string
 }
 
 // WorkspaceProjectConfig describes a multi-repo workspace session. RootRepoPath
