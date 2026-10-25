@@ -405,19 +405,8 @@ func (w *Workspace) RollbackRestore(ctx context.Context, info ports.WorkspaceInf
 	if e = os.Rename(r.Backup, info.Path); e != nil {
 		return e
 	}
-	if r.Mode == "copy" {
-		if e = resumeRecoveryMetadata(r); e != nil {
-			return e
-		}
-	} else {
-		// The replacement's private registration is moved aside, not pruned along
-		// with unrelated worktrees. An originally unregistered tree stays unregistered.
-		// A failed Create is otherwise responsible for its own owned registration.
-		if r.GitDir != "" {
-			if e = os.Rename(r.GitDir, r.Backup+suffix+".git-metadata"); e != nil {
-				return e
-			}
-		}
+	if e = resumeRecoveryMetadata(r); e != nil {
+		return e
 	}
 	current, e := recoveryInventory(info.Path)
 	if e != nil || !exactRecoveryFiles(r.Files, current) {
@@ -435,6 +424,15 @@ func (w *Workspace) VerifyRestore(ctx context.Context, info ports.WorkspaceInfo)
 	if e != nil {
 		return e
 	}
+	if r != nil && info.RepoPath != "" && r.Repo != info.RepoPath {
+		return fmt.Errorf("recovery repo mismatch")
+	}
+	if r != nil && r.Phase == "committed" {
+		if e = os.Rename(recoverySidecar(info.Path), recoverySidecar(info.Path)+"."+newWorktreeCreateToken()+".history"); e != nil {
+			return e
+		}
+		r = nil
+	}
 	if r == nil {
 		for _, backup := range []string{info.Path + ".ao-recovery-backup", info.Path + ".ao-recovery-backup.git-metadata"} {
 			if _, err := os.Lstat(backup); !os.IsNotExist(err) {
@@ -443,6 +441,9 @@ func (w *Workspace) VerifyRestore(ctx context.Context, info ports.WorkspaceInfo)
 		}
 		files, e := recoveryInventory(info.Path)
 		if e != nil {
+			return e
+		}
+		if _, _, e = w.accountVerifiedChildren(info, files, files); e != nil {
 			return e
 		}
 		r = &recoveryRecord{Version: 1, Path: info.Path, Repo: info.RepoPath, Backup: info.Path + ".ao-recovery-backup", Mode: "reuse", Phase: "verified", Files: files, After: files, RefPolicy: "retained; explicit operator cleanup after verified cutover"}
@@ -467,7 +468,11 @@ func (w *Workspace) VerifyRestore(ctx context.Context, info ports.WorkspaceInfo)
 	if r.After != nil {
 		expected = r.After
 	}
-	if !sameRecoveryFiles(expected, current, r.Mode == "rename") {
+	comparisonExpected, comparisonCurrent, e := w.accountVerifiedChildren(info, expected, current)
+	if e != nil {
+		return e
+	}
+	if !sameRecoveryFiles(comparisonExpected, comparisonCurrent, r.Mode == "rename") {
 		return fmt.Errorf("restored physical file manifest differs")
 	}
 	r.After = current
@@ -522,6 +527,26 @@ func (w *Workspace) CommitRestore(ctx context.Context, info ports.WorkspaceInfo)
 // Complete only metadata whose original bytes are bound by this receipt. This
 // also resumes crashes between moving the original directory and its index.
 func resumeRecoveryMetadata(r *recoveryRecord) error {
+	if r.Mode == "rename" && r.GitDir != "" {
+		st, err := os.Lstat(r.GitDir)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("replacement registration ownership changed")
+		}
+		raw, err := os.ReadFile(filepath.Join(r.GitDir, "gitdir"))
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(string(raw)) != filepath.Join(r.Path, ".git") {
+			return fmt.Errorf("replacement registration target changed")
+		}
+		return os.Rename(r.GitDir, r.Backup+".ao-failed-"+newWorktreeCreateToken()+".git-metadata")
+	}
 	if r.Mode != "copy" || r.GitBackup == "" {
 		return nil
 	}
@@ -856,4 +881,52 @@ func replayRemovedDirectory(name string, original map[string]recoveryFile, wante
 		removed = true
 	}
 	return removed
+}
+
+func (w *Workspace) accountVerifiedChildren(info ports.WorkspaceInfo, expected, current map[string]recoveryFile) (map[string]recoveryFile, map[string]recoveryFile, error) {
+	if len(info.RecoveryChildren) == 0 {
+		return expected, current, nil
+	}
+	prefixes := []string{}
+	exact := map[string]bool{}
+	for _, child := range info.RecoveryChildren {
+		clean, err := w.validateManagedPath(child)
+		if err != nil || clean != child || !strings.HasPrefix(child, info.Path+string(filepath.Separator)) {
+			return nil, nil, fmt.Errorf("invalid participating child path")
+		}
+		record, err := readRecovery(child)
+		if err != nil || record == nil || (record.Phase != "verified" && record.Phase != "committed") {
+			return nil, nil, fmt.Errorf("participating child not verified: %w", err)
+		}
+		files, err := recoveryInventory(child)
+		if err != nil || !exactRecoveryFiles(record.After, files) {
+			return nil, nil, fmt.Errorf("participating child manifest drift: %w", err)
+		}
+		rel, err := filepath.Rel(info.Path, child)
+		if err != nil {
+			return nil, nil, err
+		}
+		prefixes = append(prefixes, rel)
+		for _, path := range []string{rel + ".ao-recovery.json", rel + ".ao-recovery-backup", rel + ".ao-recovery-backup.git-metadata"} {
+			exact[path] = true
+			prefixes = append(prefixes, path)
+		}
+	}
+	filter := func(in map[string]recoveryFile) map[string]recoveryFile {
+		out := map[string]recoveryFile{}
+		for name, value := range in {
+			skip := exact[name]
+			for _, prefix := range prefixes {
+				if name == prefix || strings.HasPrefix(name, prefix+string(filepath.Separator)) {
+					skip = true
+					break
+				}
+			}
+			if !skip {
+				out[name] = value
+			}
+		}
+		return out
+	}
+	return filter(expected), filter(current), nil
 }

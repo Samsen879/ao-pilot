@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -46,12 +48,27 @@ func (m *Manager) verifyRecoveredWorkspaces(ctx context.Context, ws ports.Worksp
 			infos = append(infos, workspaceInfoFromRepoInfo(row))
 		}
 	}
+	for i := range infos {
+		for j := range infos {
+			if i != j && strings.HasPrefix(infos[j].Path, infos[i].Path+string(filepath.Separator)) {
+				infos[i].RecoveryChildren = append(infos[i].RecoveryChildren, infos[j].Path)
+			}
+		}
+	}
+	sort.SliceStable(infos, func(i, j int) bool { return len(infos[i].Path) > len(infos[j].Path) })
 	for _, info := range infos {
 		if e := life.VerifyRestore(ctx, info); e != nil {
 			return e
 		}
 	}
 	for _, info := range infos {
+		// A child commit changes only its verified, owned recovery artifacts.
+		// Re-read the parent after child cleanup, retaining all other checks.
+		if len(info.RecoveryChildren) > 0 {
+			if e := life.VerifyRestore(ctx, info); e != nil {
+				return e
+			}
+		}
 		if e := life.CommitRestore(ctx, info); e != nil {
 			return e
 		}

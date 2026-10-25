@@ -377,3 +377,90 @@ func TestRollbackResumesAfterOriginalDirectoryMove(t *testing.T) {
 		})
 	}
 }
+
+func TestNestedRepositoryVerificationBindsChildReceiptChanges(t *testing.T) {
+	repo, _, w := newSparseRepoFixture(t)
+	childRepo, _, _ := newSparseRepoFixture(t)
+	ctx := context.Background()
+	root, e := w.Create(ctx, ports.WorkspaceConfig{ProjectID: "project", SessionID: "nested-1", Branch: "feature/nested", BaseBranch: "main"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	root.RepoPath = repo
+	childPath := filepath.Join(root.Path, "child")
+	runGitTest(t, childRepo, "worktree", "add", "-b", "feature/child", childPath, "main")
+	child := ports.WorkspaceInfo{Path: childPath, RepoPath: childRepo, ProjectID: "project", SessionID: "nested-1"}
+	root.RecoveryChildren = []string{childPath}
+	// Create a root snapshot before child recovery writes its owned sidecar.
+	if _, e = w.prepareRecovery(ctx, root, "copy"); e != nil {
+		t.Fatal(e)
+	}
+	if e = w.VerifyRestore(ctx, child); e != nil {
+		t.Fatal(e)
+	}
+	if e = w.VerifyRestore(ctx, root); e != nil {
+		t.Fatal("initial coordinated verification", e)
+	}
+	if e = w.CommitRestore(ctx, child); e != nil {
+		t.Fatal(e)
+	}
+	// Child commit rewrites its receipt; the parent rechecks that bound child
+	// manifest and every other original byte before accepting the owned change.
+	if e = w.VerifyRestore(ctx, root); e != nil {
+		t.Fatal("parent after child commit", e)
+	}
+	if e = w.CommitRestore(ctx, root); e != nil {
+		t.Fatal(e)
+	}
+	// An undeclared/unverified child is never a wildcard exclusion.
+	root.RecoveryChildren = []string{filepath.Join(root.Path, "unknown")}
+	if e = w.VerifyRestore(ctx, root); e == nil {
+		t.Fatal("unverified child accepted")
+	}
+}
+func TestRenameRollbackResumesRegistrationCleanup(t *testing.T) {
+	repo, managed, w := newSparseRepoFixture(t)
+	ctx := context.Background()
+	path := filepath.Join(managed, "project", "rename-partial")
+	writeSparseFile(t, path, "private/unique.db", "old original bytes")
+	before, _ := recoveryInventory(path)
+	cfg := ports.WorkspaceConfig{ProjectID: "project", SessionID: "rename-partial", Branch: "feature/rename-partial", BaseBranch: "main", Path: path}
+	info, e := w.Restore(ctx, cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	r, e := readRecovery(path)
+	if e != nil || r.Mode != "rename" {
+		t.Fatal(r, e)
+	}
+	if e = os.Rename(path, path+".failed-at-interruption"); e != nil {
+		t.Fatal(e)
+	}
+	if e = os.Rename(r.Backup, path); e != nil {
+		t.Fatal(e)
+	}
+	if e = w.RollbackRestore(ctx, info); e != nil {
+		t.Fatal(e)
+	}
+	if e = w.RollbackRestore(ctx, info); e != nil {
+		t.Fatal(e)
+	}
+	after, _ := recoveryInventory(path)
+	if !reflect.DeepEqual(before, after) {
+		t.Fatal("original directory changed")
+	}
+	if _, e = os.Stat(r.GitDir); !os.IsNotExist(e) {
+		t.Fatal("replacement registration retained", e)
+	}
+	runGitTest(t, repo, "show-ref", "--verify", "refs/heads/feature/rename-partial")
+	restored, e := w.Restore(ctx, cfg)
+	if e != nil {
+		t.Fatal("retry after partial rename rollback", e)
+	}
+	if e = w.VerifyRestore(ctx, restored); e != nil {
+		t.Fatal(e)
+	}
+	if e = w.CommitRestore(ctx, restored); e != nil {
+		t.Fatal(e)
+	}
+}
