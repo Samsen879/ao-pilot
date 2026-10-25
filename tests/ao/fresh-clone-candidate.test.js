@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, expect, it } from '@jest/globals';
-import { bindPackedRuntime } from '../../scripts/verify-fresh-clone.js';
+import { bindPackedRuntime, parseArgs, verifyFreshClone } from '../../scripts/verify-fresh-clone.js';
 import { candidateRuntimeRef } from '../../scripts/ao/lib/release-runtime.js';
 import { durableJson, fileSha256, inventoryTree, objectSha256, readJson } from '../../scripts/ao/lib/release-manifest.js';
 import { createBundle, fixtureRoot } from './release-fixture.js';
@@ -23,7 +23,7 @@ function fixture() {
     tree: pin.tree, binary_sha256: pin.binary_sha256 };
   manifest.files = inventoryTree(payload).filter(file => file.path !== 'release.json');
   durableJson(path.join(payload, 'release.json'), manifest);
-  return { root, packageRoot: payload, manifest, pin, env: { AO_DATA_DIR: path.join(root, 'native-data'),
+  return { root, packageRoot: payload, installedPackageRoot: payload, manifest, pin, env: { AO_DATA_DIR: path.join(root, 'native-data'),
     AO_RUN_FILE: path.join(root, 'discovery/running.json'), HOME: path.join(root, 'home') },
   expectedHead: manifest.commit, expectedTree: manifest.tree };
 }
@@ -35,11 +35,24 @@ it('binds lifecycle to the packed candidate instead of the distinct archived boo
   expect(bound.runtime.source.commit_sha).toBe(input.expectedHead);
   expect(bound.runtime.source.tree_sha).toBe(input.expectedTree);
   expect(bound.runtime.source_runtime_lock.commit_sha).not.toBe(input.expectedHead);
-  expect(bound.cli).toBe(path.join(bound.runtime.runtime_directory, 'bin/ao-pilot.js'));
+  expect(bound.cli).toBe(path.join(input.installedPackageRoot, 'bin/ao-pilot.js'));
   expect(readJson(path.join(bound.storeRoot, 'installation.json')).namespace).toBe('ao-pilot-staging-fresh');
   expect(bound.env.AO_PORT).toBe('43101');
   expect(bound.env.AO_TMUX_SOCKET).not.toBe('default');
   expect(fs.realpathSync(path.join(bound.storeRoot, 'current'))).toBe(bound.runtime.runtime_directory);
+});
+it('requires the complete payload instead of treating npm-omitted dependency bytes as verified', async () => {
+  const options = parseArgs(['--tarball', '/abs/package.tgz', '--sha256', 'a'.repeat(64)]);
+  options.releasePayload = null;
+  await expect(verifyFreshClone(options)).rejects.toMatchObject({ code: 'fresh_clone_release_payload_required' });
+  expect(parseArgs(['--release-payload', '/abs/payload']).releasePayload).toBe('/abs/payload');
+});
+it('rejects an installed CLI drift even while the complete payload remains valid', () => {
+  const input = fixture(); input.installedPackageRoot = path.join(input.root, 'npm-consumer');
+  fs.cpSync(input.packageRoot, input.installedPackageRoot, { recursive: true });
+  fs.appendFileSync(path.join(input.installedPackageRoot, 'bin/ao-pilot.js'), 'drift');
+  expect(() => bindPackedRuntime(input)).toThrow('Installed package differs');
+  expect(fs.existsSync(path.join(input.root, 'packed-install'))).toBe(false);
 });
 it.each(['expectedHead', 'expectedTree'])('rejects a different package %s before installing or starting it', (field) => {
   const input = fixture(); input[field] = 'c'.repeat(40);

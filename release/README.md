@@ -1,10 +1,14 @@
 # Schema compatibility inputs
 
-For `verify:fresh-clone --tarball ... --sha256 ...`, the archived annotated-tag
+For `verify:fresh-clone --tarball ... --sha256 ... --release-payload ...`, the archived annotated-tag
 lock still exercises bootstrap, offline replay, reinstall and PATH-shadow
 rejection. Lifecycle acceptance then binds the installed package's complete
-manifest and runtime pin to the exact cloned commit/tree and executes that
-package's daemon in a private installation namespace. The ready, owned
+manifest and runtime pin to the exact cloned commit/tree. The complete frozen
+payload is mandatory because npm omits dependency/tooling bytes by the existing
+packaging policy; `AO_RELEASE_BUNDLE/payload` is also accepted. The verifier
+checks the tarball against that full payload, checks each required installed
+package file, then uses the npm-installed CLI to execute the same daemon bytes
+from a private copy of the full payload. The ready, owned
 PID/start-token exit and two ownership-lock checks are unchanged. The receipt
 identifies the packed runtime separately from its archived bootstrap source;
 no tag or runtime-lock promotion is needed for candidate acceptance.

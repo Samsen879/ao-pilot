@@ -9,8 +9,9 @@ import { fileURLToPath } from 'node:url';
 import { processStartToken } from './ao/lib/release-lock.js';
 import { probeExclusiveLock } from './ao/lib/release-systemd.js';
 import { validateInstallConfiguration } from './ao/lib/release-systemd.js';
-import { verifyReleaseTree } from './ao/lib/release-manifest.js';
+import { fileSha256, verifyReleaseTree } from './ao/lib/release-manifest.js';
 import { assertRuntimeLockArtifact, resolveUnifiedRuntime } from './ao/lib/release-runtime.js';
+import { requiredPackageFiles, verifyPackedRelease } from './ao/lib/release-tarball.js';
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const REPOSITORY_ROOT = path.resolve(path.dirname(SCRIPT_PATH), '..');
@@ -44,11 +45,14 @@ export function parseArgs(argv) {
     keepOnFailure: false,
     tarball: process.env.AO_RELEASE_TARBALL ?? null,
     tarballSha256: process.env.AO_RELEASE_TARBALL_SHA256 ?? null,
+    releasePayload: process.env.AO_RELEASE_BUNDLE ? path.join(process.env.AO_RELEASE_BUNDLE, 'payload') : null,
     help: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    if (argument === '--tarball') {
+    if (argument === '--release-payload') {
+      options.releasePayload = path.resolve(requiredValue(argv, index, argument)); index += 1;
+    } else if (argument === '--tarball') {
       options.tarball = path.resolve(requiredValue(argv, index, argument)); index += 1;
     } else if (argument === '--sha256') {
       options.tarballSha256 = requiredValue(argv, index, argument); index += 1;
@@ -88,6 +92,7 @@ function usage() {
     '',
     'Options:',
     '  --source <path|url>    Git source. Default: current exact repository',
+    '  --release-payload <p> Complete frozen payload for supplied release tarball',
     '  --ref <ref>            Commit/ref to detach after clone. Default: HEAD',
     '  --cache <path>         Reusable verified runtime cache',
     '  --temp-root <path>     Parent for the isolated workspace',
@@ -305,10 +310,19 @@ export function assertOwnedDaemonGone({ pid, startToken, lockFiles }, {
 
 // Bootstrap exercises the archived lock. Lifecycle acceptance for a supplied
 // release must instead execute the exact daemon carried by that package.
-export function bindPackedRuntime({ root, packageRoot, env, expectedHead, expectedTree }) {
+export function bindPackedRuntime({ root, packageRoot, installedPackageRoot, env, expectedHead, expectedTree }) {
   const manifest = verifyReleaseTree(packageRoot);
   if (manifest.commit !== expectedHead || manifest.tree !== expectedTree) fail('fresh_clone_package_source_mismatch', 'Package does not match the exact cloned source');
   assertRuntimeLockArtifact(packageRoot, manifest);
+  if (fileSha256(path.join(installedPackageRoot, 'release.json')) !== fileSha256(path.join(packageRoot, 'release.json'))) fail('fresh_clone_installed_package_drift', 'Installed manifest differs from verified release');
+  for (const entry of requiredPackageFiles(manifest)) {
+    const installed = path.join(installedPackageRoot, entry.path);
+    const stat = fs.lstatSync(installed);
+    const matches = entry.type === 'file' ? stat.isFile() && fileSha256(installed) === entry.sha256
+      && Boolean(stat.mode & 0o111) === Boolean(entry.mode & 0o111)
+      : stat.isSymbolicLink() && fs.readlinkSync(installed) === entry.target;
+    if (!matches) fail('fresh_clone_installed_package_drift', 'Installed package differs from verified release');
+  }
   const installRoot = path.join(root, 'packed-install');
   const releaseRoot = path.join(installRoot, 'releases', manifest.release_id);
   const config = validateInstallConfiguration({
@@ -323,7 +337,7 @@ export function bindPackedRuntime({ root, packageRoot, env, expectedHead, expect
     listenPorts: [43101, 43100, 43102, 43103, 43104], cliPath: path.join(root, 'cli'),
   });
   fs.mkdirSync(path.dirname(releaseRoot), { recursive: true, mode: 0o700 });
-  fs.renameSync(packageRoot, releaseRoot);
+  fs.cpSync(packageRoot, releaseRoot, { recursive: true });
   fs.symlinkSync(path.relative(installRoot, releaseRoot), path.join(installRoot, 'current'));
   fs.writeFileSync(path.join(installRoot, 'installation.json'), JSON.stringify(config), { mode: 0o600 });
   fs.writeFileSync(config.configPath, JSON.stringify({ defaults: { agent: 'claude-code' }, projects: {} }), { mode: 0o600 });
@@ -338,7 +352,7 @@ export function bindPackedRuntime({ root, packageRoot, env, expectedHead, expect
     AO_RELEASE_ID: manifest.release_id, AO_RELEASE_ROOT: releaseRoot };
   const runtime = resolveUnifiedRuntime({ env: boundEnv });
   if (runtime.source.commit_sha !== expectedHead || runtime.source.tree_sha !== expectedTree) fail('fresh_clone_package_source_mismatch', 'Runtime provenance does not match the cloned source');
-  return { env: boundEnv, storeRoot: installRoot, cli: path.join(releaseRoot, 'bin/ao-pilot.js'), runtime };
+  return { env: boundEnv, storeRoot: installRoot, cli: path.join(installedPackageRoot, 'bin/ao-pilot.js'), runtime };
 }
 
 export async function verifyFreshClone(options, {
@@ -351,6 +365,7 @@ export async function verifyFreshClone(options, {
       arch: process.arch,
     });
   }
+  if (options.tarball && !options.releasePayload) fail('fresh_clone_release_payload_required', 'Supplied release requires its complete frozen payload');
   fs.mkdirSync(options.tempRoot, { recursive: true });
   const root = fs.mkdtempSync(path.join(options.tempRoot, 'ao-pilot-fresh-clone-'));
   const cloneRoot = path.join(root, 'clone');
@@ -395,6 +410,9 @@ export async function verifyFreshClone(options, {
     if (options.tarball) {
       if (!/^[a-f0-9]{64}$/.test(options.tarballSha256 ?? '')
         || createHash('sha256').update(fs.readFileSync(options.tarball)).digest('hex') !== options.tarballSha256) fail('fresh_clone_tarball_mismatch', 'Pinned package is unavailable or changed');
+      const manifest = verifyReleaseTree(options.releasePayload);
+      verifyPackedRelease(options.tarball, options.releasePayload, manifest);
+      if (manifest.commit !== sourceHead || manifest.tree !== sourceTree) fail('fresh_clone_package_source_mismatch', 'Package does not match the exact cloned source');
       const consumer = path.join(root, 'packed-consumer'); fs.mkdirSync(consumer);
       fs.writeFileSync(path.join(consumer, 'package.json'), '{"private":true}');
       run(npm, ['install', '--ignore-scripts', options.tarball], { cwd: consumer, env });
@@ -458,7 +476,8 @@ export async function verifyFreshClone(options, {
     if (fs.existsSync(shadowMarker)) fail('fresh_clone_shadow_executed', 'Wrong same-name binary was executed');
 
     if (options.tarball) {
-      const packed = bindPackedRuntime({ root, packageRoot: installedPackage, env, expectedHead: sourceHead, expectedTree: sourceTree });
+      const packed = bindPackedRuntime({ root, packageRoot: options.releasePayload, installedPackageRoot: installedPackage,
+        env, expectedHead: sourceHead, expectedTree: sourceTree });
       env = packed.env; storeRoot = packed.storeRoot; cli = packed.cli;
     }
     const runtimePath = parseJsonOutput(run(node, [cli, 'runtime-path', '--runtime-store', storeRoot, '--json'], {
