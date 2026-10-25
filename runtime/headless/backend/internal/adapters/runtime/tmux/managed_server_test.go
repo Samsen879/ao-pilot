@@ -296,7 +296,7 @@ func TestAbsentAndUnknownServerDoNotCreateOrMisclassifySessions(t *testing.T) {
 				diagnostic.Absent = true
 			}
 			runtime := New(Options{Socket: "ao-staging-test", Unit: "ao-staging-tmux.service", TmpDir: "/staging/tmux", Server: diagnosticTestServer{diagnostic}})
-			recorder := &recordingRunner{}
+			recorder := &sessionListRunner{output: "session-a\n"}
 			runtime.runner = recorder
 			alive, err := runtime.IsAlive(context.Background(), ports.RuntimeHandle{ID: "session-a"})
 			if status == "absent" {
