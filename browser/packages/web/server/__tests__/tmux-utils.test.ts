@@ -6,7 +6,22 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import { findTmux, resolveTmuxSession, validateSessionId, SESSION_ID_PATTERN } from "../tmux-utils.js";
+import { findTmux, resolveTmuxSession, validateSessionId, SESSION_ID_PATTERN, tmuxArgs } from "../tmux-utils.js";
+
+describe("managed tmux namespace", () => {
+  const env = { AO_RELEASE_ID: "fixture", AO_TMUX_SOCKET: "ao-pilot-staging-unit", AO_TMUX_UNIT: "ao-pilot-staging-unit-tmux.service", AO_TMUX_TMPDIR: "/private/tmux", TMUX_TMPDIR: "/private/tmux" };
+  it("pins every client to the configured no-start named server", () => {
+    for (const args of [["has-session", "-t", "=worker-1"], ["list-sessions"], ["attach-session", "-t", "worker-1"], ["set-option", "-t", "worker-1", "mouse", "on"]]) {
+      expect(tmuxArgs(args, env)).toEqual(["-L", env.AO_TMUX_SOCKET, "-N", ...args]);
+    }
+  });
+  it("rejects incomplete managed bindings and default sockets", () => {
+    for (const change of [{ AO_TMUX_SOCKET: "default" }, { AO_TMUX_SOCKET: "" }, { TMUX_TMPDIR: "/different" }, { AO_TMUX_UNIT: "" }]) {
+      expect(() => tmuxArgs(["list-sessions"], { ...env, ...change })).toThrow("Explicit managed tmux namespace required");
+    }
+    expect(tmuxArgs(["list-sessions"], {})).toEqual(["list-sessions"]);
+  });
+});
 
 // =============================================================================
 // validateSessionId

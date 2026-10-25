@@ -199,3 +199,29 @@ Custody backups and restores explicitly reproduce source directory/file modes
 after copying. Node `fs.cpSync` creates new directories according to the caller's
 umask; with umask 022, a source 0700 directory otherwise becomes 0755. The full
 inventory equality check, including permission modes, remains in force.
+
+## Managed terminal admission
+
+Prepare `terminalTokenFile` before preflight: an owner-only, single-link regular
+file containing a randomly generated capability (at least 32 characters), with
+mode 0600. Missing, symlinked or shared-readable credentials block preflight
+before any service stop. Staging credentials must remain within its private
+state root. Never reuse a production capability in staging.
+
+The generated private adapter JSON carries `TERMINAL_TOKEN_FILE` and the exact
+`TERMINAL_ORIGIN`. Both browser and adapter use the existing
+`AO_DASHBOARD_ADAPTER_CONFIG` pointer; no new environment-override keys are
+allowed. Managed adapter and direct terminal reject missing/incorrect credentials
+before WebSocket upgrade and reject a foreign original Origin before proxying.
+
+CLI probes use `Authorization: Bearer`. An ordinary browser authenticates to
+the adapter using HTTP Basic, username `ao`, with the capability as its password;
+only an authenticated HTTP request obtains the HttpOnly, SameSite=Strict terminal
+cookie. No unauthenticated endpoint returns a token. Do not publish credentials,
+include them in URLs, or pass them in process arguments.
+
+Managed browser tmux clients use the configured named socket and `-N`, including
+PTY attach. They cannot implicitly start a default server. The terminal URL uses
+`/ao-terminal-ws?session=<fake-session-id>` for staging. Existing unmanaged
+standalone browser/adapter behavior is outside this managed-release admission
+claim; new release entrypoints always require the managed credential binding.

@@ -7,7 +7,7 @@
  * that tmux requires for clipboard support.
  */
 
-import { createServer, type Server } from "node:http";
+import { createServer, type Server, type IncomingMessage } from "node:http";
 import { spawn } from "node:child_process";
 import { WebSocketServer, WebSocket } from "ws";
 import { homedir, userInfo } from "node:os";
@@ -27,8 +27,9 @@ try {
   console.warn("[DirectTerminal] node-pty not available — direct terminal will be disabled.");
   console.warn("[DirectTerminal] Install it with: npm install node-pty");
 }
-import { findTmux, resolveTmuxSession, validateSessionId } from "./tmux-utils.js";
+import { findTmux, resolveTmuxSession, validateSessionId, tmuxArgs } from "./tmux-utils.js";
 import { createObserverContext, inferProjectId } from "./terminal-observability.js";
+import { loadTerminalAuth } from "../../../../integrations/dashboard-native-adapter/auth.mjs";
 
 interface TerminalSession {
   sessionId: string;
@@ -61,6 +62,8 @@ export interface DirectTerminalServer {
  */
 export function createDirectTerminalServer(tmuxPath?: string): DirectTerminalServer {
   const TMUX = tmuxPath ?? findTmux();
+  tmuxArgs([]);
+  const auth = loadTerminalAuth(process.env.AO_DASHBOARD_ADAPTER_CONFIG, Boolean(process.env.AO_RELEASE_ID));
   const activeSessions = new Map<string, TerminalSession>();
   const { config, observer } = createObserverContext("terminal-direct-websocket");
   const metrics: WebsocketHealthMetrics = {
@@ -95,6 +98,11 @@ export function createDirectTerminalServer(tmuxPath?: string): DirectTerminalSer
   const wss = new WebSocketServer({
     server,
     path: "/ws",
+    verifyClient(info: { req: IncomingMessage }, done: (accepted: boolean, code?: number) => void) {
+      if (!auth) return done(true);
+      if (!auth.originAllowed(info.req)) return done(false, 403);
+      done(auth.authenticate(info.req), 401);
+    },
   });
 
   const recordWebsocketMetric = (input: {
@@ -123,7 +131,7 @@ export function createDirectTerminalServer(tmuxPath?: string): DirectTerminalSer
 
   wss.on("connection", (ws, req) => {
     const origin = req.headers.origin;
-    if (origin) {
+    if (origin && !auth) {
       try {
         const parsed = new URL(origin);
         if (parsed.protocol !== "http:" || !["localhost", "127.0.0.1"].includes(parsed.hostname)) {
@@ -189,13 +197,13 @@ export function createDirectTerminalServer(tmuxPath?: string): DirectTerminalSer
     console.log(`[DirectTerminal] New connection for session: ${tmuxSessionId}`);
 
     // Enable mouse mode for scrollback support
-    const mouseProc = spawn(TMUX, ["set-option", "-t", tmuxSessionId, "mouse", "on"]);
+    const mouseProc = spawn(TMUX, tmuxArgs(["set-option", "-t", tmuxSessionId, "mouse", "on"]));
     mouseProc.on("error", (err) => {
       console.error(`[DirectTerminal] Failed to set mouse mode for ${tmuxSessionId}:`, err.message);
     });
 
     // Hide the green status bar for cleaner appearance
-    const statusProc = spawn(TMUX, ["set-option", "-t", tmuxSessionId, "status", "off"]);
+    const statusProc = spawn(TMUX, tmuxArgs(["set-option", "-t", tmuxSessionId, "status", "off"]));
     statusProc.on("error", (err) => {
       console.error(
         `[DirectTerminal] Failed to hide status bar for ${tmuxSessionId}:`,
@@ -221,7 +229,7 @@ export function createDirectTerminalServer(tmuxPath?: string): DirectTerminalSer
     try {
       console.log(`[DirectTerminal] Spawning PTY: tmux attach-session -t ${tmuxSessionId}`);
 
-      pty = ptySpawn(TMUX, ["attach-session", "-t", tmuxSessionId], {
+      pty = ptySpawn(TMUX, tmuxArgs(["attach-session", "-t", tmuxSessionId]), {
         name: "xterm-256color",
         cols: 80,
         rows: 24,

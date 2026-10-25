@@ -2,11 +2,13 @@ import http from 'node:http';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import { loadConfig } from './config.mjs';
+import { createTerminalAuth } from './auth.mjs';
 
 export function createAdapter(config) {
 const {listenHost, port, dashboardHost, dashboardPort, daemonHost, daemonPort,
   directTerminalHost, directTerminalPort, browserTerminalPort, terminalOrigin,
   projectName, issueBaseUrl} = config;
+const auth = createTerminalAuth(config.terminalTokenFile, terminalOrigin, Boolean(process.env.AO_RELEASE_ID));
 
 function json(res, status, value) {
   const body = JSON.stringify(value);
@@ -122,6 +124,14 @@ function proxyTerminalUpgrade(req,clientSocket,head) {
 }
 
 const server = http.createServer(async (req,res) => {
+  if (auth) {
+    if (req.headers.origin && !auth.originAllowed(req)) return json(res,403,{error:'Origin not allowed'});
+    if (!auth.authenticate(req)) {
+      res.setHeader('WWW-Authenticate','Basic realm="AO Pilot", charset="UTF-8"');
+      return json(res,401,{error:'Authentication required'});
+    }
+    if (req.headers.authorization) res.setHeader('Set-Cookie',auth.cookie);
+  }
   const url = new URL(req.url || '/',`http://${dashboardHost}:${port}`);
   if (url.pathname.startsWith('/api/') && req.method !== 'GET') return json(res,403,{error:'Dashboard is read-only'});
   try {
@@ -156,6 +166,11 @@ const server = http.createServer(async (req,res) => {
 });
 
 server.on('upgrade',(req,clientSocket,head) => {
+  if (auth && (!auth.originAllowed(req) || !auth.authenticate(req))) {
+    const status = auth.originAllowed(req) ? 401 : 403;
+    clientSocket.end(`HTTP/1.1 ${status} Access denied\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+    return;
+  }
   const url = new URL(req.url || '/',`http://${dashboardHost}:${port}`);
   if (url.pathname !== '/ao-terminal-ws') {
     clientSocket.destroy();

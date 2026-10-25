@@ -16,7 +16,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, request } from "node:http";
 import { createCorrelationId } from "@composio/ao-core";
-import { findTmux, resolveTmuxSession, validateSessionId } from "./tmux-utils.js";
+import { findTmux, resolveTmuxSession, validateSessionId, tmuxArgs } from "./tmux-utils.js";
 import { createObserverContext, inferProjectId } from "./terminal-observability.js";
 
 /** Cached full path to tmux binary */
@@ -187,13 +187,13 @@ function getOrSpawnTtyd(sessionId: string, tmuxSessionName: string): TtydInstanc
   metrics.lastSpawnAt = new Date().toISOString();
 
   // Enable mouse mode for scrollback support
-  const mouseProc = spawn(TMUX, ["set-option", "-t", tmuxSessionName, "mouse", "on"]);
+  const mouseProc = spawn(TMUX, tmuxArgs(["set-option", "-t", tmuxSessionName, "mouse", "on"]));
   mouseProc.on("error", (err) => {
     console.error(`[Terminal] Failed to set mouse mode for ${tmuxSessionName}:`, err.message);
   });
 
   // Hide the green status bar for cleaner appearance
-  const statusProc = spawn(TMUX, ["set-option", "-t", tmuxSessionName, "status", "off"]);
+  const statusProc = spawn(TMUX, tmuxArgs(["set-option", "-t", tmuxSessionName, "status", "off"]));
   statusProc.on("error", (err) => {
     console.error(`[Terminal] Failed to hide status bar for ${tmuxSessionName}:`, err.message);
   });
@@ -211,9 +211,7 @@ function getOrSpawnTtyd(sessionId: string, tmuxSessionName: string): TtydInstanc
       "--base-path",
       `/${sessionId}`,
       TMUX,
-      "attach-session",
-      "-t",
-      tmuxSessionName,
+      ...tmuxArgs(["attach-session", "-t", tmuxSessionName]),
     ],
     {
       stdio: ["ignore", "pipe", "pipe"],
