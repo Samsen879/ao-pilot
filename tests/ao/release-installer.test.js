@@ -175,8 +175,15 @@ describe('unified release transaction on real temporary filesystem with fake ser
     const { root, config } = fixture(); const old = createBundle(root); const next = createBundle(root, { version: '2.0.0' });
     await apply(old, config, fakeRunner(root)); const runner = fakeRunner(root);
     runner.backupDatabase = async () => { throw Error('injected backup failure'); };
+    const observe = runner.observe; let oldReadback = false;
+    runner.observe = async input => {
+      if (input.releaseRoot === path.join(config.installRoot, 'releases', old.manifest.release_id)) {
+        oldReadback = true; expect(input.tmuxProbeRoot).toBe(path.join(config.installRoot, 'releases', next.manifest.release_id));
+      }
+      return observe(input);
+    };
     await expect(apply(next, config, runner)).rejects.toThrow('injected backup failure');
-    expect(runner.calls).toContain('start'); expect(readReleasePointer(config.installRoot, 'current')).toBe(`releases/${old.manifest.release_id}`);
+    expect(oldReadback).toBe(true); expect(runner.calls).toContain('start'); expect(readReleasePointer(config.installRoot, 'current')).toBe(`releases/${old.manifest.release_id}`);
     expect(readJson(path.join(config.installRoot, 'install-journal.json')).phase).toBe('rolled_back');
   });
   it.each(['unit', 'drop-in'])('preserves dangling %s symlinks and cannot write outside the transaction namespace', async (kind) => {

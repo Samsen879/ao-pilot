@@ -354,7 +354,7 @@ export async function applyRelease({
         await runner.reload();
         assertRelease(journal.old !== null, 'legacy_restore_requires_manual_start');
         await runner.start({ releaseRoot: path.join(root, journal.old), rollback: true });
-        const rollbackObservation = await runner.observe({ releaseRoot: path.join(root, journal.old) });
+        const rollbackObservation = await runner.observe({ releaseRoot: path.join(root, journal.old), tmuxProbeRoot: path.join(root, journal.target) });
         const rollbackReport = inspectInstall({ releaseRoot: path.join(root, journal.old), observation: rollbackObservation,
           baseline: journal.stopped_snapshot?.cids ? { ...journal.baseline, cids: journal.stopped_snapshot.cids } : journal.baseline, mode: journal.mode });
         assertRelease(rollbackReport.status === 'passed', 'install_rollback_readback_failed');

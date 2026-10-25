@@ -44,7 +44,7 @@ def verify_payload(bundle, build):
             if entry['type'] == 'directory':
                 walk(file)
     walk(payload)
-    assert actual == manifest['files'], 'Release payload drift'
+    assert sorted(actual, key=lambda entry: os.fsencode(entry['path'])) == manifest['files'], 'Release payload drift'
     return manifest
 
 

@@ -9,7 +9,7 @@ const roots = [];
 afterEach(() => { roots.splice(0).forEach(root => fs.rmSync(root, { recursive: true, force: true })); });
 const script = fileURLToPath(new URL('../../scripts/ao-owner-upgrade.py', import.meta.url));
 function fixture() {
-  const root = fixtureRoot(); roots.push(root); const config = configuration(root), bundle = createBundle(root);
+  const root = fixtureRoot(); roots.push(root); const config = configuration(root), bundle = createBundle(root, { extraFiles: { 'scripts/ao/helper.js': '/* directory/file prefix ordering regression */' } });
   const local = path.join(root, 'L2-production'); fs.mkdirSync(local);
   durableJson(path.join(local, 'install-config.json'), config);
   durableJson(path.join(root, 'build-result.json'), { status: 'PASS', release_id: bundle.manifest.release_id,
