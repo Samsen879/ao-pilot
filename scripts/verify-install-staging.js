@@ -8,7 +8,7 @@ import { validateInstallConfiguration } from './ao/lib/release-systemd.js';
 export function assertStagingIsolation(config, production) {
   validateInstallConfiguration(config);
   assertRelease(config.namespace.startsWith('ao-pilot-staging-') && config.namespace !== production.namespace, 'staging_namespace_collision');
-  for (const field of ['installRoot', 'stateRoot', 'dataDir', 'discoveryDir', 'configPath', 'controlPlaneRoot', 'trustedHostDirectory', 'tmuxTmpdir']) {
+  for (const field of ['installRoot', 'stateRoot', 'dataDir', 'discoveryDir', 'configPath', 'controlPlaneRoot', 'trustedHostDirectory', 'tmuxTmpdir', 'terminalTokenFile']) {
     const stage = path.resolve(config[field]);
     for (const productionField of ['installRoot', 'stateRoot', 'dataDir', 'discoveryDir', 'configPath', 'tmuxTmpdir']) {
       if (!production[productionField]) continue;
@@ -27,7 +27,7 @@ export function prepareStaging({ root, id, production, ports = [43001, 43000, 43
     unitRoot: path.join(os.homedir(), '.config/systemd/user'), dataDir: path.join(root, 'state/data'), discoveryDir: path.join(root, 'state/discovery'),
     configPath: path.join(root, 'state/ao.yaml'), controlPlaneRoot: path.join(root, 'state/control'), trustedHostDirectory: path.join(root, 'state/trusted-host'),
     tmuxTmpdir: path.join(root, 'state/tmux'), tmuxSocket: namespace,
-    daemonURL: `http://127.0.0.1:${ports[0]}`, terminalURL: `ws://127.0.0.1:${ports[2]}/ao-terminal-ws?sessionId=REPLACE_WITH_FAKE_SESSION_ID`,
+    daemonURL: `http://127.0.0.1:${ports[0]}`, terminalURL: `ws://127.0.0.1:${ports[2]}/ao-terminal-ws?session=REPLACE_WITH_FAKE_SESSION_ID`,
     terminalOrigin: `http://127.0.0.1:${ports[2]}`, terminalTokenFile: path.join(root, 'state/staging-terminal-token'), terminalCanaryPrefix: 'canary:',
     restoreProjects: [], restoreConcurrency: 2,
     listenPorts: ports, cliPath: path.join(root, 'bin/ao-pilot'), mode: 'first', releaseCatalog: {} };

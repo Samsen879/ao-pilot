@@ -9,6 +9,7 @@ import { processStartToken } from './release-lock.js';
 import { isStrictReadyz } from './install-doctor.js';
 import { RELEASE_SERVICES, renderReleaseUnits, validateEnvironmentOverride, stagingHomeEnvironment } from './release-units.js';
 import { collectLegacyAdoption, assertLegacyAdoption } from './release-legacy-adoption.js';
+import { createTerminalAuth } from '../../../integrations/dashboard-native-adapter/auth.mjs';
 
 export function copyCustodyTree(source, target) {
   const stat = fs.lstatSync(source);
@@ -32,7 +33,7 @@ export function copyCustodyTree(source, target) {
 export function validateInstallConfiguration(config) {
   assertRelease(config.schema_version === 'ao.install-config.v1' && process.platform === 'linux', 'invalid_install_configuration');
   assertRelease(/^ao-pilot(?:-staging-[a-z0-9-]+)?$/.test(config.namespace ?? ''), 'unsafe_unit_namespace');
-  const names = ['installRoot', 'stateRoot', 'unitRoot', 'dataDir', 'discoveryDir', 'configPath', 'controlPlaneRoot', 'trustedHostDirectory', 'tmuxTmpdir'];
+  const names = ['installRoot', 'stateRoot', 'unitRoot', 'dataDir', 'discoveryDir', 'configPath', 'controlPlaneRoot', 'trustedHostDirectory', 'tmuxTmpdir', 'terminalTokenFile'];
   for (const name of names) assertRelease(path.isAbsolute(config[name] ?? '') && !/[\r\n\0"%\\]/.test(config[name]), 'unsafe_install_configuration');
   for (const name of names) {
     let ancestor = path.resolve(config[name]);
@@ -51,7 +52,7 @@ export function validateInstallConfiguration(config) {
     && config.listenPorts.every((port) => Number.isSafeInteger(port) && port >= 1024 && port <= 65535), 'invalid_install_ports');
   if (config.namespace.includes('-staging-')) {
     assertRelease(config.tmuxSocket.startsWith(config.namespace), 'install_namespace_collision');
-    for (const name of ['dataDir', 'discoveryDir', 'tmuxTmpdir', 'configPath', 'controlPlaneRoot', 'trustedHostDirectory']) {
+    for (const name of ['dataDir', 'discoveryDir', 'tmuxTmpdir', 'configPath', 'controlPlaneRoot', 'trustedHostDirectory', 'terminalTokenFile']) {
       assertRelease(path.resolve(config[name]).startsWith(`${path.resolve(config.stateRoot)}/`), 'install_namespace_collision');
     }
   }
@@ -142,6 +143,10 @@ export function assertLoadedProcess({ proc, root, manifest, component, config })
     && proc.environment.AO_MANAGED_RUNTIME_BINARY_SHA256 === manifest.components.daemon.files.find((file) => file.path === manifest.components.daemon.entrypoint).sha256
     && proc.environment.AO_MANAGED_RUNTIME_DATA_DIR === config.dataDir
     && proc.environment.AO_MANAGED_RUNTIME_RUN_FILE === path.join(config.discoveryDir, 'running.json')
+    && proc.environment.AO_TMUX_SOCKET === config.tmuxSocket
+    && proc.environment.AO_TMUX_UNIT === `${config.namespace}-tmux.service`
+    && proc.environment.AO_TMUX_TMPDIR === config.tmuxTmpdir && proc.environment.TMUX_TMPDIR === config.tmuxTmpdir
+    && proc.environment.AO_DASHBOARD_ADAPTER_CONFIG === adapterConfigPath(config)
     && (!config.namespace.startsWith('ao-pilot-staging-')
       || Object.entries(stagingHomeEnvironment(config.stateRoot)).every(([key, value]) => proc.environment[key] === value))
     && proc.executable_sha256 === (component === 'daemon' ? manifest.components.daemon.files.find((file) => file.path === entry).sha256 : manifest.toolchain.node_sha256),
@@ -283,6 +288,10 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
     configuration: config, observe,
     async preflight({ releaseRoot, mode, adoptLegacy = false }) {
       assertFirstRestoreConfiguration(config, mode);
+      // Reject missing/unsafe capabilities before any stop; new components
+      // enforce the same credential and exact browser origin on every upgrade.
+      try { createTerminalAuth(config.terminalTokenFile, config.terminalOrigin, true); }
+      catch { assertRelease(false, 'install_terminal_auth_input_invalid'); }
       const legacy = adoptLegacy ? collectLegacyAdoption(config, legacyDependencies) : null;
       assertRelease(typeof process.execve === 'function', 'release_node_execve_required');
       const configStat = fs.lstatSync(config.configPath);

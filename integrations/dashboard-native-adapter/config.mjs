@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 const keys = [
   'LISTEN_HOST', 'LISTEN_PORT', 'DASHBOARD_UPSTREAM_HOST', 'DASHBOARD_UPSTREAM_PORT',
   'AO_DAEMON_HOST', 'AO_DAEMON_PORT', 'DIRECT_TERMINAL_HOST', 'DIRECT_TERMINAL_PORT',
-  'DIRECT_TERMINAL_BROWSER_PORT', 'TERMINAL_ORIGIN', 'PROJECT_NAME', 'ISSUE_BASE_URL',
+  'DIRECT_TERMINAL_BROWSER_PORT', 'TERMINAL_ORIGIN', 'TERMINAL_TOKEN_FILE', 'PROJECT_NAME', 'ISSUE_BASE_URL',
 ];
 
 // No machine-specific endpoint defaults. JSON uses the same keys as the environment.
@@ -55,6 +55,7 @@ export function loadConfig(env = process.env) {
     browserTerminalPort: values.DIRECT_TERMINAL_BROWSER_PORT === undefined
       ? port('DIRECT_TERMINAL_PORT') : port('DIRECT_TERMINAL_BROWSER_PORT'),
     terminalOrigin: url('TERMINAL_ORIGIN', true),
+    terminalTokenFile: values.TERMINAL_TOKEN_FILE,
     projectName: String(values.PROJECT_NAME ?? ''),
     issueBaseUrl: values.ISSUE_BASE_URL ? url('ISSUE_BASE_URL') : null,
   };

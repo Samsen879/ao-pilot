@@ -131,3 +131,20 @@ An initial test run was FAIL (7/8) for the inherited default-port shim bug;
 the fix above passed 8/8. No production service command other than read-only
 `cat`/`show` is used by this intake. The active services continue using their
 original installation paths.
+# Managed release authentication
+
+Managed releases provide `TERMINAL_TOKEN_FILE` and the exact `TERMINAL_ORIGIN`
+through their private adapter configuration. The capability must be a private
+0600 regular file owned by the service user. Missing/invalid credentials reject
+before WebSocket upgrade, and the original browser Origin is checked before
+proxy rewriting. The direct terminal port enforces the same capability.
+
+Programs use `Authorization: Bearer`. Browsers authenticate with HTTP Basic
+(username `ao`, password equal to the private capability); the browser's
+origin-scoped HTTP auth cache authenticates terminal upgrades. Capabilities
+are never issued to unauthenticated requests, placed in cookies or URLs. Keep the
+capability persistent across upgrades and cold boots; never publish its bytes.
+
+Standalone unmanaged use retains its existing configuration behavior. This does
+not certify an unmanaged deployment as authenticated. A managed release cannot
+disable authentication by omitting its required token file.

@@ -11,6 +11,7 @@ export function adapterConfiguration(configuration) {
     LISTEN_HOST: '127.0.0.1', LISTEN_PORT: ports[2], DASHBOARD_UPSTREAM_HOST: '127.0.0.1', DASHBOARD_UPSTREAM_PORT: ports[1],
     AO_DAEMON_HOST: '127.0.0.1', AO_DAEMON_PORT: ports[0], DIRECT_TERMINAL_HOST: '127.0.0.1', DIRECT_TERMINAL_PORT: ports[3],
     DIRECT_TERMINAL_BROWSER_PORT: ports[3], TERMINAL_ORIGIN: configuration.terminalOrigin,
+    TERMINAL_TOKEN_FILE: configuration.terminalTokenFile,
     PROJECT_NAME: configuration.projectName ?? 'AO Pilot',
   };
 }

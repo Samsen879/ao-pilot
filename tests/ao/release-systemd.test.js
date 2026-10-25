@@ -80,6 +80,16 @@ it('keeps the existing strict environment check for every non-adoption stop', as
   await expect(runner.stop()).rejects.toMatchObject({ code: 'install_service_namespace_mismatch' });
   expect(commands.some(([, args]) => args.includes('stop'))).toBe(false);
 });
+it('rejects unsafe/missing terminal credentials before observations or any service effects', async () => {
+  const { config } = fixture(); let calls = 0;
+  const runner = createSystemdReleaseRunner(config, { run: () => { calls += 1; throw Error('unexpected command'); } });
+  fs.chmodSync(config.terminalTokenFile, 0o644);
+  await expect(runner.preflight({ mode: 'daily' })).rejects.toMatchObject({ code: 'install_terminal_auth_input_invalid' });
+  fs.rmSync(config.terminalTokenFile);
+  await expect(runner.preflight({ mode: 'daily' })).rejects.toMatchObject({ code: 'install_terminal_auth_input_invalid' });
+  expect(calls).toBe(0);
+  expect(() => validateEnvironmentOverride('[Service]\nEnvironment="AO_TERMINAL_TOKEN_FILE=/redirect"\n')).toThrow('unsafe_unit_override');
+});
 it('requires the explicit CLI adoption option and forwards it only to apply', async () => {
   const { root, config } = fixture(); const id = `1.0.0+${'a'.repeat(40)}`;
   config.releaseCatalog = { [id]: { bundle: path.join(root, 'bundle'), envelope_sha256: 'a'.repeat(64) } };
@@ -102,12 +112,14 @@ it('checks real native cwd=DataDir while release provenance comes from immutable
   const manifest = bundle.manifest; const binary = path.join(bundle.payload, 'native/ao'); const sha = manifest.components.daemon.files[0].sha256;
   const proc = { executable: binary, argv: [binary, 'daemon'], cwd: config.dataDir, executable_sha256: sha,
     environment: { HOME: path.join(config.stateRoot, 'home'), XDG_CONFIG_HOME: path.join(config.stateRoot, 'home/.config'), XDG_DATA_HOME: path.join(config.stateRoot, 'home/.local/share'),
+      AO_TMUX_SOCKET: config.tmuxSocket, AO_TMUX_UNIT: `${config.namespace}-tmux.service`, AO_TMUX_TMPDIR: config.tmuxTmpdir, TMUX_TMPDIR: config.tmuxTmpdir,
+      AO_DASHBOARD_ADAPTER_CONFIG: path.join(config.stateRoot, 'dashboard-adapter.json'),
       AO_RELEASE_ID: manifest.release_id, AO_RELEASE_ROOT: bundle.payload, AO_DATA_DIR: config.dataDir, AO_RUN_FILE: path.join(config.discoveryDir, 'running.json'),
       AO_MANAGED_RUNTIME_BINARY: binary, AO_MANAGED_RUNTIME_BINARY_SHA256: sha, AO_MANAGED_RUNTIME_DATA_DIR: config.dataDir, AO_MANAGED_RUNTIME_RUN_FILE: path.join(config.discoveryDir, 'running.json') } };
   const evidence = { proc, root: bundle.payload, manifest, component: 'daemon', config };
   expect(() => assertLoadedProcess(evidence)).not.toThrow();
   for (const changed of [{ ...proc, cwd: bundle.payload }, { ...proc, executable_sha256: '0'.repeat(64) }, { ...proc, environment: { ...proc.environment, AO_MANAGED_RUNTIME_BINARY_SHA256: undefined } },
-    ...['HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME'].map((key) => ({ ...proc, environment: { ...proc.environment, [key]: '/host-profile' } }))]) {
+    ...['HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'AO_TMUX_SOCKET', 'AO_TMUX_UNIT', 'AO_TMUX_TMPDIR', 'TMUX_TMPDIR', 'AO_DASHBOARD_ADAPTER_CONFIG'].map((key) => ({ ...proc, environment: { ...proc.environment, [key]: '/host-profile' } }))]) {
     expect(() => assertLoadedProcess({ ...evidence, proc: changed })).toThrow('install_loaded_release_drift');
   }
 });

@@ -42,8 +42,10 @@ export function configuration(root) {
     unitRoot: path.join(root, 'units'), dataDir: path.join(state, 'data'), discoveryDir: path.join(state, 'discovery'), configPath: path.join(state, 'ao.yaml'),
     controlPlaneRoot: path.join(state, 'control'), trustedHostDirectory: path.join(state, 'trusted-host'), tmuxTmpdir: path.join(state, 'tmux'), tmuxSocket: 'ao-pilot-staging-fixture',
     daemonURL: 'http://127.0.0.1:43001', terminalURL: 'ws://127.0.0.1:43002/terminal', terminalOrigin: 'http://127.0.0.1:43002', terminalCanaryPrefix: 'canary:', listenPorts: [43001, 43000, 43002, 43003, 43004],
-    cliPath: path.join(root, 'bin/ao-pilot') };
-  fs.writeFileSync(config.configPath, 'fake staging configuration'); return config;
+    cliPath: path.join(root, 'bin/ao-pilot'), terminalTokenFile: path.join(state, 'terminal-token') };
+  fs.writeFileSync(config.configPath, 'fake staging configuration');
+  fs.writeFileSync(config.terminalTokenFile, '0'.repeat(64), { mode: 0o600 });
+  return config;
 }
 export function healthyObservation(manifest, releaseRoot, { generation = 2, schema = manifest.database.schema_current } = {}) {
   const services = Object.fromEntries(['daemon', 'dashboard', 'adapter', 'session-recovery'].map((name, i) => [name, {

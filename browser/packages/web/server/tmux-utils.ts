@@ -6,6 +6,19 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { isAbsolute } from "node:path";
+
+/** Managed release clients must never fall back to the default tmux server. */
+export function tmuxArgs(args: string[], env: Record<string, string | undefined> = process.env): string[] {
+  if (!env.AO_RELEASE_ID && !env.AO_TMUX_SOCKET && !env.AO_TMUX_TMPDIR && !env.AO_TMUX_UNIT) return args;
+  const socket = env.AO_TMUX_SOCKET;
+  const temp = env.AO_TMUX_TMPDIR;
+  if (!socket || socket === "default" || !/^[A-Za-z0-9_-]+$/.test(socket)
+      || !temp || !isAbsolute(temp) || env.TMUX_TMPDIR !== temp || !env.AO_TMUX_UNIT) {
+    throw new Error("Explicit managed tmux namespace required");
+  }
+  return ["-L", socket, "-N", ...args];
+}
 
 /** Session ID validation regex — alphanumeric, hyphens, underscores only */
 export const SESSION_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
@@ -73,7 +86,7 @@ export function resolveTmuxSession(
   // Try exact match first using = prefix for exact matching (e.g., "ao-orchestrator")
   // Without =, tmux uses prefix matching: "ao-1" would match "ao-15"
   try {
-    execFn(tmuxPath, ["has-session", "-t", `=${sessionId}`], { timeout: 5000 });
+    execFn(tmuxPath, tmuxArgs(["has-session", "-t", `=${sessionId}`]), { timeout: 5000 });
     return sessionId;
   } catch {
     // Not an exact match
@@ -83,7 +96,7 @@ export function resolveTmuxSession(
   // Validate the 12-char hex prefix to avoid ambiguous suffix matches where
   // "hash-my-app-1" could falsely match a lookup for "app-1".
   try {
-    const output = execFn(tmuxPath, ["list-sessions", "-F", "#{session_name}"], {
+    const output = execFn(tmuxPath, tmuxArgs(["list-sessions", "-F", "#{session_name}"]), {
       timeout: 5000,
       encoding: "utf8",
     }) as string;
