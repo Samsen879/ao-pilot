@@ -244,3 +244,9 @@ command. The native result must cover exactly the captured live set, with only
 native/already-running or skipped-HOLD outcomes; extra, missing or duplicate
 results fail verification. The API equivalents are `includeTerminated` and
 `sessionIds`; omitted values retain the live-only default.
+
+First-install journal `restore_baseline` persists the original live selection
+before any stop and is reused across resumes. A fresh stopped observation never
+replaces it. Requests are split within the existing 4096-byte body limit, with
+all project orchestrators completed before any project workers; each request
+and the combined selection retain exact-set checks.

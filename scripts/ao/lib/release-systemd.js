@@ -128,8 +128,30 @@ export function assertFirstRestoreScope(config, mode, baseline) {
   if (mode !== 'first') return;
   assertRelease(Array.isArray(baseline?.identities) && Array.isArray(baseline?.projects)
     && baseline.identities.every((row) => config.restoreProjects.includes(row.project_id)
-      && typeof row.ao_session_id === 'string' && [0, 1].includes(row.is_terminated))
+      && typeof row.ao_session_id === 'string' && /^[A-Za-z0-9_.-]+$/.test(row.ao_session_id)
+      && ['worker', 'orchestrator'].includes(row.kind) && [0, 1].includes(row.is_terminated))
     && config.restoreProjects.every((project) => baseline.projects.includes(project)), 'install_first_restore_scope_incomplete');
+}
+export function firstRestorePlan(config, baseline) {
+  const plan = [];
+  // The HTTP request limit remains 4096 bytes. Finish every project's
+  // orchestrator requests before admitting any worker request.
+  for (const kind of ['orchestrator', 'worker']) for (const project of config.restoreProjects) {
+    const ids = baseline.identities.filter((row) => row.project_id === project && row.is_terminated === 0 && row.kind === kind)
+      .map((row) => row.ao_session_id).sort();
+    let chunk = [];
+    const fits = (sessionIds) => Buffer.byteLength(JSON.stringify({ project, concurrency: config.restoreConcurrency,
+      includeTerminated: true, sessionIds })) <= 4096;
+    for (const id of ids) {
+      if (!fits([...chunk, id])) {
+        assertRelease(chunk.length > 0, 'install_first_restore_input_required');
+        plan.push({ project, ids: chunk }); chunk = [];
+      }
+      assertRelease(fits([id]), 'install_first_restore_input_required'); chunk.push(id);
+    }
+    if (chunk.length) plan.push({ project, ids: chunk });
+  }
+  return plan;
 }
 export function assertLoadedProcess({ proc, root, manifest, component, config }) {
   const entry = component === 'session-recovery' ? 'scripts/ao-session.js' : manifest.components[component].entrypoint;
@@ -301,6 +323,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
       const baseline = await observe({ releaseRoot });
       assertRelease(Array.isArray(baseline.cids) && baseline.database?.integrity === 'ok' && baseline.tmux?.server_start_token && Array.isArray(baseline.native_cids) && Array.isArray(baseline.custody), 'install_baseline_unknown');
       assertFirstRestoreScope(config, mode, baseline);
+      if (mode === 'first') firstRestorePlan(config, baseline);
       return { ...baseline, ...(legacy ? { legacy_adoption: legacy } : {}) };
     },
     async quiescent() {
@@ -350,6 +373,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
     async start({ releaseRoot, mode = 'daily', baseline } = {}) {
       assertFirstRestoreConfiguration(config, mode);
       assertFirstRestoreScope(config, mode, baseline);
+      const restorePlan = mode === 'first' ? firstRestorePlan(config, baseline) : [];
       systemctl(['start', unitName('tmux')]);
       for (const name of ['runtime', 'dashboard', 'session-recovery', 'adapter']) systemctl(['start', unitName(name)]);
       const wait = async (probe) => {
@@ -364,13 +388,8 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
         // REST is available after boot even while readiness is degraded. Restore
         // precedes strict ready admission and remains an explicit native action.
         await wait(async () => Array.isArray((await get('/api/v1/sessions')).sessions));
-        for (const project of config.restoreProjects) {
-          const expected = baseline.identities.filter((row) => row.project_id === project && row.is_terminated === 0)
-            .map((row) => row.ao_session_id).sort();
-          if (expected.length === 0) {
-            restore_results.push({ projectId: project, results: [] });
-            continue;
-          }
+        const byProject = new Map(config.restoreProjects.map((projectId) => [projectId, { projectId, results: [] }]));
+        for (const { project, ids: expected } of restorePlan) {
           // Reconciliation can mark old live sessions terminated before this
           // call. Permit only that captured live set, never historical rows.
           const result = JSON.parse(run(path.join(releaseRoot, 'native/ao'), ['session', 'restore', '--project', project,
@@ -380,8 +399,15 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
             && result.results.every((row) => ['restored', 'skipped_hold'].includes(row.outcome) && typeof row.reason === 'string'
               && (row.outcome !== 'restored' || row.reason === 'already_running' || row.restoreMode === 'native'))
             && objectSha256(result.results.map((row) => row.sessionId).sort()) === objectSha256(expected), 'install_first_restore_failed');
-          restore_results.push(result);
+          byProject.get(project).results.push(...result.results);
         }
+        for (const [project, result] of byProject) {
+          const expected = baseline.identities.filter((row) => row.project_id === project && row.is_terminated === 0)
+            .map((row) => row.ao_session_id).sort();
+          assertRelease(objectSha256(result.results.map((row) => row.sessionId).sort()) === objectSha256(expected),
+            'install_first_restore_failed');
+        }
+        restore_results.push(...byProject.values());
       }
       await wait(async () => isStrictReadyz(await get('/readyz')));
       return { restore_results };
