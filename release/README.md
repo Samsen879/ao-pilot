@@ -163,6 +163,14 @@ single-link regular JSON file is the L1 step-6 inventory in the following format
 {
   "schema_version": "ao.legacy-adoption-inventory.v1",
   "namespace": "ao-pilot",
+  "tmux": {
+    "socket": "default",
+    "tmpdir": "/example/legacy-tmux",
+    "pid": 124,
+    "start_token": "12345",
+    "executable_sha256": "<exact old tmux executable SHA256>",
+    "session_names": ["example-session"]
+  },
   "units": [
     {
       "unit": "ao-pilot-runtime.service",
@@ -207,6 +215,35 @@ that inventory. The captured evidence and inventory SHA256 enter the private
 journal before switch. Immediately before any legacy stop, the runner samples
 again and requires equality. The ordinary release/environment checks for new
 services and all verify/readback checks remain mandatory.
+
+The inventory must also record the **actual old tmux** socket, temporary
+directory, PID/start-token, executable SHA256 and session names. Legacy `default`
+is accepted only in this digest-bound inventory; the new installation still
+rejects `default`. Preflight probes that old socket and compares its identity;
+switch rechecks it before stop. The new rendered units always use the new
+configuration's socket. Staging must model `default` with a private
+`TMUX_TMPDIR`, rather than renaming both old and new servers to one socket.
+
+Before creating the install root or acquiring its lock, the real runner checks
+all required host commands: node, flock, systemctl, sqlite3, loginctl, ss, tmux
+and git. It reports every missing name and pins resolved absolute paths. Native
+doctor/selected-agent tools retain their existing diagnostics; optional harness
+warnings are not silently promoted to PASS. Baseline exceptions retain their
+command-specific causes in private CLI diagnostics. Public receipts keep the
+same strict allowlist and never include these details.
+
+`upgrade preflight --release <id> --install-config <private-file> --adopt-legacy`
+executes the same baseline collection without preparing a release, acquiring
+an install lock, writing a journal, stopping services or running migrations.
+`--prepared-config` and `--prepared-token` allow it to validate the reviewed
+private inputs before their production destinations exist; these overrides
+are rejected for apply. The Owner entrypoint `scripts/ao-owner-upgrade.py`
+requires explicit `--check-only` or `--apply`, reads a receipt's frozen PATH
+and absolute tool paths, and always runs that preflight under a read-only
+filesystem namespace. Check-only writes no receipt; stdout/stderr are private
+diagnostics. Explicit apply delegates only to the receipt's hash-bound Owner
+draft after that check succeeds. It does not inherit shell loader options or
+caller PATH. Cloud tests use injected tools and never call workstation services.
 
 An interrupted first transaction retains its recorded adoption evidence; an
 ordinary `--resume` uses it without enabling `--adopt-legacy` a second time.

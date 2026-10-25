@@ -11,6 +11,7 @@ import { isStrictReadyz } from './install-doctor.js';
 import { RELEASE_SERVICES, renderReleaseUnits, validateEnvironmentOverride, stagingHomeEnvironment } from './release-units.js';
 import { collectLegacyAdoption, assertLegacyAdoption } from './release-legacy-adoption.js';
 import { createTerminalAuth } from '../../../integrations/dashboard-native-adapter/auth.mjs';
+import { checkInstallTools, executableOnPath } from './release-tools.js';
 
 export function copyCustodyTree(source, target) {
   const stat = fs.lstatSync(source);
@@ -62,7 +63,9 @@ export function validateInstallConfiguration(config) {
 }
 function execute(command, args, { acceptedExitCodes = [0], ...options } = {}) {
   const result = spawnSync(command, args, { encoding: 'utf8', timeout: 30000, maxBuffer: 4 * 1024 * 1024, ...options });
-  assertRelease(!result.error && acceptedExitCodes.includes(result.status), 'install_observation_failed', `Observation failed: ${command}`);
+  if (result.error || !acceptedExitCodes.includes(result.status)) throw Object.assign(new Error(`Observation failed: ${command}: ${result.error?.message ?? result.stderr?.trim() ?? `exit ${result.status}`}`), {
+    code: 'install_observation_failed', details: { command, status: result.status, signal: result.signal, error: result.error?.code ?? null, stderr: result.stderr?.trim() ?? '' },
+  });
   return result.stdout.trim();
 }
 function envOf(pid) {
@@ -81,12 +84,12 @@ function processUnchanged(evidence) {
     if (error.code === 'ENOENT' || error.code === 'ESRCH') return false; throw error;
   }
 }
-export function probeExclusiveLock(file, { expectHeld, run = spawnSync } = {}) {
+export function probeExclusiveLock(file, { expectHeld, run = spawnSync, flock = 'flock' } = {}) {
   // flock never deletes or rewrites the lock, and never waits for a held lock.
   if (!fs.existsSync(file) || !fs.lstatSync(file).isFile()) return null;
   const fd = fs.openSync(file, fs.constants.O_RDWR | fs.constants.O_NOFOLLOW);
   try {
-    const result = run('flock', ['--exclusive', '--nonblock', '3'], { stdio: ['ignore', 'pipe', 'pipe', fd] });
+    const result = run(flock, ['--exclusive', '--nonblock', '3'], { stdio: ['ignore', 'pipe', 'pipe', fd] });
     if (result.error || ![0, 1].includes(result.status)) return null;
     return expectHeld ? result.status === 1 : result.status === 0;
   } finally { fs.closeSync(fd); }
@@ -188,8 +191,15 @@ export function assertLoadedProcess({ proc, root, manifest, component, config })
     && proc.executable_sha256 === (component === 'daemon' ? manifest.components.daemon.files.find((file) => file.path === entry).sha256 : manifest.toolchain.node_sha256),
   'install_loaded_release_drift');
 }
-export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fetchImpl = fetch, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), startupAttempts = 60 } = {}) {
+export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun = null, fetchImpl = fetch, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), startupAttempts = 60, toolResolver = executableOnPath, preparedInputs = null } = {}) {
   const config = validateInstallConfiguration(rawConfiguration);
+  const executionEnv = { ...process.env }; let tools;
+  const checkTools = () => tools ??= checkInstallTools({ env: executionEnv, resolve: toolResolver });
+  const run = suppliedRun ?? ((command, args, options = {}) => {
+    const executable = path.isAbsolute(command) ? command : tools?.[command] ?? toolResolver(command, executionEnv);
+    assertRelease(executable, 'install_required_tools_missing', `Missing required tool: ${command}`);
+    return execute(executable, args, { env: executionEnv, ...options });
+  });
   const unitName = (name) => `${config.namespace}-${name === 'adapter' ? 'dashboard-adapter' : name}.service`;
   const systemctl = (args) => run('systemctl', ['--user', ...args]);
   const env = { ...process.env, AO_DATA_DIR: config.dataDir, AO_RUN_FILE: path.join(config.discoveryDir, 'running.json'),
@@ -213,7 +223,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
             record_sha256 = fileSha256(recordPath); record_state = 'present';
             const record = readJson(recordPath);
             raw_outcome = typeof record.outcome === 'string' ? record.outcome : null;
-          } catch (error) { if (error.code === 'ENOENT') record_state = 'missing'; /* no authority inference */ }
+          } catch (error) { if (error.code === 'ENOENT') record_state = 'missing'; else throw error; /* preserve observation errors without authority inference */ }
         }
         return { ...entry, raw_outcome, record_sha256, record_state, validation: 'UNKNOWN' };
       });
@@ -222,13 +232,15 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
     const projects = JSON.parse(run('sqlite3', ['-readonly', '-json', database, 'SELECT id FROM projects ORDER BY id;']) || '[]').map((row) => row.id);
     return { identities, custody, projects, native_cids: identities.map((row) => ({ ao_session_id: row.ao_session_id, native_conversation_id: row.native_conversation_id ?? null })) };
   }
-  async function observe({ releaseRoot }) {
+  async function observe({ releaseRoot, baselineOnly = false, legacy = null }) {
     const manifest = verifyReleaseTree(releaseRoot);
     const observations = { services: {} };
-    const collect = async (name, fn) => { try { observations[name] = await fn(); } catch { observations[name] = null; } };
+    const errors = {};
+    const failed = (name, error) => { errors[name] = { code: error.code ?? 'observation_failed', message: error.message, ...(error.details ? { details: error.details } : {}) }; };
+    const collect = async (name, fn) => { try { observations[name] = await fn(); } catch (error) { failed(name, error); if (!baselineOnly) observations[name] = null; } };
     const expectedUnits = renderReleaseUnits({ installRoot: config.installRoot, stateRoot: config.stateRoot,
       envFile: path.join(config.stateRoot, 'install.env'), nodePath: manifest.toolchain.node_executable, namespace: config.namespace });
-    for (const component of ['daemon', 'dashboard', 'adapter', 'session-recovery']) {
+    for (const component of (baselineOnly && legacy ? [] : ['daemon', 'dashboard', 'adapter', 'session-recovery'])) {
       try {
         const unit = unitName(component === 'daemon' ? 'runtime' : component);
         const properties = Object.fromEntries(systemctl(['show', unit, '--property=MainPID,ActiveState,ExecMainStartTimestampMonotonic,FragmentPath,DropInPaths,ControlGroup'])
@@ -254,9 +266,9 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
           control_group: properties.ControlGroup, release_root: root, release_id: loaded.release_id,
           component_sha256: component === 'session-recovery' ? loaded.components.cli.sha256 : loaded.components[component].sha256,
           stable: processUnchanged(proc), unit_verified: unitVerified };
-      } catch { observations.services[component] = null; }
+      } catch (error) { failed(`service_${component}`, error); observations.services[component] = null; }
     }
-    await collect('cli_bound', () => Boolean(config.cliPath) && fs.realpathSync(config.cliPath) === path.join(fs.realpathSync(releaseRoot), 'bin/ao-pilot.js'));
+    if (!baselineOnly) await collect('cli_bound', () => Boolean(config.cliPath) && fs.realpathSync(config.cliPath) === path.join(fs.realpathSync(releaseRoot), 'bin/ao-pilot.js'));
     await collect('identity', () => identitySnapshot());
     if (observations.identity) Object.assign(observations, observations.identity);
     await collect('ready', () => get('/readyz'));
@@ -268,20 +280,21 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
     await collect('tmux', () => {
       // Doctor exits 1 for a reported FAIL; preserve that evidence for the
       // legacy baseline. Verify still requires tmux_cgroup PASS after cutover.
-      const doctor = JSON.parse(run(path.join(releaseRoot, 'native/ao'), ['doctor', '--json'], { env, acceptedExitCodes: [0, 1] }));
+      const doctorEnv = legacy ? { ...env, AO_TMUX_SOCKET: legacy.tmux.socket, AO_TMUX_TMPDIR: legacy.tmux.tmpdir, TMUX_TMPDIR: legacy.tmux.tmpdir } : env;
+      const doctor = JSON.parse(run(path.join(releaseRoot, 'native/ao'), ['doctor', '--json'], { env: doctorEnv, acceptedExitCodes: [0, 1] }));
       const check = doctor.checks?.find((item) => item.name === 'tmux_cgroup');
       assertRelease(check && check.details, 'install_tmux_unknown');
       return { ...check.details, level: check.level, executable_sha256: fileSha256(`/proc/${check.details.server_pid}/exe`) };
     });
     await collect('linger', () => run('loginctl', ['show-user', String(process.getuid()), '--property=Linger', '--value']) === 'yes');
-    await collect('listeners_loopback', () => {
+    if (!baselineOnly) await collect('listeners_loopback', () => {
       const rows = run('ss', ['-H', '-ltn']).split('\n').filter(Boolean).map((line) => line.trim().split(/\s+/)[3]);
       return config.listenPorts.every((port) => {
         const matches = rows.filter((address) => address.endsWith(`:${port}`));
         return matches.length > 0 && matches.every((address) => /^(127\.0\.0\.1|\[::1\]|::1):/.test(address));
       });
     });
-    await collect('terminal_auth', async () => {
+    if (!baselineOnly) await collect('terminal_auth', async () => {
       const secret = fs.readFileSync(config.terminalTokenFile, 'utf8').trim();
       assertRelease(secret !== '', 'install_terminal_token_missing');
       const require = createRequire(path.join(releaseRoot, 'browser/package.json'));
@@ -299,11 +312,11 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
       const output = run('sqlite3', ['-readonly', path.join(config.dataDir, 'ao.db'), 'SELECT version_id FROM goose_db_version WHERE is_applied=1 ORDER BY id DESC LIMIT 1; PRAGMA integrity_check;']).split('\n');
       return { schema: Number(output[0]), integrity: output.slice(1).join('\n') };
     });
-    await collect('ownership_locks', () => {
+    if (!baselineOnly) await collect('ownership_locks', () => {
       const daemonPid = observations.services.daemon?.pid;
       assertRelease(Number.isSafeInteger(daemonPid), 'install_lock_owner_unknown');
       const descriptors = fs.readdirSync(`/proc/${daemonPid}/fd`);
-      return ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: true }) === true
+      return ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: true, flock: tools?.flock ?? toolResolver('flock', executionEnv) }) === true
         && descriptors.some((descriptor) => {
           try {
             return fs.realpathSync(`/proc/${daemonPid}/fd/${descriptor}`) === fs.realpathSync(file)
@@ -318,34 +331,41 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
     await collect('trusted_host_disabled', () => !fs.existsSync(config.trustedHostDirectory)
       || fs.readdirSync(config.trustedHostDirectory).length === 0);
     await collect('tokenless_lock_safe', () => controlLocksHaveStartTokens(config.controlPlaneRoot));
+    if (Object.keys(errors).length) {
+      observations.observation_errors = errors;
+      if (baselineOnly) throw Object.assign(new Error(`Baseline observation failed: ${Object.entries(errors).map(([name, error]) => `${name}: ${error.message}`).join('; ')}`), { code: 'install_baseline_observation_failed', details: errors });
+    }
     return observations;
   }
   return {
-    configuration: config, observe,
+    configuration: config, observe, checkTools,
     async preflight({ releaseRoot, mode, adoptLegacy = false }) {
       assertFirstRestoreConfiguration(config, mode);
+      checkTools();
       // Reject missing/unsafe capabilities before any stop; new components
       // enforce the same credential and exact browser origin on every upgrade.
-      try { createTerminalAuth(config.terminalTokenFile, config.terminalOrigin, true); }
+      try { createTerminalAuth(preparedInputs?.terminalTokenFile ?? config.terminalTokenFile, config.terminalOrigin, true); }
       catch { assertRelease(false, 'install_terminal_auth_input_invalid'); }
       const legacy = adoptLegacy ? collectLegacyAdoption(config, legacyDependencies) : null;
       assertRelease(typeof process.execve === 'function', 'release_node_execve_required');
-      const configStat = fs.lstatSync(config.configPath);
+      const configStat = fs.lstatSync(preparedInputs?.configPath ?? config.configPath);
       assertRelease(configStat.isFile() && !configStat.isSymbolicLink() && configStat.uid === process.getuid()
         && (configStat.mode & 0o077) === 0, 'install_config_missing');
-      const baseline = await observe({ releaseRoot });
+      const baseline = await observe({ releaseRoot, baselineOnly: true, legacy });
       assertRelease(Array.isArray(baseline.cids) && baseline.database?.integrity === 'ok' && baseline.tmux?.server_start_token && Array.isArray(baseline.native_cids) && Array.isArray(baseline.custody), 'install_baseline_unknown');
+      if (legacy) assertRelease(baseline.tmux.server_pid === legacy.tmux.pid && baseline.tmux.server_start_token === legacy.tmux.start_token
+        && baseline.tmux.executable_sha256 === legacy.tmux.executable_sha256, 'install_legacy_adoption_mismatch', 'Legacy tmux baseline differs from inventory');
       assertFirstRestoreScope(config, mode, baseline);
       if (mode === 'first') firstRestorePlan(config, baseline);
       for(const id of config.restoreLastSessionIDs??[]) verifyRestoreFiles(config,baseline,id);
       return { ...baseline, ...(legacy ? { legacy_adoption: legacy } : {}) };
     },
     async quiescent() {
-      assertRelease(ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: false }) === true), 'install_previous_locks_held');
+      assertRelease(ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: false, flock: tools?.flock ?? toolResolver('flock', executionEnv) }) === true), 'install_previous_locks_held');
       const database = path.join(config.dataDir, 'ao.db');
       const rows = JSON.parse(run('sqlite3', ['-readonly', '-json', database, 'SELECT id FROM sessions ORDER BY id;']) || '[]');
       const state = run('sqlite3', ['-readonly', database, 'SELECT version_id FROM goose_db_version WHERE is_applied=1 ORDER BY id DESC LIMIT 1; PRAGMA integrity_check;']).split('\n');
-      assertRelease(ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: false }) === true), 'install_previous_locks_held');
+      assertRelease(ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: false, flock: tools?.flock ?? toolResolver('flock', executionEnv) }) === true), 'install_previous_locks_held');
       return { ...identitySnapshot(), cids: rows.map((row) => row.id), database: { schema: Number(state[0]), integrity: state.slice(1).join('\n') } };
     },
     async backupDatabase({ backupRoot }) {
@@ -354,7 +374,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
       assertRelease(!backup.includes("'"), 'unsafe_install_configuration');
       run('sqlite3', [path.join(config.dataDir, 'ao.db'), `.backup '${backup}'`]);
       assertRelease(run('sqlite3', ['-readonly', backup, 'PRAGMA integrity_check;']) === 'ok'
-        && ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: false }) === true)
+        && ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: false, flock: tools?.flock ?? toolResolver('flock', executionEnv) }) === true)
         && run('sqlite3', ['-readonly', backup, 'SELECT id FROM sessions ORDER BY id;']) === run('sqlite3', ['-readonly', path.join(config.dataDir, 'ao.db'), 'SELECT id FROM sessions ORDER BY id;']), 'install_database_backup_invalid');
       const recoverySource = path.join(config.dataDir, 'spawn-attempts');
       const recovery = { exists: fs.existsSync(recoverySource), path: path.join(backupRoot, 'spawn-attempts') };
@@ -381,7 +401,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
         systemctl(['stop', unitName(name)]);
       }
       assertRelease(owned.every((proc) => !processUnchanged(proc)), 'install_previous_process_alive');
-      assertRelease(ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: false }) === true), 'install_previous_locks_held');
+      assertRelease(ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: false, flock: tools?.flock ?? toolResolver('flock', executionEnv) }) === true), 'install_previous_locks_held');
     },
     async reload() { systemctl(['daemon-reload']); },
     async start({ releaseRoot, mode = 'daily', baseline } = {}) {
@@ -429,7 +449,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
     },
     async restoreDatabase({ backup }) {
       assertRelease(fileSha256(backup.path) === backup.sha256, 'install_database_backup_invalid');
-      assertRelease(ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: false }) === true), 'install_previous_locks_held');
+      assertRelease(ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: false, flock: tools?.flock ?? toolResolver('flock', executionEnv) }) === true), 'install_previous_locks_held');
       if (backup.recovery?.exists) assertRelease(objectSha256(inventoryTree(backup.recovery.path, { exclude: [] })) === backup.recovery.sha256, 'install_database_backup_invalid');
       assertRelease(backup.recovery && path.dirname(backup.recovery.path) === path.dirname(backup.path), 'install_database_backup_invalid');
       fs.copyFileSync(backup.path, path.join(config.dataDir, 'ao.db'));

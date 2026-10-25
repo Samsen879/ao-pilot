@@ -11,7 +11,7 @@ import { copyCustodyTree } from '../../scripts/ao/lib/release-systemd.js';
 
 const roots = []; const children = [];
 afterEach(async () => {
-  for (const child of children.splice(0)) { const done = once(child, 'exit'); child.kill(); await done; }
+  for (const child of children.splice(0)) { if (child.exitCode !== null || child.signalCode !== null) continue; const done = once(child, 'exit'); child.kill(); await done; }
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 async function fixture() {
@@ -21,6 +21,7 @@ async function fixture() {
   const executable = path.join(root, 'legacy-node'); fs.copyFileSync(process.execPath, executable); fs.chmodSync(executable, 0o700);
   const script = path.join(root, 'legacy.mjs'); fs.writeFileSync(script, 'setInterval(() => {}, 1000);', { mode: 0o600 });
   const child = spawn(executable, [script], { stdio: 'ignore' }); children.push(child); await once(child, 'spawn');
+  const tmuxChild = spawn(executable, [script], { stdio: 'ignore' }); children.push(tmuxChild); await once(tmuxChild, 'spawn');
   const unitNames = ['runtime', 'dashboard', 'dashboard-adapter', 'session-recovery'].map((name) => `${config.namespace}-${name}.service`);
   fs.mkdirSync(config.unitRoot);
   const group = fs.readFileSync(`/proc/${child.pid}/cgroup`, 'utf8').trim().split(':')[2];
@@ -32,6 +33,11 @@ async function fixture() {
   }));
   const dependencies = {
     run(command, args) {
+      if (command === 'tmux') {
+        expect(args.slice(0, 3)).toEqual(['-S', path.join(root, 'old-tmux', `tmux-${process.getuid()}`, 'default'), '-N']);
+        if (!fs.existsSync(`/proc/${tmuxChild.pid}`)) return '';
+        return args.includes('list-sessions') ? 'fixture-worker' : String(tmuxChild.pid);
+      }
       expect(command).toBe('systemctl'); const record = records[args[2]]; expect(record).toBeDefined();
       return args.includes('--value') ? record.MainPID : Object.entries(record).map(([key, value]) => `${key}=${value}`).join('\n');
     },
@@ -39,13 +45,15 @@ async function fixture() {
       return { pid, start_token: processStartToken(pid), executable: fs.realpathSync(`/proc/${pid}/exe`),
         executable_sha256: fileSha256(`/proc/${pid}/exe`), argv: fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').filter(Boolean) };
     },
-    processUnchanged(proc) { return processStartToken(proc.pid) === proc.start_token; },
+    processUnchanged(proc) { try { return processStartToken(proc.pid) === proc.start_token; } catch (error) { if (error.code === 'ENOENT') return false; throw error; } },
   };
   const units = captureLegacyServices(config, dependencies);
   config.legacyInventoryPath = path.join(root, 'l1-step6-inventory.json');
-  durableJson(config.legacyInventoryPath, { schema_version: 'ao.legacy-adoption-inventory.v1', namespace: config.namespace, units });
+  const tmux = { socket: 'default', tmpdir: path.join(root, 'old-tmux'), pid: tmuxChild.pid,
+    start_token: processStartToken(tmuxChild.pid), executable_sha256: fileSha256(executable), session_names: ['fixture-worker'] };
+  durableJson(config.legacyInventoryPath, { schema_version: 'ao.legacy-adoption-inventory.v1', namespace: config.namespace, units, tmux });
   config.legacyInventorySha256 = fileSha256(config.legacyInventoryPath);
-  return { root, config, dependencies, records, script };
+  return { root, config, dependencies, records, script, child, tmuxChild };
 }
 
 it('adopts an exact legacy unit/ExecStart SHA256/cmdline match without requiring new-style AO environment', async () => {
@@ -54,6 +62,15 @@ it('adopts an exact legacy unit/ExecStart SHA256/cmdline match without requiring
   expect(evidence.units[2].process.cmdline).toHaveLength(2);
   expect(evidence.units[2].exec_start.files).toHaveLength(2); // Node + script
   expect(() => assertLegacyAdoption(config, evidence, dependencies)).not.toThrow();
+  expect(evidence.tmux.socket).toBe('default'); expect(config.tmuxSocket).not.toBe('default');
+});
+it.each(['pid', 'start_token', 'session_names'])('rejects changed legacy tmux %s before switch', async (field) => {
+  const { config, dependencies } = await fixture(); const evidence = collectLegacyAdoption(config, dependencies);
+  const original = dependencies.run;
+  if (field === 'pid') dependencies.run = (command, args, options) => command === 'tmux' && args.includes('display-message') ? String(evidence.tmux.pid + 1) : original(command, args, options);
+  if (field === 'session_names') dependencies.run = (command, args, options) => command === 'tmux' && args.includes('list-sessions') ? 'unexpected-worker' : original(command, args, options);
+  if (field === 'start_token') { const get = dependencies.processEvidence; dependencies.processEvidence = pid => pid === evidence.tmux.pid ? ({ ...get(pid), start_token: 'changed' }) : get(pid); }
+  expect(() => assertLegacyAdoption(config, evidence, dependencies)).toThrow('Legacy tmux');
 });
 it.each(['unit_name', 'target_sha256', 'cmdline', 'pid_generation', 'dropin', 'inventory_digest'])('rejects changed %s before any stop', async (kind) => {
   const { config, dependencies, records, script } = await fixture(); const evidence = collectLegacyAdoption(config, dependencies);
@@ -71,9 +88,11 @@ it.each(['unit_name', 'target_sha256', 'cmdline', 'pid_generation', 'dropin', 'i
   expect(() => assertLegacyAdoption(config, evidence, dependencies)).toThrow('install_legacy_adoption_mismatch');
 });
 it('allows only the transaction-recorded fully stopped state, never a replacement process', async () => {
-  const { config, dependencies, records } = await fixture(); const evidence = collectLegacyAdoption(config, dependencies);
+  const { config, dependencies, records, child, tmuxChild } = await fixture(); const evidence = collectLegacyAdoption(config, dependencies);
   records[`${config.namespace}-dashboard-adapter.service`].MainPID = '0';
   expect(() => assertLegacyAdoption(config, evidence, dependencies)).toThrow();
+  const exited = once(child, 'exit'); child.kill(); await exited;
+  const tmuxExited = once(tmuxChild, 'exit'); tmuxChild.kill(); await tmuxExited;
   expect(() => assertLegacyAdoption(config, evidence, dependencies, { stopped: true })).not.toThrow();
 });
 it('copies custody directory modes exactly, including existing destinations and restored copies', () => {

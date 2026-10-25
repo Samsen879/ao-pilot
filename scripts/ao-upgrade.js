@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { applyRelease } from './ao/lib/release-installer.js';
+import { applyRelease, preflightRelease } from './ao/lib/release-installer.js';
 import { createSystemdReleaseRunner } from './ao/lib/release-systemd.js';
 import { inspectInstall } from './ao/lib/install-doctor.js';
 import { assertRelease, readJson } from './ao/lib/release-manifest.js';
@@ -18,14 +18,15 @@ export function loadInstallConfiguration(file) {
   } finally { fs.closeSync(fd); }
 }
 export async function runCli(argv, io = { writeStdout: (text) => process.stdout.write(text), writeStderr: (text) => process.stderr.write(text) }, {
-  apply = applyRelease, runner = null, configLoader = loadInstallConfiguration, env = process.env,
+  apply = applyRelease, preflight = preflightRelease, runner = null, configLoader = loadInstallConfiguration, env = process.env,
 } = {}) {
   if (argv.includes('--help') || argv.length === 0) {
-    io.writeStdout('Usage: ao-pilot upgrade apply --release <id> [--install-config <file>] [--adopt-legacy] [--resume] [--allow-database-restore]\n       ao-pilot upgrade inspect [--install-config <file>]\n');
+    io.writeStdout('Usage: ao-pilot upgrade apply --release <id> [--install-config <file>] [--adopt-legacy] [--resume] [--allow-database-restore]\n       ao-pilot upgrade preflight --release <id> [--install-config <file>] [--adopt-legacy] [--prepared-config <file>] [--prepared-token <file>]\n       ao-pilot upgrade inspect [--install-config <file>]\n');
     return { exitCode: 0 };
   }
   let operation; let releaseId; let file = env.AO_INSTALL_CONFIG ?? path.join(os.homedir(), '.config/ao-pilot/install.json');
   let resume = false; let restore = false; let adoptLegacy = false;
+  const preparedInputs = {};
   try {
     [operation] = argv;
     for (let i = 1; i < argv.length; i += 1) {
@@ -35,9 +36,12 @@ export async function runCli(argv, io = { writeStdout: (text) => process.stdout.
       else if (option === '--resume') resume = true;
       else if (option === '--allow-database-restore') restore = true;
       else if (option === '--adopt-legacy') adoptLegacy = true;
+      else if (option === '--prepared-config') preparedInputs.configPath = argv[++i];
+      else if (option === '--prepared-token') preparedInputs.terminalTokenFile = argv[++i];
       else throw Object.assign(new Error('Invalid upgrade argument'), { code: 'invalid_upgrade_argument' });
     }
     const configuration = { ...configLoader(file), installConfigPath: path.resolve(file) };
+    assertRelease(operation === 'preflight' || Object.keys(preparedInputs).length === 0, 'invalid_upgrade_argument');
     if (operation === 'inspect') {
       assertRelease(!adoptLegacy, 'invalid_upgrade_argument');
       const root = fs.realpathSync(path.join(configuration.installRoot, 'current'));
@@ -48,17 +52,19 @@ export async function runCli(argv, io = { writeStdout: (text) => process.stdout.
       io.writeStdout(`${JSON.stringify(report, null, 2)}\n`);
       return { exitCode: report.status === 'passed' ? 0 : 2, report };
     }
-    assertRelease(operation === 'apply' && /^[0-9][A-Za-z0-9._-]*\+[a-f0-9]{40}$/.test(releaseId ?? ''), 'invalid_upgrade_argument');
+    assertRelease(['apply', 'preflight'].includes(operation) && /^[0-9][A-Za-z0-9._-]*\+[a-f0-9]{40}$/.test(releaseId ?? ''), 'invalid_upgrade_argument');
     const entry = configuration.releaseCatalog?.[releaseId];
     assertRelease(entry && path.isAbsolute(entry.bundle), 'release_not_registered');
-    const receipt = await apply({ bundle: entry.bundle, expectedEnvelopeSha256: entry.envelope_sha256,
-      configuration, runner, mode: configuration.mode ?? 'daily', resume, allowDatabaseRestore: restore, adoptLegacy });
+    assertRelease(operation !== 'preflight' || !resume && !restore, 'invalid_upgrade_argument');
+    const operationRunner = runner ?? createSystemdReleaseRunner(configuration, { preparedInputs: Object.keys(preparedInputs).length ? preparedInputs : null });
+    const receipt = await (operation === 'preflight' ? preflight : apply)({ bundle: entry.bundle, expectedEnvelopeSha256: entry.envelope_sha256,
+      configuration, runner: operationRunner, mode: configuration.mode ?? 'daily', resume, allowDatabaseRestore: restore, adoptLegacy });
     io.writeStdout(`${JSON.stringify(receipt, null, 2)}\n`);
     return { exitCode: 0, receipt };
   } catch (error) {
     if (error.publicReceipt) io.writeStdout(`${JSON.stringify(error.publicReceipt, null, 2)}\n`);
-    // Fixed error code only: detailed paths, PIDs, endpoints and exceptions stay private.
-    io.writeStderr(`${/^[a-z_]+$/.test(error.code ?? '') ? error.code : 'upgrade_failed'}\n`);
+    // Private CLI diagnostic; public receipts still use their fixed allowlist.
+    io.writeStderr(`${JSON.stringify({ status: 'failed', code: /^[a-z_]+$/.test(error.code ?? '') ? error.code : 'upgrade_failed', message: error.message, ...(error.details ? { details: error.details } : {}) })}\n`);
     return { exitCode: 2, errorCode: error.code ?? 'upgrade_failed' };
   }
 }

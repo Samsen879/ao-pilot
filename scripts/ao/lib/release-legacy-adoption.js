@@ -76,23 +76,48 @@ export function readLegacyInventory(config) {
     assertRelease(digest === config.legacyInventorySha256, code);
     const inventory = JSON.parse(bytes);
     assertRelease(inventory.schema_version === 'ao.legacy-adoption-inventory.v1' && inventory.namespace === config.namespace
-      && Object.keys(inventory).sort().join(',') === 'namespace,schema_version,units'
+      && Object.keys(inventory).sort().join(',') === 'namespace,schema_version,tmux,units'
       && Array.isArray(inventory.units) && inventory.units.length === components.length
       && inventory.units.every((record, index) => record.unit === `${config.namespace}-${components[index]}.service`), code);
-    return { sha256: digest, units: inventory.units };
+    const tmux = inventory.tmux;
+    assertRelease(tmux && Object.keys(tmux).sort().join(',') === 'executable_sha256,pid,session_names,socket,start_token,tmpdir'
+      && /^[A-Za-z0-9_-]+$/.test(tmux.socket ?? '') && path.isAbsolute(tmux.tmpdir ?? '')
+      && !/[\r\n\0]/.test(tmux.tmpdir) && Number.isSafeInteger(tmux.pid) && tmux.pid > 1
+      && /^[0-9]+$/.test(tmux.start_token ?? '') && /^[a-f0-9]{64}$/.test(tmux.executable_sha256 ?? '')
+      && Array.isArray(tmux.session_names) && tmux.session_names.every(name => /^[A-Za-z0-9_.-]+$/.test(name))
+      && new Set(tmux.session_names).size === tmux.session_names.length, 'install_legacy_tmux_inventory_required');
+    return { sha256: digest, units: inventory.units, tmux };
   } finally { fs.closeSync(fd); }
 }
 export function collectLegacyAdoption(config, dependencies) {
   const inventory = readLegacyInventory(config);
   const units = captureLegacyServices(config, dependencies);
   assertRelease(objectSha256(units) === objectSha256(inventory.units), code);
-  return { inventory_sha256: inventory.sha256, units };
+  assertLegacyTmux(inventory.tmux, dependencies);
+  return { inventory_sha256: inventory.sha256, units, tmux: inventory.tmux };
+}
+function assertLegacyTmux(tmux, dependencies, stopped = false) {
+  const socket = path.join(tmux.tmpdir, `tmux-${process.getuid()}`, tmux.socket);
+  if (stopped) {
+    assertRelease(!dependencies.processUnchanged(tmux), code, 'Legacy tmux owner is still alive after stop');
+    dependencies.run('tmux', ['-S', socket, '-N', 'display-message', '-p', '#{pid}'], { acceptedExitCodes: [1] });
+    return;
+  }
+  const pid = Number(dependencies.run('tmux', ['-S', socket, '-N', 'display-message', '-p', '#{pid}']));
+  assertRelease(pid === tmux.pid, code, 'Legacy tmux socket/PID changed');
+  const proc = dependencies.processEvidence(pid);
+  assertRelease(proc.start_token === tmux.start_token && proc.executable_sha256 === tmux.executable_sha256
+    && dependencies.processUnchanged(proc), code, 'Legacy tmux process identity changed');
+  const sessions = dependencies.run('tmux', ['-S', socket, '-N', 'list-sessions', '-F', '#{session_name}']).split('\n').filter(Boolean).sort();
+  assertRelease(objectSha256(sessions) === objectSha256([...tmux.session_names].sort()), code, 'Legacy tmux session set changed');
 }
 export function assertLegacyAdoption(config, evidence, dependencies, { stopped = false } = {}) {
   const inventory = readLegacyInventory(config);
   assertRelease(evidence?.inventory_sha256 === inventory.sha256
-    && objectSha256(evidence.units) === objectSha256(inventory.units), code);
+    && objectSha256(evidence.units) === objectSha256(inventory.units)
+    && objectSha256(evidence.tmux) === objectSha256(inventory.tmux), code);
   const current = captureLegacyServices(config, dependencies);
   const expected = stopped ? evidence.units.map((unit) => ({ ...unit, process: null })) : evidence.units;
   assertRelease(objectSha256(current) === objectSha256(expected), code);
+  assertLegacyTmux(inventory.tmux, dependencies, stopped);
 }
