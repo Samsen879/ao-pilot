@@ -13,12 +13,14 @@ import (
 
 type batchControllerService struct {
 	SessionService
-	calls int
+	calls   int
+	options sessionmanager.BatchRestoreOptions
 }
 
-func (s *batchControllerService) RestoreProject(_ context.Context, id domain.ProjectID, n int) (sessionmanager.BatchRestoreResult, error) {
+func (s *batchControllerService) RestoreProject(_ context.Context, id domain.ProjectID, options sessionmanager.BatchRestoreOptions) (sessionmanager.BatchRestoreResult, error) {
 	s.calls++
-	if id != "fixture" || n != 2 {
+	s.options = options
+	if id != "fixture" || options.Concurrency != 2 {
 		panic("incorrect batch arguments")
 	}
 	return sessionmanager.BatchRestoreResult{ProjectID: id, Results: []sessionmanager.BatchRestoreItem{{SessionID: "fixture-1", Outcome: "restored", Reason: "already_running"}, {SessionID: "fixture-2", Outcome: "skipped_hold", Reason: "spawn_hold_or_pending"}, {SessionID: "fixture-3", Outcome: "failed", Reason: "replay pending"}}}, nil
@@ -38,12 +40,22 @@ func TestBatchRestoreHTTPValidatesAndPreservesPerItemOutcomes(t *testing.T) {
 	}
 	res := httptest.NewRecorder()
 	controller.RestoreProject(res, httptest.NewRequest(http.MethodPost, "/api/v1/sessions/restore", strings.NewReader(`{"project":"fixture","concurrency":2}`)))
-	if res.Code != http.StatusOK || service.calls != 1 {
+	if res.Code != http.StatusOK || service.calls != 1 || service.options.IncludeTerminated || len(service.options.SessionIDs) != 0 {
 		t.Fatalf("%d %s", res.Code, res.Body.String())
 	}
 	for _, outcome := range []string{"restored", "skipped_hold", "failed"} {
 		if !strings.Contains(res.Body.String(), outcome) {
 			t.Fatal("missing outcome", outcome)
 		}
+	}
+}
+
+func TestBatchRestoreHTTPForwardsExplicitHistoricalOptInAndBoundIDs(t *testing.T) {
+	service := &batchControllerService{}
+	controller := &SessionsController{Svc: service}
+	res := httptest.NewRecorder()
+	controller.RestoreProject(res, httptest.NewRequest(http.MethodPost, "/api/v1/sessions/restore", strings.NewReader(`{"project":"fixture","concurrency":2,"includeTerminated":true,"sessionIds":["fixture-1"]}`)))
+	if res.Code != 200 || service.calls != 1 || !service.options.IncludeTerminated || len(service.options.SessionIDs) != 1 || service.options.SessionIDs[0] != "fixture-1" {
+		t.Fatalf("%d %+v", res.Code, service.options)
 	}
 }

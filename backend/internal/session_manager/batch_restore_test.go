@@ -2,8 +2,11 @@ package sessionmanager
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -12,6 +15,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/lifecycle"
 	"github.com/aoagents/agent-orchestrator/backend/internal/observe/reaper"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
+	"github.com/aoagents/agent-orchestrator/backend/internal/spawnattempt"
 	"github.com/google/uuid"
 )
 
@@ -67,7 +71,7 @@ func TestBatchRestoreOrdersOrchestratorsAndIsIdempotent(t *testing.T) {
 	worker := seedBootRecoverySession(t, store, root, 1, domain.KindWorker, true, "removed")
 	first := seedBootRecoverySession(t, store, root, 2, domain.KindOrchestrator, true, "removed")
 	second := seedBootRecoverySession(t, store, root, 3, domain.KindOrchestrator, true, "") // explicit recovery does not require auto-restore marker
-	result, err := m.RestoreProject(ctx, "fixture", 2)
+	result, err := m.RestoreProject(ctx, "fixture", BatchRestoreOptions{Concurrency: 2, IncludeTerminated: true})
 	if err != nil || len(result.Results) != 3 {
 		t.Fatalf("%+v %v", result, err)
 	}
@@ -85,7 +89,7 @@ func TestBatchRestoreOrdersOrchestratorsAndIsIdempotent(t *testing.T) {
 			t.Fatalf("identity lost: %+v %v", rec, err)
 		}
 	}
-	again, err := m.RestoreProject(ctx, "fixture", 2)
+	again, err := m.RestoreProject(ctx, "fixture", BatchRestoreOptions{Concurrency: 2, IncludeTerminated: true})
 	if err != nil || len(runtime.ids) != 3 {
 		t.Fatalf("duplicate runtime: %+v %v", again, err)
 	}
@@ -112,7 +116,7 @@ func TestBatchRestorePreservesHoldFailuresAndCancelledRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	good := seedBootRecoverySession(t, store, root, 2, domain.KindOrchestrator, true, "removed")
-	result, err := m.RestoreProject(ctx, "fixture", 1)
+	result, err := m.RestoreProject(ctx, "fixture", BatchRestoreOptions{Concurrency: 1, IncludeTerminated: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +160,10 @@ func TestBatchRestoreBoundsConcurrentLaunches(t *testing.T) {
 		seedBootRecoverySession(t, store, t.TempDir(), i, domain.KindWorker, true, "removed")
 	}
 	done := make(chan error, 1)
-	go func() { _, err := m.RestoreProject(ctx, "fixture", 2); done <- err }()
+	go func() {
+		_, err := m.RestoreProject(ctx, "fixture", BatchRestoreOptions{Concurrency: 2, IncludeTerminated: true})
+		done <- err
+	}()
 	for i := 0; i < 2; i++ {
 		select {
 		case <-entered:
@@ -237,7 +244,7 @@ func TestBatchRestoreKeepsNativeConversationIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.agents = nativeResumeResolver{nativeResumeAgent{t: t, id: rec.ID, conversation: rec.Metadata.AgentSessionID}}
-	result, err := m.RestoreProject(ctx, "fixture", 1)
+	result, err := m.RestoreProject(ctx, "fixture", BatchRestoreOptions{Concurrency: 1, IncludeTerminated: true})
 	if err != nil || len(result.Results) != 1 || result.Results[0].RestoreMode != RestoreModeNative {
 		t.Fatalf("%+v %v", result, err)
 	}
@@ -259,7 +266,7 @@ func TestBatchCancellationReportsEveryCapturedItem(t *testing.T) {
 	}
 	done := make(chan BatchRestoreResult, 1)
 	go func() {
-		result, err := m.RestoreProject(ctx, "fixture", 1)
+		result, err := m.RestoreProject(ctx, "fixture", BatchRestoreOptions{Concurrency: 1, IncludeTerminated: true})
 		if err != nil {
 			t.Error(err)
 		}
@@ -282,6 +289,88 @@ func TestBatchCancellationReportsEveryCapturedItem(t *testing.T) {
 		rows, err := store.ListSessionWorktrees(context.Background(), item.SessionID)
 		if err != nil || len(rows) != 1 {
 			t.Fatalf("cancel lost recovery custody: %+v %v", rows, err)
+		}
+	}
+}
+
+func TestBatchRestoreDefaultExcludesCommittedHistoryAndPreservesLiveHold(t *testing.T) {
+	m, store, base, _, _ := newSpawnFixture(t)
+	runtime := &batchTestRuntime{fakeRuntime: base, live: map[string]bool{}}
+	m.runtime = runtime
+	ctx := context.Background()
+	live := seedBootRecoverySession(t, store, t.TempDir(), 1, domain.KindWorker, false, "")
+	runtime.live[live.Metadata.RuntimeHandleID] = true
+	held, err := store.CreateSession(ctx, domain.SessionRecord{ProjectID: "fixture", Kind: domain.KindWorker, Metadata: domain.SessionMetadata{SpawnAttemptID: uuid.NewString()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var historical []domain.SessionID
+	for i := 0; i < 2; i++ {
+		attempt := uuid.NewString()
+		rec, err := store.CreateSession(ctx, domain.SessionRecord{ProjectID: "fixture", Kind: domain.KindWorker, Harness: "codex", IsTerminated: true, Metadata: domain.SessionMetadata{SpawnAttemptID: attempt, WorkspacePath: t.TempDir(), Branch: "historical", Prompt: "old work"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		directory := filepath.Join(m.dataDir, "spawn-attempts", attempt)
+		if err = os.MkdirAll(directory, 0700); err != nil {
+			t.Fatal(err)
+		}
+		raw, err := json.Marshal(spawnattempt.Record{Schema: spawnattempt.Schema, ID: attempt, RequestFingerprint: strings.Repeat("a", 64), Project: "fixture", Phase: "commit", Outcome: "committed"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(filepath.Join(directory, "record.json"), raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if !m.spawnAttemptAllowed(ctx, rec.ID) {
+			t.Fatal("fixture must have valid committed custody")
+		}
+		historical = append(historical, rec.ID)
+	}
+	result, err := m.RestoreProject(ctx, "fixture", BatchRestoreOptions{Concurrency: 2})
+	if err != nil || len(result.Results) != 2 || len(runtime.ids) != 0 {
+		t.Fatalf("unexpected restore: %+v %v launches=%v", result, err, runtime.ids)
+	}
+	byID := map[domain.SessionID]BatchRestoreItem{}
+	for _, item := range result.Results {
+		byID[item.SessionID] = item
+	}
+	if byID[live.ID].Outcome != "restored" || byID[held.ID].Outcome != "skipped_hold" {
+		t.Fatalf("live/HOLD outcomes lost: %+v", result)
+	}
+	for _, id := range historical {
+		rec, _, _ := store.GetSession(ctx, id)
+		if !rec.IsTerminated {
+			t.Fatal("historical row resurrected", id)
+		}
+	}
+	// A cutover caller may explicitly restore only its captured live set after
+	// reconciliation marks it terminated, without admitting either history row.
+	current, _, _ := store.GetSession(ctx, live.ID)
+	current.IsTerminated = true
+	if err = store.UpdateSession(ctx, current); err != nil {
+		t.Fatal(err)
+	}
+	result, err = m.RestoreProject(ctx, "fixture", BatchRestoreOptions{Concurrency: 1, IncludeTerminated: true, SessionIDs: []domain.SessionID{live.ID, held.ID}})
+	if err != nil || len(runtime.ids) != 1 || runtime.ids[0] != live.ID || len(result.Results) != 2 {
+		t.Fatalf("bound live set not restored: %+v %v launches=%v", result, err, runtime.ids)
+	}
+	// The named historical session is included only with explicit opt-in.
+	result, err = m.RestoreProject(ctx, "fixture", BatchRestoreOptions{Concurrency: 1, IncludeTerminated: true, SessionIDs: historical[:1]})
+	if err != nil || len(result.Results) != 1 || result.Results[0].SessionID != historical[0] || result.Results[0].Outcome != "restored" {
+		t.Fatalf("explicit history opt-in failed: %+v %v", result, err)
+	}
+}
+
+func TestBatchRestoreRejectsUnknownOrDuplicateSelectionBeforeEffects(t *testing.T) {
+	m, store, base, _, _ := newSpawnFixture(t)
+	runtime := &batchTestRuntime{fakeRuntime: base, live: map[string]bool{}}
+	m.runtime = runtime
+	rec := seedBootRecoverySession(t, store, t.TempDir(), 1, domain.KindWorker, true, "")
+	for _, ids := range [][]domain.SessionID{{rec.ID, rec.ID}, {rec.ID, "another-project-1"}, {""}} {
+		_, err := m.RestoreProject(context.Background(), "fixture", BatchRestoreOptions{Concurrency: 1, IncludeTerminated: true, SessionIDs: ids})
+		if err == nil || len(runtime.ids) != 0 {
+			t.Fatalf("invalid scope had effects: %v %v", ids, err)
 		}
 	}
 }
