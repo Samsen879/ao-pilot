@@ -240,8 +240,10 @@ an install lock, writing a journal, stopping services or running migrations.
 private inputs before their production destinations exist; these overrides
 are rejected for apply. The Owner entrypoint `scripts/ao-owner-upgrade.py`
 requires explicit `--check-only` or `--apply`, reads a receipt's frozen PATH
-and absolute tool paths, and always runs that preflight under a read-only
-filesystem namespace. Check-only writes no receipt; stdout/stderr are private
+and absolute tool paths. Its trusted preflight runs in the host user namespace
+so it can read the actual service process identities under /proc. The additional
+bwrap wrapper was removed with Owner authorization after its child user namespace
+blocked these reads; no identity or preflight check is skipped. Check-only writes no receipt; stdout/stderr are private
 diagnostics. Explicit apply delegates only to the receipt's hash-bound Owner
 draft after that check succeeds. It does not inherit shell loader options or
 caller PATH. Cloud tests use injected tools and never call workstation services.

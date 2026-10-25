@@ -9,26 +9,26 @@ const roots = [];
 afterEach(() => { roots.splice(0).forEach(root => fs.rmSync(root, { recursive: true, force: true })); });
 const script = fileURLToPath(new URL('../../scripts/ao-owner-upgrade.py', import.meta.url));
 function fixture() {
-  const root = fixtureRoot(); roots.push(root); const config = configuration(root), bundle = createBundle(root, { extraFiles: { 'scripts/ao/helper.js': '/* directory/file prefix ordering regression */' } });
+  const root = fixtureRoot(); roots.push(root); const config = configuration(root);
+  const probe = "import fs from 'node:fs'; process.stdout.write(JSON.stringify({status:'passed',path:process.env.PATH,node_options:process.env.NODE_OPTIONS??'',argv:process.argv.slice(2).join(' '),user_namespace:fs.readlinkSync('/proc/self/ns/user')})+'\\n');";
+  const bundle = createBundle(root, { extraFiles: { 'scripts/ao/helper.js': '/* directory/file prefix ordering regression */', 'scripts/ao-upgrade.js': probe } });
   const local = path.join(root, 'L2-production'); fs.mkdirSync(local);
   durableJson(path.join(local, 'install-config.json'), config);
   durableJson(path.join(root, 'build-result.json'), { status: 'PASS', release_id: bundle.manifest.release_id,
     bundle: bundle.bundle, npm_tarball_sha256: fileSha256(path.join(bundle.bundle, 'package.tgz')), envelope_sha256: bundle.envelopeSha });
-  const bwrap = path.join(root, 'fixture-bwrap');
-  fs.writeFileSync(bwrap, '#!/bin/sh\nprintf \'{"status":"passed","path":"%s","node_options":"%s","argv":"%s"}\\n\' "$PATH" "${NODE_OPTIONS-}" "$*"\n', { mode: 0o755 });
   const apply = path.join(local, 'owner-apply.py'), marker = path.join(root, 'applied');
   fs.writeFileSync(apply, `from pathlib import Path\nPath(${JSON.stringify(marker)}).write_text('owner only')\n`);
   const tools = Object.fromEntries(['flock', 'systemctl', 'sqlite3', 'loginctl', 'ss', 'tmux', 'git', 'ps', 'pgrep', 'pkill', 'sh', 'bash', 'env'].map(name => [name, '/bin/true']));
-  Object.assign(tools, { node: process.execPath, python3: '/usr/bin/python3', bwrap });
+  Object.assign(tools, { node: process.execPath, python3: '/usr/bin/python3' });
   durableJson(path.join(local, 'owner-environment.json'), { release_id: bundle.manifest.release_id, home: root, user: 'fixture', PATH: '/fixed-owner-path', tools, apply_script_sha256: fileSha256(apply) });
   return { root, marker, apply };
 }
-it('check-only freezes the environment, requires a read-only root, runs real preflight arguments and never invokes apply', () => {
+it('check-only freezes the environment, retains host process visibility and never invokes apply', () => {
   const { root, marker } = fixture(); const before = fs.readdirSync(root, { recursive: true }).sort();
   const run = spawnSync('/usr/bin/python3', ['-I', script, '--receipt', root, '--check-only'], { env: { ...process.env, PATH: '/poisoned-caller', NODE_OPTIONS: '--require /untrusted.js' }, encoding: 'utf8' });
   expect(run.status).toBe(0); const output = JSON.parse(run.stdout);
   expect(output.path).toBe('/fixed-owner-path'); expect(output.node_options).toBe('');
-  expect(output.argv).toContain('--ro-bind / /'); expect(output.argv).toContain(' preflight --release ');
+  expect(output.user_namespace).toBe(fs.readlinkSync('/proc/self/ns/user')); expect(output.argv).toContain('preflight --release ');
   expect(output.argv).toContain('--prepared-config'); expect(output.argv).not.toContain(' apply ');
   expect(fs.existsSync(marker)).toBe(false); expect(fs.readdirSync(root, { recursive: true }).sort()).toEqual(before);
 });
