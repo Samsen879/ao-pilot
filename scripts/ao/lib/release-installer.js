@@ -22,6 +22,9 @@ function pointer(root, name) {
     return target;
   } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
 }
+function entryExists(file) {
+  try { fs.lstatSync(file); return true; } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+}
 function switchPointer(root, name, target, lock) {
   lock.assertOwned();
   const temp = path.join(root, `.${name}-${randomUUID()}`);
@@ -155,7 +158,7 @@ async function garbageCollect({ root, lock, runner, protectedTargets, remove = f
 }
 export async function applyRelease({
   bundle, expectedEnvelopeSha256, configuration, runner = null, mode = 'daily',
-  resume = false, allowDatabaseRestore = false, now = () => new Date().toISOString(),
+  resume = false, allowDatabaseRestore = false, adoptLegacy = false, now = () => new Date().toISOString(),
   inject = () => {}, removeOldRelease = fs.rmSync,
 } = {}) {
   assertRelease(['daily', 'first'].includes(mode), 'invalid_install_mode');
@@ -164,11 +167,16 @@ export async function applyRelease({
   const lock = acquireInstallLock(root);
   const transactionRoot = path.join(root, 'transactions');
   const journalPath = path.join(root, 'install-journal.json');
+  const stopServices = async () => runner.stop({ baseline: journal.baseline,
+    legacyAdoption: !journal.unit_backup_complete && !journal.new_services_started ? journal.legacy_adoption : null,
+    legacyStopped: journal.legacy_stop_complete === true });
   let journal = null; let manifest = null; let manifestSha256 = null;
   let phase = 'preflight'; let committed = false; let report = null; let oldManifest = null;
   let prior = null; let previous = null; let txDir; let units;
   try {
     lock.assertOwned();
+    assertRelease(!adoptLegacy || mode === 'first' && !resume
+      && !entryExists(path.join(root, 'current')) && !entryExists(journalPath), 'install_legacy_adoption_not_first');
     const verified = verifyReleaseEnvelope(bundle, expectedEnvelopeSha256);
     manifest = verified.manifest; assertRuntimeLockArtifact(path.join(bundle, 'payload'), manifest); manifestSha256 = verified.envelope.manifest_sha256;
     assertRelease(manifest.platform.os === process.platform && manifest.platform.arch === process.arch, 'release_platform_unsupported');
@@ -202,15 +210,17 @@ export async function applyRelease({
     if (!journal) {
       prior = pointer(root, 'current'); previous = pointer(root, 'previous');
       oldManifest = prior ? verifyReleaseTree(path.join(root, prior)) : null;
-      const baseline = await runner.preflight({ releaseRoot: prior ? path.join(root, prior) : path.join(bundle, 'payload'), manifest, mode });
+      const baseline = await runner.preflight({ releaseRoot: prior ? path.join(root, prior) : path.join(bundle, 'payload'), manifest, mode, adoptLegacy });
       assertRelease(Array.isArray(baseline.cids) && baseline.database?.integrity === 'ok', 'install_baseline_unknown');
+      assertRelease(!adoptLegacy || baseline.legacy_adoption && typeof runner.checkLegacy === 'function', 'install_legacy_inventory_required');
       inject('preflight', { manifest });
       const transactionId = lock.owner.transaction_id;
       txDir = path.join(transactionRoot, transactionId); fs.mkdirSync(txDir, { mode: 0o700 });
       journal = { schema_version: 'ao.install-journal.v1', transaction_id: transactionId, release_id: manifest.release_id,
         envelope_sha256: expectedEnvelopeSha256, manifest_sha256: manifestSha256, configuration_sha256: objectSha256(configuration),
         owner: lock.owner, old: prior, previous, target, phase: 'install', mode, baseline,
-        old_manifest: oldManifest, database_backup: null, unit_backup_complete: false, switched: false, cli_snapshot: snapshotCli(configuration) };
+        old_manifest: oldManifest, database_backup: null, unit_backup_complete: false, switched: false, cli_snapshot: snapshotCli(configuration),
+        legacy_adoption: adoptLegacy ? baseline.legacy_adoption : null };
       lock.assertOwned(); durableJson(journalPath, journal);
       phase = 'install';
       const partial = `${final}.partial`; const partialOwner = `${partial}.owner.json`;
@@ -236,10 +246,15 @@ export async function applyRelease({
     oldManifest ??= journal.old_manifest;
     phase = 'switch';
     if (journal.phase === 'install') throw Object.assign(new Error('Incomplete prepare requires retry after preserving owned partial'), { code: 'interrupted_install_release_missing' });
+    if (journal.legacy_adoption && !journal.unit_backup_complete && !journal.new_services_started) {
+      await runner.checkLegacy({ evidence: journal.legacy_adoption, stopped: journal.legacy_stop_complete === true });
+    }
     // Durable intent precedes the first external stop. Freeze existing service
     // entrypoints and all DB writers before taking the rollback snapshot.
     journal.service_mutation_started = true; lock.assertOwned(); durableJson(journalPath, journal);
-    await runner.stop({ baseline: journal.baseline }); inject('stopped', {});
+    await stopServices();
+    if (journal.legacy_adoption) { journal.legacy_stop_complete = true; lock.assertOwned(); durableJson(journalPath, journal); }
+    inject('stopped', {});
     const stopped = await runner.quiescent();
     journal.stopped_snapshot = stopped; lock.assertOwned(); durableJson(journalPath, journal);
     assertRelease(Array.isArray(stopped.cids) && stopped.database?.integrity === 'ok'
@@ -311,7 +326,7 @@ export async function applyRelease({
     if (journal && !committed && journal.service_mutation_started && ['switch', 'verify', 'readback'].includes(phase)) {
       try {
         lock.assertOwned();
-        await runner.stop({ baseline: journal.baseline });
+        await stopServices();
         const old = journal.old_manifest;
         let schema = journal.new_services_started ? report?.evidence?.database?.schema : journal.baseline?.database?.schema;
         if (journal.new_services_started && !Number.isSafeInteger(schema)) {
