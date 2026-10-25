@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, expect, it } from '@jest/globals';
 import { configuration, fixtureRoot, createBundle } from './release-fixture.js';
-import { createSystemdReleaseRunner, validateInstallConfiguration, probeExclusiveLock, assertLoadedProcess, assertFirstRestoreConfiguration } from '../../scripts/ao/lib/release-systemd.js';
+import { createSystemdReleaseRunner, validateInstallConfiguration, probeExclusiveLock, assertLoadedProcess, assertFirstRestoreConfiguration, firstRestorePlan } from '../../scripts/ao/lib/release-systemd.js';
 import { prepareStaging, assertStagingIsolation } from '../../scripts/verify-install-staging.js';
 import { runCli } from '../../scripts/ao-upgrade.js';
 import { validateEnvironmentOverride } from '../../scripts/ao/lib/release-units.js';
@@ -136,16 +136,16 @@ it('restores first-only explicit projects after boot REST while degraded, preser
   const runner = createSystemdReleaseRunner(config, { run: (command, args, options) => { events.push([command, args, options]); return JSON.stringify(result); }, fetchImpl: async (url) => {
     events.push(['fetch', url.pathname]); return { ok: true, json: async () => url.pathname.includes('sessions') ? { sessions: [] } : { status: 'ready', ready: true, reasons: [] } };
   }, sleep: async () => {} });
-  expect(await runner.start({ releaseRoot: root, mode: 'first', baseline: { projects: ['fixture'], identities: [{ ao_session_id: 'original', project_id: 'fixture' }, { ao_session_id: 'held', project_id: 'fixture' }] } })).toEqual({ restore_results: [result] });
+  expect(await runner.start({ releaseRoot: root, mode: 'first', baseline: { projects: ['fixture'], identities: [{ ao_session_id: 'original', project_id: 'fixture', kind: 'worker', is_terminated: 0 }, { ao_session_id: 'held', project_id: 'fixture', kind: 'worker', is_terminated: 0 }, { ao_session_id: 'historical-1', project_id: 'fixture', kind: 'worker', is_terminated: 1 }, { ao_session_id: 'historical-2', project_id: 'fixture', kind: 'worker', is_terminated: 1 }] } })).toEqual({ restore_results: [result] });
   const restore = events.findIndex(([command]) => command === path.join(root, 'native/ao'));
-  expect(events[restore][1]).toEqual(['session', 'restore', '--project', 'fixture', '--all', '--concurrency', '2', '--json']);
+  expect(events[restore][1]).toEqual(['session', 'restore', '--project', 'fixture', '--all', '--include-terminated', '--session-id', 'held', '--session-id', 'original', '--concurrency', '2', '--json']);
   expect(events[restore][2]).toMatchObject({ timeout: 15 * 60 * 1000 + 10000, env: { AO_TMUX_SOCKET: config.tmuxSocket } });
   expect(events.findIndex(([command, arg]) => command === 'fetch' && arg === '/api/v1/sessions')).toBeLessThan(restore);
   expect(events.findIndex(([command, arg]) => command === 'fetch' && arg === '/readyz')).toBeGreaterThan(restore);
   result.results[0].restoreMode = 'fresh';
-  await expect(runner.start({ releaseRoot: root, mode: 'first', baseline: { projects: ['fixture'], identities: [{ ao_session_id: 'original', project_id: 'fixture' }, { ao_session_id: 'held', project_id: 'fixture' }] } })).rejects.toThrow('install_first_restore_failed');
+  await expect(runner.start({ releaseRoot: root, mode: 'first', baseline: { projects: ['fixture'], identities: [{ ao_session_id: 'original', project_id: 'fixture', kind: 'worker', is_terminated: 0 }, { ao_session_id: 'held', project_id: 'fixture', kind: 'worker', is_terminated: 0 }, { ao_session_id: 'historical-1', project_id: 'fixture', kind: 'worker', is_terminated: 1 }, { ao_session_id: 'historical-2', project_id: 'fixture', kind: 'worker', is_terminated: 1 }] } })).rejects.toThrow('install_first_restore_failed');
   result.results[0].outcome = 'failed';
-  await expect(runner.start({ releaseRoot: root, mode: 'first', baseline: { projects: ['fixture'], identities: [{ ao_session_id: 'original', project_id: 'fixture' }, { ao_session_id: 'held', project_id: 'fixture' }] } })).rejects.toThrow('install_first_restore_failed');
+  await expect(runner.start({ releaseRoot: root, mode: 'first', baseline: { projects: ['fixture'], identities: [{ ao_session_id: 'original', project_id: 'fixture', kind: 'worker', is_terminated: 0 }, { ao_session_id: 'held', project_id: 'fixture', kind: 'worker', is_terminated: 0 }, { ao_session_id: 'historical-1', project_id: 'fixture', kind: 'worker', is_terminated: 1 }, { ao_session_id: 'historical-2', project_id: 'fixture', kind: 'worker', is_terminated: 1 }] } })).rejects.toThrow('install_first_restore_failed');
 });
 
 it('first restore scope mismatch fails before any start and invalid outcomes cannot pass', async () => {
@@ -154,4 +154,37 @@ it('first restore scope mismatch fails before any start and invalid outcomes can
   await expect(runner.start({ mode: 'first', releaseRoot: root, baseline: { projects: ['other'], identities: [] } })).rejects.toThrow('install_first_restore_scope_incomplete');
   await expect(runner.start({ mode: 'first', releaseRoot: root, baseline: { projects: ['explicit', 'other'], identities: [{ project_id: 'other', ao_session_id: 'kept' }] } })).rejects.toThrow('install_first_restore_scope_incomplete');
   expect(calls).toHaveLength(0);
+});
+
+it('never invokes an unscoped restore for an empty pre-stop live set and rejects an unknown live baseline', async () => {
+ const {root,config}=fixture();Object.assign(config,{restoreProjects:['fixture'],restoreConcurrency:2});const calls=[];
+ const runner=createSystemdReleaseRunner(config,{run:(...args)=>{calls.push(args);return '';},fetchImpl:async(url)=>({ok:true,json:async()=>url.pathname.includes('sessions')?{sessions:[]}:{status:'ready',ready:true,reasons:[]}}),sleep:async()=>{}});
+ const baseline={projects:['fixture'],identities:[{project_id:'fixture',ao_session_id:'historical',kind:'worker',is_terminated:1}]};
+ expect(await runner.start({releaseRoot:root,mode:'first',baseline})).toEqual({restore_results:[{projectId:'fixture',results:[]}]});
+ expect(calls.some(([command])=>command===path.join(root,'native/ao'))).toBe(false);
+ calls.length=0;delete baseline.identities[0].is_terminated;
+ await expect(runner.start({releaseRoot:root,mode:'first',baseline})).rejects.toThrow('install_first_restore_scope_incomplete');expect(calls).toHaveLength(0);
+});
+it.each(['extra_history','missing_live','duplicate_live'])('rejects native restore set mismatch %s', async (mutation) => {
+ const {root,config}=fixture();Object.assign(config,{restoreProjects:['fixture'],restoreConcurrency:2});
+ const item={sessionId:'live',outcome:'restored',reason:'already_running'};
+ const results=mutation==='extra_history'?[item,{...item,sessionId:'historical'}]:mutation==='missing_live'?[]:[item,item];
+ const runner=createSystemdReleaseRunner(config,{run:()=>JSON.stringify({projectId:'fixture',results}),fetchImpl:async()=>({ok:true,json:async()=>({sessions:[]})}),sleep:async()=>{}});
+ await expect(runner.start({releaseRoot:root,mode:'first',baseline:{projects:['fixture'],identities:[{project_id:'fixture',ao_session_id:'live',kind:'worker',is_terminated:0},{project_id:'fixture',ao_session_id:'historical',kind:'worker',is_terminated:1}]}})).rejects.toThrow('install_first_restore_failed');
+});
+
+it('bounds large live requests without increasing the 4096-byte API limit and finishes global orchestrators first', async () => {
+ const {root,config}=fixture();Object.assign(config,{restoreProjects:['one','two'],restoreConcurrency:2});
+ const identities=Array.from({length:600},(_,i)=>({ao_session_id:`fixture-${i}`,project_id:i%2?'one':'two',kind:i%199===0?'orchestrator':'worker',is_terminated:0}));
+ const baseline={projects:['one','two'],identities};const plan=firstRestorePlan(config,baseline);
+ expect(plan.length).toBeGreaterThan(4);expect(plan.flatMap(x=>x.ids).sort()).toEqual(identities.map(x=>x.ao_session_id).sort());
+ let workerSeen=false;const byId=new Map(identities.map(x=>[x.ao_session_id,x]));
+ const calls=[];const runner=createSystemdReleaseRunner(config,{run:(cmd,args)=>{
+  if(cmd!==path.join(root,'native/ao'))return '';
+  const project=args[args.indexOf('--project')+1];const ids=args.flatMap((v,i)=>v==='--session-id'?[args[i+1]]:[]);calls.push(ids);
+  expect(Buffer.byteLength(JSON.stringify({project,concurrency:2,includeTerminated:true,sessionIds:ids}))).toBeLessThanOrEqual(4096);
+  for(const id of ids){if(byId.get(id).kind==='worker')workerSeen=true;else expect(workerSeen).toBe(false);}
+  return JSON.stringify({projectId:project,results:ids.map(sessionId=>({sessionId,outcome:'restored',reason:'already_running'}))});
+ },fetchImpl:async(url)=>({ok:true,json:async()=>url.pathname.includes('sessions')?{sessions:[]}:{status:'ready',ready:true,reasons:[]}}),sleep:async()=>{}});
+ const result=await runner.start({releaseRoot:root,mode:'first',baseline});expect(result.restore_results.flatMap(x=>x.results)).toHaveLength(600);expect(calls).toHaveLength(plan.length);
 });

@@ -275,3 +275,15 @@ it('rejects independent stale runtime lock before stopping or starting any servi
   await expect(applyRelease({ bundle: bundle.bundle, expectedEnvelopeSha256: fileSha256(path.join(bundle.bundle, 'release-envelope.json')), configuration: config, runner })).rejects.toMatchObject({ code: 'installed_runtime_lock_drift' });
   expect(runner.calls).toEqual([]); expect(readReleasePointer(config.installRoot, 'current')).toBeNull();
 });
+
+it('reuses the immutable pre-stop live selection after daemon reconciliation and interrupted first start', async () => {
+ const {root,config}=fixture();const bundle=createBundle(root);const runner=fakeRunner(root);const originalPreflight=runner.preflight,originalQuiescent=runner.quiescent,originalStart=runner.start;
+ const identities=[{ao_session_id:'cid-worker',project_id:'fixture',kind:'worker',is_terminated:0},{ao_session_id:'history',project_id:'fixture',kind:'worker',is_terminated:1}];let reconciled=false;let tries=0;const supplied=[];
+ runner.preflight=async(args)=>({...await originalPreflight(args),projects:['fixture'],identities});
+ runner.quiescent=async()=>({...await originalQuiescent(),projects:['fixture'],identities:identities.map(x=>({...x,is_terminated:reconciled?1:x.is_terminated}))});
+ runner.start=async(args)=>{supplied.push(args.baseline.identities.map(x=>x.ao_session_id));await originalStart(args);if(++tries===1){reconciled=true;throw Object.assign(Error('interrupted after reconciliation'),{simulatedCrash:true});}};
+ await expect(apply(bundle,config,runner,{mode:'first'})).rejects.toThrow('interrupted after reconciliation');
+ const before=readJson(path.join(config.installRoot,'install-journal.json'));expect(before.restore_baseline.identities.map(x=>x.ao_session_id)).toEqual(['cid-worker']);
+ expect(await apply(bundle,config,runner,{mode:'first',resume:true})).toMatchObject({result:'passed'});
+ const after=readJson(path.join(config.installRoot,'install-journal.json'));expect(after.stopped_snapshot.identities.every(x=>x.is_terminated===1)).toBe(true);expect(after.restore_baseline).toEqual(before.restore_baseline);expect(supplied).toEqual([['cid-worker'],['cid-worker']]);
+});

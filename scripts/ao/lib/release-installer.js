@@ -193,6 +193,7 @@ export async function applyRelease({
       if (!['committed', 'rolled_back'].includes(pending.phase)) {
         assertRelease(resume && pending.release_id === manifest.release_id && pending.envelope_sha256 === expectedEnvelopeSha256
           && pending.configuration_sha256 === objectSha256(configuration), 'interrupted_install_requires_resume');
+        assertRelease(pending.mode !== 'first' || Array.isArray(pending.restore_baseline?.identities), 'install_restore_scope_unknown');
         journal = pending; txDir = path.join(transactionRoot, journal.transaction_id);
         assertRelease(/^[-a-f0-9]+$/.test(journal.transaction_id) && fs.existsSync(txDir), 'invalid_install_journal');
         prior = journal.old; previous = journal.previous;
@@ -219,6 +220,8 @@ export async function applyRelease({
       journal = { schema_version: 'ao.install-journal.v1', transaction_id: transactionId, release_id: manifest.release_id,
         envelope_sha256: expectedEnvelopeSha256, manifest_sha256: manifestSha256, configuration_sha256: objectSha256(configuration),
         owner: lock.owner, old: prior, previous, target, phase: 'install', mode, baseline,
+        restore_baseline: mode === 'first' ? { projects: baseline.projects,
+          identities: baseline.identities.filter((row) => row.is_terminated === 0) } : null,
         old_manifest: oldManifest, database_backup: null, unit_backup_complete: false, switched: false, cli_snapshot: snapshotCli(configuration),
         legacy_adoption: adoptLegacy ? baseline.legacy_adoption : null };
       lock.assertOwned(); durableJson(journalPath, journal);
@@ -289,7 +292,8 @@ export async function applyRelease({
     installCliLink(configuration, lock);
     journal.new_services_started = true; lock.assertOwned(); durableJson(journalPath, journal);
     await runner.reload();
-    journal.start_result = await runner.start({ releaseRoot: final, mode, baseline: journal.stopped_snapshot });
+    journal.start_result = await runner.start({ releaseRoot: final, mode,
+      baseline: mode === 'first' ? journal.restore_baseline : journal.stopped_snapshot });
     lock.assertOwned(); durableJson(journalPath, journal);
     phase = 'verify'; journal.phase = phase; lock.assertOwned(); durableJson(journalPath, journal);
     assertRelease(!configuration.cliPath || fs.realpathSync(configuration.cliPath) === path.join(final, 'bin/ao-pilot.js'), 'install_cli_drift');

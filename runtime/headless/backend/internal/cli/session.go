@@ -212,6 +212,8 @@ func newSessionRestoreCommand(ctx *commandContext) *cobra.Command {
 	var opts sessionOptions
 	var all bool
 	var concurrency int
+	var includeTerminated bool
+	var selectedIDs []string
 	cmd := &cobra.Command{
 		Use: "restore [id]", Short: "Relaunch one session, or explicitly restore a project with --all",
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -224,14 +226,14 @@ func newSessionRestoreCommand(ctx *commandContext) *cobra.Command {
 				}
 				return nil
 			}
-			if cmd.Flags().Changed("concurrency") {
-				return usageError{errors.New("--concurrency requires --all")}
+			if cmd.Flags().Changed("concurrency") || cmd.Flags().Changed("include-terminated") || cmd.Flags().Changed("session-id") {
+				return usageError{errors.New("batch restore options require --all")}
 			}
 			return oneSessionIDArg(cmd, args)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if all {
-				return ctx.restoreProjectSessions(cmd.Context(), cmd, opts, concurrency)
+				return ctx.restoreProjectSessions(cmd.Context(), cmd, opts, concurrency, includeTerminated, selectedIDs)
 			}
 			id, err := normalizeSessionID(args[0])
 			if err != nil {
@@ -241,18 +243,22 @@ func newSessionRestoreCommand(ctx *commandContext) *cobra.Command {
 		},
 	}
 	addSessionProjectFlag(cmd.Flags(), &opts.project, "Project id; required with --all")
-	cmd.Flags().BoolVar(&all, "all", false, "Restore all project sessions, orchestrators first")
+	cmd.Flags().BoolVar(&all, "all", false, "Restore currently live project sessions, orchestrators first")
+	cmd.Flags().BoolVar(&includeTerminated, "include-terminated", false, "Also restore terminated sessions; use --session-id to bind a pre-stop live set")
+	cmd.Flags().StringArrayVar(&selectedIDs, "session-id", nil, "Limit batch restore to this session id (repeatable; requires --all)")
 	cmd.Flags().IntVar(&concurrency, "concurrency", 4, "Maximum concurrent restores (1..16)")
 	cmd.Flags().BoolVar(&opts.json, "json", false, "Output batch results as JSON")
 	return cmd
 }
 
-func (c *commandContext) restoreProjectSessions(ctx context.Context, cmd *cobra.Command, opts sessionOptions, concurrency int) error {
+func (c *commandContext) restoreProjectSessions(ctx context.Context, cmd *cobra.Command, opts sessionOptions, concurrency int, includeTerminated bool, selectedIDs []string) error {
 	var result sessionmanager.BatchRestoreResult
 	request := struct {
-		Project     string `json:"project"`
-		Concurrency int    `json:"concurrency"`
-	}{opts.project, concurrency}
+		Project           string   `json:"project"`
+		Concurrency       int      `json:"concurrency"`
+		IncludeTerminated bool     `json:"includeTerminated,omitempty"`
+		SessionIDs        []string `json:"sessionIds,omitempty"`
+	}{opts.project, concurrency, includeTerminated, selectedIDs}
 	if err := c.postJSON(ctx, "sessions/restore", request, &result); err != nil {
 		return err
 	}
