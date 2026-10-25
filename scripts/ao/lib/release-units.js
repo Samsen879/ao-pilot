@@ -9,7 +9,8 @@ export const RELEASE_SERVICES = ['tmux', 'runtime', 'dashboard', 'session-recove
 export const ALLOWED_ENVIRONMENT = new Set([
   'AO_DASHBOARD_ADAPTER_CONFIG', 'DIRECT_TERMINAL_PORT', 'TERMINAL_PORT', 'AO_MANAGED_RUNTIME_BINARY', 'AO_MANAGED_RUNTIME_BINARY_SHA256', 'AO_HOST', 'AO_PORT', 'AO_DASHBOARD_PORT', 'AO_INSTALL_ROOT', 'AO_DATA_DIR', 'AO_RUN_FILE', 'AO_MANAGED_RUNTIME_DATA_DIR',
   'AO_MANAGED_RUNTIME_RUN_FILE', 'AO_TMUX_SOCKET', 'AO_TMUX_UNIT', 'AO_TMUX_TMPDIR', 'TMUX_TMPDIR',
-  'AO_CONFIG_PATH', 'AO_PILOT_RUNTIME_STORE', 'AO_DASHBOARD_TERMINAL_ACCESS', 'AO_DASHBOARD_READ_ONLY',
+  'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy',
+  'AO_DEFER_BOOT_RESTORE_IDS', 'AO_CONFIG_PATH', 'AO_PILOT_RUNTIME_STORE', 'AO_DASHBOARD_TERMINAL_ACCESS', 'AO_DASHBOARD_READ_ONLY',
   'AO_DASHBOARD_AUTOMATION', 'AO_INSTALL_NAMESPACE', 'AO_INSTALL_CONFIG', 'PATH', 'NODE_ENV',
 ]);
 function safe(value) {
@@ -27,7 +28,7 @@ export function validateEnvironmentOverride(text, { stagingRoot = null } = {}) {
   for (const raw of String(text).split(/\r?\n/)) {
     const line = raw.trim(); if (!line || line.startsWith('#')) continue;
     if (line === '[Service]' && section === null) { section = 'Service'; continue; }
-    const match = line.match(/^Environment="([A-Z_][A-Z_0-9]*)=([^"\\\n\r]*)"$/);
+    const match = line.match(/^Environment="([A-Za-z_][A-Za-z_0-9]*)=([^"\\\n\r]*)"$/);
     assertRelease(section === 'Service' && match && (ALLOWED_ENVIRONMENT.has(match[1])
       || Object.hasOwn(privateHome, match[1]) && privateHome[match[1]] === match[2])
       && !Object.hasOwn(assignments, match[1]), 'unsafe_unit_override');

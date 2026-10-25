@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sync"
 
@@ -212,6 +213,10 @@ func startSession(cfg config.Config, runtime runtimeselect.Runtime, store *sqlit
 		RunFile:             cfg.RunFilePath,
 		Logger:              log,
 	})
+	if err := mgr.DeferBootRestore(os.Getenv("AO_DEFER_BOOT_RESTORE_IDS")); err != nil {
+		return nil, nil, nil, nil, err
+	}
+
 	scmProvider, err := newGitHubSCMProvider(log)
 	if err != nil {
 		logSCMProviderDisabled(log, err)

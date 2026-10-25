@@ -122,6 +122,16 @@ func (m *Manager) verifyCommittedAttempt(ctx context.Context, a spawnattempt.Rec
 	return rec, nil
 }
 func (m *Manager) spawnAttemptAllowed(ctx context.Context, id domain.SessionID) bool {
+	rows, recoveryErr := m.store.ListSessionWorktrees(ctx, id)
+	if recoveryErr != nil {
+		return false
+	}
+	for _, row := range rows {
+		if row.State == "stray_moved" {
+			return false
+		}
+	}
+
 	store, ok := m.store.(attemptStore)
 	if !ok {
 		return true

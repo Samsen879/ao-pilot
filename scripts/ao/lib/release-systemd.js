@@ -1,3 +1,4 @@
+import {verifyRestoreFiles} from './restore-files.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -123,6 +124,8 @@ export function assertFirstRestoreConfiguration(config, mode) {
     && config.restoreProjects.every((project) => typeof project === 'string' && /^[A-Za-z0-9._-]+$/.test(project))
     && Number.isSafeInteger(config.restoreConcurrency) && config.restoreConcurrency >= 1 && config.restoreConcurrency <= 16,
   'install_first_restore_input_required');
+ for(const field of ['firstRestoreSessionIDs','restoreLastSessionIDs']) if(config[field]!==undefined) assertRelease(Array.isArray(config[field])&&new Set(config[field]).size===config[field].length&&config[field].every(id=>typeof id==='string'&&/^[A-Za-z0-9_.-]+$/.test(id)),'install_first_restore_input_required');
+
 }
 export function assertFirstRestoreScope(config, mode, baseline) {
   if (mode !== 'first') return;
@@ -131,13 +134,20 @@ export function assertFirstRestoreScope(config, mode, baseline) {
       && typeof row.ao_session_id === 'string' && /^[A-Za-z0-9_.-]+$/.test(row.ao_session_id)
       && ['worker', 'orchestrator'].includes(row.kind) && [0, 1].includes(row.is_terminated))
     && config.restoreProjects.every((project) => baseline.projects.includes(project)), 'install_first_restore_scope_incomplete');
+ const ids=new Map(baseline.identities.map(row=>[row.ao_session_id,row]));
+ assertRelease((config.firstRestoreSessionIDs??[]).every(id=>ids.has(id))&&(config.restoreLastSessionIDs??[]).every(id=>ids.has(id)&&ids.get(id).kind==='worker'&&firstRestoreIdentities(config,baseline).some(row=>row.ao_session_id===id)),'install_first_restore_scope_incomplete');
+
+}
+export function firstRestoreIdentities(config, baseline) {
+ const explicit=new Set(config.firstRestoreSessionIDs??[]);
+ return baseline.identities.filter(row=>row.is_terminated===0||explicit.has(row.ao_session_id));
 }
 export function firstRestorePlan(config, baseline) {
   const plan = [];
   // The HTTP request limit remains 4096 bytes. Finish every project's
   // orchestrator requests before admitting any worker request.
   for (const kind of ['orchestrator', 'worker']) for (const project of config.restoreProjects) {
-    const ids = baseline.identities.filter((row) => row.project_id === project && row.is_terminated === 0 && row.kind === kind)
+    const ids = firstRestoreIdentities(config,baseline).filter(row=>row.project_id===project&&row.kind===kind)
       .map((row) => row.ao_session_id).sort();
     let chunk = [];
     const fits = (sessionIds) => Buffer.byteLength(JSON.stringify({ project, concurrency: config.restoreConcurrency,
@@ -151,6 +161,9 @@ export function firstRestorePlan(config, baseline) {
     }
     if (chunk.length) plan.push({ project, ids: chunk });
   }
+ const last=new Set(config.restoreLastSessionIDs??[]);
+ if(last.size){const tail=[];for(const id of config.restoreLastSessionIDs){const row=firstRestoreIdentities(config,baseline).find(row=>row.ao_session_id===id);assertRelease(row,'install_first_restore_scope_incomplete');tail.push({project:row.project_id,ids:[id]})};return [...plan.map(batch=>({...batch,ids:batch.ids.filter(id=>!last.has(id))})).filter(batch=>batch.ids.length),...tail];}
+
   return plan;
 }
 export function assertLoadedProcess({ proc, root, manifest, component, config }) {
@@ -324,6 +337,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
       assertRelease(Array.isArray(baseline.cids) && baseline.database?.integrity === 'ok' && baseline.tmux?.server_start_token && Array.isArray(baseline.native_cids) && Array.isArray(baseline.custody), 'install_baseline_unknown');
       assertFirstRestoreScope(config, mode, baseline);
       if (mode === 'first') firstRestorePlan(config, baseline);
+      for(const id of config.restoreLastSessionIDs??[]) verifyRestoreFiles(config,baseline,id);
       return { ...baseline, ...(legacy ? { legacy_adoption: legacy } : {}) };
     },
     async quiescent() {
@@ -383,7 +397,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
         }
         assertRelease(false, 'install_startup_not_ready');
       };
-      const restore_results = [];
+      const restore_results = []; const file_manifest_checks=[];
       if (mode === 'first') {
         // REST is available after boot even while readiness is degraded. Restore
         // precedes strict ready admission and remains an explicit native action.
@@ -400,9 +414,10 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
               && (row.outcome !== 'restored' || row.reason === 'already_running' || row.restoreMode === 'native'))
             && objectSha256(result.results.map((row) => row.sessionId).sort()) === objectSha256(expected), 'install_first_restore_failed');
           byProject.get(project).results.push(...result.results);
+          for(const id of expected) if(config.restoreLastSessionIDs?.includes(id)){file_manifest_checks.push(verifyRestoreFiles(config,baseline,id));}
         }
         for (const [project, result] of byProject) {
-          const expected = baseline.identities.filter((row) => row.project_id === project && row.is_terminated === 0)
+          const expected = firstRestoreIdentities(config,baseline).filter(row=>row.project_id===project)
             .map((row) => row.ao_session_id).sort();
           assertRelease(objectSha256(result.results.map((row) => row.sessionId).sort()) === objectSha256(expected),
             'install_first_restore_failed');
@@ -410,7 +425,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
         restore_results.push(...byProject.values());
       }
       await wait(async () => isStrictReadyz(await get('/readyz')));
-      return { restore_results };
+      return { restore_results,...(file_manifest_checks.length?{file_manifest_checks}:{}) };
     },
     async restoreDatabase({ backup }) {
       assertRelease(fileSha256(backup.path) === backup.sha256, 'install_database_backup_invalid');

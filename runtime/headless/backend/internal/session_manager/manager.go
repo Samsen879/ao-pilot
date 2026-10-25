@@ -199,10 +199,11 @@ type Store interface {
 // Manager coordinates internal session spawn, restore, kill, and cleanup over
 // the outbound ports. User-facing read-model assembly lives in the service package.
 type Manager struct {
-	runtime   runtimeController
-	agents    ports.AgentResolver
-	workspace ports.Workspace
-	store     Store
+	deferredBootRestore map[domain.SessionID]bool
+	runtime             runtimeController
+	agents              ports.AgentResolver
+	workspace           ports.Workspace
+	store               Store
 	// messenger is a sessionguard.Guard wrapping the raw messenger, so every
 	// pane write is guarded (re-read state, refuse a blocked session) without
 	// each call site re-deriving the check. SendMessage/confirmMessage use Deliver for
@@ -1381,9 +1382,15 @@ func (m *Manager) RestoreWithMode(ctx context.Context, id domain.SessionID) (Res
 	}
 	ws, projectRows, err := m.restoreSessionWorkspace(ctx, project, rec, markerRows)
 	if err != nil {
-		return RestoreResult{}, fmt.Errorf("restore %s: workspace: %w", id, err)
+		return RestoreResult{}, m.recoveryFailure(ctx, rec, markerRows, workspaceInfo(rec), projectRows, err)
 	}
 	keepPreserved := m.applySessionPreserved(ctx, rec, ws, projectRows, markerRows, "restore")
+	if keepPreserved {
+		return RestoreResult{}, m.recoveryFailure(ctx, rec, markerRows, ws, projectRows, errors.New("preserved replay failed"))
+	}
+	if err := m.verifyRecoveredWorkspaces(ctx, ws, projectRows); err != nil {
+		return RestoreResult{}, m.recoveryFailure(ctx, rec, markerRows, ws, projectRows, err)
+	}
 	if project.Kind.WithDefault() == domain.ProjectKindWorkspace {
 		if err := m.markWorkspaceProjectRowsActive(ctx, projectRows, markerRows, keepPreserved); err != nil {
 			return RestoreResult{}, fmt.Errorf("restore %s: mark workspace active: %w", id, err)
@@ -1629,13 +1636,10 @@ func (m *Manager) SaveAndTeardownAll(ctx context.Context) error {
 	return nil
 }
 
-// saveAndTeardownOne runs the capture-then-destroy sequence for a single
-// session. The DB write (UpsertSessionWorktree) is committed before
-// ForceDestroy; if either capture or the DB write fails, ForceDestroy is
-// not called.
+// saveAndTeardownOne captures WIP and marks a session terminated, retaining all
+// physical files for in-place restore. Runtime teardown follows the durable marker.
 func (m *Manager) saveAndTeardownOne(ctx context.Context, rec domain.SessionRecord, destroyRuntime bool) error {
-	// Gate shut this session's scoped shell terminals before either branch
-	// below force-removes its worktree. Both SaveAndTeardownAll and
+	// Gate shut this session's scoped shell terminals before capturing work. Both SaveAndTeardownAll and
 	// reconcileLive only reach here for a session with a real workspace, so
 	// there is always a worktree to protect.
 	release, closeErr := m.beginShellTerminalTeardown(ctx, rec.ID)
@@ -1661,7 +1665,7 @@ func (m *Manager) saveAndTeardownOne(ctx context.Context, rec domain.SessionReco
 
 	// 2. Write the shutdown-saved marker to the DB. The row's presence (even
 	// with an empty preserved_ref) is what RestoreAll uses to identify sessions
-	// saved by this run. This MUST be committed before ForceDestroy.
+	// saved by this run. This MUST be committed before runtime teardown.
 	row := domain.SessionWorktreeRecord{
 		SessionID:    rec.ID,
 		RepoName:     domain.RootWorkspaceRepoName,
@@ -1691,13 +1695,8 @@ func (m *Manager) saveAndTeardownOne(ctx context.Context, rec domain.SessionReco
 		}
 	}
 
-	// 5. Force-remove the worktree (safe: work is captured in step 1 and the
-	// DB write in step 2 is already committed).
-	if err := m.workspace.ForceDestroy(ctx, ws); err != nil {
-		m.logger.Warn("save-teardown-all: force destroy failed", "sessionID", rec.ID, "error", err)
-	} else {
-		m.cleanupAgentWorkspace(ctx, rec, ws.Path)
-	}
+	// Retain all physical files, including ignored bytes, for in-place restore.
+
 	return nil
 }
 
@@ -1706,8 +1705,8 @@ func (m *Manager) saveAndTeardownOne(ctx context.Context, rec domain.SessionReco
 // crash) we adopt it: a no-op, the agent keeps running. If the runtime is gone,
 // the agent died with the daemon, so we save-and-tear-down to the SAME end state
 // a graceful shutdown produces: capture uncommitted work into a preserve ref,
-// record the session_worktrees restore marker, mark terminated, and remove the
-// worktree. RestoreAll (which Reconcile runs immediately after) then relaunches
+// record the session_worktrees restore marker and mark terminated, retaining the
+// physical worktree. RestoreAll (which Reconcile runs immediately after) then relaunches
 // it on this same boot, resuming history. Crash recovery thus matches graceful
 // restart instead of silently abandoning the session.
 //
@@ -1735,6 +1734,9 @@ func (m *Manager) reconcileLive(ctx context.Context, rec domain.SessionRecord, a
 		}
 	}
 	if projectKind == domain.ProjectKindScratch {
+		return false, m.lcm.MarkTerminated(ctx, rec.ID)
+	}
+	if m.deferredBootRestore[rec.ID] {
 		return false, m.lcm.MarkTerminated(ctx, rec.ID)
 	}
 	if !allowRestore {
@@ -1864,8 +1866,8 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 //
 // For each saved session:
 //  1. Ensure the worktree exists via workspace.Restore.
-//  2. If a preserve ref is recorded, replay it via ApplyPreserved; on conflict
-//     log and continue (still relaunch the agent, never delete the ref).
+//  2. If a preserve ref is recorded, replay it via ApplyPreserved; on failure
+//     restore the original directory and retain HOLD without relaunching.
 //  3. Relaunch via the existing Restore method.
 //
 // Failures on individual sessions are logged and do not abort the loop.
@@ -1877,6 +1879,9 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 	}
 	candidates := make([]bootRestoreCandidate, 0)
 	for _, rec := range recs {
+		if m.deferredBootRestore[rec.ID] {
+			continue
+		}
 		if !m.spawnAttemptAllowed(ctx, rec.ID) {
 			continue
 		}
@@ -1951,7 +1956,7 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 			}
 			root, restoreErr := m.restoreWorkspaceProjectRows(ctx, projectRows)
 			if restoreErr != nil {
-				failures = append(failures, fmt.Errorf("session %s: %w", rec.ID, restoreErr))
+				failures = append(failures, m.recoveryFailure(ctx, rec, rows, workspaceInfo(rec), projectRows, restoreErr))
 				m.logger.Error("restore-all: workspace project restore failed", "sessionID", rec.ID, "error", restoreErr)
 				continue
 			}
@@ -1968,7 +1973,7 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 				SparseCheckout: append([]string(nil), project.Config.SparseCheckout...),
 			})
 			if restoreErr != nil {
-				failures = append(failures, fmt.Errorf("session %s: %w", rec.ID, restoreErr))
+				failures = append(failures, m.recoveryFailure(ctx, rec, rows, workspaceInfo(rec), nil, restoreErr))
 				m.logger.Error("restore-all: workspace restore failed", "sessionID", rec.ID, "error", restoreErr)
 				continue
 			}
@@ -1982,7 +1987,12 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 		// Step 2: replay preserve ref when one was recorded.
 		keepPreserved := m.applySessionPreserved(ctx, rec, ws, projectRows, rows, "restore-all")
 		if keepPreserved {
-			failures = append(failures, fmt.Errorf("session %s: preserved work replay pending", rec.ID))
+			failures = append(failures, m.recoveryFailure(ctx, rec, rows, ws, projectRows, errors.New("preserved replay failed")))
+			continue
+		}
+		if err := m.verifyRecoveredWorkspaces(ctx, ws, projectRows); err != nil {
+			failures = append(failures, m.recoveryFailure(ctx, rec, rows, ws, projectRows, err))
+			continue
 		}
 
 		// Step 3: relaunch the agent in the restored workspace.
@@ -2151,7 +2161,7 @@ func (m *Manager) restoreSessionWorkspace(ctx context.Context, project domain.Pr
 	}
 	root, err := m.restoreWorkspaceProjectRows(ctx, rows)
 	if err != nil {
-		return ports.WorkspaceInfo{}, nil, err
+		return ports.WorkspaceInfo{}, rows, err
 	}
 	return workspaceInfoFromRepoInfo(root), rows, nil
 }
@@ -2327,18 +2337,8 @@ func (m *Manager) saveAndTeardownWorkspaceProject(ctx context.Context, rec domai
 			m.logger.Warn("save-teardown-all: runtime destroy failed", "sessionID", rec.ID, "error", err)
 		}
 	}
-	rootDestroyed := false
-	for i := len(rows) - 1; i >= 0; i-- {
-		info := workspaceInfoFromRepoInfo(rows[i])
-		if err := m.workspace.ForceDestroy(ctx, info); err != nil {
-			m.logger.Warn("save-teardown-all: force destroy failed", "sessionID", rec.ID, "repo", rows[i].RepoName, "error", err)
-		} else if info.Path == rec.Metadata.WorkspacePath {
-			rootDestroyed = true
-		}
-	}
-	if rootDestroyed {
-		m.cleanupAgentWorkspace(ctx, rec, rec.Metadata.WorkspacePath)
-	}
+	// Keep every repository directory in place through recovery.
+
 	return nil
 }
 
@@ -2408,7 +2408,7 @@ func (m *Manager) restoreWorkspaceProjectRows(ctx context.Context, rows []ports.
 func (m *Manager) applySessionPreserved(ctx context.Context, rec domain.SessionRecord, root ports.WorkspaceInfo, projectRows []ports.WorkspaceRepoInfo, markers []domain.SessionWorktreeRecord, operation string) bool {
 	keepPreserved := false
 	apply := func(info ports.WorkspaceInfo, repoName, preserveRef string) {
-		if preserveRef == "" {
+		if keepPreserved || preserveRef == "" {
 			return
 		}
 		if applyErr := m.workspace.ApplyPreserved(ctx, info, preserveRef); applyErr != nil {
@@ -2418,7 +2418,7 @@ func (m *Manager) applySessionPreserved(ctx context.Context, rec domain.SessionR
 				attrs = append(attrs, "repo", repoName)
 			}
 			if errors.Is(applyErr, ports.ErrPreservedConflict) {
-				m.logger.Warn(operation+": apply preserved produced conflicts; agent relaunched with conflict markers in place", attrs...)
+				m.logger.Warn(operation+": apply preserved produced conflicts; original workspace retained, recovery HOLD", attrs...)
 			} else {
 				m.logger.Error(operation+": apply preserved failed", attrs...)
 			}
@@ -2616,6 +2616,20 @@ func (m *Manager) Cleanup(ctx context.Context, project domain.ProjectID) (Cleanu
 	result := CleanupResult{Cleaned: make([]domain.SessionID, 0, len(recs)), Skipped: []CleanupSkip{}}
 	for _, rec := range recs {
 		if !rec.IsTerminated {
+			continue
+		}
+		recoveryRows, recoveryErr := m.store.ListSessionWorktrees(ctx, rec.ID)
+		if recoveryErr != nil {
+			return result, recoveryErr
+		}
+		held := false
+		for _, row := range recoveryRows {
+			if row.State == "stray_moved" {
+				held = true
+			}
+		}
+		if held {
+			result.Skipped = append(result.Skipped, CleanupSkip{SessionID: rec.ID, Reason: "workspace recovery HOLD"})
 			continue
 		}
 		ws := workspaceInfo(rec)

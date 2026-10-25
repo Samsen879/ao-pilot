@@ -2,9 +2,12 @@ package sessionmanager
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/workspace/gitworktree"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -155,8 +158,8 @@ func TestReconcileBoundsDeadLiveSessionsAndPreservesOverflowWorktrees(t *testing
 	if runtime.creates != bootRestoreLimit {
 		t.Fatalf("runtime creates=%d, want %d", runtime.creates, bootRestoreLimit)
 	}
-	if len(workspace.forceDestroyed) != bootRestoreLimit {
-		t.Fatalf("force-destroyed=%v, want %d bounded captures", workspace.forceDestroyed, bootRestoreLimit)
+	if len(workspace.forceDestroyed) != 0 {
+		t.Fatalf("cold recovery destroyed existing directories: %v", workspace.forceDestroyed)
 	}
 
 	restored := map[domain.SessionID]bool{
@@ -263,16 +266,25 @@ func TestExplicitRestoreRetainsPreserveRefWhenReplayFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := m.RestoreWithMode(context.Background(), rec.ID); err != nil {
-		t.Fatal(err)
+	if _, err := m.RestoreWithMode(context.Background(), rec.ID); err == nil {
+		t.Fatal("failed replay must return an error")
 	}
-	if runtime.creates != 1 {
+	if runtime.creates != 0 {
 		t.Fatalf("runtime creates=%d", runtime.creates)
 	}
 	rows, err := store.ListSessionWorktrees(context.Background(), rec.ID)
-	if err != nil || len(rows) != 1 || rows[0].PreservedRef != preserveRef || rows[0].State != "active" {
+	if err != nil || len(rows) != 1 || rows[0].PreservedRef != preserveRef || rows[0].State != "stray_moved" {
 		t.Fatalf("preserve ref lost after replay failure: rows=%+v err=%v", rows, err)
 	}
+	cleanup, err := m.Cleanup(context.Background(), "fixture")
+	if err != nil || len(cleanup.Cleaned) != 0 || len(cleanup.Skipped) != 1 || cleanup.Skipped[0].Reason != "workspace recovery HOLD" {
+		t.Fatalf("HOLD bypassed by cleanup: %+v %v", cleanup, err)
+	}
+	item := m.restoreBatchItem(context.Background(), rec.ID)
+	if item.Outcome != "skipped_hold" {
+		t.Fatalf("failed recovery auto-retried: %+v", item)
+	}
+
 }
 
 func TestExplicitWorkspaceRestoreAppliesEveryOverflowPreserveRef(t *testing.T) {
@@ -322,7 +334,7 @@ func TestExplicitWorkspaceRestoreAppliesEveryOverflowPreserveRef(t *testing.T) {
 }
 
 func TestRestoreAllRetainsFailedReplayMarker(t *testing.T) {
-	m, store, _, baseWorkspace, _ := newSpawnFixture(t)
+	m, store, runtime, baseWorkspace, _ := newSpawnFixture(t)
 	m.workspace = &bootRecoveryWorkspace{fakeWorkspace: baseWorkspace, applyErr: errors.New("replay unavailable")}
 	ctx := context.Background()
 	rec := seedBootRecoverySession(t, store, t.TempDir(), 1, domain.KindWorker, true, "removed")
@@ -339,8 +351,11 @@ func TestRestoreAllRetainsFailedReplayMarker(t *testing.T) {
 		t.Fatal("partial replay failure must be reported for readiness degradation")
 	}
 	rows, err = store.ListSessionWorktrees(ctx, rec.ID)
-	if err != nil || len(rows) != 1 || rows[0].PreservedRef != ref || rows[0].State != "active" {
+	if err != nil || len(rows) != 1 || rows[0].PreservedRef != ref || rows[0].State != "stray_moved" {
 		t.Fatalf("failed replay lost recovery custody: rows=%+v err=%v", rows, err)
+	}
+	if runtime.creates != 0 {
+		t.Fatal("failed replay launched an agent")
 	}
 }
 
@@ -373,5 +388,157 @@ func TestShutdownRecoveryRanksOriginalActivityNotTeardownOrder(t *testing.T) {
 		if err != nil || got.IsTerminated != (i == 0) {
 			t.Fatalf("session %s terminated=%v err=%v; oldest must be deferred", rec.ID, got.IsTerminated, err)
 		}
+	}
+}
+
+func TestDeferredBootRestoreWaitsForExplicitOrderedRestore(t *testing.T) {
+	m, store, runtime, baseWorkspace, _ := newSpawnFixture(t)
+	m.workspace = &bootRecoveryWorkspace{fakeWorkspace: baseWorkspace}
+	root := t.TempDir()
+	a := seedBootRecoverySession(t, store, root, 1, domain.KindOrchestrator, false, "active")
+	b := seedBootRecoverySession(t, store, root, 2, domain.KindWorker, false, "active")
+	if err := m.DeferBootRestore(string(b.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	first, _, _ := store.GetSession(context.Background(), a.ID)
+	deferred, _, _ := store.GetSession(context.Background(), b.ID)
+	if first.IsTerminated || !deferred.IsTerminated || runtime.creates != 1 {
+		t.Fatalf("early launch: first=%v deferred=%v creates=%d", first.IsTerminated, deferred.IsTerminated, runtime.creates)
+	}
+	if _, err := m.RestoreWithMode(context.Background(), b.ID); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.creates != 2 {
+		t.Fatal("explicit deferred restore did not run")
+	}
+	if err := m.DeferBootRestore("bad,id,id"); err == nil {
+		t.Fatal("duplicate deferred identities accepted")
+	}
+}
+
+type partialWorkspaceRecovery struct {
+	*bootRecoveryWorkspace
+	calls  int
+	rolled []string
+}
+
+func (w *partialWorkspaceRecovery) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (ports.WorkspaceInfo, error) {
+	w.calls++
+	if w.calls == 3 {
+		return ports.WorkspaceInfo{}, errors.New("third repo fails")
+	}
+	return w.bootRecoveryWorkspace.Restore(ctx, cfg)
+}
+func (w *partialWorkspaceRecovery) RollbackRestore(_ context.Context, info ports.WorkspaceInfo) error {
+	w.rolled = append(w.rolled, info.Path)
+	return nil
+}
+func (w *partialWorkspaceRecovery) VerifyRestore(context.Context, ports.WorkspaceInfo) error {
+	return errors.New("must not verify partial reconstruction")
+}
+func (w *partialWorkspaceRecovery) CommitRestore(context.Context, ports.WorkspaceInfo) error {
+	return errors.New("must not commit partial reconstruction")
+}
+func TestPartialMultiRepositoryRestoreRollsBackEveryParticipant(t *testing.T) {
+	m, store, runtime, base, _ := newSpawnFixture(t)
+	w := &partialWorkspaceRecovery{bootRecoveryWorkspace: &bootRecoveryWorkspace{fakeWorkspace: base}}
+	m.workspace = w
+	ctx := context.Background()
+	rec := seedBootRecoverySession(t, store, t.TempDir(), 1, domain.KindWorker, true, "active")
+	project := t.TempDir()
+	if err := store.UpsertWorkspaceProject(ctx, domain.ProjectRecord{ID: "fixture", Path: project, Kind: domain.ProjectKindWorkspace}, []domain.WorkspaceRepoRecord{{ProjectID: "fixture", Name: "child-a", RelativePath: "child-a"}, {ProjectID: "fixture", Name: "child-b", RelativePath: "child-b"}}); err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{rec.Metadata.WorkspacePath, filepath.Join(rec.Metadata.WorkspacePath, "child-a"), filepath.Join(rec.Metadata.WorkspacePath, "child-b")}
+	for i, name := range []string{domain.RootWorkspaceRepoName, "child-a", "child-b"} {
+		row := domain.SessionWorktreeRecord{SessionID: rec.ID, RepoName: name, RepoPath: project, Branch: rec.Metadata.Branch, WorktreePath: paths[i], State: "active"}
+		if err := store.UpsertSessionWorktree(ctx, row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := m.RestoreWithMode(ctx, rec.ID); err == nil {
+		t.Fatal("partial restore accepted")
+	}
+	want := []string{paths[2], paths[1], paths[0]}
+	if fmt.Sprint(w.rolled) != fmt.Sprint(want) || runtime.creates != 0 {
+		t.Fatalf("rollback order %v want %v creates%d", w.rolled, want, runtime.creates)
+	}
+	rows, err := store.ListSessionWorktrees(ctx, rec.ID)
+	if err != nil || len(rows) != 3 {
+		t.Fatal(rows, err)
+	}
+	for _, row := range rows {
+		if row.State != "stray_moved" {
+			t.Fatal("HOLD lost", row)
+		}
+	}
+}
+
+func TestNestedRealGitRepositoriesCompleteRecoveryVerification(t *testing.T) {
+	m, _, _, _, _ := newSpawnFixture(t)
+	ctx := context.Background()
+	base := t.TempDir()
+	git := func(repo string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		if out, e := cmd.CombinedOutput(); e != nil {
+			t.Fatalf("git %v: %v %s", args, e, out)
+		}
+	}
+	repos := []string{filepath.Join(base, "root-source"), filepath.Join(base, "child-source")}
+	for _, repo := range repos {
+		if e := os.MkdirAll(repo, 0755); e != nil {
+			t.Fatal(e)
+		}
+		git(repo, "init", "--initial-branch=main")
+		git(repo, "config", "user.name", "Recovery test")
+		git(repo, "config", "user.email", "test@example.invalid")
+		if e := os.WriteFile(filepath.Join(repo, "tracked"), []byte("original"), 0644); e != nil {
+			t.Fatal(e)
+		}
+		git(repo, "add", "tracked")
+		git(repo, "commit", "-m", "base")
+	}
+	managed := filepath.Join(base, "worktrees")
+	if e := os.Mkdir(managed, 0755); e != nil {
+		t.Fatal(e)
+	}
+	w, e := gitworktree.New(gitworktree.Options{ManagedRoot: managed, RepoResolver: gitworktree.StaticRepoResolver{"fixture": repos[0]}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	m.workspace = w
+	root, e := w.Create(ctx, ports.WorkspaceConfig{ProjectID: "fixture", SessionID: "fixture-1", Branch: "feature/root", BaseBranch: "main"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	child := filepath.Join(root.Path, "child")
+	git(repos[1], "worktree", "add", "-b", "feature/child", child, "main")
+	if e := os.WriteFile(filepath.Join(child, "ignored-private"), []byte("must remain"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	rows := []ports.WorkspaceRepoInfo{{RepoName: domain.RootWorkspaceRepoName, RepoPath: repos[0], Path: root.Path, Branch: "feature/root", ProjectID: "fixture", SessionID: "fixture-1"}, {RepoName: "child", RepoPath: repos[1], Path: child, Branch: "feature/child", ProjectID: "fixture", SessionID: "fixture-1"}}
+	for repeat := 0; repeat < 2; repeat++ {
+		if e = m.verifyRecoveredWorkspaces(ctx, root, rows); e != nil {
+			t.Fatal("nested recovery verification", e)
+		}
+		for _, row := range rows {
+			raw, e := os.ReadFile(row.Path + ".ao-recovery.json")
+			if e != nil {
+				t.Fatal(e)
+			}
+			var r struct {
+				Phase string `json:"phase"`
+			}
+			if e = json.Unmarshal(raw, &r); e != nil || r.Phase != "committed" {
+				t.Fatalf("uncommitted repo %s %s %v", row.RepoName, r.Phase, e)
+			}
+		}
+	}
+	if got, e := os.ReadFile(filepath.Join(child, "ignored-private")); e != nil || string(got) != "must remain" {
+		t.Fatal("nested original file lost", e)
 	}
 }
