@@ -7,8 +7,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { processStartToken } from './ao/lib/release-lock.js';
-import { probeExclusiveLock } from './ao/lib/release-systemd.js';
-import { validateInstallConfiguration } from './ao/lib/release-systemd.js';
+import { copyCustodyTree, probeExclusiveLock, validateInstallConfiguration } from './ao/lib/release-systemd.js';
 import { fileSha256, verifyReleaseTree } from './ao/lib/release-manifest.js';
 import { assertRuntimeLockArtifact, resolveUnifiedRuntime } from './ao/lib/release-runtime.js';
 import { requiredPackageFiles, verifyPackedRelease } from './ao/lib/release-tarball.js';
@@ -337,7 +336,7 @@ export function bindPackedRuntime({ root, packageRoot, installedPackageRoot, env
     listenPorts: [43101, 43100, 43102, 43103, 43104], cliPath: path.join(root, 'cli'),
   });
   fs.mkdirSync(path.dirname(releaseRoot), { recursive: true, mode: 0o700 });
-  fs.cpSync(packageRoot, releaseRoot, { recursive: true });
+  copyCustodyTree(packageRoot, releaseRoot);
   fs.symlinkSync(path.relative(installRoot, releaseRoot), path.join(installRoot, 'current'));
   fs.writeFileSync(path.join(installRoot, 'installation.json'), JSON.stringify(config), { mode: 0o600 });
   fs.writeFileSync(config.configPath, JSON.stringify({ defaults: { agent: 'claude-code' }, projects: {} }), { mode: 0o600 });
