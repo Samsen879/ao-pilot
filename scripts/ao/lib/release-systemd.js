@@ -206,9 +206,12 @@ export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun 
     AO_TMUX_SOCKET: config.tmuxSocket, AO_TMUX_UNIT: unitName('tmux'), AO_TMUX_TMPDIR: config.tmuxTmpdir, TMUX_TMPDIR: config.tmuxTmpdir };
   const ownershipFiles = [path.join(config.dataDir, '.daemon-owner.lock'), path.join(config.discoveryDir, '.daemon-discovery.lock')];
   const legacyDependencies = { run, processEvidence, processUnchanged };
-  async function get(relative) {
+  async function get(relative, { legacyReadiness = false } = {}) {
     const response = await fetchImpl(new URL(relative, config.daemonURL), { signal: AbortSignal.timeout(5000) });
-    assertRelease(response.ok, 'install_observation_failed'); return response.json();
+    const body = await response.json();
+    const knownDegraded = legacyReadiness && response.status === 503 && body.status === 'degraded' && body.ready === false
+      && Array.isArray(body.reasons) && body.reasons.length === 1 && body.reasons[0]?.code === 'tmux_cgroup_violation';
+    assertRelease(response.ok || knownDegraded, 'install_observation_failed', `HTTP ${response.status} collecting ${relative}`); return body;
   }
   function identitySnapshot() {
     const database = path.join(config.dataDir, 'ao.db');
@@ -232,7 +235,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun 
     const projects = JSON.parse(run('sqlite3', ['-readonly', '-json', database, 'SELECT id FROM projects ORDER BY id;']) || '[]').map((row) => row.id);
     return { identities, custody, projects, native_cids: identities.map((row) => ({ ao_session_id: row.ao_session_id, native_conversation_id: row.native_conversation_id ?? null })) };
   }
-  async function observe({ releaseRoot, baselineOnly = false, legacy = null }) {
+  async function observe({ releaseRoot, baselineOnly = false, legacy = null, tmuxProbeRoot = releaseRoot }) {
     const manifest = verifyReleaseTree(releaseRoot);
     const observations = { services: {} };
     const errors = {};
@@ -271,7 +274,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun 
     if (!baselineOnly) await collect('cli_bound', () => Boolean(config.cliPath) && fs.realpathSync(config.cliPath) === path.join(fs.realpathSync(releaseRoot), 'bin/ao-pilot.js'));
     await collect('identity', () => identitySnapshot());
     if (observations.identity) Object.assign(observations, observations.identity);
-    await collect('ready', () => get('/readyz'));
+    await collect('ready', () => get('/readyz', { legacyReadiness: baselineOnly && legacy !== null }));
     await collect('cids', async () => {
       const result = await get('/api/v1/sessions'); const sessions = result.sessions ?? result.data?.sessions ?? result.data;
       assertRelease(Array.isArray(sessions) && sessions.every((session) => typeof (session.cid ?? session.id) === 'string'), 'install_sessions_unknown');
@@ -281,7 +284,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun 
       // Doctor exits 1 for a reported FAIL; preserve that evidence for the
       // legacy baseline. Verify still requires tmux_cgroup PASS after cutover.
       const doctorEnv = legacy ? { ...env, AO_TMUX_SOCKET: legacy.tmux.socket, AO_TMUX_TMPDIR: legacy.tmux.tmpdir, TMUX_TMPDIR: legacy.tmux.tmpdir } : env;
-      const doctor = JSON.parse(run(path.join(releaseRoot, 'native/ao'), ['doctor', '--json'], { env: doctorEnv, acceptedExitCodes: [0, 1] }));
+      const doctor = JSON.parse(run(path.join(tmuxProbeRoot, 'native/ao'), ['doctor', '--json', '--tmux-only'], { env: doctorEnv, acceptedExitCodes: [0, 1] }));
       const check = doctor.checks?.find((item) => item.name === 'tmux_cgroup');
       assertRelease(check && check.details, 'install_tmux_unknown');
       return { ...check.details, level: check.level, executable_sha256: fileSha256(`/proc/${check.details.server_pid}/exe`) };
@@ -339,7 +342,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun 
   }
   return {
     configuration: config, observe, checkTools,
-    async preflight({ releaseRoot, mode, adoptLegacy = false }) {
+    async preflight({ releaseRoot, probeRoot = releaseRoot, mode, adoptLegacy = false }) {
       assertFirstRestoreConfiguration(config, mode);
       checkTools();
       // Reject missing/unsafe capabilities before any stop; new components
@@ -351,7 +354,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun 
       const configStat = fs.lstatSync(preparedInputs?.configPath ?? config.configPath);
       assertRelease(configStat.isFile() && !configStat.isSymbolicLink() && configStat.uid === process.getuid()
         && (configStat.mode & 0o077) === 0, 'install_config_missing');
-      const baseline = await observe({ releaseRoot, baselineOnly: true, legacy });
+      const baseline = await observe({ releaseRoot, baselineOnly: true, legacy, tmuxProbeRoot: probeRoot });
       assertRelease(Array.isArray(baseline.cids) && baseline.database?.integrity === 'ok' && baseline.tmux?.server_start_token && Array.isArray(baseline.native_cids) && Array.isArray(baseline.custody), 'install_baseline_unknown');
       if (legacy) assertRelease(baseline.tmux.server_pid === legacy.tmux.pid && baseline.tmux.server_start_token === legacy.tmux.start_token
         && baseline.tmux.executable_sha256 === legacy.tmux.executable_sha256, 'install_legacy_adoption_mismatch', 'Legacy tmux baseline differs from inventory');

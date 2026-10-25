@@ -306,3 +306,15 @@ before any stop and is reused across resumes. A fresh stopped observation never
 replaces it. Requests are split within the existing 4096-byte body limit, with
 all project orchestrators completed before any project workers; each request
 and the combined selection retain exact-set checks.
+
+
+Read-only preflight uses `native/ao doctor --json --tmux-only`: this invokes the
+shared ownership diagnostic without creating DataDir, probing writes, executing
+agent harness probes, or sending CLI telemetry. Ordinary doctor remains
+unchanged. A legacy HTTP 503 with exactly the known tmux cgroup violation is
+recorded as degraded, never PASS; unknown response failures still reject baseline
+collection. Verify/readback retain strict readiness and all 17 checks.
+
+The trusted Python Owner entrypoint verifies the manifest digest from the pinned
+envelope and the full unpacked inventory (bytes, modes, types, symlinks, no extra
+entries) before executing any payload code, in addition to the tarball digest.

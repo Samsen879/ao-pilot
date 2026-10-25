@@ -61,3 +61,22 @@ it('exposes private concrete CLI diagnostics while rejecting prepared-input over
   expect((await runCli(['apply', '--release', id, '--prepared-config', '/private/input'], io, dependencies)).exitCode).toBe(2);
   expect(applied).toBe(false);
 });
+
+it.each([['tmux_cgroup_violation', true], ['session_reconcile_failed', false]])('preserves only the inventoried legacy tmux degraded readiness (%s)', async (reason, accepted) => {
+ const { root, config } = fixture(); const bundle = createBundle(root); const commands = [];
+ const runner = createSystemdReleaseRunner(config, { run(command, args) {
+  commands.push([command, args]);
+  if (command === 'sqlite3') return args.includes('-json') ? '[]' : '43\nok';
+  if (command === 'loginctl') return 'yes';
+  if (command.endsWith('/native/ao')) return JSON.stringify({ checks: [{ name: 'tmux_cgroup', level: 'FAIL', details: { server_pid: process.pid, server_start_token: processStartToken() } }] });
+  throw Error('unexpected tool');
+ }, fetchImpl: async url => ({ ok: !url.pathname.endsWith('/readyz'), status: url.pathname.endsWith('/readyz') ? 503 : 200,
+  json: async () => url.pathname.endsWith('/readyz') ? { status: 'degraded', ready: false, reasons: [{ code: reason }] } : url.pathname.includes('sessions') ? { sessions: [] } : { enabled: false } }) });
+ const legacy = { tmux: { socket: 'default', tmpdir: path.join(root, 'legacy-tmux') } };
+ if (accepted) {
+  const baseline = await runner.observe({ releaseRoot: bundle.payload, baselineOnly: true, legacy });
+  expect(baseline.ready).toMatchObject({ status: 'degraded', ready: false });
+ } else await expect(runner.observe({ releaseRoot: bundle.payload, baselineOnly: true, legacy })).rejects.toMatchObject({ code: 'install_baseline_observation_failed' });
+ const verify = await runner.observe({ releaseRoot: bundle.payload }); expect(verify.ready).toBeNull();
+ expect(commands.filter(([tool]) => tool.endsWith('/native/ao')).every(([,args])=>args.includes('--tmux-only'))).toBe(true);
+});

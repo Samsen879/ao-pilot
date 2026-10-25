@@ -6,11 +6,46 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import stat
 
 
 def sha(file):
     with Path(file).open('rb') as handle:
         return hashlib.file_digest(handle, 'sha256').hexdigest()
+
+
+def verify_payload(bundle, build):
+    envelope = json.loads((bundle / 'release-envelope.json').read_text())
+    payload = bundle / 'payload'
+    assert payload.is_dir() and not payload.is_symlink()
+    manifest_file = payload / 'release.json'
+    assert sha(manifest_file) == envelope['manifest_sha256'], 'Release manifest drift'
+    manifest = json.loads(manifest_file.read_text())
+    assert envelope['release_id'] == manifest['release_id'] == build['release_id']
+    assert envelope['npm_tarball_sha256'] == build['npm_tarball_sha256']
+    actual = []
+    def walk(directory):
+        for file in sorted(directory.iterdir(), key=lambda item: os.fsencode(item.name)):
+            relative = file.relative_to(payload).as_posix()
+            if relative == 'release.json':
+                continue
+            metadata = file.lstat()
+            entry = {'path': relative, 'mode': stat.S_IMODE(metadata.st_mode)}
+            if file.is_symlink():
+                target = os.readlink(file)
+                assert not os.path.isabs(target) and file.resolve().is_relative_to(payload.resolve()) and file.exists(), 'Unsafe release symlink'
+                entry.update(type='symlink', size=len(os.fsencode(target)), target=target)
+            elif stat.S_ISDIR(metadata.st_mode):
+                entry.update(type='directory', size=0)
+            else:
+                assert stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1, 'Unsupported release entry'
+                entry.update(type='file', size=metadata.st_size, sha256=sha(file))
+            actual.append(entry)
+            if entry['type'] == 'directory':
+                walk(file)
+    walk(payload)
+    assert actual == manifest['files'], 'Release payload drift'
+    return manifest
 
 
 def main(argv=None):
@@ -30,7 +65,7 @@ def main(argv=None):
     bundle = Path(build['bundle'])
     assert sha(bundle / 'package.tgz') == build['npm_tarball_sha256']
     assert sha(bundle / 'release-envelope.json') == build['envelope_sha256']
-    manifest = json.loads((bundle / 'payload/release.json').read_text())
+    manifest = verify_payload(bundle, build)
     tools = plan['tools']
     missing = [name for name in ['node', 'flock', 'systemctl', 'sqlite3', 'loginctl', 'ss', 'tmux', 'git', 'python3', 'bwrap']
                if name not in tools or not Path(tools[name]).is_absolute() or not os.access(tools[name], os.X_OK)]

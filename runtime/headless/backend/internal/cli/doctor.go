@@ -67,13 +67,22 @@ var doctorHarnesses = []harnessProbe{
 }
 
 func newDoctorCommand(ctx *commandContext) *cobra.Command {
-	var asJSON bool
+	var asJSON, tmuxOnly bool
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Run local AO health checks",
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			checks := ctx.runDoctor(cmd.Context())
+			var checks []doctorCheck
+			if tmuxOnly {
+				status, err := ctx.inspectDaemon(cmd.Context())
+				if err != nil {
+					return err
+				}
+				checks = []doctorCheck{ctx.checkTmuxCgroup(cmd.Context(), status)}
+			} else {
+				checks = ctx.runDoctor(cmd.Context())
+			}
 			failures := 0
 			for _, check := range checks {
 				if check.Level == doctorFail {
@@ -100,6 +109,7 @@ func newDoctorCommand(ctx *commandContext) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output health checks as JSON")
+	cmd.Flags().BoolVar(&tmuxOnly, "tmux-only", false, "Read only the tmux ownership diagnostic; do not run write or harness probes")
 	return cmd
 }
 

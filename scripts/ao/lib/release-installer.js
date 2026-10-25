@@ -213,7 +213,7 @@ export async function applyRelease({
     if (!journal) {
       prior = pointer(root, 'current'); previous = pointer(root, 'previous');
       oldManifest = prior ? verifyReleaseTree(path.join(root, prior)) : null;
-      const baseline = await runner.preflight({ releaseRoot: prior ? path.join(root, prior) : path.join(bundle, 'payload'), manifest, mode, adoptLegacy });
+      const baseline = await runner.preflight({ releaseRoot: prior ? path.join(root, prior) : path.join(bundle, 'payload'), probeRoot: path.join(bundle, 'payload'), manifest, mode, adoptLegacy });
       assertRelease(Array.isArray(baseline.cids) && baseline.database?.integrity === 'ok', 'install_baseline_unknown');
       assertRelease(!adoptLegacy || baseline.legacy_adoption && typeof runner.checkLegacy === 'function', 'install_legacy_inventory_required');
       inject('preflight', { manifest });
@@ -388,7 +388,7 @@ export async function preflightRelease({ bundle, expectedEnvelopeSha256, configu
   assertRelease(verified.manifest.platform.os === process.platform && verified.manifest.platform.arch === process.arch, 'release_platform_unsupported');
   const root = path.resolve(configuration.installRoot), prior = pointer(root, 'current');
   assertRelease(!adoptLegacy || mode === 'first' && !prior && !entryExists(path.join(root, 'current')) && !entryExists(path.join(root, 'install-journal.json')), 'install_legacy_adoption_not_first');
-  const baseline = await runner.preflight({ releaseRoot: prior ? path.join(root, prior) : path.join(bundle, 'payload'), manifest: verified.manifest, mode, adoptLegacy });
+  const baseline = await runner.preflight({ releaseRoot: prior ? path.join(root, prior) : path.join(bundle, 'payload'), probeRoot: path.join(bundle, 'payload'), manifest: verified.manifest, mode, adoptLegacy });
   assertRelease(Array.isArray(baseline.cids) && baseline.database?.integrity === 'ok', 'install_baseline_unknown');
   return { status: 'passed', phase: 'preflight', release_id: verified.manifest.release_id, tools: await runner.checkTools?.(), baseline, production_mutated: false };
 }

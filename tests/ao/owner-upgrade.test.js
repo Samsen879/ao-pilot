@@ -41,3 +41,17 @@ it('rejects a changed Owner apply draft without running it', () => {
   const run = spawnSync('/usr/bin/python3', ['-I', script, '--receipt', root, '--apply'], { encoding: 'utf8' });
   expect(run.status).not.toBe(0); expect(run.stderr).toContain('Owner apply draft changed'); expect(fs.existsSync(marker)).toBe(false);
 });
+
+it('rejects drift of payload code before executing it or delegating to apply', () => {
+  const { root, marker } = fixture();
+  const build = JSON.parse(fs.readFileSync(path.join(root, 'build-result.json')));
+  fs.writeFileSync(path.join(build.bundle, 'payload/scripts/ao-release-entry.js'), 'process.exit(0)');
+  const result = spawnSync('/usr/bin/python3', ['-I', script, '--receipt', root, '--apply'], { encoding: 'utf8' });
+  expect(result.status).not.toBe(0); expect(result.stderr).toContain('Release payload drift'); expect(fs.existsSync(marker)).toBe(false);
+});
+it('rejects a manifest change even when package and envelope bytes are unchanged', () => {
+  const { root, marker } = fixture(); const build = JSON.parse(fs.readFileSync(path.join(root, 'build-result.json')));
+  fs.appendFileSync(path.join(build.bundle, 'payload/release.json'), ' ');
+  const result = spawnSync('/usr/bin/python3', ['-I', script, '--receipt', root, '--apply'], { encoding: 'utf8' });
+  expect(result.status).not.toBe(0); expect(result.stderr).toContain('Release manifest drift'); expect(fs.existsSync(marker)).toBe(false);
+});
