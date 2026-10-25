@@ -16,15 +16,18 @@ afterEach(async () => {
 });
 async function fixture() {
   const root = fixtureRoot(); roots.push(root); const config = configuration(root);
-  const script = path.join(root, 'legacy.mjs'); fs.writeFileSync(script, 'setInterval(() => {}, 1000);');
-  const child = spawn(process.execPath, [script], { stdio: 'ignore' }); children.push(child); await once(child, 'spawn');
+  // Runner toolcaches need not satisfy the product's executable owner/mode
+  // policy. Model the owned legacy installation with controlled input bytes.
+  const executable = path.join(root, 'legacy-node'); fs.copyFileSync(process.execPath, executable); fs.chmodSync(executable, 0o700);
+  const script = path.join(root, 'legacy.mjs'); fs.writeFileSync(script, 'setInterval(() => {}, 1000);', { mode: 0o600 });
+  const child = spawn(executable, [script], { stdio: 'ignore' }); children.push(child); await once(child, 'spawn');
   const unitNames = ['runtime', 'dashboard', 'dashboard-adapter', 'session-recovery'].map((name) => `${config.namespace}-${name}.service`);
   fs.mkdirSync(config.unitRoot);
   const group = fs.readFileSync(`/proc/${child.pid}/cgroup`, 'utf8').trim().split(':')[2];
   const records = Object.fromEntries(unitNames.map((unit, index) => {
     const file = path.join(config.unitRoot, unit); fs.writeFileSync(file, '[Service]\nExecStart=fixture\n');
     return [unit, { Id: unit, LoadState: 'loaded', MainPID: String(index === 2 ? child.pid : 0),
-      ExecStart: `{ path=${process.execPath} ; argv[]=${process.execPath} ${script} ; ignore_errors=no ; start_time=[n/a] ; pid=0 ; }`,
+      ExecStart: `{ path=${executable} ; argv[]=${executable} ${script} ; ignore_errors=no ; start_time=[n/a] ; pid=0 ; }`,
       FragmentPath: file, DropInPaths: '', NeedDaemonReload: 'no', ControlGroup: group }];
   }));
   const dependencies = {
