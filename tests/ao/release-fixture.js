@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileSha256, inventoryTree, objectSha256, durableJson, readJson } from '../../scripts/ao/lib/release-manifest.js';
 export function fixtureRoot() { return fs.mkdtempSync(path.join(os.tmpdir(), 'ao-release-test-')); }
-export function createBundle(root, { version = '1.0.0', commit = 'a'.repeat(40), native = '#!/bin/sh\nexit 0\n', schema = 43 } = {}) {
+export function createBundle(root, { version = '1.0.0', commit = 'a'.repeat(40), native = '#!/bin/sh\nexit 0\n', schema = 43, extraFiles = {} } = {}) {
   const bundle = path.join(root, `bundle-${version}`); const payload = path.join(bundle, 'payload');
   fs.mkdirSync(payload, { recursive: true });
   for (const [file, bytes] of Object.entries({
@@ -14,6 +14,7 @@ export function createBundle(root, { version = '1.0.0', commit = 'a'.repeat(40),
     'adapter/server.mjs': '/* fake adapter test input, not production replacement */',
     'browser/dist.js': '/* fake dashboard build fixture */',
     'browser/packages/web/.next/BUILD_ID': 'fake-build', 'browser/packages/web/dist-server/start-all.js': '/* fake compiled fixture */',
+    ...extraFiles,
   })) { fs.mkdirSync(path.dirname(path.join(payload, file)), { recursive: true }); fs.writeFileSync(path.join(payload, file), bytes, { mode: file === 'native/ao' ? 0o755 : 0o644 }); }
   const daemonSha = fileSha256(path.join(payload, 'native/ao'));
   const lock = { runtime_ref: 'fixture.runtime', artifact: { repository: 'https://example.invalid/fixture', version, ref: { commit_sha: 'f'.repeat(40), tree_sha: 'e'.repeat(40) } },

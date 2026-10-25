@@ -164,8 +164,9 @@ export async function applyRelease({
 } = {}) {
   assertRelease(['daily', 'first'].includes(mode), 'invalid_install_mode');
   runner ??= createSystemdReleaseRunner(configuration);
+  const tools = await runner.checkTools?.();
   const root = path.resolve(configuration.installRoot);
-  const lock = acquireInstallLock(root);
+  const lock = acquireInstallLock(root, { flock: tools?.flock });
   const transactionRoot = path.join(root, 'transactions');
   const journalPath = path.join(root, 'install-journal.json');
   const stopServices = async () => runner.stop({ baseline: journal.baseline,
@@ -212,7 +213,7 @@ export async function applyRelease({
     if (!journal) {
       prior = pointer(root, 'current'); previous = pointer(root, 'previous');
       oldManifest = prior ? verifyReleaseTree(path.join(root, prior)) : null;
-      const baseline = await runner.preflight({ releaseRoot: prior ? path.join(root, prior) : path.join(bundle, 'payload'), manifest, mode, adoptLegacy });
+      const baseline = await runner.preflight({ releaseRoot: prior ? path.join(root, prior) : path.join(bundle, 'payload'), probeRoot: path.join(bundle, 'payload'), manifest, mode, adoptLegacy });
       assertRelease(Array.isArray(baseline.cids) && baseline.database?.integrity === 'ok', 'install_baseline_unknown');
       assertRelease(!adoptLegacy || baseline.legacy_adoption && typeof runner.checkLegacy === 'function', 'install_legacy_inventory_required');
       inject('preflight', { manifest });
@@ -353,7 +354,7 @@ export async function applyRelease({
         await runner.reload();
         assertRelease(journal.old !== null, 'legacy_restore_requires_manual_start');
         await runner.start({ releaseRoot: path.join(root, journal.old), rollback: true });
-        const rollbackObservation = await runner.observe({ releaseRoot: path.join(root, journal.old) });
+        const rollbackObservation = await runner.observe({ releaseRoot: path.join(root, journal.old), tmuxProbeRoot: path.join(root, journal.target) });
         const rollbackReport = inspectInstall({ releaseRoot: path.join(root, journal.old), observation: rollbackObservation,
           baseline: journal.stopped_snapshot?.cids ? { ...journal.baseline, cids: journal.stopped_snapshot.cids } : journal.baseline, mode: journal.mode });
         assertRelease(rollbackReport.status === 'passed', 'install_rollback_readback_failed');
@@ -377,5 +378,18 @@ export async function applyRelease({
     }
     throw error;
   } finally { lock.release(); }
+}
+export async function preflightRelease({ bundle, expectedEnvelopeSha256, configuration, runner = null, mode = 'daily', adoptLegacy = false } = {}) {
+  assertRelease(['daily', 'first'].includes(mode), 'invalid_install_mode');
+  runner ??= createSystemdReleaseRunner(configuration);
+  await runner.checkTools?.();
+  const verified = verifyReleaseEnvelope(bundle, expectedEnvelopeSha256);
+  assertRuntimeLockArtifact(path.join(bundle, 'payload'), verified.manifest);
+  assertRelease(verified.manifest.platform.os === process.platform && verified.manifest.platform.arch === process.arch, 'release_platform_unsupported');
+  const root = path.resolve(configuration.installRoot), prior = pointer(root, 'current');
+  assertRelease(!adoptLegacy || mode === 'first' && !prior && !entryExists(path.join(root, 'current')) && !entryExists(path.join(root, 'install-journal.json')), 'install_legacy_adoption_not_first');
+  const baseline = await runner.preflight({ releaseRoot: prior ? path.join(root, prior) : path.join(bundle, 'payload'), probeRoot: path.join(bundle, 'payload'), manifest: verified.manifest, mode, adoptLegacy });
+  assertRelease(Array.isArray(baseline.cids) && baseline.database?.integrity === 'ok', 'install_baseline_unknown');
+  return { status: 'passed', phase: 'preflight', release_id: verified.manifest.release_id, tools: await runner.checkTools?.(), baseline, production_mutated: false };
 }
 export { pointer as readReleasePointer };

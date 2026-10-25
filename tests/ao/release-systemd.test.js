@@ -82,7 +82,7 @@ it('keeps the existing strict environment check for every non-adoption stop', as
 });
 it('rejects unsafe/missing terminal credentials before observations or any service effects', async () => {
   const { config } = fixture(); let calls = 0;
-  const runner = createSystemdReleaseRunner(config, { run: () => { calls += 1; throw Error('unexpected command'); } });
+  const runner = createSystemdReleaseRunner(config, { toolResolver: () => process.execPath, run: () => { calls += 1; throw Error('unexpected command'); } });
   fs.chmodSync(config.terminalTokenFile, 0o644);
   await expect(runner.preflight({ mode: 'daily' })).rejects.toMatchObject({ code: 'install_terminal_auth_input_invalid' });
   fs.rmSync(config.terminalTokenFile);
