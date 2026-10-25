@@ -173,7 +173,7 @@ type Workspace interface {
 	// an empty string if the worktree is clean (nothing to preserve).
 	StashUncommitted(ctx context.Context, info WorkspaceInfo) (ref string, err error)
 	// ApplyPreserved replays a capture created by StashUncommitted onto the
-	// worktree identified by info. On clean success the preserve ref is deleted.
+	// worktree identified by info. On clean success the preserve ref is retained for explicit operator cleanup.
 	// On conflict, the ref is kept, conflict markers are left in the working
 	// tree, and ErrPreservedConflict (wrapped) is returned. The ref must never
 	// be deleted on a failed or conflicted apply.
@@ -320,4 +320,12 @@ type WorkspaceRepoInfo struct {
 	SessionID    domain.SessionID
 	ProjectID    domain.ProjectID
 	RelativePath string
+}
+
+// WorkspaceRecovery owns verified whole-directory snapshots during recovery.
+// All repositories are verified before any backup cleanup or agent launch.
+type WorkspaceRecovery interface {
+	VerifyRestore(context.Context, WorkspaceInfo) error
+	CommitRestore(context.Context, WorkspaceInfo) error
+	RollbackRestore(context.Context, WorkspaceInfo) error
 }

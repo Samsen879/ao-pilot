@@ -164,3 +164,34 @@ func (w *Workspace) gitWorkspaceProject() (ports.WorkspaceProject, error) {
 	}
 	return gitProject, nil
 }
+
+func (w *Workspace) VerifyRestore(ctx context.Context, info ports.WorkspaceInfo) error {
+	adapter, e := w.adapterForProject(ctx, info.ProjectID)
+	if e != nil {
+		return e
+	}
+	if recovery, ok := adapter.(ports.WorkspaceRecovery); ok {
+		return recovery.VerifyRestore(ctx, info)
+	}
+	return nil
+}
+func (w *Workspace) CommitRestore(ctx context.Context, info ports.WorkspaceInfo) error {
+	adapter, e := w.adapterForProject(ctx, info.ProjectID)
+	if e != nil {
+		return e
+	}
+	if recovery, ok := adapter.(ports.WorkspaceRecovery); ok {
+		return recovery.CommitRestore(ctx, info)
+	}
+	return nil
+}
+func (w *Workspace) RollbackRestore(ctx context.Context, info ports.WorkspaceInfo) error {
+	adapter, e := w.adapterForProject(ctx, info.ProjectID)
+	if e != nil {
+		return e
+	}
+	if recovery, ok := adapter.(ports.WorkspaceRecovery); ok {
+		return recovery.RollbackRestore(ctx, info)
+	}
+	return nil
+}

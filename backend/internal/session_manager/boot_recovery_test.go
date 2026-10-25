@@ -155,8 +155,8 @@ func TestReconcileBoundsDeadLiveSessionsAndPreservesOverflowWorktrees(t *testing
 	if runtime.creates != bootRestoreLimit {
 		t.Fatalf("runtime creates=%d, want %d", runtime.creates, bootRestoreLimit)
 	}
-	if len(workspace.forceDestroyed) != bootRestoreLimit {
-		t.Fatalf("force-destroyed=%v, want %d bounded captures", workspace.forceDestroyed, bootRestoreLimit)
+	if len(workspace.forceDestroyed) != 0 {
+		t.Fatalf("cold recovery destroyed existing directories: %v", workspace.forceDestroyed)
 	}
 
 	restored := map[domain.SessionID]bool{
@@ -263,16 +263,25 @@ func TestExplicitRestoreRetainsPreserveRefWhenReplayFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := m.RestoreWithMode(context.Background(), rec.ID); err != nil {
-		t.Fatal(err)
+	if _, err := m.RestoreWithMode(context.Background(), rec.ID); err == nil {
+		t.Fatal("failed replay must return an error")
 	}
-	if runtime.creates != 1 {
+	if runtime.creates != 0 {
 		t.Fatalf("runtime creates=%d", runtime.creates)
 	}
 	rows, err := store.ListSessionWorktrees(context.Background(), rec.ID)
-	if err != nil || len(rows) != 1 || rows[0].PreservedRef != preserveRef || rows[0].State != "active" {
+	if err != nil || len(rows) != 1 || rows[0].PreservedRef != preserveRef || rows[0].State != "stray_moved" {
 		t.Fatalf("preserve ref lost after replay failure: rows=%+v err=%v", rows, err)
 	}
+	cleanup, err := m.Cleanup(context.Background(), "fixture")
+	if err != nil || len(cleanup.Cleaned) != 0 || len(cleanup.Skipped) != 1 || cleanup.Skipped[0].Reason != "workspace recovery HOLD" {
+		t.Fatalf("HOLD bypassed by cleanup: %+v %v", cleanup, err)
+	}
+	item := m.restoreBatchItem(context.Background(), rec.ID)
+	if item.Outcome != "skipped_hold" {
+		t.Fatalf("failed recovery auto-retried: %+v", item)
+	}
+
 }
 
 func TestExplicitWorkspaceRestoreAppliesEveryOverflowPreserveRef(t *testing.T) {
@@ -322,7 +331,7 @@ func TestExplicitWorkspaceRestoreAppliesEveryOverflowPreserveRef(t *testing.T) {
 }
 
 func TestRestoreAllRetainsFailedReplayMarker(t *testing.T) {
-	m, store, _, baseWorkspace, _ := newSpawnFixture(t)
+	m, store, runtime, baseWorkspace, _ := newSpawnFixture(t)
 	m.workspace = &bootRecoveryWorkspace{fakeWorkspace: baseWorkspace, applyErr: errors.New("replay unavailable")}
 	ctx := context.Background()
 	rec := seedBootRecoverySession(t, store, t.TempDir(), 1, domain.KindWorker, true, "removed")
@@ -339,8 +348,11 @@ func TestRestoreAllRetainsFailedReplayMarker(t *testing.T) {
 		t.Fatal("partial replay failure must be reported for readiness degradation")
 	}
 	rows, err = store.ListSessionWorktrees(ctx, rec.ID)
-	if err != nil || len(rows) != 1 || rows[0].PreservedRef != ref || rows[0].State != "active" {
+	if err != nil || len(rows) != 1 || rows[0].PreservedRef != ref || rows[0].State != "stray_moved" {
 		t.Fatalf("failed replay lost recovery custody: rows=%+v err=%v", rows, err)
+	}
+	if runtime.creates != 0 {
+		t.Fatal("failed replay launched an agent")
 	}
 }
 
@@ -373,5 +385,33 @@ func TestShutdownRecoveryRanksOriginalActivityNotTeardownOrder(t *testing.T) {
 		if err != nil || got.IsTerminated != (i == 0) {
 			t.Fatalf("session %s terminated=%v err=%v; oldest must be deferred", rec.ID, got.IsTerminated, err)
 		}
+	}
+}
+
+func TestDeferredBootRestoreWaitsForExplicitOrderedRestore(t *testing.T) {
+	m, store, runtime, baseWorkspace, _ := newSpawnFixture(t)
+	m.workspace = &bootRecoveryWorkspace{fakeWorkspace: baseWorkspace}
+	root := t.TempDir()
+	a := seedBootRecoverySession(t, store, root, 1, domain.KindOrchestrator, false, "active")
+	b := seedBootRecoverySession(t, store, root, 2, domain.KindWorker, false, "active")
+	if err := m.DeferBootRestore(string(b.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	first, _, _ := store.GetSession(context.Background(), a.ID)
+	deferred, _, _ := store.GetSession(context.Background(), b.ID)
+	if first.IsTerminated || !deferred.IsTerminated || runtime.creates != 1 {
+		t.Fatalf("early launch: first=%v deferred=%v creates=%d", first.IsTerminated, deferred.IsTerminated, runtime.creates)
+	}
+	if _, err := m.RestoreWithMode(context.Background(), b.ID); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.creates != 2 {
+		t.Fatal("explicit deferred restore did not run")
+	}
+	if err := m.DeferBootRestore("bad,id,id"); err == nil {
+		t.Fatal("duplicate deferred identities accepted")
 	}
 }
