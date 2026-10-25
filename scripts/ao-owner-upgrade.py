@@ -67,7 +67,7 @@ def main(argv=None):
     assert sha(bundle / 'release-envelope.json') == build['envelope_sha256']
     manifest = verify_payload(bundle, build)
     tools = plan['tools']
-    missing = [name for name in ['node', 'flock', 'systemctl', 'sqlite3', 'loginctl', 'ss', 'tmux', 'git', 'ps', 'pgrep', 'pkill', 'sh', 'bash', 'env', 'python3', 'bwrap']
+    missing = [name for name in ['node', 'flock', 'systemctl', 'sqlite3', 'loginctl', 'ss', 'tmux', 'git', 'ps', 'pgrep', 'pkill', 'sh', 'bash', 'env', 'python3']
                if name not in tools or not Path(tools[name]).is_absolute() or not os.access(tools[name], os.X_OK)]
     if missing:
         print(json.dumps({'status': 'failed', 'code': 'install_required_tools_missing', 'missing': missing, 'production_mutated': False}))
@@ -87,9 +87,11 @@ def main(argv=None):
                '--release', build['release_id'], '--install-config', str(local / 'install-config.json'),
                '--adopt-legacy', '--prepared-config', str(local / 'production.yaml'),
                '--prepared-token', str(local / 'terminal-token')]
-    # No writable bind, lock acquisition, receipt, journal, unit, or DB mutation.
-    probe = subprocess.run([tools['bwrap'], '--die-with-parent', '--ro-bind', '/', '/',
-                            '--dev', '/dev', '--proc', '/proc', '--chdir', str(root), '--', *command], env=env)
+    # The trusted read-only preflight stays in the host user namespace so
+    # real /proc executable/cmdline identity checks retain their permissions.
+    # It acquires no lock, writes no receipt/journal and uses no write probe or
+    # telemetry POST. Owner explicitly removed the extra bwrap outer boundary.
+    probe = subprocess.run(command, cwd=root, env=env)
     if probe.returncode or args.check_only:
         return probe.returncode
     apply_script = local / 'owner-apply.py'
