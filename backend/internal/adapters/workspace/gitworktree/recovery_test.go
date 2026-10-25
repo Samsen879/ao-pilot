@@ -2,6 +2,7 @@ package gitworktree
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -195,5 +196,184 @@ func TestRestoreReusesExistingDirectoryWithoutChangingSparseOrIgnored(t *testing
 	inode2, _ := os.Stat(restored.Path)
 	if !os.SameFile(inode, inode2) || !reflect.DeepEqual(before, after) {
 		t.Fatal("existing workspace was rebuilt or narrowed destructively")
+	}
+}
+
+func TestReplayRestoresExecutableAndSymlinkTypeChanges(t *testing.T) {
+	for _, kind := range []string{"executable", "symlink"} {
+		t.Run(kind, func(t *testing.T) {
+			_, _, w := newSparseRepoFixture(t)
+			ctx := context.Background()
+			cfg := ports.WorkspaceConfig{ProjectID: "project", SessionID: "mode-1", Branch: "feature/mode", BaseBranch: "main"}
+			info, e := w.Create(ctx, cfg)
+			if e != nil {
+				t.Fatal(e)
+			}
+			file := filepath.Join(info.Path, "keep/input.json")
+			if kind == "executable" {
+				if e = os.Chmod(file, 0755); e != nil {
+					t.Fatal(e)
+				}
+			} else {
+				if e = os.Remove(file); e != nil {
+					t.Fatal(e)
+				}
+				if e = os.Symlink("{}", file); e != nil {
+					t.Fatal(e)
+				}
+			}
+			ref, e := w.StashUncommitted(ctx, info)
+			if e != nil || ref == "" {
+				t.Fatalf("preserve %s %v", ref, e)
+			}
+			runGitTest(t, info.Path, "reset", "--hard", "HEAD")
+			if e = w.ApplyPreserved(ctx, info, ref); e != nil {
+				t.Fatal(e)
+			}
+			st, e := os.Lstat(file)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if kind == "executable" && st.Mode().Perm()&0111 == 0 || kind == "symlink" && st.Mode()&os.ModeSymlink == 0 {
+				t.Fatalf("type/mode lost: %v", st.Mode())
+			}
+			if e = w.VerifyRestore(ctx, info); e != nil {
+				t.Fatal(e)
+			}
+			if e = w.CommitRestore(ctx, info); e != nil {
+				t.Fatal(e)
+			}
+		})
+	}
+}
+func TestReplayAllowsOnlyDirectoriesEmptiedBySavedDeletions(t *testing.T) {
+	_, _, w := newSparseRepoFixture(t)
+	ctx := context.Background()
+	cfg := ports.WorkspaceConfig{ProjectID: "project", SessionID: "delete-1", Branch: "feature/delete", BaseBranch: "main"}
+	info, e := w.Create(ctx, cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	runGitTest(t, info.Path, "rm", "keep/input.json")
+	ref, e := w.StashUncommitted(ctx, info)
+	if e != nil {
+		t.Fatal(e)
+	}
+	runGitTest(t, info.Path, "reset", "--hard", "HEAD")
+	writeSparseFile(t, info.Path, "ignored-local/bytes", "unchanged")
+	if e = w.ApplyPreserved(ctx, info, ref); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = os.Stat(filepath.Join(info.Path, "keep/input.json")); !os.IsNotExist(e) {
+		t.Fatal("saved deletion lost", e)
+	}
+	if got, e := os.ReadFile(filepath.Join(info.Path, "ignored-local/bytes")); e != nil || string(got) != "unchanged" {
+		t.Fatal("unrelated bytes lost", e)
+	}
+	if e = w.VerifyRestore(ctx, info); e != nil {
+		t.Fatal(e)
+	}
+	if e = w.CommitRestore(ctx, info); e != nil {
+		t.Fatal(e)
+	}
+}
+func TestRecoveryOverlayAcceptsIdenticalTrackedSymlink(t *testing.T) {
+	repo, managed, w := newSparseRepoFixture(t)
+	if e := os.Symlink("keep/input.json", filepath.Join(repo, "link")); e != nil {
+		t.Fatal(e)
+	}
+	runGitTest(t, repo, "add", "link")
+	runGitTest(t, repo, "commit", "-m", "tracked symlink")
+	root := filepath.Join(managed, "project", "link-1")
+	writeSparseFile(t, root, "unique-private/ignored", "old bytes")
+	if e := os.Symlink("keep/input.json", filepath.Join(root, "link")); e != nil {
+		t.Fatal(e)
+	}
+	info, e := w.Restore(context.Background(), ports.WorkspaceConfig{ProjectID: "project", SessionID: "link-1", Branch: "feature/link", BaseBranch: "main", Path: root})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if target, e := os.Readlink(filepath.Join(root, "link")); e != nil || target != "keep/input.json" {
+		t.Fatal(target, e)
+	}
+	if e = w.VerifyRestore(context.Background(), info); e != nil {
+		t.Fatal(e)
+	}
+	if e = w.CommitRestore(context.Background(), info); e != nil {
+		t.Fatal(e)
+	}
+}
+func TestReuseRejectsBothUnownedQuarantineLocations(t *testing.T) {
+	for _, suffix := range []string{".ao-recovery-backup", ".ao-recovery-backup.git-metadata"} {
+		t.Run(suffix, func(t *testing.T) {
+			_, _, w := newSparseRepoFixture(t)
+			cfg := ports.WorkspaceConfig{ProjectID: "project", SessionID: "unknown-1", Branch: "feature/unknown", BaseBranch: "main"}
+			info, e := w.Create(context.Background(), cfg)
+			if e != nil {
+				t.Fatal(e)
+			}
+			writeSparseFile(t, info.Path+suffix, "private", "old bytes")
+			before, e := recoveryInventory(info.Path)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if e = w.VerifyRestore(context.Background(), info); e == nil {
+				t.Fatal("unowned quarantine accepted")
+			}
+			after, e := recoveryInventory(info.Path)
+			if e != nil || !reflect.DeepEqual(before, after) {
+				t.Fatal("original changed", e)
+			}
+			if _, e = os.Stat(info.Path + suffix); e != nil {
+				t.Fatal(e)
+			}
+		})
+	}
+}
+func TestRollbackResumesAfterOriginalDirectoryMove(t *testing.T) {
+	for _, movedMetadata := range []bool{false, true} {
+		t.Run(fmt.Sprint(movedMetadata), func(t *testing.T) {
+			_, _, w := newSparseRepoFixture(t)
+			cfg := ports.WorkspaceConfig{ProjectID: "project", SessionID: "partial-1", Branch: "feature/partial", BaseBranch: "main"}
+			info, e := w.Create(context.Background(), cfg)
+			if e != nil {
+				t.Fatal(e)
+			}
+			writeSparseFile(t, info.Path, "ignored/unique", "old bytes")
+			before, _ := recoveryInventory(info.Path)
+			r, e := w.prepareRecovery(context.Background(), info, "copy")
+			if e != nil {
+				t.Fatal(e)
+			}
+			writeSparseFile(t, info.Path, "keep/input.json", "failed attempt")
+			if e = os.WriteFile(filepath.Join(r.GitDir, "MERGE_MSG"), []byte("failed merge"), 0600); e != nil {
+				t.Fatal(e)
+			}
+			if e = os.Rename(info.Path, info.Path+".failed-before-crash"); e != nil {
+				t.Fatal(e)
+			}
+			if e = os.Rename(r.Backup, info.Path); e != nil {
+				t.Fatal(e)
+			}
+			if movedMetadata {
+				if e = os.Rename(r.GitDir, r.Backup+".failed-before-crash.git-metadata"); e != nil {
+					t.Fatal(e)
+				}
+			}
+			if e = w.RollbackRestore(context.Background(), info); e != nil {
+				t.Fatal(e)
+			}
+			if e = w.RollbackRestore(context.Background(), info); e != nil {
+				t.Fatal("repeat", e)
+			}
+			after, _ := recoveryInventory(info.Path)
+			if !reflect.DeepEqual(before, after) {
+				t.Fatal("original bytes changed")
+			}
+			meta, e := recoveryInventory(r.GitDir)
+			if e != nil || !exactRecoveryFiles(r.GitFiles, meta) {
+				t.Fatal("metadata not restored", e)
+			}
+		})
 	}
 }

@@ -415,3 +415,61 @@ func TestDeferredBootRestoreWaitsForExplicitOrderedRestore(t *testing.T) {
 		t.Fatal("duplicate deferred identities accepted")
 	}
 }
+
+type partialWorkspaceRecovery struct {
+	*bootRecoveryWorkspace
+	calls  int
+	rolled []string
+}
+
+func (w *partialWorkspaceRecovery) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (ports.WorkspaceInfo, error) {
+	w.calls++
+	if w.calls == 3 {
+		return ports.WorkspaceInfo{}, errors.New("third repo fails")
+	}
+	return w.bootRecoveryWorkspace.Restore(ctx, cfg)
+}
+func (w *partialWorkspaceRecovery) RollbackRestore(_ context.Context, info ports.WorkspaceInfo) error {
+	w.rolled = append(w.rolled, info.Path)
+	return nil
+}
+func (w *partialWorkspaceRecovery) VerifyRestore(context.Context, ports.WorkspaceInfo) error {
+	return errors.New("must not verify partial reconstruction")
+}
+func (w *partialWorkspaceRecovery) CommitRestore(context.Context, ports.WorkspaceInfo) error {
+	return errors.New("must not commit partial reconstruction")
+}
+func TestPartialMultiRepositoryRestoreRollsBackEveryParticipant(t *testing.T) {
+	m, store, runtime, base, _ := newSpawnFixture(t)
+	w := &partialWorkspaceRecovery{bootRecoveryWorkspace: &bootRecoveryWorkspace{fakeWorkspace: base}}
+	m.workspace = w
+	ctx := context.Background()
+	rec := seedBootRecoverySession(t, store, t.TempDir(), 1, domain.KindWorker, true, "active")
+	project := t.TempDir()
+	if err := store.UpsertWorkspaceProject(ctx, domain.ProjectRecord{ID: "fixture", Path: project, Kind: domain.ProjectKindWorkspace}, []domain.WorkspaceRepoRecord{{ProjectID: "fixture", Name: "child-a", RelativePath: "child-a"}, {ProjectID: "fixture", Name: "child-b", RelativePath: "child-b"}}); err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{rec.Metadata.WorkspacePath, filepath.Join(rec.Metadata.WorkspacePath, "child-a"), filepath.Join(rec.Metadata.WorkspacePath, "child-b")}
+	for i, name := range []string{domain.RootWorkspaceRepoName, "child-a", "child-b"} {
+		row := domain.SessionWorktreeRecord{SessionID: rec.ID, RepoName: name, RepoPath: project, Branch: rec.Metadata.Branch, WorktreePath: paths[i], State: "active"}
+		if err := store.UpsertSessionWorktree(ctx, row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := m.RestoreWithMode(ctx, rec.ID); err == nil {
+		t.Fatal("partial restore accepted")
+	}
+	want := []string{paths[2], paths[1], paths[0]}
+	if fmt.Sprint(w.rolled) != fmt.Sprint(want) || runtime.creates != 0 {
+		t.Fatalf("rollback order %v want %v creates%d", w.rolled, want, runtime.creates)
+	}
+	rows, err := store.ListSessionWorktrees(ctx, rec.ID)
+	if err != nil || len(rows) != 3 {
+		t.Fatal(rows, err)
+	}
+	for _, row := range rows {
+		if row.State != "stray_moved" {
+			t.Fatal("HOLD lost", row)
+		}
+	}
+}
