@@ -287,3 +287,22 @@ it('reuses the immutable pre-stop live selection after daemon reconciliation and
  expect(await apply(bundle,config,runner,{mode:'first',resume:true})).toMatchObject({result:'passed'});
  const after=readJson(path.join(config.installRoot,'install-journal.json'));expect(after.stopped_snapshot.identities.every(x=>x.is_terminated===1)).toBe(true);expect(after.restore_baseline).toEqual(before.restore_baseline);expect(supplied).toEqual([['cid-worker'],['cid-worker']]);
 });
+
+
+it.each([false, true])('defers all known sessions until the frozen first restore plan excludes history and orders Orchestrators (last=%s)', async (protectLast) => {
+ const {root,config}=fixture();const bundle=createBundle(root);const runner=fakeRunner(root);
+ config.restoreProjects=['fixture'];config.restoreConcurrency=2;config.firstRestoreSessionIDs=['cid-orchestrator'];
+ if(protectLast) config.restoreLastSessionIDs=['cid-worker'];
+ const identities=[{ao_session_id:'cid-worker',project_id:'fixture',kind:'worker',is_terminated:0},{ao_session_id:'cid-orchestrator',project_id:'fixture',kind:'orchestrator',is_terminated:1},{ao_session_id:'history',project_id:'fixture',kind:'worker',is_terminated:1}];
+ const preflight=runner.preflight,quiescent=runner.quiescent,start=runner.start;
+ runner.preflight=async(args)=>({...await preflight(args),projects:['fixture'],identities});
+ runner.quiescent=async()=>({...await quiescent(),projects:['fixture'],identities});
+ runner.start=async(args)=>{
+  const env=fs.readFileSync(path.join(config.stateRoot,'install.env'),'utf8');
+  expect(env).toContain('AO_DEFER_BOOT_RESTORE_IDS="cid-worker,cid-orchestrator,history"');
+  expect(args.baseline.identities.map(row=>row.ao_session_id)).toEqual(['cid-worker','cid-orchestrator']);
+  return start(args);
+ };
+ expect(await apply(bundle,config,runner,{mode:'first'})).toMatchObject({result:'passed'});
+ expect(fs.readFileSync(path.join(config.stateRoot,'install.env'),'utf8')).not.toContain('AO_DEFER_BOOT_RESTORE_IDS');
+});

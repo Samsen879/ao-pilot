@@ -34,7 +34,7 @@ function switchPointer(root, name, target, lock) {
   fs.symlinkSync(target, temp);
   fs.renameSync(temp, final); syncDirectory(root);
 }
-function writeEnvironment(configuration, lock, manifest, releaseRoot, deferBoot = true) {
+function writeEnvironment(configuration, lock, manifest, releaseRoot, deferredBootIDs = []) {
   const environment = {
     AO_DASHBOARD_ADAPTER_CONFIG: adapterConfigPath(configuration),
     DIRECT_TERMINAL_PORT: String(configuration.listenPorts[3]), TERMINAL_PORT: String(configuration.listenPorts[4]),
@@ -51,7 +51,7 @@ function writeEnvironment(configuration, lock, manifest, releaseRoot, deferBoot 
     AO_DASHBOARD_PORT: String(configuration.listenPorts[1]),
     AO_DASHBOARD_TERMINAL_ACCESS: '1', AO_DASHBOARD_READ_ONLY: '1', AO_DASHBOARD_AUTOMATION: '0', NODE_ENV: 'production',
   };
-  if(deferBoot && configuration.restoreLastSessionIDs?.length) environment.AO_DEFER_BOOT_RESTORE_IDS=configuration.restoreLastSessionIDs.join(',');
+  if (deferredBootIDs.length) environment.AO_DEFER_BOOT_RESTORE_IDS = deferredBootIDs.join(',');
   const stagingRoot = configuration.namespace.startsWith('ao-pilot-staging-') ? configuration.stateRoot : null;
   const privateHome = stagingRoot ? stagingHomeEnvironment(stagingRoot) : {};
   Object.assign(environment, privateHome);
@@ -282,7 +282,8 @@ export async function applyRelease({
         onBackup: () => { journal.unit_backup_complete = true; lock.assertOwned(); durableJson(journalPath, journal); } });
     } else writeReleaseUnits({ unitRoot: configuration.unitRoot, units, lock, environmentOverride: configuration.environmentOverride ?? null });
     lock.assertOwned(); durableJson(adapterConfigPath(configuration), adapterConfiguration(configuration));
-    writeEnvironment(configuration, lock, manifest, final, mode==='first');
+    const deferredBootIDs = mode === 'first' ? journal.baseline.identities.map(row => row.ao_session_id) : [];
+    writeEnvironment(configuration, lock, manifest, final, deferredBootIDs);
     lock.assertOwned(); durableJson(path.join(root, 'installation.json'), configuration);
     journal.phase = 'switching'; lock.assertOwned(); durableJson(journalPath, journal);
     switchPointer(root, 'previous', prior, lock); inject('previous', {});
@@ -314,7 +315,7 @@ export async function applyRelease({
     const privateReceipt = { journal, verify: observed, readback, checks: confirmed.checks };
     savePrivateInstallReceipt(path.join(txDir, 'private-receipt.json'), privateReceipt);
     let warnings = 0;
-    if(configuration.restoreLastSessionIDs?.length)try{writeEnvironment(configuration,lock,manifest,final,false)}catch(error){warnings+=1;savePrivateInstallReceipt(path.join(txDir,'boot-deferral-cleanup-warning.json'),{code:error.code??'boot_deferral_cleanup_failed',message:error.message});}
+    if(deferredBootIDs.length)try{writeEnvironment(configuration,lock,manifest,final)}catch(error){warnings+=1;savePrivateInstallReceipt(path.join(txDir,'boot-deferral-cleanup-warning.json'),{code:error.code??'boot_deferral_cleanup_failed',message:error.message});}
 
     try {
       inject('gc', {});
