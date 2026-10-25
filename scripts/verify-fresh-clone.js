@@ -7,7 +7,10 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { processStartToken } from './ao/lib/release-lock.js';
-import { probeExclusiveLock } from './ao/lib/release-systemd.js';
+import { copyCustodyTree, probeExclusiveLock, validateInstallConfiguration } from './ao/lib/release-systemd.js';
+import { fileSha256, verifyReleaseTree } from './ao/lib/release-manifest.js';
+import { assertRuntimeLockArtifact, resolveUnifiedRuntime } from './ao/lib/release-runtime.js';
+import { requiredPackageFiles, verifyPackedRelease } from './ao/lib/release-tarball.js';
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const REPOSITORY_ROOT = path.resolve(path.dirname(SCRIPT_PATH), '..');
@@ -41,11 +44,14 @@ export function parseArgs(argv) {
     keepOnFailure: false,
     tarball: process.env.AO_RELEASE_TARBALL ?? null,
     tarballSha256: process.env.AO_RELEASE_TARBALL_SHA256 ?? null,
+    releasePayload: process.env.AO_RELEASE_BUNDLE ? path.join(process.env.AO_RELEASE_BUNDLE, 'payload') : null,
     help: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    if (argument === '--tarball') {
+    if (argument === '--release-payload') {
+      options.releasePayload = path.resolve(requiredValue(argv, index, argument)); index += 1;
+    } else if (argument === '--tarball') {
       options.tarball = path.resolve(requiredValue(argv, index, argument)); index += 1;
     } else if (argument === '--sha256') {
       options.tarballSha256 = requiredValue(argv, index, argument); index += 1;
@@ -85,6 +91,7 @@ function usage() {
     '',
     'Options:',
     '  --source <path|url>    Git source. Default: current exact repository',
+    '  --release-payload <p> Complete frozen payload for supplied release tarball',
     '  --ref <ref>            Commit/ref to detach after clone. Default: HEAD',
     '  --cache <path>         Reusable verified runtime cache',
     '  --temp-root <path>     Parent for the isolated workspace',
@@ -109,7 +116,7 @@ function findExecutable(name, env = process.env) {
   fail('fresh_clone_tool_missing', `Required host tool is unavailable: ${name}`);
 }
 
-function createSafeToolPath(root, env = process.env) {
+function createSafeToolPath(root, env = process.env, managed = false) {
   const directory = path.join(root, 'safe-bin');
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const tools = {
@@ -122,6 +129,7 @@ function createSafeToolPath(root, env = process.env) {
     dirname: findExecutable('dirname', env),
     sh: findExecutable('sh', env),
     flock: findExecutable('flock', env),
+    ...(managed ? { tmux: findExecutable('tmux', env), systemctl: findExecutable('systemctl', env) } : {}),
   };
   for (const [name, target] of Object.entries(tools)) {
     fs.symlinkSync(target, path.join(directory, name));
@@ -300,6 +308,53 @@ export function assertOwnedDaemonGone({ pid, startToken, lockFiles }, {
   return true;
 }
 
+// Bootstrap exercises the archived lock. Lifecycle acceptance for a supplied
+// release must instead execute the exact daemon carried by that package.
+export function bindPackedRuntime({ root, packageRoot, installedPackageRoot, env, expectedHead, expectedTree }) {
+  const manifest = verifyReleaseTree(packageRoot);
+  if (manifest.commit !== expectedHead || manifest.tree !== expectedTree) fail('fresh_clone_package_source_mismatch', 'Package does not match the exact cloned source');
+  assertRuntimeLockArtifact(packageRoot, manifest);
+  if (fileSha256(path.join(installedPackageRoot, 'release.json')) !== fileSha256(path.join(packageRoot, 'release.json'))) fail('fresh_clone_installed_package_drift', 'Installed manifest differs from verified release');
+  for (const entry of requiredPackageFiles(manifest)) {
+    const installed = path.join(installedPackageRoot, entry.path);
+    const stat = fs.lstatSync(installed);
+    const matches = entry.type === 'file' ? stat.isFile() && fileSha256(installed) === entry.sha256
+      && Boolean(stat.mode & 0o111) === Boolean(entry.mode & 0o111)
+      : stat.isSymbolicLink() && fs.readlinkSync(installed) === entry.target;
+    if (!matches) fail('fresh_clone_installed_package_drift', 'Installed package differs from verified release');
+  }
+  const installRoot = path.join(root, 'packed-install');
+  const releaseRoot = path.join(installRoot, 'releases', manifest.release_id);
+  const config = validateInstallConfiguration({
+    schema_version: 'ao.install-config.v1', namespace: 'ao-pilot-staging-fresh',
+    installRoot, stateRoot: root, unitRoot: path.join(root, 'units'),
+    dataDir: env.AO_DATA_DIR, discoveryDir: path.dirname(env.AO_RUN_FILE),
+    configPath: path.join(root, 'ao.yaml'), controlPlaneRoot: path.join(root, 'control'),
+    trustedHostDirectory: path.join(root, 'trusted-host'), tmuxTmpdir: path.join(root, 'tmux'),
+    tmuxSocket: 'ao-pilot-staging-fresh', terminalTokenFile: path.join(root, 'terminal-token'),
+    daemonURL: 'http://127.0.0.1:43101', terminalURL: 'ws://127.0.0.1:43102/terminal',
+    terminalOrigin: 'http://127.0.0.1:43102', terminalCanaryPrefix: 'canary:',
+    listenPorts: [43101, 43100, 43102, 43103, 43104], cliPath: path.join(root, 'cli'),
+  });
+  fs.mkdirSync(path.dirname(releaseRoot), { recursive: true, mode: 0o700 });
+  copyCustodyTree(packageRoot, releaseRoot);
+  fs.symlinkSync(path.relative(installRoot, releaseRoot), path.join(installRoot, 'current'));
+  fs.writeFileSync(path.join(installRoot, 'installation.json'), JSON.stringify(config), { mode: 0o600 });
+  fs.writeFileSync(config.configPath, JSON.stringify({ defaults: { agent: 'claude-code' }, projects: {} }), { mode: 0o600 });
+  fs.mkdirSync(config.tmuxTmpdir, { mode: 0o700 });
+  const boundEnv = { ...env, AO_INSTALL_ROOT: installRoot, AO_CONFIG_PATH: config.configPath,
+    AO_PORT: String(config.listenPorts[0]), AO_TMUX_SOCKET: config.tmuxSocket,
+    AO_TMUX_UNIT: `${config.namespace}-tmux.service`, AO_TMUX_TMPDIR: config.tmuxTmpdir,
+    TMUX_TMPDIR: config.tmuxTmpdir, AO_INSTALL_NAMESPACE: config.namespace,
+    AO_MANAGED_RUNTIME_DATA_DIR: config.dataDir, AO_MANAGED_RUNTIME_RUN_FILE: env.AO_RUN_FILE,
+    AO_MANAGED_RUNTIME_BINARY: path.join(releaseRoot, manifest.components.daemon.entrypoint),
+    AO_MANAGED_RUNTIME_BINARY_SHA256: manifest.runtime_lock.binary_sha256,
+    AO_RELEASE_ID: manifest.release_id, AO_RELEASE_ROOT: releaseRoot };
+  const runtime = resolveUnifiedRuntime({ env: boundEnv });
+  if (runtime.source.commit_sha !== expectedHead || runtime.source.tree_sha !== expectedTree) fail('fresh_clone_package_source_mismatch', 'Runtime provenance does not match the cloned source');
+  return { env: boundEnv, storeRoot: installRoot, cli: path.join(installedPackageRoot, 'bin/ao-pilot.js'), runtime };
+}
+
 export async function verifyFreshClone(options, {
   inheritedEnv = process.env,
   now = () => new Date().toISOString(),
@@ -310,10 +365,11 @@ export async function verifyFreshClone(options, {
       arch: process.arch,
     });
   }
+  if (options.tarball && !options.releasePayload) fail('fresh_clone_release_payload_required', 'Supplied release requires its complete frozen payload');
   fs.mkdirSync(options.tempRoot, { recursive: true });
   const root = fs.mkdtempSync(path.join(options.tempRoot, 'ao-pilot-fresh-clone-'));
   const cloneRoot = path.join(root, 'clone');
-  const storeRoot = path.join(root, 'runtime-store');
+  let storeRoot = path.join(root, 'runtime-store');
   const cacheRoot = options.cacheRoot ?? path.join(root, 'runtime-cache');
   const fixtureWorktree = path.join(root, 'worker-worktree-fixture');
   let started = false;
@@ -321,8 +377,9 @@ export async function verifyFreshClone(options, {
   let passed = false;
   let env;
   let node;
+  let cli;
   try {
-    const safe = createSafeToolPath(root, inheritedEnv);
+    const safe = createSafeToolPath(root, inheritedEnv, Boolean(options.tarball));
     env = isolatedEnvironment(root, safe.directory, cacheRoot, inheritedEnv);
     node = commandPath(safe.tools, 'node');
     const git = commandPath(safe.tools, 'git');
@@ -353,12 +410,15 @@ export async function verifyFreshClone(options, {
     if (options.tarball) {
       if (!/^[a-f0-9]{64}$/.test(options.tarballSha256 ?? '')
         || createHash('sha256').update(fs.readFileSync(options.tarball)).digest('hex') !== options.tarballSha256) fail('fresh_clone_tarball_mismatch', 'Pinned package is unavailable or changed');
+      const manifest = verifyReleaseTree(options.releasePayload);
+      verifyPackedRelease(options.tarball, options.releasePayload, manifest);
+      if (manifest.commit !== sourceHead || manifest.tree !== sourceTree) fail('fresh_clone_package_source_mismatch', 'Package does not match the exact cloned source');
       const consumer = path.join(root, 'packed-consumer'); fs.mkdirSync(consumer);
       fs.writeFileSync(path.join(consumer, 'package.json'), '{"private":true}');
       run(npm, ['install', '--ignore-scripts', options.tarball], { cwd: consumer, env });
       installedPackage = path.join(consumer, 'node_modules/ao-pilot');
     }
-    const cli = path.join(installedPackage, 'bin', 'ao-pilot.js');
+    cli = path.join(installedPackage, 'bin', 'ao-pilot.js');
     const preBootstrap = run(node, [cli, 'runtime-path', '--runtime-store', storeRoot, '--json'], {
       cwd: cloneRoot,
       env,
@@ -415,6 +475,11 @@ export async function verifyFreshClone(options, {
     assertEqual(shadowFailure.code, 'runtime_path_shadowed', 'fresh_clone_shadow_wrong_code', 'PATH shadowing returned the wrong blocker');
     if (fs.existsSync(shadowMarker)) fail('fresh_clone_shadow_executed', 'Wrong same-name binary was executed');
 
+    if (options.tarball) {
+      const packed = bindPackedRuntime({ root, packageRoot: options.releasePayload, installedPackageRoot: installedPackage,
+        env, expectedHead: sourceHead, expectedTree: sourceTree });
+      env = packed.env; storeRoot = packed.storeRoot; cli = packed.cli;
+    }
     const runtimePath = parseJsonOutput(run(node, [cli, 'runtime-path', '--runtime-store', storeRoot, '--json'], {
       cwd: cloneRoot,
       env,
@@ -568,6 +633,7 @@ export async function verifyFreshClone(options, {
       install: {
         command: 'npm ci',
         status: 'passed',
+        ...(options.tarball ? { tarball_sha256: options.tarballSha256, runtime_source: 'verified_packed_release' } : {}),
       },
       bootstrap: {
         command: './scripts/bootstrap.sh',
@@ -637,7 +703,7 @@ export async function verifyFreshClone(options, {
     return receipt;
   } finally {
     if ((started || runtimeStopRequired) && node != null && env != null && fs.existsSync(cloneRoot)) {
-      run(node, [path.join(cloneRoot, 'bin', 'ao-pilot.js'), 'stop', '--runtime-store', storeRoot, '--json'], {
+      run(node, [cli, 'stop', '--runtime-store', storeRoot, '--json'], {
         cwd: cloneRoot,
         env,
         allowFailure: true,

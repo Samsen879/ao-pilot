@@ -1,5 +1,24 @@
 # Schema compatibility inputs
 
+For `verify:fresh-clone --tarball ... --sha256 ... --release-payload ...`, the archived annotated-tag
+lock still exercises bootstrap, offline replay, reinstall and PATH-shadow
+rejection. Lifecycle acceptance then binds the installed package's complete
+manifest and runtime pin to the exact cloned commit/tree. The complete frozen
+payload is mandatory because npm omits dependency/tooling bytes by the existing
+packaging policy; `AO_RELEASE_BUNDLE/payload` is also accepted. The verifier
+checks the tarball against that full payload, checks each required installed
+package file, then uses the npm-installed CLI to execute the same daemon bytes
+from a private copy of the full payload. The ready, owned
+PID/start-token exit and two ownership-lock checks are unchanged. The receipt
+identifies the packed runtime separately from its archived bootstrap source;
+no tag or runtime-lock promotion is needed for candidate acceptance.
+The local release probe must provide a real independent
+`ao-pilot-staging-fresh-tmux.service` using the generated private tmux directory;
+tmux/systemctl are included in the safe tool path only for supplied packages.
+Without the independent server the unchanged readiness check rejects the run.
+The verifier does not install or start user units itself. Cloud tests continue
+to use isolated fixtures and must not access workstation services or data.
+
 A complete unified release requires a **tracked**, sanitized, empty SQLite
 fixture and `release/compatibility.json` (or `--compatibility <tracked-path>`):
 
