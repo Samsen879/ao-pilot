@@ -233,6 +233,11 @@ type commandContext struct {
 
 func shouldEmitCLIInvocation(cmd *cobra.Command) bool {
 	commandPath := strings.TrimSpace(cmd.CommandPath())
+	if commandPath == "ao doctor" {
+		if tmuxOnly, _ := cmd.Flags().GetBool("tmux-only"); tmuxOnly {
+			return false
+		}
+	}
 	if isRoutineInternalCLICommand(commandPath) {
 		return false
 	}
