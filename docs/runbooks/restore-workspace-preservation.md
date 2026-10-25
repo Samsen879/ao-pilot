@@ -57,7 +57,10 @@ read back all listed files; any mismatch halts before restoring the next session
 No glob expansion or wildcard admission is used.
 
 The generated environment temporarily defers automatic boot restoration of
-these protected IDs. Explicit restoration remains available. After durable
+all sessions observed before the first installation. Historical sessions remain
+excluded from the explicit frozen restore selection. This keeps currently live workers
+from starting ahead of explicitly selected historical Orchestrators and keeps
+protected workers last. Explicit restoration remains available. After durable
 commit, the installer atomically removes that temporary input from the generated
 EnvironmentFile. A failure to clear it is a private warning requiring readback;
 it never rolls back a committed installation. Subsequent cold boots retain the
