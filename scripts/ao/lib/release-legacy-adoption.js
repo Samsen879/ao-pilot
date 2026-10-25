@@ -10,9 +10,11 @@ function properties(text) {
     const i = line.indexOf('='); return [line.slice(0, i), line.slice(i + 1)];
   }));
 }
-function fileIdentity(file) {
+function fileIdentity(file, { executableInput = false } = {}) {
   const stat = fs.lstatSync(file);
-  assertRelease(stat.isFile() && !stat.isSymbolicLink() && stat.uid === process.getuid(), code);
+  const trustedOwner = stat.uid === process.getuid() || executableInput && stat.uid === 0;
+  assertRelease(stat.isFile() && !stat.isSymbolicLink() && trustedOwner
+    && (!executableInput || (stat.mode & 0o022) === 0), code);
   return { path: file, sha256: fileSha256(file) };
 }
 
@@ -24,7 +26,13 @@ export function legacyExecStart(text) {
   const argv = match[2].trim().split(/\s+/);
   assertRelease(argv[0] === match[1] && argv.every((arg) => !/["'\r\n\0]/.test(arg)), code);
   // Bind both interpreter and script when ExecStart invokes Node or a wrapper.
-  const files = [...new Set(argv.filter((arg, index) => index === 0 || path.isAbsolute(arg) && fs.existsSync(arg) && fs.lstatSync(arg).isFile()))].map(fileIdentity);
+  const files = [...new Set(argv.filter((arg, index) => {
+    if (index === 0) return true;
+    if (!path.isAbsolute(arg)) return false;
+    const stat = fs.lstatSync(arg);
+    assertRelease(!stat.isSymbolicLink() && (stat.isFile() || stat.isDirectory()), code);
+    return stat.isFile();
+  }))].map((file) => fileIdentity(file, { executableInput: true }));
   return { path: match[1], argv, files };
 }
 

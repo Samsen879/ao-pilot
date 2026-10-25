@@ -6,7 +6,7 @@ import { afterEach, expect, it } from '@jest/globals';
 import { fixtureRoot, configuration } from './release-fixture.js';
 import { fileSha256, durableJson } from '../../scripts/ao/lib/release-manifest.js';
 import { processStartToken } from '../../scripts/ao/lib/release-lock.js';
-import { captureLegacyServices, collectLegacyAdoption, assertLegacyAdoption } from '../../scripts/ao/lib/release-legacy-adoption.js';
+import { captureLegacyServices, collectLegacyAdoption, assertLegacyAdoption, legacyExecStart } from '../../scripts/ao/lib/release-legacy-adoption.js';
 import { copyCustodyTree } from '../../scripts/ao/lib/release-systemd.js';
 
 const roots = []; const children = [];
@@ -87,4 +87,21 @@ it('copies custody directory modes exactly, including existing destinations and 
   // The existing inventory comparison must still reject extra copied data.
   fs.writeFileSync(path.join(target, 'unexpected'), 'drift');
   expect(() => copyCustodyTree(source, target)).toThrow('install_database_backup_invalid');
+});
+it('accepts a digest-bound non-writable system-owned interpreter, while refusing writable executable inputs', () => {
+  const executable = fs.realpathSync('/bin/sh');
+  expect(fs.statSync(executable).uid).toBe(0);
+  const text = (file) => `{ path=${file} ; argv[]=${file} ; ignore_errors=no ; pid=0 ; }`;
+  expect(legacyExecStart(text(executable)).files).toEqual([{ path: executable, sha256: fileSha256(executable) }]);
+  const root = fixtureRoot(); roots.push(root); const unsafe = path.join(root, 'writable');
+  fs.writeFileSync(unsafe, 'unsafe'); fs.chmodSync(unsafe, 0o777);
+  expect(() => legacyExecStart(text(unsafe))).toThrow('install_legacy_adoption_mismatch');
+});
+it('rejects symlinked absolute script arguments instead of silently omitting their digest', () => {
+  const root = fixtureRoot(); roots.push(root); const script = path.join(root, 'script.mjs'); const link = path.join(root, 'link.mjs');
+  fs.writeFileSync(script, 'script'); fs.symlinkSync(script, link);
+  const command = `{ path=${process.execPath} ; argv[]=${process.execPath} ${link} ; ignore_errors=no ; pid=0 ; }`;
+  expect(() => legacyExecStart(command)).toThrow('install_legacy_adoption_mismatch');
+  fs.appendFileSync(script, 'changed target bytes');
+  expect(() => legacyExecStart(command)).toThrow('install_legacy_adoption_mismatch');
 });

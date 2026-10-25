@@ -169,7 +169,10 @@ The example is incomplete and deliberately invalid as an input. Supply exactly
 four records, ordered runtime, dashboard, dashboard-adapter, session-recovery.
 Each includes the effective unit and every loaded drop-in file in order.
 `exec_start.files` binds the executable **and** absolute file arguments such as
-the Node script. `process` is null only for an inactive unit. For a live unit,
+the Node script. Symlinked absolute arguments are rejected. Executable inputs
+must belong to the service user or root and must not be group/other-writable;
+unit files and the private inventory retain their service-user ownership checks.
+`process` is null only for an inactive unit. For a live unit,
 its actual cmdline must equal effective ExecStart argv, its executable digest
 must match, and MainPID must belong to the unit's cgroup. Unknown or ambiguous
 ExecStart syntax, missing units, stale loaded files or any mismatch are refused.
