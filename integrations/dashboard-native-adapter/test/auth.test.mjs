@@ -19,13 +19,12 @@ test('requires a private owned capability and preserves explicit credential prec
   const { root, file } = capability(t);
   assert.throws(() => createTerminalAuth(undefined, origin, true), /required/);
   const auth = createTerminalAuth(file, origin, true);
-  for (const headers of [{ authorization: `Bearer ${token}` }, { authorization: `Basic ${Buffer.from('ao:'+token).toString('base64')}` }, { cookie: `ao_terminal=${token}` }]) {
+  for (const headers of [{ authorization: `Bearer ${token}` }, { authorization: `Basic ${Buffer.from('ao:'+token).toString('base64')}` }]) {
     assert.equal(auth.authenticate({ headers }), true);
   }
-  for (const headers of [{}, { authorization: 'Bearer invalid' }, { authorization: 'Bearer invalid', cookie: `ao_terminal=${token}` }, { cookie: `ao_terminal=${token}; ao_terminal=${token}` }, { authorization: `Basic ${Buffer.from('other:'+token).toString('base64')}` }]) {
+  for (const headers of [{}, { authorization: 'Bearer invalid' }, { authorization: 'Bearer invalid', cookie: `ao_terminal=${token}` }, { cookie: `ao_terminal=${token}` }, { authorization: `Basic ${Buffer.from('other:'+token).toString('base64')}` }]) {
     assert.equal(auth.authenticate({ headers }), false);
   }
-  assert.match(auth.cookie, /HttpOnly; SameSite=Strict/);
   assert.equal(auth.originAllowed({ headers: { origin } }), true);
   assert.equal(auth.originAllowed({ headers: { origin: 'http://invalid.example' } }), false);
   fs.chmodSync(file, 0o644); assert.throws(() => createTerminalAuth(file, origin), /Unsafe/); fs.chmodSync(file, 0o600);
@@ -74,14 +73,14 @@ test('managed adapter denies missing/invalid credentials and original bad Origin
   const base = `http://127.0.0.1:${adapterPort}`;
   assert.equal((await fetch(base)).status, 401);
   const login = await fetch(base, { headers: { authorization: 'Basic '+Buffer.from('ao:'+token).toString('base64') } });
-  assert.equal(login.status, 200); assert.match(login.headers.get('set-cookie'), /HttpOnly; SameSite=Strict/);
-  assert.equal((await fetch(base, { headers: { cookie: `ao_terminal=${token}` } })).status, 200);
+  assert.equal(login.status, 200); assert.equal(login.headers.get('set-cookie'), null);
+  assert.equal((await fetch(base, { headers: { cookie: `ao_terminal=${token}` } })).status, 401);
   assert.equal((await upgrade(adapterPort, { origin })).status, 401);
   assert.equal((await upgrade(adapterPort, { origin, authorization: 'Bearer invalid' })).status, 401);
   assert.equal((await upgrade(adapterPort, { origin: 'http://invalid.example', authorization: `Bearer ${token}` })).status, 403);
   assert.equal(upgrades, 0);
   const valid = await upgrade(adapterPort, { origin, authorization: `Bearer ${token}` });
   assert.equal(valid.status, 101); assert.match(valid.bytes, /canary:1/);
-  assert.equal((await upgrade(adapterPort, { origin, cookie: `ao_terminal=${token}` })).status, 101);
+  assert.equal((await upgrade(adapterPort, { origin, authorization: 'Basic '+Buffer.from('ao:'+token).toString('base64') })).status, 101);
   assert.equal(upgrades, 2);
 });

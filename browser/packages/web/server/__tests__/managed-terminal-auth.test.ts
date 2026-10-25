@@ -32,12 +32,13 @@ describe("direct managed terminal cannot bypass adapter authentication", () => {
   it("rejects absent and incorrect credentials before upgrading", async () => {
     expect(await admission({})).toBe(401);
     expect(await admission({ Authorization: "Bearer invalid" })).toBe(401);
+    expect(await admission({ Cookie: `ao_terminal=${token}` })).toBe(401);
   });
   it("rejects an original foreign Origin even with the correct capability", async () => {
     expect(await admission({ Authorization: `Bearer ${token}` }, "http://invalid.example")).toBe(403);
   });
-  it("admits valid Bearer and authenticated-browser cookies (not PTY restoration proof)", async () => {
+  it("admits valid Bearer and browser HTTP Basic (not PTY restoration proof)", async () => {
     expect(await admission({ Authorization: `Bearer ${token}` })).toBe(101);
-    expect(await admission({ Cookie: `ao_terminal=${token}` })).toBe(101);
+    expect(await admission({ Authorization: `Basic ${Buffer.from("ao:"+token).toString("base64")}` })).toBe(101);
   });
 });

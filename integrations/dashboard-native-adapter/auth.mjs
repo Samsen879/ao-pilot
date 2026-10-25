@@ -3,8 +3,8 @@ import path from 'node:path';
 import { timingSafeEqual } from 'node:crypto';
 
 // The managed release supplies one private capability to both terminal entry
-// points. HTTP Basic lets an ordinary browser obtain an HttpOnly cookie; API
-// clients use Bearer. No unauthenticated route issues the capability.
+// points. Browsers use their origin-scoped HTTP Basic cache; API clients use
+// Bearer. Never put a terminal capability in cookies shared across host ports.
 function readPrivate(file) {
   if (!path.isAbsolute(file)) throw new Error('Invalid terminal token file');
   const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
@@ -46,10 +46,7 @@ export function createTerminalAuth(file, origin, required = false) {
         const credentials = value.toString('utf8');
         return credentials.startsWith('ao:') && equal(credentials.slice(3));
       }
-      const cookies = (request.headers.cookie ?? '').split(';').map((value) => value.trim()).filter((value) => value.startsWith('ao_terminal='));
-      if (cookies.length !== 1) return false;
-      try { return equal(decodeURIComponent(cookies[0].slice('ao_terminal='.length))); } catch { return false; }
+      return false;
     },
-    cookie: `ao_terminal=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict${url.protocol === 'https:' ? '; Secure' : ''}`,
   };
 }

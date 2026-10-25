@@ -9,7 +9,7 @@ import { execFileSync } from "node:child_process";
 import { isAbsolute } from "node:path";
 
 /** Managed release clients must never fall back to the default tmux server. */
-export function tmuxArgs(args: string[], env: NodeJS.ProcessEnv = process.env): string[] {
+export function tmuxArgs(args: string[], env: Record<string, string | undefined> = process.env): string[] {
   if (!env.AO_RELEASE_ID && !env.AO_TMUX_SOCKET && !env.AO_TMUX_TMPDIR && !env.AO_TMUX_UNIT) return args;
   const socket = env.AO_TMUX_SOCKET;
   const temp = env.AO_TMUX_TMPDIR;

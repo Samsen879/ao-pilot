@@ -130,7 +130,6 @@ const server = http.createServer(async (req,res) => {
       res.setHeader('WWW-Authenticate','Basic realm="AO Pilot", charset="UTF-8"');
       return json(res,401,{error:'Authentication required'});
     }
-    if (req.headers.authorization) res.setHeader('Set-Cookie',auth.cookie);
   }
   const url = new URL(req.url || '/',`http://${dashboardHost}:${port}`);
   if (url.pathname.startsWith('/api/') && req.method !== 'GET') return json(res,403,{error:'Dashboard is read-only'});

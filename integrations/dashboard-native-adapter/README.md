@@ -140,12 +140,11 @@ before WebSocket upgrade, and the original browser Origin is checked before
 proxy rewriting. The direct terminal port enforces the same capability.
 
 Programs use `Authorization: Bearer`. Browsers authenticate with HTTP Basic
-(username `ao`, password equal to the private capability), after which an
-HttpOnly, SameSite=Strict cookie authenticates terminal upgrades. Credentials
-are never issued to unauthenticated requests or placed in URLs. Keep the
+(username `ao`, password equal to the private capability); the browser's
+origin-scoped HTTP auth cache authenticates terminal upgrades. Capabilities
+are never issued to unauthenticated requests, placed in cookies or URLs. Keep the
 capability persistent across upgrades and cold boots; never publish its bytes.
 
 Standalone unmanaged use retains its existing configuration behavior. This does
 not certify an unmanaged deployment as authenticated. A managed release cannot
 disable authentication by omitting its required token file.
-

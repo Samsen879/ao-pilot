@@ -215,10 +215,11 @@ allowed. Managed adapter and direct terminal reject missing/incorrect credential
 before WebSocket upgrade and reject a foreign original Origin before proxying.
 
 CLI probes use `Authorization: Bearer`. An ordinary browser authenticates to
-the adapter using HTTP Basic, username `ao`, with the capability as its password;
-only an authenticated HTTP request obtains the HttpOnly, SameSite=Strict terminal
-cookie. No unauthenticated endpoint returns a token. Do not publish credentials,
-include them in URLs, or pass them in process arguments.
+the adapter using HTTP Basic, username `ao`, with the capability as its password.
+Its origin-scoped HTTP authentication cache also authenticates WebSocket
+upgrades. Terminal capabilities are never placed in cookies (which are shared
+across localhost ports), URLs or unauthenticated responses. Do not publish
+credentials or pass them in process arguments.
 
 Managed browser tmux clients use the configured named socket and `-N`, including
 PTY attach. They cannot implicitly start a default server. The terminal URL uses
