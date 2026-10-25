@@ -130,8 +130,20 @@ func copyRecoveryTree(source, target string, skipGit bool) error {
 			if e != nil {
 				return e
 			}
-			if _, e = os.Lstat(out); e == nil {
-				return fmt.Errorf("recovery overlay symlink collision %q", rel)
+			if old, e := os.Lstat(out); e == nil {
+				if old.Mode()&os.ModeSymlink != 0 {
+					if target, err := os.Readlink(out); err == nil && target == v {
+						return nil
+					}
+				} else if !old.Mode().IsRegular() {
+					return fmt.Errorf("recovery overlay symlink collision %q", rel)
+				}
+				// The target is the owned replacement, never the retained source.
+				if err := os.Remove(out); err != nil {
+					return err
+				}
+			} else if !os.IsNotExist(e) {
+				return e
 			}
 			return os.Symlink(v, out)
 		case st.Mode().IsRegular():
@@ -362,10 +374,8 @@ func (w *Workspace) RollbackRestore(ctx context.Context, info ports.WorkspaceInf
 	if os.IsNotExist(e) {
 		current, ce := recoveryInventory(info.Path)
 		if ce == nil && exactRecoveryFiles(r.Files, current) {
-			if r.GitBackup != "" {
-				if _, e := os.Lstat(r.GitBackup); e == nil {
-					return fmt.Errorf("original directory restored; registration recovery still pending")
-				}
+			if err := resumeRecoveryMetadata(r); err != nil {
+				return err
 			}
 			r.Phase = "rolled_back"
 			return writeRecovery(*r)
@@ -396,10 +406,7 @@ func (w *Workspace) RollbackRestore(ctx context.Context, info ports.WorkspaceInf
 		return e
 	}
 	if r.Mode == "copy" {
-		if e = os.Rename(r.GitDir, r.Backup+suffix+".git-metadata"); e != nil {
-			return e
-		}
-		if e = os.Rename(r.GitBackup, r.GitDir); e != nil {
+		if e = resumeRecoveryMetadata(r); e != nil {
 			return e
 		}
 	} else {
@@ -429,6 +436,11 @@ func (w *Workspace) VerifyRestore(ctx context.Context, info ports.WorkspaceInfo)
 		return e
 	}
 	if r == nil {
+		for _, backup := range []string{info.Path + ".ao-recovery-backup", info.Path + ".ao-recovery-backup.git-metadata"} {
+			if _, err := os.Lstat(backup); !os.IsNotExist(err) {
+				return fmt.Errorf("unowned recovery backup; retained")
+			}
+		}
 		files, e := recoveryInventory(info.Path)
 		if e != nil {
 			return e
@@ -506,7 +518,47 @@ func (w *Workspace) CommitRestore(ctx context.Context, info ports.WorkspaceInfo)
 
 // Replay path set and final tree are read from the bound commit, never output
 // text. A working tree already containing that snapshot needs no cherry-pick.
-func (w *Workspace) replayPaths(ctx context.Context, path, commit string) ([]string, map[string]string, error) {
+
+// Complete only metadata whose original bytes are bound by this receipt. This
+// also resumes crashes between moving the original directory and its index.
+func resumeRecoveryMetadata(r *recoveryRecord) error {
+	if r.Mode != "copy" || r.GitBackup == "" {
+		return nil
+	}
+	backup, err := recoveryInventory(r.GitBackup)
+	if os.IsNotExist(err) {
+		current, e := recoveryInventory(r.GitDir)
+		if e == nil && exactRecoveryFiles(r.GitFiles, current) {
+			return nil
+		}
+		return fmt.Errorf("original Git metadata unavailable; HOLD")
+	}
+	if err != nil || !exactRecoveryFiles(r.GitFiles, backup) {
+		return fmt.Errorf("Git metadata backup differs; HOLD: %w", err)
+	}
+	if st, e := os.Lstat(r.GitDir); e == nil {
+		if !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("Git registration ownership changed; HOLD")
+		}
+		if e = os.Rename(r.GitDir, r.Backup+".ao-failed-"+newWorktreeCreateToken()+".git-metadata"); e != nil {
+			return e
+		}
+	} else if !os.IsNotExist(e) {
+		return e
+	}
+	if err := os.Rename(r.GitBackup, r.GitDir); err != nil {
+		return err
+	}
+	current, err := recoveryInventory(r.GitDir)
+	if err != nil || !exactRecoveryFiles(r.GitFiles, current) {
+		return fmt.Errorf("restored Git metadata differs: %w", err)
+	}
+	return nil
+}
+
+type replayEntry struct{ Mode, Blob string }
+
+func (w *Workspace) replayPaths(ctx context.Context, path, commit string) ([]string, map[string]replayEntry, error) {
 	out, e := w.run(ctx, w.binary, "-C", path, "diff-tree", "--root", "--no-commit-id", "--no-renames", "--name-only", "-r", "-z", commit)
 	if e != nil {
 		return nil, nil, e
@@ -519,7 +571,7 @@ func (w *Workspace) replayPaths(ctx context.Context, path, commit string) ([]str
 	if e != nil {
 		return nil, nil, e
 	}
-	tree := map[string]string{}
+	tree := map[string]replayEntry{}
 	for _, entry := range strings.Split(string(out), "\x00") {
 		if entry == "" {
 			continue
@@ -529,11 +581,11 @@ func (w *Workspace) replayPaths(ctx context.Context, path, commit string) ([]str
 		if !ok || len(fields) != 3 {
 			return nil, nil, fmt.Errorf("malformed replay tree")
 		}
-		tree[name] = fields[2]
+		tree[name] = replayEntry{Mode: fields[0], Blob: fields[2]}
 	}
 	return names, tree, nil
 }
-func (w *Workspace) replaySnapshotPresent(ctx context.Context, path string, names []string, tree map[string]string, protectCurrent bool) (bool, error) {
+func (w *Workspace) replaySnapshotPresent(ctx context.Context, path string, names []string, tree map[string]replayEntry, protectCurrent bool) (bool, error) {
 	dirty := map[string]bool{}
 	dirtyLoaded := false
 	isDirty := func(name string) (bool, error) {
@@ -617,6 +669,26 @@ func (w *Workspace) replaySnapshotPresent(ctx context.Context, path string, name
 		if e != nil {
 			return false, e
 		}
+		mode := "100644"
+		if st.Mode()&os.ModeSymlink != 0 {
+			mode = "120000"
+		} else if st.Mode().IsRegular() && st.Mode().Perm()&0111 != 0 {
+			mode = "100755"
+		}
+		if expected.Mode == "120000" && st.Mode().IsRegular() {
+			// Git's explicit core.symlinks=false represents a symlink blob as a
+			// regular file. This is the only admitted physical type translation.
+			value, err := w.run(ctx, w.binary, "-C", path, "config", "--bool", "core.symlinks")
+			if err != nil && !isGitConfigMissing(err) {
+				return false, err
+			}
+			if strings.TrimSpace(string(value)) == "false" {
+				mode = "120000"
+			}
+		}
+		if mode != expected.Mode {
+			return false, nil
+		}
 		var contents []byte
 		if st.Mode()&os.ModeSymlink != 0 {
 			v, e := os.Readlink(full)
@@ -633,7 +705,7 @@ func (w *Workspace) replaySnapshotPresent(ctx context.Context, path string, name
 			return false, nil
 		}
 		h := gitBlobHash(contents)
-		if h != expected {
+		if h != expected.Blob {
 			// Attribute filters/EOL conversion are uncommon. Preserve their exact Git
 			// semantics without spawning one Git process per ordinary file.
 			cmd := exec.CommandContext(ctx, w.binary, "-C", path, "hash-object", "--stdin", "--path="+name)
@@ -642,7 +714,7 @@ func (w *Workspace) replaySnapshotPresent(ctx context.Context, path string, name
 			if e != nil {
 				return false, e
 			}
-			if strings.TrimSpace(string(out)) != expected {
+			if strings.TrimSpace(string(out)) != expected.Blob {
 				return false, nil
 			}
 		}
@@ -677,7 +749,7 @@ func (w *Workspace) applyPreservedSafely(ctx context.Context, info ports.Workspa
 		wanted[name] = true
 	}
 	for _, change := range changes {
-		if wanted[change.Path] && change.Blob != tree[change.Path] {
+		if wanted[change.Path] && (change.Blob != tree[change.Path].Blob || change.Mode != tree[change.Path].Mode) {
 			return fmt.Errorf("%w: current WIP differs at %q; retained in place", ports.ErrPreservedConflict, change.Path)
 		}
 	}
@@ -722,6 +794,11 @@ func (w *Workspace) applyPreservedSafely(ctx context.Context, info ports.Workspa
 			continue
 		}
 		if current[name] != before {
+			if before.Kind == "directory" {
+				if _, exists := current[name]; !exists && replayRemovedDirectory(name, r.Files, wanted, tree) {
+					continue
+				}
+			}
 			return fmt.Errorf("unrelated/ignored bytes changed at %q", name)
 		}
 	}
@@ -765,4 +842,18 @@ func recoveryCommonDir(repo string) (string, error) {
 		common = filepath.Join(gd, common)
 	}
 	return filepath.Clean(common), nil
+}
+
+func replayRemovedDirectory(name string, original map[string]recoveryFile, wanted map[string]bool, tree map[string]replayEntry) bool {
+	removed := false
+	for path, before := range original {
+		if !strings.HasPrefix(path, name+"/") || before.Kind == "directory" {
+			continue
+		}
+		if _, present := tree[path]; !wanted[path] || present {
+			return false
+		}
+		removed = true
+	}
+	return removed
 }

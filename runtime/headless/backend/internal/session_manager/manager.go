@@ -1382,7 +1382,7 @@ func (m *Manager) RestoreWithMode(ctx context.Context, id domain.SessionID) (Res
 	}
 	ws, projectRows, err := m.restoreSessionWorkspace(ctx, project, rec, markerRows)
 	if err != nil {
-		return RestoreResult{}, m.recoveryFailure(ctx, rec, markerRows, workspaceInfo(rec), nil, err)
+		return RestoreResult{}, m.recoveryFailure(ctx, rec, markerRows, workspaceInfo(rec), projectRows, err)
 	}
 	keepPreserved := m.applySessionPreserved(ctx, rec, ws, projectRows, markerRows, "restore")
 	if keepPreserved {
@@ -1636,13 +1636,10 @@ func (m *Manager) SaveAndTeardownAll(ctx context.Context) error {
 	return nil
 }
 
-// saveAndTeardownOne runs the capture-then-destroy sequence for a single
-// session. The DB write (UpsertSessionWorktree) is committed before
-// ForceDestroy; if either capture or the DB write fails, ForceDestroy is
-// not called.
+// saveAndTeardownOne captures WIP and marks a session terminated, retaining all
+// physical files for in-place restore. Runtime teardown follows the durable marker.
 func (m *Manager) saveAndTeardownOne(ctx context.Context, rec domain.SessionRecord, destroyRuntime bool) error {
-	// Gate shut this session's scoped shell terminals before either branch
-	// below force-removes its worktree. Both SaveAndTeardownAll and
+	// Gate shut this session's scoped shell terminals before capturing work. Both SaveAndTeardownAll and
 	// reconcileLive only reach here for a session with a real workspace, so
 	// there is always a worktree to protect.
 	release, closeErr := m.beginShellTerminalTeardown(ctx, rec.ID)
@@ -1668,7 +1665,7 @@ func (m *Manager) saveAndTeardownOne(ctx context.Context, rec domain.SessionReco
 
 	// 2. Write the shutdown-saved marker to the DB. The row's presence (even
 	// with an empty preserved_ref) is what RestoreAll uses to identify sessions
-	// saved by this run. This MUST be committed before ForceDestroy.
+	// saved by this run. This MUST be committed before runtime teardown.
 	row := domain.SessionWorktreeRecord{
 		SessionID:    rec.ID,
 		RepoName:     domain.RootWorkspaceRepoName,
@@ -1708,8 +1705,8 @@ func (m *Manager) saveAndTeardownOne(ctx context.Context, rec domain.SessionReco
 // crash) we adopt it: a no-op, the agent keeps running. If the runtime is gone,
 // the agent died with the daemon, so we save-and-tear-down to the SAME end state
 // a graceful shutdown produces: capture uncommitted work into a preserve ref,
-// record the session_worktrees restore marker, mark terminated, and remove the
-// worktree. RestoreAll (which Reconcile runs immediately after) then relaunches
+// record the session_worktrees restore marker and mark terminated, retaining the
+// physical worktree. RestoreAll (which Reconcile runs immediately after) then relaunches
 // it on this same boot, resuming history. Crash recovery thus matches graceful
 // restart instead of silently abandoning the session.
 //
@@ -1959,7 +1956,7 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 			}
 			root, restoreErr := m.restoreWorkspaceProjectRows(ctx, projectRows)
 			if restoreErr != nil {
-				failures = append(failures, fmt.Errorf("session %s: %w", rec.ID, restoreErr))
+				failures = append(failures, m.recoveryFailure(ctx, rec, rows, workspaceInfo(rec), projectRows, restoreErr))
 				m.logger.Error("restore-all: workspace project restore failed", "sessionID", rec.ID, "error", restoreErr)
 				continue
 			}
@@ -1976,7 +1973,7 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 				SparseCheckout: append([]string(nil), project.Config.SparseCheckout...),
 			})
 			if restoreErr != nil {
-				failures = append(failures, fmt.Errorf("session %s: %w", rec.ID, restoreErr))
+				failures = append(failures, m.recoveryFailure(ctx, rec, rows, workspaceInfo(rec), nil, restoreErr))
 				m.logger.Error("restore-all: workspace restore failed", "sessionID", rec.ID, "error", restoreErr)
 				continue
 			}
@@ -2164,7 +2161,7 @@ func (m *Manager) restoreSessionWorkspace(ctx context.Context, project domain.Pr
 	}
 	root, err := m.restoreWorkspaceProjectRows(ctx, rows)
 	if err != nil {
-		return ports.WorkspaceInfo{}, nil, err
+		return ports.WorkspaceInfo{}, rows, err
 	}
 	return workspaceInfoFromRepoInfo(root), rows, nil
 }
@@ -2421,7 +2418,7 @@ func (m *Manager) applySessionPreserved(ctx context.Context, rec domain.SessionR
 				attrs = append(attrs, "repo", repoName)
 			}
 			if errors.Is(applyErr, ports.ErrPreservedConflict) {
-				m.logger.Warn(operation+": apply preserved produced conflicts; agent relaunched with conflict markers in place", attrs...)
+				m.logger.Warn(operation+": apply preserved produced conflicts; original workspace retained, recovery HOLD", attrs...)
 			} else {
 				m.logger.Error(operation+": apply preserved failed", attrs...)
 			}
