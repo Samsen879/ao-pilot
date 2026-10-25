@@ -536,29 +536,28 @@ func (r *Runtime) paneSessionIDs(ctx context.Context, id string) []int {
 	return ids
 }
 
-// IsAlive reports whether the handle's session still exists via `tmux
-// has-session`. Exit 0 means alive. A non-zero exit with output indicating the
-// session or server is missing is a definitive false, nil. Any other non-zero
-// exit is a probe error (not proof of death) so callers (the reaper feeding
-// the LCM) treat it as a failed probe and never kill a session on a transient
-// error.
+// IsAlive reads the complete session-name set from the verified server.
+// Unlike has-session, list-sessions succeeds on a running empty -D server.
+// Only successful enumeration proves a missing session; command errors remain
+// inconclusive so the reaper never treats a failed probe as proof of death.
 func (r *Runtime) IsAlive(ctx context.Context, handle ports.RuntimeHandle) (bool, error) {
 	id, err := handleID(handle)
 	if err != nil {
 		return false, err
 	}
-	out, err := r.run(ctx, hasSessionArgs(id)...)
+	out, err := r.run(ctx, "list-sessions", "-F", "#{session_name}")
 	if err != nil {
 		if errors.Is(err, ErrServerAbsent) {
 			return false, nil
 		}
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && sessionMissingOutput(string(out)) {
-			return false, nil
-		}
 		return false, fmt.Errorf("tmux runtime: probe session %s: %w", id, err)
 	}
-	return true, nil
+	for _, name := range strings.Split(string(out), "\n") {
+		if name == id {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // IsSupervisedProcessAlive reports whether the managed workload for ref is
@@ -791,7 +790,7 @@ func (r *Runtime) run(ctx context.Context, args ...string) ([]byte, error) {
 		return nil, fmt.Errorf("tmux command required")
 	}
 	starts := args[0] == "new-session" || args[0] == "respawn-pane"
-	readonly := args[0] == "has-session" || args[0] == "capture-pane" || args[0] == "list-panes" || args[0] == "display-message"
+	readonly := args[0] == "has-session" || args[0] == "list-sessions" || args[0] == "capture-pane" || args[0] == "list-panes" || args[0] == "display-message"
 	if err := r.checkServer(ctx, starts, readonly); err != nil {
 		return nil, err
 	}
