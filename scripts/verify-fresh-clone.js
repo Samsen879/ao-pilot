@@ -116,7 +116,7 @@ function findExecutable(name, env = process.env) {
   fail('fresh_clone_tool_missing', `Required host tool is unavailable: ${name}`);
 }
 
-function createSafeToolPath(root, env = process.env) {
+function createSafeToolPath(root, env = process.env, managed = false) {
   const directory = path.join(root, 'safe-bin');
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const tools = {
@@ -129,6 +129,7 @@ function createSafeToolPath(root, env = process.env) {
     dirname: findExecutable('dirname', env),
     sh: findExecutable('sh', env),
     flock: findExecutable('flock', env),
+    ...(managed ? { tmux: findExecutable('tmux', env), systemctl: findExecutable('systemctl', env) } : {}),
   };
   for (const [name, target] of Object.entries(tools)) {
     fs.symlinkSync(target, path.join(directory, name));
@@ -378,7 +379,7 @@ export async function verifyFreshClone(options, {
   let node;
   let cli;
   try {
-    const safe = createSafeToolPath(root, inheritedEnv);
+    const safe = createSafeToolPath(root, inheritedEnv, Boolean(options.tarball));
     env = isolatedEnvironment(root, safe.directory, cacheRoot, inheritedEnv);
     node = commandPath(safe.tools, 'node');
     const git = commandPath(safe.tools, 'git');
