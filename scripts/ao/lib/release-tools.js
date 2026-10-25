@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { releaseError } from './release-manifest.js';
-export const INSTALL_TOOLS = Object.freeze(['node', 'flock', 'systemctl', 'sqlite3', 'loginctl', 'ss', 'tmux', 'git']);
+export const INSTALL_TOOLS = Object.freeze(['node', 'flock', 'systemctl', 'sqlite3', 'loginctl', 'ss', 'tmux', 'git', 'ps', 'pgrep', 'pkill', 'sh', 'bash', 'env']);
 export function executableOnPath(name, env = process.env) {
   for (const directory of (env.PATH ?? '').split(path.delimiter).filter(Boolean)) {
     const file = path.join(directory, name);

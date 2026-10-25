@@ -67,7 +67,7 @@ def main(argv=None):
     assert sha(bundle / 'release-envelope.json') == build['envelope_sha256']
     manifest = verify_payload(bundle, build)
     tools = plan['tools']
-    missing = [name for name in ['node', 'flock', 'systemctl', 'sqlite3', 'loginctl', 'ss', 'tmux', 'git', 'python3', 'bwrap']
+    missing = [name for name in ['node', 'flock', 'systemctl', 'sqlite3', 'loginctl', 'ss', 'tmux', 'git', 'ps', 'pgrep', 'pkill', 'sh', 'bash', 'env', 'python3', 'bwrap']
                if name not in tools or not Path(tools[name]).is_absolute() or not os.access(tools[name], os.X_OK)]
     if missing:
         print(json.dumps({'status': 'failed', 'code': 'install_required_tools_missing', 'missing': missing, 'production_mutated': False}))

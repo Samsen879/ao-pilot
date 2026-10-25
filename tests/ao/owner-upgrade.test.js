@@ -18,7 +18,7 @@ function fixture() {
   fs.writeFileSync(bwrap, '#!/bin/sh\nprintf \'{"status":"passed","path":"%s","node_options":"%s","argv":"%s"}\\n\' "$PATH" "${NODE_OPTIONS-}" "$*"\n', { mode: 0o755 });
   const apply = path.join(local, 'owner-apply.py'), marker = path.join(root, 'applied');
   fs.writeFileSync(apply, `from pathlib import Path\nPath(${JSON.stringify(marker)}).write_text('owner only')\n`);
-  const tools = Object.fromEntries(['flock', 'systemctl', 'sqlite3', 'loginctl', 'ss', 'tmux', 'git'].map(name => [name, '/bin/true']));
+  const tools = Object.fromEntries(['flock', 'systemctl', 'sqlite3', 'loginctl', 'ss', 'tmux', 'git', 'ps', 'pgrep', 'pkill', 'sh', 'bash', 'env'].map(name => [name, '/bin/true']));
   Object.assign(tools, { node: process.execPath, python3: '/usr/bin/python3', bwrap });
   durableJson(path.join(local, 'owner-environment.json'), { release_id: bundle.manifest.release_id, home: root, user: 'fixture', PATH: '/fixed-owner-path', tools, apply_script_sha256: fileSha256(apply) });
   return { root, marker, apply };

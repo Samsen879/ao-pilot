@@ -226,7 +226,8 @@ configuration's socket. Staging must model `default` with a private
 
 Before creating the install root or acquiring its lock, the real runner checks
 all required host commands: node, flock, systemctl, sqlite3, loginctl, ss, tmux
-and git. It reports every missing name and pins resolved absolute paths. Native
+and git, plus the process/shell tools used by recovery (ps, pgrep, pkill, sh,
+bash and env). It reports every missing name and pins resolved absolute paths. Native
 doctor/selected-agent tools retain their existing diagnostics; optional harness
 warnings are not silently promoted to PASS. Baseline exceptions retain their
 command-specific causes in private CLI diagnostics. Public receipts keep the
