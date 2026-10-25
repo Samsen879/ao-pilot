@@ -13,6 +13,35 @@ function fixture() { const root = fixtureRoot(); roots.push(root); return { root
 const apply = (bundle, config, runner, extra = {}) => applyRelease({ bundle: bundle.bundle, expectedEnvelopeSha256: bundle.envelopeSha, configuration: config, runner, ...extra });
 
 describe('unified release transaction on real temporary filesystem with fake services', () => {
+  it.each(['current', 'journal', 'dangling_current'])('refuses explicit legacy adoption with an existing %s before service calls', async (kind) => {
+    const { root, config } = fixture(); const bundle = createBundle(root); const runner = fakeRunner(root);
+    fs.mkdirSync(config.installRoot);
+    if (kind === 'journal') durableJson(path.join(config.installRoot, 'install-journal.json'), { phase: 'committed' });
+    else fs.symlinkSync(kind === 'current' ? bundle.payload : '/missing-target', path.join(config.installRoot, 'current'));
+    await expect(apply(bundle, config, runner, { mode: 'first', adoptLegacy: true })).rejects.toMatchObject({ code: 'install_legacy_adoption_not_first' });
+    expect(runner.calls).toEqual([]);
+  });
+  it('journals adoption at preflight and rechecks it before the first service mutation', async () => {
+    const { root, config } = fixture(); const bundle = createBundle(root); const runner = fakeRunner(root);
+    const evidence = { inventory_sha256: 'a'.repeat(64), units: ['exact captured legacy fixture'] };
+    const preflight = runner.preflight; runner.preflight = async (args) => ({ ...await preflight(args), legacy_adoption: evidence });
+    runner.checkLegacy = async ({ evidence: actual }) => {
+      expect(actual).toEqual(evidence);
+      const journal = readJson(path.join(config.installRoot, 'install-journal.json'));
+      expect(journal.legacy_adoption).toEqual(evidence); expect(journal.service_mutation_started).not.toBe(true);
+      runner.calls.push('legacy_recheck');
+    };
+    const stop = runner.stop; runner.stop = async (args) => { expect(args.legacyAdoption).toEqual(evidence); await stop(args); };
+    expect(await apply(bundle, config, runner, { mode: 'first', adoptLegacy: true })).toMatchObject({ result: 'passed' });
+    expect(runner.calls.indexOf('legacy_recheck')).toBeLessThan(runner.calls.indexOf('stop'));
+  });
+  it('refuses adoption evidence drift between preflight and switch without stopping any component', async () => {
+    const { root, config } = fixture(); const bundle = createBundle(root); const runner = fakeRunner(root);
+    const preflight = runner.preflight; runner.preflight = async (args) => ({ ...await preflight(args), legacy_adoption: { inventory_sha256: 'a'.repeat(64), units: [] } });
+    runner.checkLegacy = async () => { throw Object.assign(Error('changed evidence'), { code: 'install_legacy_adoption_mismatch' }); };
+    await expect(apply(bundle, config, runner, { mode: 'first', adoptLegacy: true })).rejects.toMatchObject({ code: 'install_legacy_adoption_mismatch' });
+    expect(runner.calls).not.toContain('stop'); expect(readReleasePointer(config.installRoot, 'current')).toBeNull();
+  });
   it('creates private staging HOME/XDG directories and binds them in the generated environment', async () => {
     const { root, config } = fixture(); const bundle = createBundle(root);
     await apply(bundle, config, fakeRunner(root));

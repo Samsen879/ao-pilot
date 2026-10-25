@@ -21,11 +21,11 @@ export async function runCli(argv, io = { writeStdout: (text) => process.stdout.
   apply = applyRelease, runner = null, configLoader = loadInstallConfiguration, env = process.env,
 } = {}) {
   if (argv.includes('--help') || argv.length === 0) {
-    io.writeStdout('Usage: ao-pilot upgrade apply --release <id> [--install-config <file>] [--resume] [--allow-database-restore]\n       ao-pilot upgrade inspect [--install-config <file>]\n');
+    io.writeStdout('Usage: ao-pilot upgrade apply --release <id> [--install-config <file>] [--adopt-legacy] [--resume] [--allow-database-restore]\n       ao-pilot upgrade inspect [--install-config <file>]\n');
     return { exitCode: 0 };
   }
   let operation; let releaseId; let file = env.AO_INSTALL_CONFIG ?? path.join(os.homedir(), '.config/ao-pilot/install.json');
-  let resume = false; let restore = false;
+  let resume = false; let restore = false; let adoptLegacy = false;
   try {
     [operation] = argv;
     for (let i = 1; i < argv.length; i += 1) {
@@ -34,10 +34,12 @@ export async function runCli(argv, io = { writeStdout: (text) => process.stdout.
       else if (option === '--install-config') file = argv[++i];
       else if (option === '--resume') resume = true;
       else if (option === '--allow-database-restore') restore = true;
+      else if (option === '--adopt-legacy') adoptLegacy = true;
       else throw Object.assign(new Error('Invalid upgrade argument'), { code: 'invalid_upgrade_argument' });
     }
     const configuration = { ...configLoader(file), installConfigPath: path.resolve(file) };
     if (operation === 'inspect') {
+      assertRelease(!adoptLegacy, 'invalid_upgrade_argument');
       const root = fs.realpathSync(path.join(configuration.installRoot, 'current'));
       const service = runner ?? createSystemdReleaseRunner(configuration);
       const observation = await service.observe({ releaseRoot: root });
@@ -50,7 +52,7 @@ export async function runCli(argv, io = { writeStdout: (text) => process.stdout.
     const entry = configuration.releaseCatalog?.[releaseId];
     assertRelease(entry && path.isAbsolute(entry.bundle), 'release_not_registered');
     const receipt = await apply({ bundle: entry.bundle, expectedEnvelopeSha256: entry.envelope_sha256,
-      configuration, runner, mode: configuration.mode ?? 'daily', resume, allowDatabaseRestore: restore });
+      configuration, runner, mode: configuration.mode ?? 'daily', resume, allowDatabaseRestore: restore, adoptLegacy });
     io.writeStdout(`${JSON.stringify(receipt, null, 2)}\n`);
     return { exitCode: 0, receipt };
   } catch (error) {

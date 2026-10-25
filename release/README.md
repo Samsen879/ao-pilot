@@ -126,3 +126,73 @@ two exact old artifacts above passed migration 43→44 and old-reader checks.
 This corrects the schema harness contract; complete release construction,
 staging, recovery/write behavior and production acceptance retain their
 separate gates and historical FAIL/NOT_RUN qualifications.
+
+## First migration from a legacy installation
+
+`upgrade apply --release <id> --adopt-legacy` is an explicit first-migration
+option, requiring `mode: "first"` and an install root with neither `current`
+(including a dangling symlink) nor `install-journal.json`. It is rejected for
+an existing installation, even if its journal is committed or rolled back.
+Later upgrades retain the strict `AO_DATA_DIR` / `AO_RUN_FILE` ownership check.
+Do not add environment variables to running legacy services to bypass that check.
+
+The private install configuration must specify `legacyInventoryPath` and its
+independently recorded byte SHA256 as `legacyInventorySha256`. This owner-only,
+single-link regular JSON file is the L1 step-6 inventory in the following format:
+
+```json
+{
+  "schema_version": "ao.legacy-adoption-inventory.v1",
+  "namespace": "ao-pilot",
+  "units": [
+    {
+      "unit": "ao-pilot-runtime.service",
+      "exec_start": {
+        "path": "/example/legacy/ao",
+        "argv": ["/example/legacy/ao", "daemon"],
+        "files": [{"path": "/example/legacy/ao", "sha256": "<exact SHA256>"}]
+      },
+      "unit_files": [{"path": "/example/units/ao-pilot-runtime.service", "sha256": "<exact SHA256>"}],
+      "process": {
+        "pid": 123,
+        "start_token": "<recorded process start token>",
+        "cmdline": ["/example/legacy/ao", "daemon"],
+        "executable": "/example/legacy/ao",
+        "executable_sha256": "<exact SHA256>"
+      }
+    }
+  ]
+}
+```
+
+The example is incomplete and deliberately invalid as an input. Supply exactly
+four records, ordered runtime, dashboard, dashboard-adapter, session-recovery.
+Each includes the effective unit and every loaded drop-in file in order.
+`exec_start.files` binds the executable **and** absolute file arguments such as
+the Node script. `process` is null only for an inactive unit. For a live unit,
+its actual cmdline must equal effective ExecStart argv, its executable digest
+must match, and MainPID must belong to the unit's cgroup. Unknown or ambiguous
+ExecStart syntax, missing units, stale loaded files or any mismatch are refused.
+
+Record this inventory during the read-only L1 capture. Do not replace expected
+values with current observations to make a mismatch pass. For staging, preserve
+the explicit production-to-staging path/namespace mapping and independently
+verified copied-file hashes alongside the projected inventory. No private
+inventory, path, PID or cmdline belongs in a public PR receipt.
+
+Preflight independently samples all four units and compares every field with
+that inventory. The captured evidence and inventory SHA256 enter the private
+journal before switch. Immediately before any legacy stop, the runner samples
+again and requires equality. The ordinary release/environment checks for new
+services and all verify/readback checks remain mandatory.
+
+An interrupted first transaction retains its recorded adoption evidence; an
+ordinary `--resume` uses it without enabling `--adopt-legacy` a second time.
+Only a durably completed stop permits the recorded fully stopped state, with
+unchanged unit files, ExecStart and digests. A new adoption request cannot reuse
+an existing journal.
+
+Custody backups and restores explicitly reproduce source directory/file modes
+after copying. Node `fs.cpSync` creates new directories according to the caller's
+umask; with umask 022, a source 0700 directory otherwise becomes 0755. The full
+inventory equality check, including permission modes, remains in force.

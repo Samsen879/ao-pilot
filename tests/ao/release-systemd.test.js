@@ -74,6 +74,21 @@ it('upgrade CLI connects registered envelope input to real apply API and emits o
 it('a missing ownership lock is unknown rather than proof of daemon exit', () => {
   const { root } = fixture(); expect(probeExclusiveLock(path.join(root, 'missing'), { expectHeld: false })).toBeNull();
 });
+it('keeps the existing strict environment check for every non-adoption stop', async () => {
+  const { config } = fixture(); const commands = [];
+  const runner = createSystemdReleaseRunner(config, { run: (command, args) => { commands.push([command, args]); return String(process.pid); } });
+  await expect(runner.stop()).rejects.toMatchObject({ code: 'install_service_namespace_mismatch' });
+  expect(commands.some(([, args]) => args.includes('stop'))).toBe(false);
+});
+it('requires the explicit CLI adoption option and forwards it only to apply', async () => {
+  const { root, config } = fixture(); const id = `1.0.0+${'a'.repeat(40)}`;
+  config.releaseCatalog = { [id]: { bundle: path.join(root, 'bundle'), envelope_sha256: 'a'.repeat(64) } };
+  let supplied; const io = { writeStdout() {}, writeStderr() {} };
+  const options = { configLoader: () => config, apply: async (args) => { supplied = args; return { result: 'passed' }; } };
+  expect((await runCli(['apply', '--release', id, '--adopt-legacy'], io, options)).exitCode).toBe(0);
+  expect(supplied.adoptLegacy).toBe(true);
+  expect((await runCli(['inspect', '--adopt-legacy'], io, options)).exitCode).toBe(2);
+});
 
 it('uses the real readyz DTO and never accepts CLI state or contradictory readiness', async () => {
   const { config } = fixture();

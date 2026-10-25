@@ -8,6 +8,26 @@ import { assertRelease, fileSha256, inventoryTree, objectSha256, readJson, syncT
 import { processStartToken } from './release-lock.js';
 import { isStrictReadyz } from './install-doctor.js';
 import { RELEASE_SERVICES, renderReleaseUnits, validateEnvironmentOverride, stagingHomeEnvironment } from './release-units.js';
+import { collectLegacyAdoption, assertLegacyAdoption } from './release-legacy-adoption.js';
+
+export function copyCustodyTree(source, target) {
+  const stat = fs.lstatSync(source);
+  assertRelease(stat.isDirectory() && !stat.isSymbolicLink(), 'install_database_backup_invalid');
+  const before = inventoryTree(source, { exclude: [] });
+  fs.mkdirSync(target, { recursive: true, mode: stat.mode & 0o777 });
+  assertRelease(fs.lstatSync(target).isDirectory() && !fs.lstatSync(target).isSymbolicLink(), 'install_database_backup_invalid');
+  fs.cpSync(source, target, { recursive: true, verbatimSymlinks: true });
+  // cpSync creates directories with the caller's umask, not the source mode.
+  // Retain every recorded permission instead of omitting mode from the digest.
+  for (const entry of before) {
+    if (entry.type === 'symlink') continue;
+    const file = path.join(target, entry.path); const copied = fs.lstatSync(file);
+    assertRelease(!copied.isSymbolicLink() && (entry.type === 'directory' ? copied.isDirectory() : copied.isFile()), 'install_database_backup_invalid');
+    fs.chmodSync(file, entry.mode);
+  }
+  fs.chmodSync(target, stat.mode & 0o777);
+  assertRelease(objectSha256(inventoryTree(target, { exclude: [] })) === objectSha256(before), 'install_database_backup_invalid');
+}
 
 export function validateInstallConfiguration(config) {
   assertRelease(config.schema_version === 'ao.install-config.v1' && process.platform === 'linux', 'invalid_install_configuration');
@@ -134,6 +154,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
   const env = { ...process.env, AO_DATA_DIR: config.dataDir, AO_RUN_FILE: path.join(config.discoveryDir, 'running.json'),
     AO_TMUX_SOCKET: config.tmuxSocket, AO_TMUX_UNIT: unitName('tmux'), AO_TMUX_TMPDIR: config.tmuxTmpdir, TMUX_TMPDIR: config.tmuxTmpdir };
   const ownershipFiles = [path.join(config.dataDir, '.daemon-owner.lock'), path.join(config.discoveryDir, '.daemon-discovery.lock')];
+  const legacyDependencies = { run, processEvidence, processUnchanged };
   async function get(relative) {
     const response = await fetchImpl(new URL(relative, config.daemonURL), { signal: AbortSignal.timeout(5000) });
     assertRelease(response.ok, 'install_observation_failed'); return response.json();
@@ -260,8 +281,9 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
   }
   return {
     configuration: config, observe,
-    async preflight({ releaseRoot, mode }) {
+    async preflight({ releaseRoot, mode, adoptLegacy = false }) {
       assertFirstRestoreConfiguration(config, mode);
+      const legacy = adoptLegacy ? collectLegacyAdoption(config, legacyDependencies) : null;
       assertRelease(typeof process.execve === 'function', 'release_node_execve_required');
       const configStat = fs.lstatSync(config.configPath);
       assertRelease(configStat.isFile() && !configStat.isSymbolicLink() && configStat.uid === process.getuid()
@@ -269,7 +291,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
       const baseline = await observe({ releaseRoot });
       assertRelease(Array.isArray(baseline.cids) && baseline.database?.integrity === 'ok' && baseline.tmux?.server_start_token && Array.isArray(baseline.native_cids) && Array.isArray(baseline.custody), 'install_baseline_unknown');
       assertFirstRestoreScope(config, mode, baseline);
-      return baseline;
+      return { ...baseline, ...(legacy ? { legacy_adoption: legacy } : {}) };
     },
     async quiescent() {
       assertRelease(ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: false }) === true), 'install_previous_locks_held');
@@ -291,20 +313,22 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
       const recovery = { exists: fs.existsSync(recoverySource), path: path.join(backupRoot, 'spawn-attempts') };
       if (recovery.exists) {
         const before = objectSha256(inventoryTree(recoverySource, { exclude: [] }));
-        fs.cpSync(recoverySource, recovery.path, { recursive: true, verbatimSymlinks: true });
+        copyCustodyTree(recoverySource, recovery.path);
         recovery.sha256 = objectSha256(inventoryTree(recovery.path, { exclude: [] }));
         assertRelease(recovery.sha256 === before, 'install_database_backup_invalid'); syncTree(recovery.path);
       }
       const backupFd = fs.openSync(backup, 'r'); try { fs.fsyncSync(backupFd); } finally { fs.closeSync(backupFd); }
       return { path: backup, sha256: fileSha256(backup), recovery, completed_at: new Date().toISOString() };
     },
-    async stop() {
+    async checkLegacy({ evidence, stopped = false }) { assertLegacyAdoption(config, evidence, legacyDependencies, { stopped }); },
+    async stop({ legacyAdoption = null, legacyStopped = false } = {}) {
+      if (legacyAdoption) assertLegacyAdoption(config, legacyAdoption, legacyDependencies, { stopped: legacyStopped });
       const owned = [];
       for (const name of ['adapter', 'session-recovery', 'dashboard', 'runtime']) {
         const raw = systemctl(['show', unitName(name), '--property=MainPID', '--value']);
         if (Number(raw) > 0) {
           const proc = processEvidence(Number(raw));
-          assertRelease(proc.environment.AO_DATA_DIR === config.dataDir && proc.environment.AO_RUN_FILE === env.AO_RUN_FILE, 'install_service_namespace_mismatch');
+          if (!legacyAdoption) assertRelease(proc.environment.AO_DATA_DIR === config.dataDir && proc.environment.AO_RUN_FILE === env.AO_RUN_FILE, 'install_service_namespace_mismatch');
           owned.push(proc);
         }
         systemctl(['stop', unitName(name)]);
@@ -353,7 +377,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
       const recoveryTarget = path.join(config.dataDir, 'spawn-attempts');
       try { assertRelease(!fs.lstatSync(recoveryTarget).isSymbolicLink(), 'install_database_backup_invalid'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
       fs.rmSync(recoveryTarget, { force: true, recursive: true });
-      if (backup.recovery.exists) fs.cpSync(backup.recovery.path, recoveryTarget, { recursive: true, verbatimSymlinks: true });
+      if (backup.recovery.exists) copyCustodyTree(backup.recovery.path, recoveryTarget);
       for (const suffix of ['-wal', '-shm']) fs.rmSync(path.join(config.dataDir, `ao.db${suffix}`), { force: true });
     },
     async pins() {
