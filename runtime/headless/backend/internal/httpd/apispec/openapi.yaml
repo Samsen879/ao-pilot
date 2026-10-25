@@ -3370,9 +3370,15 @@ components:
           maximum: 16
           minimum: 1
           type: integer
+        includeTerminated:
+          type: boolean
         project:
           minLength: 1
           type: string
+        sessionIds:
+          items:
+            type: string
+          type: array
       required:
       - project
       - concurrency

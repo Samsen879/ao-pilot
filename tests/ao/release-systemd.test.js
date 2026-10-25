@@ -136,16 +136,16 @@ it('restores first-only explicit projects after boot REST while degraded, preser
   const runner = createSystemdReleaseRunner(config, { run: (command, args, options) => { events.push([command, args, options]); return JSON.stringify(result); }, fetchImpl: async (url) => {
     events.push(['fetch', url.pathname]); return { ok: true, json: async () => url.pathname.includes('sessions') ? { sessions: [] } : { status: 'ready', ready: true, reasons: [] } };
   }, sleep: async () => {} });
-  expect(await runner.start({ releaseRoot: root, mode: 'first', baseline: { projects: ['fixture'], identities: [{ ao_session_id: 'original', project_id: 'fixture' }, { ao_session_id: 'held', project_id: 'fixture' }] } })).toEqual({ restore_results: [result] });
+  expect(await runner.start({ releaseRoot: root, mode: 'first', baseline: { projects: ['fixture'], identities: [{ ao_session_id: 'original', project_id: 'fixture', is_terminated: 0 }, { ao_session_id: 'held', project_id: 'fixture', is_terminated: 0 }, { ao_session_id: 'historical-1', project_id: 'fixture', is_terminated: 1 }, { ao_session_id: 'historical-2', project_id: 'fixture', is_terminated: 1 }] } })).toEqual({ restore_results: [result] });
   const restore = events.findIndex(([command]) => command === path.join(root, 'native/ao'));
-  expect(events[restore][1]).toEqual(['session', 'restore', '--project', 'fixture', '--all', '--concurrency', '2', '--json']);
+  expect(events[restore][1]).toEqual(['session', 'restore', '--project', 'fixture', '--all', '--include-terminated', '--session-id', 'held', '--session-id', 'original', '--concurrency', '2', '--json']);
   expect(events[restore][2]).toMatchObject({ timeout: 15 * 60 * 1000 + 10000, env: { AO_TMUX_SOCKET: config.tmuxSocket } });
   expect(events.findIndex(([command, arg]) => command === 'fetch' && arg === '/api/v1/sessions')).toBeLessThan(restore);
   expect(events.findIndex(([command, arg]) => command === 'fetch' && arg === '/readyz')).toBeGreaterThan(restore);
   result.results[0].restoreMode = 'fresh';
-  await expect(runner.start({ releaseRoot: root, mode: 'first', baseline: { projects: ['fixture'], identities: [{ ao_session_id: 'original', project_id: 'fixture' }, { ao_session_id: 'held', project_id: 'fixture' }] } })).rejects.toThrow('install_first_restore_failed');
+  await expect(runner.start({ releaseRoot: root, mode: 'first', baseline: { projects: ['fixture'], identities: [{ ao_session_id: 'original', project_id: 'fixture', is_terminated: 0 }, { ao_session_id: 'held', project_id: 'fixture', is_terminated: 0 }, { ao_session_id: 'historical-1', project_id: 'fixture', is_terminated: 1 }, { ao_session_id: 'historical-2', project_id: 'fixture', is_terminated: 1 }] } })).rejects.toThrow('install_first_restore_failed');
   result.results[0].outcome = 'failed';
-  await expect(runner.start({ releaseRoot: root, mode: 'first', baseline: { projects: ['fixture'], identities: [{ ao_session_id: 'original', project_id: 'fixture' }, { ao_session_id: 'held', project_id: 'fixture' }] } })).rejects.toThrow('install_first_restore_failed');
+  await expect(runner.start({ releaseRoot: root, mode: 'first', baseline: { projects: ['fixture'], identities: [{ ao_session_id: 'original', project_id: 'fixture', is_terminated: 0 }, { ao_session_id: 'held', project_id: 'fixture', is_terminated: 0 }, { ao_session_id: 'historical-1', project_id: 'fixture', is_terminated: 1 }, { ao_session_id: 'historical-2', project_id: 'fixture', is_terminated: 1 }] } })).rejects.toThrow('install_first_restore_failed');
 });
 
 it('first restore scope mismatch fails before any start and invalid outcomes cannot pass', async () => {
@@ -154,4 +154,21 @@ it('first restore scope mismatch fails before any start and invalid outcomes can
   await expect(runner.start({ mode: 'first', releaseRoot: root, baseline: { projects: ['other'], identities: [] } })).rejects.toThrow('install_first_restore_scope_incomplete');
   await expect(runner.start({ mode: 'first', releaseRoot: root, baseline: { projects: ['explicit', 'other'], identities: [{ project_id: 'other', ao_session_id: 'kept' }] } })).rejects.toThrow('install_first_restore_scope_incomplete');
   expect(calls).toHaveLength(0);
+});
+
+it('never invokes an unscoped restore for an empty pre-stop live set and rejects an unknown live baseline', async () => {
+ const {root,config}=fixture();Object.assign(config,{restoreProjects:['fixture'],restoreConcurrency:2});const calls=[];
+ const runner=createSystemdReleaseRunner(config,{run:(...args)=>{calls.push(args);return '';},fetchImpl:async(url)=>({ok:true,json:async()=>url.pathname.includes('sessions')?{sessions:[]}:{status:'ready',ready:true,reasons:[]}}),sleep:async()=>{}});
+ const baseline={projects:['fixture'],identities:[{project_id:'fixture',ao_session_id:'historical',is_terminated:1}]};
+ expect(await runner.start({releaseRoot:root,mode:'first',baseline})).toEqual({restore_results:[{projectId:'fixture',results:[]}]});
+ expect(calls.some(([command])=>command===path.join(root,'native/ao'))).toBe(false);
+ calls.length=0;delete baseline.identities[0].is_terminated;
+ await expect(runner.start({releaseRoot:root,mode:'first',baseline})).rejects.toThrow('install_first_restore_scope_incomplete');expect(calls).toHaveLength(0);
+});
+it.each(['extra_history','missing_live','duplicate_live'])('rejects native restore set mismatch %s', async (mutation) => {
+ const {root,config}=fixture();Object.assign(config,{restoreProjects:['fixture'],restoreConcurrency:2});
+ const item={sessionId:'live',outcome:'restored',reason:'already_running'};
+ const results=mutation==='extra_history'?[item,{...item,sessionId:'historical'}]:mutation==='missing_live'?[]:[item,item];
+ const runner=createSystemdReleaseRunner(config,{run:()=>JSON.stringify({projectId:'fixture',results}),fetchImpl:async()=>({ok:true,json:async()=>({sessions:[]})}),sleep:async()=>{}});
+ await expect(runner.start({releaseRoot:root,mode:'first',baseline:{projects:['fixture'],identities:[{project_id:'fixture',ao_session_id:'live',is_terminated:0},{project_id:'fixture',ao_session_id:'historical',is_terminated:1}]}})).rejects.toThrow('install_first_restore_failed');
 });

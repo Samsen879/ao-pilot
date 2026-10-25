@@ -17,12 +17,14 @@ import (
 const BatchRestoreTimeout = 15 * time.Minute
 
 type BatchRestoreRequest struct {
-	Project     string `json:"project" minLength:"1"`
-	Concurrency int    `json:"concurrency" minimum:"1" maximum:"16"`
+	Project           string             `json:"project" minLength:"1"`
+	Concurrency       int                `json:"concurrency" minimum:"1" maximum:"16"`
+	IncludeTerminated bool               `json:"includeTerminated,omitempty"`
+	SessionIDs        []domain.SessionID `json:"sessionIds,omitempty"`
 }
 
 type ProjectRestorer interface {
-	RestoreProject(context.Context, domain.ProjectID, int) (sessionmanager.BatchRestoreResult, error)
+	RestoreProject(context.Context, domain.ProjectID, sessionmanager.BatchRestoreOptions) (sessionmanager.BatchRestoreResult, error)
 }
 
 func (c *SessionsController) RestoreProject(w http.ResponseWriter, r *http.Request) {
@@ -46,7 +48,9 @@ func (c *SessionsController) RestoreProject(w http.ResponseWriter, r *http.Reque
 		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_RESTORE_OPTIONS", "project is required; concurrency must be 1..16", nil)
 		return
 	}
-	result, err := manager.RestoreProject(r.Context(), domain.ProjectID(request.Project), request.Concurrency)
+	result, err := manager.RestoreProject(r.Context(), domain.ProjectID(request.Project), sessionmanager.BatchRestoreOptions{
+		Concurrency: request.Concurrency, IncludeTerminated: request.IncludeTerminated, SessionIDs: request.SessionIDs,
+	})
 	if err != nil {
 		envelope.WriteError(w, r, err)
 		return

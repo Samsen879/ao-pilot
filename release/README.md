@@ -226,3 +226,21 @@ PTY attach. They cannot implicitly start a default server. The terminal URL uses
 `/ao-terminal-ws?session=<fake-session-id>` for staging. Existing unmanaged
 standalone browser/adapter behavior is outside this managed-release admission
 claim; new release entrypoints always require the managed credential binding.
+
+## Batch recovery scope
+
+`ao session restore --all --project <id>` selects the project's live rows at
+request time and leaves previously terminated rows untouched. Orchestrators
+finish before workers; HOLD checks and native conversation identity rules still
+apply. Include historical rows only with explicit `--include-terminated`.
+`--session-id <id>` is repeatable and restricts a batch to those IDs; duplicate
+or unknown IDs reject the entire selection before any restore.
+
+The first-install runner captures the live ID set before starting the new
+daemon. Reconciliation may mark those sessions terminated during boot, so the
+runner passes both the explicit ID set and `--include-terminated`. Historical
+terminated rows are excluded from that set. Empty live sets issue no restore
+command. The native result must cover exactly the captured live set, with only
+native/already-running or skipped-HOLD outcomes; extra, missing or duplicate
+results fail verification. The API equivalents are `includeTerminated` and
+`sessionIds`; omitted values retain the live-only default.

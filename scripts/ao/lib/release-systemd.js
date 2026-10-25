@@ -127,7 +127,8 @@ export function assertFirstRestoreConfiguration(config, mode) {
 export function assertFirstRestoreScope(config, mode, baseline) {
   if (mode !== 'first') return;
   assertRelease(Array.isArray(baseline?.identities) && Array.isArray(baseline?.projects)
-    && baseline.identities.every((row) => config.restoreProjects.includes(row.project_id))
+    && baseline.identities.every((row) => config.restoreProjects.includes(row.project_id)
+      && typeof row.ao_session_id === 'string' && [0, 1].includes(row.is_terminated))
     && config.restoreProjects.every((project) => baseline.projects.includes(project)), 'install_first_restore_scope_incomplete');
 }
 export function assertLoadedProcess({ proc, root, manifest, component, config }) {
@@ -364,9 +365,17 @@ export function createSystemdReleaseRunner(rawConfiguration, { run = execute, fe
         // precedes strict ready admission and remains an explicit native action.
         await wait(async () => Array.isArray((await get('/api/v1/sessions')).sessions));
         for (const project of config.restoreProjects) {
+          const expected = baseline.identities.filter((row) => row.project_id === project && row.is_terminated === 0)
+            .map((row) => row.ao_session_id).sort();
+          if (expected.length === 0) {
+            restore_results.push({ projectId: project, results: [] });
+            continue;
+          }
+          // Reconciliation can mark old live sessions terminated before this
+          // call. Permit only that captured live set, never historical rows.
           const result = JSON.parse(run(path.join(releaseRoot, 'native/ao'), ['session', 'restore', '--project', project,
-            '--all', '--concurrency', String(config.restoreConcurrency), '--json'], { env, timeout: 15 * 60 * 1000 + 10000 }));
-          const expected = baseline.identities.filter((row) => row.project_id === project).map((row) => row.ao_session_id).sort();
+            '--all', '--include-terminated', ...expected.flatMap((id) => ['--session-id', id]),
+            '--concurrency', String(config.restoreConcurrency), '--json'], { env, timeout: 15 * 60 * 1000 + 10000 }));
           assertRelease(result.projectId === project && Array.isArray(result.results)
             && result.results.every((row) => ['restored', 'skipped_hold'].includes(row.outcome) && typeof row.reason === 'string'
               && (row.outcome !== 'restored' || row.reason === 'already_running' || row.restoreMode === 'native'))

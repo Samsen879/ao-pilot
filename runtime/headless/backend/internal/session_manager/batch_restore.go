@@ -19,6 +19,12 @@ var ErrRecoveryUnavailable = errors.New("recovery inventory unavailable")
 
 const MaxRestoreConcurrency = 16
 
+type BatchRestoreOptions struct {
+	Concurrency       int
+	IncludeTerminated bool
+	SessionIDs        []domain.SessionID
+}
+
 type BatchRestoreItem struct {
 	SessionID   domain.SessionID `json:"sessionId"`
 	Outcome     string           `json:"outcome" enum:"restored,skipped_hold,failed"`
@@ -35,8 +41,9 @@ type BatchRestoreResult struct {
 // cold-start budget. Orchestrators finish before workers are admitted. Results
 // keep deterministic order even when work is concurrent; no failure deletes a
 // session or its recovery records.
-func (m *Manager) RestoreProject(ctx context.Context, project domain.ProjectID, concurrency int) (BatchRestoreResult, error) {
+func (m *Manager) RestoreProject(ctx context.Context, project domain.ProjectID, options BatchRestoreOptions) (BatchRestoreResult, error) {
 	result := BatchRestoreResult{ProjectID: project, Results: []BatchRestoreItem{}}
+	concurrency := options.Concurrency
 	if strings.TrimSpace(string(project)) == "" || concurrency < 1 || concurrency > MaxRestoreConcurrency {
 		return result, fmt.Errorf("project required and concurrency must be 1..%d", MaxRestoreConcurrency)
 	}
@@ -47,6 +54,32 @@ func (m *Manager) RestoreProject(ctx context.Context, project domain.ProjectID, 
 	if err != nil {
 		return result, err
 	}
+	// Capture scope before any restore can change IsTerminated. Install/cold-boot
+	// callers bind an explicit pre-stop live ID set and opt in to restoring those
+	// IDs after reconciliation has marked them terminated.
+	selected := make(map[domain.SessionID]bool, len(options.SessionIDs))
+	scoped := len(options.SessionIDs) > 0
+	for _, id := range options.SessionIDs {
+		if strings.TrimSpace(string(id)) == "" || selected[id] {
+			return result, fmt.Errorf("session IDs must be nonempty and unique")
+		}
+		selected[id] = true
+	}
+	filtered := make([]domain.SessionRecord, 0, len(sessions))
+	for _, session := range sessions {
+		if scoped && !selected[session.ID] {
+			continue
+		}
+		delete(selected, session.ID)
+		if session.IsTerminated && !options.IncludeTerminated {
+			continue
+		}
+		filtered = append(filtered, session)
+	}
+	if len(selected) != 0 {
+		return result, fmt.Errorf("selected session is not in the project")
+	}
+	sessions = filtered
 	sort.SliceStable(sessions, func(i, j int) bool {
 		a, b := sessions[i], sessions[j]
 		if (a.Kind == domain.KindOrchestrator) != (b.Kind == domain.KindOrchestrator) {
