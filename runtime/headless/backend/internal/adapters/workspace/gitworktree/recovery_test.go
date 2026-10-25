@@ -464,3 +464,93 @@ func TestRenameRollbackResumesRegistrationCleanup(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestVerifiedReuseStillRejectsNewUnownedBackups(t *testing.T) {
+	for _, suffix := range []string{".ao-recovery-backup", ".ao-recovery-backup.git-metadata"} {
+		t.Run(suffix, func(t *testing.T) {
+			_, _, w := newSparseRepoFixture(t)
+			ctx := context.Background()
+			info, e := w.Create(ctx, ports.WorkspaceConfig{ProjectID: "project", SessionID: "reuse-unknown", Branch: "feature/reuse-unknown", BaseBranch: "main"})
+			if e != nil {
+				t.Fatal(e)
+			}
+			if e = w.VerifyRestore(ctx, info); e != nil {
+				t.Fatal(e)
+			}
+			writeSparseFile(t, info.Path+suffix, "original-private", "unowned original bytes")
+			if e = w.VerifyRestore(ctx, info); e == nil {
+				t.Fatal("verified reuse adopted unknown backup")
+			}
+			if e = w.CommitRestore(ctx, info); e == nil {
+				t.Fatal("reuse committed unexplained quarantine")
+			}
+			if got, e := os.ReadFile(filepath.Join(info.Path+suffix, "original-private")); e != nil || string(got) != "unowned original bytes" {
+				t.Fatal("unknown backup lost", e)
+			}
+		})
+	}
+}
+func TestCommitRetainsBackupWhenInventoryHasSpecialFile(t *testing.T) {
+	_, _, w := newSparseRepoFixture(t)
+	ctx := context.Background()
+	info, e := w.Create(ctx, ports.WorkspaceConfig{ProjectID: "project", SessionID: "special-backup", Branch: "feature/special-backup", BaseBranch: "main"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	r, e := w.prepareRecovery(ctx, info, "copy")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = w.VerifyRestore(ctx, info); e != nil {
+		t.Fatal(e)
+	}
+	if e = syscall.Mkfifo(filepath.Join(r.Backup, "unexpected-fifo"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	if e = w.CommitRestore(ctx, info); e == nil {
+		t.Fatal("unreadable inventory was deleted")
+	}
+	if _, e = os.Lstat(filepath.Join(r.Backup, "unexpected-fifo")); e != nil {
+		t.Fatal("quarantine deleted", e)
+	}
+	record, e := readRecovery(info.Path)
+	if e != nil || record.Phase == "committed" || record.CleanupStartedAt != "" {
+		t.Fatal("invalid success checkpoint", record, e)
+	}
+}
+func TestCleanupResumesOnlyAfterDurableVerifiedCheckpoint(t *testing.T) {
+	_, _, w := newSparseRepoFixture(t)
+	ctx := context.Background()
+	info, e := w.Create(ctx, ports.WorkspaceConfig{ProjectID: "project", SessionID: "cleanup-partial", Branch: "feature/cleanup-partial", BaseBranch: "main"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	r, e := w.prepareRecovery(ctx, info, "copy")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = w.VerifyRestore(ctx, info); e != nil {
+		t.Fatal(e)
+	}
+	r, e = readRecovery(info.Path)
+	if e != nil {
+		t.Fatal(e)
+	}
+	r.CleanupStartedAt = "2026-10-25T00:00:00Z"
+	if e = writeRecovery(*r); e != nil {
+		t.Fatal(e)
+	}
+	if e = os.RemoveAll(r.Backup); e != nil {
+		t.Fatal(e)
+	}
+	if e = w.CommitRestore(ctx, info); e != nil {
+		t.Fatal(e)
+	}
+	if e = w.CommitRestore(ctx, info); e != nil {
+		t.Fatal(e)
+	}
+	record, e := readRecovery(info.Path)
+	if e != nil || record.Phase != "committed" {
+		t.Fatal(record, e)
+	}
+}

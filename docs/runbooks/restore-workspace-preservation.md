@@ -28,9 +28,16 @@ Unknown or corrupt recovery receipts/backups remain quarantined rather than
 being deleted based on their age. Explicit recovery of unresolved ownership
 collisions requires operator inspection.
 
-All participating repositories are verified before backup cleanup. Receipts
+All participating repositories are verified before backup cleanup. Nested child
+paths come only from the session repository inventory; every child has its own
+verified physical manifest. Parent verification accounts only for those exact,
+validated child paths and receipt-owned recovery artifacts. Unowned backups,
+including backups next to an existing reuse receipt, remain HOLD. Receipts
 record the physical manifest, phase and cleanup timestamp. The owned backup is
-removed only after successful replay and file verification; a verified leftover
+removed only after successful replay and file verification. All backup inventory
+errors retain the backup. A durable cleanup-start checkpoint is written before
+removal; only that checkpoint admits an already-absent backup during cleanup
+resumption; a verified leftover
 can be cleaned idempotently. Failed-attempt directories and metadata remain as
 separate evidence. Capture uses new commit-addressed refs and does not overwrite
 legacy refs. Successful replay does not delete a preserve ref. Ref cleanup is
