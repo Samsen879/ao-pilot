@@ -29,23 +29,24 @@ type recoveryFile struct {
 	Mode uint32 `json:"mode"`
 }
 type recoveryRecord struct {
-	Version       int                     `json:"version"`
-	Path          string                  `json:"path"`
-	Repo          string                  `json:"repo"`
-	Backup        string                  `json:"backup"`
-	GitDir        string                  `json:"git_dir,omitempty"`
-	GitBackup     string                  `json:"git_backup,omitempty"`
-	Mode          string                  `json:"mode"`
-	Phase         string                  `json:"phase"`
-	Files         map[string]recoveryFile `json:"files"`
-	After         map[string]recoveryFile `json:"verified_files,omitempty"`
-	PreservedRef  string                  `json:"preserved_ref,omitempty"`
-	RefPolicy     string                  `json:"ref_policy"`
-	CleanupAt     string                  `json:"cleanup_at,omitempty"`
-	GitFiles      map[string]recoveryFile `json:"git_files,omitempty"`
-	CommonDir     string                  `json:"common_dir,omitempty"`
-	CurrentDevice uint64                  `json:"current_device,omitempty"`
-	CurrentInode  uint64                  `json:"current_inode,omitempty"`
+	Version          int                     `json:"version"`
+	Path             string                  `json:"path"`
+	Repo             string                  `json:"repo"`
+	Backup           string                  `json:"backup"`
+	GitDir           string                  `json:"git_dir,omitempty"`
+	GitBackup        string                  `json:"git_backup,omitempty"`
+	Mode             string                  `json:"mode"`
+	Phase            string                  `json:"phase"`
+	Files            map[string]recoveryFile `json:"files"`
+	After            map[string]recoveryFile `json:"verified_files,omitempty"`
+	PreservedRef     string                  `json:"preserved_ref,omitempty"`
+	RefPolicy        string                  `json:"ref_policy"`
+	CleanupAt        string                  `json:"cleanup_at,omitempty"`
+	CleanupStartedAt string                  `json:"cleanup_started_at,omitempty"`
+	GitFiles         map[string]recoveryFile `json:"git_files,omitempty"`
+	CommonDir        string                  `json:"common_dir,omitempty"`
+	CurrentDevice    uint64                  `json:"current_device,omitempty"`
+	CurrentInode     uint64                  `json:"current_inode,omitempty"`
 }
 
 func recoverySidecar(path string) string { return path + ".ao-recovery.json" }
@@ -424,6 +425,11 @@ func (w *Workspace) VerifyRestore(ctx context.Context, info ports.WorkspaceInfo)
 	if e != nil {
 		return e
 	}
+	if r != nil {
+		if err := validateRecoveryBackups(r); err != nil {
+			return err
+		}
+	}
 	if r != nil && info.RepoPath != "" && r.Repo != info.RepoPath {
 		return fmt.Errorf("recovery repo mismatch")
 	}
@@ -501,12 +507,18 @@ func (w *Workspace) CommitRestore(ctx context.Context, info ports.WorkspaceInfo)
 	if e != nil || !exactRecoveryFiles(r.After, current) {
 		return fmt.Errorf("refuse recovery cleanup after drift: %w", e)
 	}
-	// Only this receipt's backups are eligible, after both replay and physical
-	// verification. Never remove a preserved Git ref, even on success.
-	if r.Mode != "reuse" {
-		if original, e := recoveryInventory(r.Backup); e == nil && !exactRecoveryFiles(r.Files, original) {
-			return fmt.Errorf("refuse cleanup of changed backup")
+	// Validate every owned backup before any deletion. Only a durable cleanup
+	// checkpoint permits a missing backup when resuming already-started cleanup.
+	if e = validateRecoveryBackups(r); e != nil {
+		return e
+	}
+	if r.CleanupStartedAt == "" {
+		r.CleanupStartedAt = time.Now().UTC().Format(time.RFC3339Nano)
+		if e = writeRecovery(*r); e != nil {
+			return e
 		}
+	}
+	if r.Mode != "reuse" {
 		if e = os.RemoveAll(r.Backup); e != nil {
 			return e
 		}
@@ -516,6 +528,7 @@ func (w *Workspace) CommitRestore(ctx context.Context, info ports.WorkspaceInfo)
 			return e
 		}
 	}
+
 	r.Phase = "committed"
 	r.CleanupAt = time.Now().UTC().Format(time.RFC3339Nano)
 	return writeRecovery(*r)
@@ -898,6 +911,9 @@ func (w *Workspace) accountVerifiedChildren(info ports.WorkspaceInfo, expected, 
 		if err != nil || record == nil || (record.Phase != "verified" && record.Phase != "committed") {
 			return nil, nil, fmt.Errorf("participating child not verified: %w", err)
 		}
+		if err := validateRecoveryBackups(record); err != nil {
+			return nil, nil, err
+		}
 		files, err := recoveryInventory(child)
 		if err != nil || !exactRecoveryFiles(record.After, files) {
 			return nil, nil, fmt.Errorf("participating child manifest drift: %w", err)
@@ -907,7 +923,14 @@ func (w *Workspace) accountVerifiedChildren(info ports.WorkspaceInfo, expected, 
 			return nil, nil, err
 		}
 		prefixes = append(prefixes, rel)
-		for _, path := range []string{rel + ".ao-recovery.json", rel + ".ao-recovery-backup", rel + ".ao-recovery-backup.git-metadata"} {
+		owned := []string{rel + ".ao-recovery.json"}
+		if record.Mode != "reuse" {
+			owned = append(owned, rel+".ao-recovery-backup")
+		}
+		if record.GitBackup != "" {
+			owned = append(owned, rel+".ao-recovery-backup.git-metadata")
+		}
+		for _, path := range owned {
 			exact[path] = true
 			prefixes = append(prefixes, path)
 		}
@@ -929,4 +952,37 @@ func (w *Workspace) accountVerifiedChildren(info ports.WorkspaceInfo, expected, 
 		return out
 	}
 	return filter(expected), filter(current), nil
+}
+
+func validateRecoveryBackups(r *recoveryRecord) error {
+	for _, item := range []struct {
+		path  string
+		owned bool
+		files map[string]recoveryFile
+	}{
+		{r.Backup, r.Mode != "reuse", r.Files},
+		{r.Backup + ".git-metadata", r.Mode == "copy" && r.GitBackup == r.Backup+".git-metadata", r.GitFiles},
+	} {
+		_, err := os.Lstat(item.path)
+		if os.IsNotExist(err) {
+			if !item.owned || r.Phase == "committed" || r.CleanupStartedAt != "" {
+				continue
+			}
+			return fmt.Errorf("owned recovery backup missing before cleanup")
+		}
+		if err != nil {
+			return err
+		}
+		if !item.owned || r.Phase == "committed" {
+			return fmt.Errorf("unexpected recovery backup; retained")
+		}
+		current, err := recoveryInventory(item.path)
+		if err != nil {
+			return fmt.Errorf("cannot inventory recovery backup; retained: %w", err)
+		}
+		if !exactRecoveryFiles(item.files, current) {
+			return fmt.Errorf("recovery backup manifest changed; retained")
+		}
+	}
+	return nil
 }
