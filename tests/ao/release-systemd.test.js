@@ -188,3 +188,15 @@ it('bounds large live requests without increasing the 4096-byte API limit and fi
  },fetchImpl:async(url)=>({ok:true,json:async()=>url.pathname.includes('sessions')?{sessions:[]}:{status:'ready',ready:true,reasons:[]}}),sleep:async()=>{}});
  const result=await runner.start({releaseRoot:root,mode:'first',baseline});expect(result.restore_results.flatMap(x=>x.results)).toHaveLength(600);expect(calls).toHaveLength(plan.length);
 });
+
+it('supports only named proxy override variables and rejects executable or arbitrary environment injection',()=>{
+ const text='[Service]\nEnvironment="HTTPS_PROXY=http://proxy.example:8080"\nEnvironment="https_proxy=http://proxy.example:8080"\nEnvironment="NO_PROXY=localhost,127.0.0.1"\n';
+ expect(validateEnvironmentOverride(text)).toEqual({HTTPS_PROXY:'http://proxy.example:8080',https_proxy:'http://proxy.example:8080',NO_PROXY:'localhost,127.0.0.1'});
+ for(const key of ['LD_PRELOAD','NODE_OPTIONS','arbitrary_lowercase','http_PROXY'])expect(()=>validateEnvironmentOverride(`[Service]\nEnvironment="${key}=bad"\n`)).toThrow('unsafe_unit_override');
+});
+it('restores only live by default, permits explicit historical IDs, and schedules protected workers individually last',()=>{
+ const config={restoreProjects:['one'],restoreConcurrency:2,firstRestoreSessionIDs:['orc','worker','last-2','last-4'],restoreLastSessionIDs:['last-2','last-4']};
+ const baseline={projects:['one'],identities:[['orc','orchestrator',0],['worker','worker',0],['last-2','worker',0],['last-4','worker',1],['historical','worker',1]].map(([ao_session_id,kind,is_terminated])=>({ao_session_id,kind,is_terminated,project_id:'one'}))};
+ expect(firstRestorePlan(config,baseline)).toEqual([{project:'one',ids:['orc']},{project:'one',ids:['worker']},{project:'one',ids:['last-2']},{project:'one',ids:['last-4']}]);
+ expect(firstRestorePlan({...config,firstRestoreSessionIDs:undefined,restoreLastSessionIDs:undefined},baseline).flatMap(row=>row.ids).sort()).toEqual(['last-2','orc','worker']);
+});

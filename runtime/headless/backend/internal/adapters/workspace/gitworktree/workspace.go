@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
@@ -634,7 +635,7 @@ func (w *Workspace) StashUncommitted(ctx context.Context, info ports.WorkspaceIn
 	commitSHA := strings.TrimSpace(string(commitOut))
 
 	// Point the preserve ref at the commit.
-	ref := "refs/ao/preserved/" + string(info.SessionID)
+	ref := "refs/ao/preserved/" + string(info.SessionID) + "-" + commitSHA
 	if _, err := w.run(ctx, w.binary, updateRefArgs(path, ref, commitSHA)...); err != nil {
 		return "", fmt.Errorf("gitworktree: update-ref %q: %w", ref, err)
 	}
@@ -735,12 +736,12 @@ func (w *Workspace) materializePreservedPaths(ctx context.Context, worktree, com
 
 // ApplyPreserved replays the capture created by StashUncommitted onto the
 // (freshly re-added) worktree using a true three-way merge (cherry-pick --no-commit).
-// On clean success, the preserve ref is deleted.
-// On conflict, the ref is kept, conflict markers are left in the affected files,
+// On clean success the preserve ref is retained until explicit operator cleanup.
+// On conflict, the ref is kept and the complete original directory is restored,
 // and ErrPreservedConflict (wrapped) is returned so the caller can surface it.
 //
 // NEVER deletes the preserve ref on a failed or conflicted apply.
-func (w *Workspace) ApplyPreserved(ctx context.Context, info ports.WorkspaceInfo, ref string) error {
+func (w *Workspace) ApplyPreserved(ctx context.Context, info ports.WorkspaceInfo, ref string) (err error) {
 	if info.Path == "" {
 		return fmt.Errorf("%w: empty path", ErrUnsafePath)
 	}
@@ -748,41 +749,18 @@ func (w *Workspace) ApplyPreserved(ctx context.Context, info ports.WorkspaceInfo
 		return errors.New("gitworktree: ApplyPreserved: ref must not be empty")
 	}
 
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, w.RollbackRestore(context.WithoutCancel(ctx), info))
+		}
+	}()
 	// Resolve the ref to its commit SHA.
 	resolveOut, err := w.run(ctx, w.binary, revParseVerifyArgs(info.Path, ref)...)
 	if err != nil {
 		return fmt.Errorf("gitworktree: ApplyPreserved resolve ref %q: %w", ref, err)
 	}
 	commitSHA := strings.TrimSpace(string(resolveOut))
-	// Expand a restored sparse cone before replay. Otherwise cherry-pick may
-	// update skip-worktree entries only and report success with WIP invisible.
-	if err := w.materializePreservedPaths(ctx, info.Path, commitSHA); err != nil {
-		return err // Keep the preserve ref until all affected files are readable.
-	}
-
-	// Apply the preserve commit via "git cherry-pick --no-commit <sha>".
-	// cherry-pick computes the diff between the preserve commit and its parent
-	// (the HEAD at save time) and 3-way-merges it onto the current working tree.
-	// On conflict it leaves textual conflict markers in the affected files and
-	// exits non-zero WITHOUT committing or moving HEAD. Conflict detection uses
-	// the exit code only (not output text) to stay locale-independent.
-	applyErr := w.runCherryPickNoCommit(ctx, info.Path, commitSHA)
-	if applyErr != nil {
-		// Any non-zero exit from the merge step is a conflict: keep the ref,
-		// leave conflict markers in place, and surface the sentinel.
-		return fmt.Errorf("%w: %w", ErrPreservedConflict, applyErr)
-	}
-
-	// Clean apply: remove the preserve ref so it is never replayed twice.
-	if _, err := w.run(ctx, w.binary, deleteRefArgs(info.Path, ref)...); err != nil {
-		// Log but do not fail: the work is already applied. A dangling preserve
-		// ref is harmless; the next StashUncommitted will overwrite it.
-		slog.WarnContext(ctx, "gitworktree: ApplyPreserved could not delete preserve ref",
-			"ref", ref,
-			"err", err,
-		)
-	}
-	return nil
+	return w.applyPreservedSafely(ctx, info, ref, commitSHA)
 }
 
 // AddExclude appends git ignore patterns to the worktree's local info/exclude so
@@ -854,7 +832,7 @@ func (w *Workspace) runCherryPickNoCommit(ctx context.Context, worktree, commitS
 
 // Restore re-attaches to an existing worktree for the session if one is still
 // present, recreating the handle without disturbing its contents.
-func (w *Workspace) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (ports.WorkspaceInfo, error) {
+func (w *Workspace) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (retInfo ports.WorkspaceInfo, retErr error) {
 	if err := validateConfig(cfg); err != nil {
 		return ports.WorkspaceInfo{}, err
 	}
@@ -866,6 +844,20 @@ func (w *Workspace) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (por
 	if err != nil {
 		return ports.WorkspaceInfo{}, err
 	}
+	if recovery, e := readRecovery(path); e != nil {
+		return ports.WorkspaceInfo{}, e
+	} else if recovery != nil && recovery.Phase == "pending" {
+		if _, e := os.Lstat(path); e == nil {
+			info := ports.WorkspaceInfo{Path: path, RepoPath: repo}
+			return ports.WorkspaceInfo{}, errors.Join(fmt.Errorf("interrupted recovery rolled back; explicit retry required"), w.RollbackRestore(context.WithoutCancel(ctx), info))
+		}
+	}
+	recoveryRollback := true
+	defer func() {
+		if recoveryRollback {
+			retErr = errors.Join(retErr, w.RollbackRestore(context.WithoutCancel(ctx), ports.WorkspaceInfo{Path: path, RepoPath: repo}))
+		}
+	}()
 	if w.minFreeBytes > 0 {
 		w.materializeMu.Lock()
 		defer w.materializeMu.Unlock()
@@ -890,6 +882,7 @@ func (w *Workspace) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (por
 			if branch == "" {
 				branch = cfg.Branch
 			}
+			recoveryRollback = false
 			return ports.WorkspaceInfo{Path: path, Branch: branch, SessionID: cfg.SessionID, ProjectID: cfg.ProjectID, RepoPath: repo}, nil
 		}
 		// The registration outlived its directory (issue #2775: a session's git
@@ -921,7 +914,7 @@ func (w *Workspace) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (por
 		if cfg.Path == "" {
 			return ports.WorkspaceInfo{}, fmt.Errorf("gitworktree: refusing to restore %q: path exists and is not a registered worktree", path)
 		}
-		if _, err := moveStrayPathAside(path); err != nil {
+		if _, err := w.prepareRecovery(ctx, ports.WorkspaceInfo{Path: path, RepoPath: repo, SessionID: cfg.SessionID, ProjectID: cfg.ProjectID}, "rename"); err != nil {
 			return ports.WorkspaceInfo{}, err
 		}
 	}
@@ -939,7 +932,35 @@ func (w *Workspace) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (por
 		}
 		return ports.WorkspaceInfo{}, errors.Join(err, cleanupErr)
 	}
-	return ports.WorkspaceInfo{Path: path, Branch: recreateBranch, SessionID: cfg.SessionID, ProjectID: cfg.ProjectID, RepoPath: repo}, nil
+	info := ports.WorkspaceInfo{Path: path, Branch: recreateBranch, SessionID: cfg.SessionID, ProjectID: cfg.ProjectID, RepoPath: repo}
+	if recovery, err := readRecovery(path); err != nil {
+		return ports.WorkspaceInfo{}, err
+	} else if recovery != nil && recovery.Mode == "rename" && recovery.Phase == "pending" {
+		raw, err := w.run(ctx, w.binary, "-C", path, "rev-parse", "--absolute-git-dir")
+		if err != nil {
+			return ports.WorkspaceInfo{}, err
+		}
+		recovery.GitDir = strings.TrimSpace(string(raw))
+		created, err := os.Lstat(path)
+		if err != nil {
+			return ports.WorkspaceInfo{}, err
+		}
+		identity := created.Sys().(*syscall.Stat_t)
+		recovery.CurrentDevice = uint64(identity.Dev)
+		recovery.CurrentInode = identity.Ino
+		recovery.CommonDir, err = recoveryCommonDir(repo)
+		if err != nil {
+			return ports.WorkspaceInfo{}, err
+		}
+		if err = writeRecovery(*recovery); err != nil {
+			return ports.WorkspaceInfo{}, err
+		}
+		if err = copyRecoveryTree(recovery.Backup, path, true); err != nil {
+			return ports.WorkspaceInfo{}, errors.Join(err, w.RollbackRestore(context.WithoutCancel(ctx), info))
+		}
+	}
+	recoveryRollback = false
+	return info, nil
 }
 
 func (w *Workspace) ensureCapacity(checkoutBytes uint64) error {
