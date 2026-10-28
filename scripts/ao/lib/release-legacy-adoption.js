@@ -108,12 +108,24 @@ function assertOfflineLegacyAbsent(inventory, dependencies) {
   catch (error) { if (error.code !== 'ENOENT') throw error; }
   // -N is mandatory: this observation must never create a server.
   dependencies.run('tmux', ['-S', socket, '-N', 'display-message', '-p', '#{pid}'], { acceptedExitCodes: [1] });
-  const rows = dependencies.run('ps', ['-ww', '-u', String(process.getuid()), '-o', 'pid=,args=']).split('\n');
-  const starts = inventory.units.map(unit => unit.exec_start.argv.join(' '));
-  assertRelease(!rows.some(row => {
-    const command = row.trim().replace(/^\d+\s+/, '');
-    return starts.some(start => command === start || command.startsWith(`${start} `));
-  }), code, 'Legacy component is running outside its stopped unit');
+  const rows = dependencies.run('ps', ['-u', String(process.getuid()), '-o', 'pid=']).split('\n').filter(row => row.trim());
+  for (const row of rows) {
+    assertRelease(/^\s*\d+\s*$/.test(row), code, 'Unknown process enumeration');
+    let proc;
+    try { proc = dependencies.processEntrypoint(Number(row), inventory.units); }
+    catch (error) { if (['ENOENT', 'ESRCH'].includes(error.code)) continue; throw error; }
+    assertRelease(dependencies.processUnchanged(proc), code, 'Process changed during offline observation');
+    if (proc.unrelated) continue;
+    const matches = inventory.units.some(unit => {
+      const scripts = unit.exec_start.files.slice(1).map(file => fs.realpathSync(file.path));
+      if (!scripts.length) return proc.executable === fs.realpathSync(unit.exec_start.path);
+      return proc.argv.slice(1).some(arg => {
+        try { return scripts.includes(fs.realpathSync(path.resolve(proc.cwd, arg))); }
+        catch (error) { if (['ENOENT', 'ENOTDIR'].includes(error.code)) return false; throw error; }
+      });
+    });
+    assertRelease(!matches, code, 'Legacy component is running outside its stopped unit');
+  }
 }
 function assertLegacyTmux(tmux, dependencies, stopped = false) {
   const socket = path.join(tmux.tmpdir, `tmux-${process.getuid()}`, tmux.socket);

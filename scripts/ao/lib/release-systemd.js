@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import { adapterConfiguration, adapterConfigPath } from './release-adapter.js';
 import { assertRelease, fileSha256, inventoryTree, objectSha256, readJson, sha256, syncTree, verifyReleaseTree } from './release-manifest.js';
 import { processStartToken } from './release-lock.js';
@@ -205,7 +206,18 @@ export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun 
   const env = { ...process.env, AO_DATA_DIR: config.dataDir, AO_RUN_FILE: path.join(config.discoveryDir, 'running.json'),
     AO_TMUX_SOCKET: config.tmuxSocket, AO_TMUX_UNIT: unitName('tmux'), AO_TMUX_TMPDIR: config.tmuxTmpdir, TMUX_TMPDIR: config.tmuxTmpdir };
   const ownershipFiles = [path.join(config.dataDir, '.daemon-owner.lock'), path.join(config.discoveryDir, '.daemon-discovery.lock')];
-  const legacyDependencies = { run, processEvidence, processUnchanged };
+  const legacyDependencies = { run, processEvidence, processUnchanged, processEntrypoint(pid, units) {
+    const start_token = processStartToken(pid);
+    const argv = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').filter(Boolean);
+    const comm = fs.readFileSync(`/proc/${pid}/comm`, 'utf8').trim();
+    const names = new Set(units.flatMap(unit => unit.exec_start.files.map(file => path.basename(file.path))));
+    // Select candidate old executables/interpreters/scripts before privileged
+    // exe/cwd reads. E.g. systemd --user is non-dumpable but unrelated.
+    // Every candidate still requires its real /proc identity; errors block.
+    const unrelated = !names.has(comm) && !argv.some(arg => names.has(path.basename(arg)));
+    return { pid, start_token, argv, unrelated, ...(unrelated ? {} : {
+      executable: fs.realpathSync(`/proc/${pid}/exe`), cwd: fs.realpathSync(`/proc/${pid}/cwd`) }) };
+  } };
   async function get(relative, { legacyReadiness = false } = {}) {
     const response = await fetchImpl(new URL(relative, config.daemonURL), { signal: AbortSignal.timeout(5000) });
     const body = await response.json();
@@ -213,8 +225,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun 
       && Array.isArray(body.reasons) && body.reasons.length === 1 && body.reasons[0]?.code === 'tmux_cgroup_violation';
     assertRelease(response.ok || knownDegraded, 'install_observation_failed', `HTTP ${response.status} collecting ${relative}`); return body;
   }
-  function identitySnapshot() {
-    const database = path.join(config.dataDir, 'ao.db');
+  function identitySnapshot(database = path.join(config.dataDir, 'ao.db')) {
     const identities = JSON.parse(run('sqlite3', ['-readonly', '-json', database, 'SELECT s.id AS ao_session_id,s.project_id,s.num,s.kind,s.harness,s.agent_session_id AS native_conversation_id,s.runtime_launch_id,s.runtime_handle_id,s.is_terminated,s.workspace_path,s.branch,s.created_at,a.attempt_id FROM sessions s LEFT JOIN spawn_attempt_sessions a ON a.session_id=s.id ORDER BY s.id;']) || '[]');
     const attempts = JSON.parse(run('sqlite3', ['-readonly', '-json', database, 'SELECT session_id,attempt_id,project_id,session_num FROM spawn_attempt_sessions ORDER BY session_id;']) || '[]');
     const custody = attempts.map((entry) => {
@@ -252,13 +263,24 @@ export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun 
       } catch (error) { if (error.code === 'ENOENT' && name.endsWith('-wal')) return { name, absent: true }; throw error; }
     });
     assertStopped(); const before = databaseFiles();
-    const identity = identitySnapshot();
-    const output = run('sqlite3', ['-readonly', path.join(config.dataDir, 'ao.db'),
+    // Even SQLite mode=ro can create WAL/SHM sidecars. Offline check-only uses
+    // immutable reads only after proving there are no pending WAL bytes.
+    // A nonempty WAL is refused, never silently ignored or checkpointed.
+    const databaseURI = offlineDatabaseURI();
+    const identity = identitySnapshot(databaseURI);
+    const output = run('sqlite3', ['-readonly', databaseURI,
       'SELECT version_id FROM goose_db_version WHERE is_applied=1 ORDER BY id DESC LIMIT 1; PRAGMA integrity_check;']).split('\n');
     const snapshot = { ...identity, database: { schema: Number(output[0]), integrity: output.slice(1).join('\n') } };
     assertRelease(snapshot.database.integrity === 'ok' && Number.isSafeInteger(snapshot.database.schema), 'install_baseline_unknown');
     assertStopped(); assertRelease(objectSha256(before) === objectSha256(databaseFiles()), 'install_baseline_changed', 'Offline database changed during observation');
     return { snapshot, database_files: before };
+  }
+  function offlineDatabaseURI() {
+    const wal = path.join(config.dataDir, 'ao.db-wal');
+    try { const stat = fs.lstatSync(wal); assertRelease(stat.isFile() && !stat.isSymbolicLink() && stat.size === 0,
+      'install_legacy_offline_wal_pending', 'Offline read-only baseline requires an absent or empty WAL; no automatic checkpoint'); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    return pathToFileURL(path.join(config.dataDir, 'ao.db')).href + '?mode=ro&immutable=1';
   }
   function offlineBaseline(legacy) {
     assertRelease(path.isAbsolute(config.offlineBaselinePath ?? '') && /^[a-f0-9]{64}$/.test(config.offlineBaselineSha256 ?? ''), 'install_legacy_offline_baseline_required');
@@ -427,22 +449,23 @@ export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun 
       for(const id of config.restoreLastSessionIDs??[]) verifyRestoreFiles(config,baseline,id);
       return { ...baseline, ...(legacy ? { legacy_adoption: legacy } : {}) };
     },
-    async quiescent() {
+    async quiescent({ offline = false } = {}) {
       assertRelease(ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: false, flock: tools?.flock ?? toolResolver('flock', executionEnv) }) === true), 'install_previous_locks_held');
-      const database = path.join(config.dataDir, 'ao.db');
+      const database = offline ? offlineDatabaseURI() : path.join(config.dataDir, 'ao.db');
       const rows = JSON.parse(run('sqlite3', ['-readonly', '-json', database, 'SELECT id FROM sessions ORDER BY id;']) || '[]');
       const state = run('sqlite3', ['-readonly', database, 'SELECT version_id FROM goose_db_version WHERE is_applied=1 ORDER BY id DESC LIMIT 1; PRAGMA integrity_check;']).split('\n');
       assertRelease(ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: false, flock: tools?.flock ?? toolResolver('flock', executionEnv) }) === true), 'install_previous_locks_held');
-      return { ...identitySnapshot(), cids: rows.map((row) => row.id), database: { schema: Number(state[0]), integrity: state.slice(1).join('\n') } };
+      return { ...identitySnapshot(database), cids: rows.map((row) => row.id), database: { schema: Number(state[0]), integrity: state.slice(1).join('\n') } };
     },
-    async backupDatabase({ backupRoot }) {
+    async backupDatabase({ backupRoot, offline = false }) {
       fs.mkdirSync(backupRoot, { recursive: true, mode: 0o700 });
       const backup = path.join(backupRoot, 'ao.db');
       assertRelease(!backup.includes("'"), 'unsafe_install_configuration');
-      run('sqlite3', [path.join(config.dataDir, 'ao.db'), `.backup '${backup}'`]);
+      const database = offline ? offlineDatabaseURI() : path.join(config.dataDir, 'ao.db');
+      run('sqlite3', [...(offline ? ['-readonly'] : []), database, `.backup '${backup}'`]);
       assertRelease(run('sqlite3', ['-readonly', backup, 'PRAGMA integrity_check;']) === 'ok'
         && ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: false, flock: tools?.flock ?? toolResolver('flock', executionEnv) }) === true)
-        && run('sqlite3', ['-readonly', backup, 'SELECT id FROM sessions ORDER BY id;']) === run('sqlite3', ['-readonly', path.join(config.dataDir, 'ao.db'), 'SELECT id FROM sessions ORDER BY id;']), 'install_database_backup_invalid');
+        && run('sqlite3', ['-readonly', backup, 'SELECT id FROM sessions ORDER BY id;']) === run('sqlite3', ['-readonly', database, 'SELECT id FROM sessions ORDER BY id;']), 'install_database_backup_invalid');
       const recoverySource = path.join(config.dataDir, 'spawn-attempts');
       const recovery = { exists: fs.existsSync(recoverySource), path: path.join(backupRoot, 'spawn-attempts') };
       if (recovery.exists) {

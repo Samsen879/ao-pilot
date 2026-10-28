@@ -262,12 +262,12 @@ export async function applyRelease({
     await stopServices();
     if (journal.legacy_adoption) { journal.legacy_stop_complete = true; lock.assertOwned(); durableJson(journalPath, journal); }
     inject('stopped', {});
-    const stopped = await runner.quiescent();
+    const stopped = await runner.quiescent({ offline: journal.legacy_adoption?.adoption_mode === 'offline' });
     journal.stopped_snapshot = stopped; lock.assertOwned(); durableJson(journalPath, journal);
     assertRelease(Array.isArray(stopped.cids) && stopped.database?.integrity === 'ok'
       && objectSha256([...stopped.cids].sort()) === objectSha256([...journal.baseline.cids].sort()) && nativeBindingsUnchanged(stopped, journal.baseline), 'install_baseline_changed');
     if (!journal.database_backup) {
-      journal.database_backup = await runner.backupDatabase({ backupRoot: path.join(txDir, 'database') });
+      journal.database_backup = await runner.backupDatabase({ backupRoot: path.join(txDir, 'database'), offline: journal.legacy_adoption?.adoption_mode === 'offline' });
       assertRelease(journal.database_backup?.sha256 && fs.existsSync(journal.database_backup.path)
         && fileSha256(journal.database_backup.path) === journal.database_backup.sha256, 'install_database_backup_invalid');
       lock.assertOwned(); durableJson(journalPath, journal);

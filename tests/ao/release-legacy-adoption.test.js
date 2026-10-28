@@ -147,7 +147,7 @@ it('offline adoption retains the original inventory and requires a fully stopped
   expect(() => assertLegacyAdoption(config, evidence, dependencies)).not.toThrow();
   expect(fs.readFileSync(config.legacyInventoryPath)).toEqual(bytes);
 });
-it.each(['active', 'activating', 'unit_bytes', 'socket', 'outside_process', 'observation_unknown'])('offline adoption rejects %s without weakening online identity checks', async kind => {
+it.each(['active', 'activating', 'unit_bytes', 'socket', 'outside_process', 'relative_script', 'symlink_script', 'observation_unknown'])('offline adoption rejects %s without weakening online identity checks', async kind => {
   const { config, dependencies, records } = await stoppedFixture();
   const evidence = collectLegacyAdoption(config, dependencies, { offline: true });
   const unit = Object.values(records)[0];
@@ -155,9 +155,29 @@ it.each(['active', 'activating', 'unit_bytes', 'socket', 'outside_process', 'obs
   if (kind === 'activating') unit.ActiveState = 'activating';
   if (kind === 'unit_bytes') fs.appendFileSync(unit.FragmentPath, '# drift');
   if (kind === 'socket') { const socket = path.join(evidence.tmux.tmpdir, `tmux-${process.getuid()}`, evidence.tmux.socket); fs.mkdirSync(path.dirname(socket), { recursive: true }); fs.writeFileSync(socket, 'stale or live socket refuses adoption'); }
-  if (kind === 'outside_process') { const run = dependencies.run; dependencies.run = (cmd, args, opts) => cmd === 'ps' ? `123 ${evidence.units[0].exec_start.argv.join(' ')}` : run(cmd, args, opts); }
+  if (['outside_process', 'relative_script', 'symlink_script'].includes(kind)) {
+    const run = dependencies.run, entry = evidence.units[0].exec_start;
+    const cwd = path.dirname(entry.files[1].path);
+    let script = kind === 'relative_script' ? path.basename(entry.files[1].path) : entry.files[1].path;
+    if (kind === 'symlink_script') { script = path.join(cwd, 'script-alias'); fs.symlinkSync(entry.files[1].path, script); }
+    dependencies.run = (cmd, args, opts) => cmd === 'ps' ? String(process.pid) : run(cmd, args, opts);
+    dependencies.processEntrypoint = () => ({ pid: process.pid, start_token: processStartToken(process.pid),
+      executable: entry.path, argv: ['sh', script], cwd });
+    expect(() => assertLegacyAdoption(config, evidence, dependencies)).toThrow('outside its stopped unit');
+  }
   if (kind === 'observation_unknown') { const run = dependencies.run; dependencies.run = (cmd, args, opts) => { if (cmd === 'ps') throw Error('proc observation denied'); return run(cmd, args, opts); }; }
   expect(() => assertLegacyAdoption(config, evidence, dependencies)).toThrow();
+});
+it('rejects a real unit-external interpreter launched through PATH with relative script argv', async () => {
+  const { root, config, dependencies, script } = await stoppedFixture();
+  const evidence = collectLegacyAdoption(config, dependencies, { offline: true });
+  const child = spawn('legacy-node', [path.basename(script)], { cwd: root, argv0: 'legacy-node',
+    env: { ...process.env, PATH: root + ':/usr/bin:/bin' }, stdio: ['pipe', 'ignore', 'ignore'] });
+  children.push(child); await once(child, 'spawn');
+  const run = dependencies.run;
+  dependencies.run = (cmd, args, opts) => cmd === 'ps' ? String(child.pid) : run(cmd, args, opts);
+  dependencies.processEntrypoint = pid => ({ ...dependencies.processEvidence(pid), cwd: fs.realpathSync(`/proc/${pid}/cwd`) });
+  expect(() => assertLegacyAdoption(config, evidence, dependencies)).toThrow('outside its stopped unit');
 });
 
 async function offlineRunnerFixture() {
@@ -167,13 +187,13 @@ async function offlineRunnerFixture() {
   fs.mkdirSync(config.dataDir, { recursive: true }); fs.mkdirSync(config.discoveryDir, { recursive: true });
   for (const file of [path.join(config.dataDir, '.daemon-owner.lock'), path.join(config.discoveryDir, '.daemon-discovery.lock')]) fs.writeFileSync(file, '', { mode: 0o600 });
   const db = path.join(config.dataDir, 'ao.db');
-  execFileSync('sqlite3', [db, `CREATE TABLE projects(id TEXT); INSERT INTO projects VALUES('fixture');
+  execFileSync('sqlite3', [db, `PRAGMA journal_mode=WAL; CREATE TABLE projects(id TEXT); INSERT INTO projects VALUES('fixture');
     CREATE TABLE goose_db_version(id INTEGER,version_id INTEGER,is_applied INTEGER); INSERT INTO goose_db_version VALUES(1,43,1);
     CREATE TABLE spawn_attempt_sessions(session_id TEXT,attempt_id TEXT,project_id TEXT,session_num INTEGER);
     CREATE TABLE sessions(id TEXT,project_id TEXT,num INTEGER,kind TEXT,harness TEXT,agent_session_id TEXT,runtime_launch_id TEXT,runtime_handle_id TEXT,is_terminated INTEGER,workspace_path TEXT,branch TEXT,created_at TEXT);
     INSERT INTO sessions VALUES('live','fixture',1,'worker','codex','native-live',NULL,NULL,0,NULL,NULL,'fixed');
     INSERT INTO sessions VALUES('historical','fixture',2,'worker','codex','native-old',NULL,NULL,1,NULL,NULL,'fixed');`]);
-  const identities = JSON.parse(execFileSync('sqlite3', ['-json', db, 'SELECT s.id AS ao_session_id,s.project_id,s.num,s.kind,s.harness,s.agent_session_id AS native_conversation_id,s.runtime_launch_id,s.runtime_handle_id,s.is_terminated,s.workspace_path,s.branch,s.created_at,a.attempt_id FROM sessions s LEFT JOIN spawn_attempt_sessions a ON a.session_id=s.id ORDER BY s.id;'], { encoding: 'utf8' }));
+  const identities = JSON.parse(execFileSync('sqlite3', ['-json', 'file:' + db + '?mode=ro&immutable=1', 'SELECT s.id AS ao_session_id,s.project_id,s.num,s.kind,s.harness,s.agent_session_id AS native_conversation_id,s.runtime_launch_id,s.runtime_handle_id,s.is_terminated,s.workspace_path,s.branch,s.created_at,a.attempt_id FROM sessions s LEFT JOIN spawn_attempt_sessions a ON a.session_id=s.id ORDER BY s.id;'], { encoding: 'utf8' }));
   config.offlineBaselinePath = path.join(root, 'approved-offline-baseline.json');
   durableJson(config.offlineBaselinePath, { schema_version: 'ao.legacy-offline-baseline.v1', inventory_sha256: config.legacyInventorySha256,
     snapshot: { identities, custody: [], projects: ['fixture'], native_cids: identities.map(row => ({ ao_session_id: row.ao_session_id, native_conversation_id: row.native_conversation_id })), database: { schema: 43, integrity: 'ok' } } });
@@ -193,11 +213,18 @@ it('collects offline native identities from a real SQLite DB, makes no service m
   if (typeof process.execve !== 'function') {
     await expect(runner.preflight({ mode: 'first', adoptLegacy: true, adoptLegacyOffline: true })).rejects.toThrow('release_node_execve_required'); return;
   }
+  const filesBefore = fs.readdirSync(config.dataDir).sort();
+  const dbBefore = fileSha256(db);
   const baseline = await runner.preflight({ mode: 'first', adoptLegacy: true, adoptLegacyOffline: true });
   expect(baseline.offline).toBe(true); expect(baseline.cids).toEqual(['historical', 'live']);
   expect(baseline.ready).toBeUndefined(); expect(baseline.tmux).toBeUndefined();
   await runner.checkLegacy({ evidence: baseline.legacy_adoption });
   await runner.stop({ legacyAdoption: baseline.legacy_adoption });
+  await runner.quiescent({ offline: true });
+  await runner.backupDatabase({ backupRoot: path.join(config.stateRoot, 'transaction-backup'), offline: true });
+  await expect(runner.checkLegacy({ evidence: baseline.legacy_adoption })).resolves.toBeUndefined();
+  expect(fs.readdirSync(config.dataDir).sort()).toEqual(filesBefore);
+  expect(fileSha256(db)).toBe(dbBefore);
   expect(calls.some(([command, args]) => command === 'systemctl' && args.includes('stop'))).toBe(false);
   execFileSync('sqlite3', [db, "UPDATE sessions SET agent_session_id='changed' WHERE id='live'"]);
   await expect(runner.checkLegacy({ evidence: baseline.legacy_adoption })).rejects.toThrow('approved baseline');
@@ -213,6 +240,9 @@ it('refuses occupied ports, missing locks and an altered offline baseline before
   setPorts(''); fs.appendFileSync(config.offlineBaselinePath, ' ');
   await expect(runner.preflight({ mode: 'first', adoptLegacy: true, adoptLegacyOffline: true })).rejects.toThrow('install_legacy_offline_baseline_invalid');
   config.offlineBaselineSha256 = fileSha256(config.offlineBaselinePath);
+  fs.writeFileSync(path.join(config.dataDir, 'ao.db-wal'), 'pending WAL bytes must never be ignored');
+  await expect(runner.preflight({ mode: 'first', adoptLegacy: true, adoptLegacyOffline: true })).rejects.toThrow('no automatic checkpoint');
+  fs.rmSync(path.join(config.dataDir, 'ao.db-wal'));
   fs.rmSync(path.join(config.dataDir, '.daemon-owner.lock'));
   await expect(runner.preflight({ mode: 'first', adoptLegacy: true, adoptLegacyOffline: true })).rejects.toThrow('install_previous_locks_held');
 });

@@ -264,6 +264,9 @@ All four legacy units must be loaded, inactive/dead with MainPID zero and no
 ControlGroup; unit/drop-in bytes, ExecStart and executable/script digests must
 still match that inventory. The recorded old processes must be gone, the actual
 old socket absent, and no matching legacy entrypoint may run outside its unit.
+Process matching resolves `/proc` executable identity and absolute/relative or
+symlinked script arguments; invoking an interpreter through PATH cannot hide an
+old recovery loop. An unreadable identity remains a blocking observation error.
 The tmux probe always uses `-N`. Observation errors refuse admission.
 
 The private configuration must additionally bind `offlineBaselinePath` and
@@ -277,6 +280,12 @@ Both daemon locks must exist and be free, all five configured ports unused,
 linger enabled, and existing trusted-host/control-lock checks must pass.
 
 The offline observation records DB/WAL byte digests before and after reading.
+It requires an absent or empty WAL and uses immutable read-only SQLite URIs
+to avoid creating WAL/SHM files during check-only. Pending WAL bytes are an
+explicit failure; it never ignores them or performs an automatic checkpoint.
+Quiescent collection and the offline source side of `.backup` use the same
+immutable URI, so taking a backup cannot invalidate the recorded DB/WAL fence
+or obstruct a legitimate resume before unit installation.
 Its exact evidence is journaled and checked again before service mutation.
 No old HTTP readiness or tmux generation is invented: these observations are
 explicitly offline/absent. The stop step rechecks and leaves the stopped old
