@@ -54,6 +54,7 @@ def main(argv=None):
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument('--check-only', action='store_true')
     modes.add_argument('--apply', action='store_true')
+    parser.add_argument('--adopt-legacy-offline', action='store_true')
     args = parser.parse_args(argv)
     assert not os.environ.get('TMUX') and not os.environ.get('TMUX_PANE'), 'Use an ordinary terminal'
     root = args.receipt.resolve()
@@ -85,7 +86,7 @@ def main(argv=None):
         env[name] = value
     command = [tools['node'], str(bundle / 'payload/scripts/ao-upgrade.js'), 'preflight',
                '--release', build['release_id'], '--install-config', str(local / 'install-config.json'),
-               '--adopt-legacy', '--prepared-config', str(local / 'production.yaml'),
+               '--adopt-legacy-offline' if args.adopt_legacy_offline else '--adopt-legacy', '--prepared-config', str(local / 'production.yaml'),
                '--prepared-token', str(local / 'terminal-token')]
     # The trusted read-only preflight stays in the host user namespace so
     # real /proc executable/cmdline identity checks retain their permissions.

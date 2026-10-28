@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { once } from 'node:events';
 import { afterEach, expect, it } from '@jest/globals';
 import { fixtureRoot, configuration } from './release-fixture.js';
 import { fileSha256, durableJson } from '../../scripts/ao/lib/release-manifest.js';
 import { processStartToken } from '../../scripts/ao/lib/release-lock.js';
 import { captureLegacyServices, collectLegacyAdoption, assertLegacyAdoption, legacyExecStart } from '../../scripts/ao/lib/release-legacy-adoption.js';
-import { copyCustodyTree } from '../../scripts/ao/lib/release-systemd.js';
+import { copyCustodyTree, createSystemdReleaseRunner, offlineProcessEntrypoint } from '../../scripts/ao/lib/release-systemd.js';
 
 const roots = []; const children = [];
 afterEach(async () => {
@@ -128,4 +128,162 @@ it('rejects symlinked absolute script arguments instead of silently omitting the
   expect(() => legacyExecStart(command)).toThrow('install_legacy_adoption_mismatch');
   fs.appendFileSync(script, 'changed target bytes');
   expect(() => legacyExecStart(command)).toThrow('install_legacy_adoption_mismatch');
+});
+
+async function stoppedFixture() {
+  const f = await fixture();
+  for (const child of [f.child, f.tmuxChild]) { const done = once(child, 'exit'); child.kill(); await done; }
+  for (const record of Object.values(f.records)) Object.assign(record, { MainPID: '0', ActiveState: 'inactive', SubState: 'dead', ControlGroup: '' });
+  const run = f.dependencies.run;
+  f.dependencies.run = (command, args, options) => command === 'ps' ? '' : run(command, args, options);
+  return f;
+}
+it('offline adoption retains the original inventory and requires a fully stopped installation', async () => {
+  const { config, dependencies } = await stoppedFixture();
+  const bytes = fs.readFileSync(config.legacyInventoryPath);
+  expect(() => collectLegacyAdoption(config, dependencies)).toThrow();
+  const evidence = collectLegacyAdoption(config, dependencies, { offline: true });
+  expect(evidence.adoption_mode).toBe('offline'); expect(evidence.units.every(unit => unit.process === null)).toBe(true);
+  expect(() => assertLegacyAdoption(config, evidence, dependencies)).not.toThrow();
+  expect(fs.readFileSync(config.legacyInventoryPath)).toEqual(bytes);
+});
+it.each(['active', 'activating', 'unit_bytes', 'socket', 'outside_process', 'relative_script', 'symlink_script', 'observation_unknown'])('offline adoption rejects %s without weakening online identity checks', async kind => {
+  const { config, dependencies, records } = await stoppedFixture();
+  const evidence = collectLegacyAdoption(config, dependencies, { offline: true });
+  const unit = Object.values(records)[0];
+  if (kind === 'active') unit.MainPID = String(process.pid);
+  if (kind === 'activating') unit.ActiveState = 'activating';
+  if (kind === 'unit_bytes') fs.appendFileSync(unit.FragmentPath, '# drift');
+  if (kind === 'socket') { const socket = path.join(evidence.tmux.tmpdir, `tmux-${process.getuid()}`, evidence.tmux.socket); fs.mkdirSync(path.dirname(socket), { recursive: true }); fs.writeFileSync(socket, 'stale or live socket refuses adoption'); }
+  if (['outside_process', 'relative_script', 'symlink_script'].includes(kind)) {
+    const run = dependencies.run, entry = evidence.units[0].exec_start;
+    const cwd = path.dirname(entry.files[1].path);
+    let script = kind === 'relative_script' ? path.basename(entry.files[1].path) : entry.files[1].path;
+    if (kind === 'symlink_script') { script = path.join(cwd, 'script-alias'); fs.symlinkSync(entry.files[1].path, script); }
+    dependencies.run = (cmd, args, opts) => cmd === 'ps' ? String(process.pid) : run(cmd, args, opts);
+    dependencies.processEntrypoint = () => ({ pid: process.pid, start_token: processStartToken(process.pid),
+      executable: entry.path, argv: ['sh', script], cwd });
+    expect(() => assertLegacyAdoption(config, evidence, dependencies)).toThrow('outside its stopped unit');
+  }
+  if (kind === 'observation_unknown') { const run = dependencies.run; dependencies.run = (cmd, args, opts) => { if (cmd === 'ps') throw Error('proc observation denied'); return run(cmd, args, opts); }; }
+  expect(() => assertLegacyAdoption(config, evidence, dependencies)).toThrow();
+});
+it('rejects a real unit-external interpreter launched through PATH with relative script argv', async () => {
+  const { root, config, dependencies, script } = await stoppedFixture();
+  const evidence = collectLegacyAdoption(config, dependencies, { offline: true });
+  const child = spawn('legacy-node', [path.basename(script)], { cwd: root, argv0: 'legacy-node',
+    env: { ...process.env, PATH: root + ':/usr/bin:/bin' }, stdio: ['pipe', 'ignore', 'ignore'] });
+  children.push(child); await once(child, 'spawn');
+  const run = dependencies.run;
+  dependencies.run = (cmd, args, opts) => cmd === 'ps' ? String(child.pid) : run(cmd, args, opts);
+  dependencies.processEntrypoint = pid => ({ ...dependencies.processEvidence(pid), cwd: fs.realpathSync(`/proc/${pid}/cwd`) });
+  expect(() => assertLegacyAdoption(config, evidence, dependencies)).toThrow('outside its stopped unit');
+});
+it('resolves a real Node executable alias and script alias before excluding a process', async () => {
+  const { root, config, dependencies, records } = await stoppedFixture();
+  const executable = path.join(root, 'node-alias'), script = path.join(root, 'recovery.mjs'), alias = path.join(root, 'recovery-alias.mjs');
+  // This single real-Node case owns its interpreter; shared CI toolcache modes
+  // need not meet the product's strict executable owner/non-writable policy.
+  const binary = path.join(root, 'node-private'); fs.copyFileSync(process.execPath, binary); fs.chmodSync(binary, 0o700);
+  fs.symlinkSync(binary, executable); fs.writeFileSync(script, 'process.stdin.resume();', { mode: 0o600 }); fs.symlinkSync(script, alias);
+  const child = spawn(executable, [alias], { argv0: 'node-alias', stdio: ['pipe', 'ignore', 'ignore'] }); children.push(child); await once(child, 'spawn');
+  const proc = offlineProcessEntrypoint(child.pid);
+  expect(proc.unrelated).not.toBe(true); expect(proc.executable).toBe(binary);
+  const inventory = JSON.parse(fs.readFileSync(config.legacyInventoryPath));
+  const command = `{ path=${binary} ; argv[]=${binary} ${script} ; ignore_errors=no ; pid=0 ; }`;
+  records[inventory.units[0].unit].ExecStart = command;
+  inventory.units[0].exec_start = legacyExecStart(command);
+  durableJson(config.legacyInventoryPath, inventory); config.legacyInventorySha256 = fileSha256(config.legacyInventoryPath);
+  const evidence = collectLegacyAdoption(config, dependencies, { offline: true });
+  const run = dependencies.run;
+  dependencies.run = (cmd,args,opts) => cmd === 'ps' ? String(child.pid) : run(cmd,args,opts);
+  dependencies.processEntrypoint = pid => offlineProcessEntrypoint(pid);
+  expect(() => assertLegacyAdoption(config, evidence, dependencies)).toThrow('outside its stopped unit');
+});
+it('allows only an authoritative user manager/PAM identity when exe is protected, never an arbitrary unreadable process', () => {
+  const group = '/user.slice/user@1000.service';
+  const deps = { run: (_cmd,args) => args.includes('--property=MainPID') ? '100' : group,
+    startToken: pid => 'token-' + pid, realpath: file => { if(file.startsWith('/proc/')) throw Object.assign(Error('protected'), { code:'EACCES' }); return file; },
+    stat: () => ({ isFile:()=>true,uid:0,mode:0o755 }),
+    read: file => file.endsWith('/cmdline') ? (file.includes('/100/') ? '/usr/lib/systemd/systemd\0--user\0' : '(sd-pam)\0')
+      : file.endsWith('/cgroup') ? `0::${group}/init.scope\n` : '101 (sd-pam) S 100 0 0' };
+  expect(offlineProcessEntrypoint(100,deps).system_manager.pid).toBe(100);
+  expect(offlineProcessEntrypoint(101,deps).system_manager.pid).toBe(100);
+  expect(() => offlineProcessEntrypoint(101,{...deps,read:file=>file.endsWith('/stat')?'101 (renamed) S 99 0':deps.read(file)})).toThrow('not a proven');
+});
+it('does not treat an unrelated oversized inline command argument as an unknown script path', async () => {
+  const { root, config, dependencies } = await stoppedFixture();
+  const evidence = collectLegacyAdoption(config, dependencies, { offline: true });
+  const run = dependencies.run;
+  dependencies.run = (cmd,args,opts) => cmd === 'ps' ? String(process.pid) : run(cmd,args,opts);
+  dependencies.processEntrypoint = () => ({ pid:process.pid,start_token:processStartToken(process.pid),
+    executable:process.execPath,cwd:root,argv:['unrelated','x'.repeat(5000)] });
+  expect(() => assertLegacyAdoption(config,evidence,dependencies)).not.toThrow();
+});
+
+async function offlineRunnerFixture() {
+  const f = await stoppedFixture(); const { root, config } = f;
+  config.restoreProjects = ['fixture']; config.restoreConcurrency = 1;
+  fs.chmodSync(config.configPath, 0o600);
+  fs.mkdirSync(config.dataDir, { recursive: true }); fs.mkdirSync(config.discoveryDir, { recursive: true });
+  for (const file of [path.join(config.dataDir, '.daemon-owner.lock'), path.join(config.discoveryDir, '.daemon-discovery.lock')]) fs.writeFileSync(file, '', { mode: 0o600 });
+  const db = path.join(config.dataDir, 'ao.db');
+  execFileSync('sqlite3', [db, `PRAGMA journal_mode=WAL; CREATE TABLE projects(id TEXT); INSERT INTO projects VALUES('fixture');
+    CREATE TABLE goose_db_version(id INTEGER,version_id INTEGER,is_applied INTEGER); INSERT INTO goose_db_version VALUES(1,43,1);
+    CREATE TABLE spawn_attempt_sessions(session_id TEXT,attempt_id TEXT,project_id TEXT,session_num INTEGER);
+    CREATE TABLE sessions(id TEXT,project_id TEXT,num INTEGER,kind TEXT,harness TEXT,agent_session_id TEXT,runtime_launch_id TEXT,runtime_handle_id TEXT,is_terminated INTEGER,workspace_path TEXT,branch TEXT,created_at TEXT);
+    INSERT INTO sessions VALUES('live','fixture',1,'worker','codex','native-live',NULL,NULL,0,NULL,NULL,'fixed');
+    INSERT INTO sessions VALUES('historical','fixture',2,'worker','codex','native-old',NULL,NULL,1,NULL,NULL,'fixed');`]);
+  const identities = JSON.parse(execFileSync('sqlite3', ['-json', 'file:' + db + '?mode=ro&immutable=1', 'SELECT s.id AS ao_session_id,s.project_id,s.num,s.kind,s.harness,s.agent_session_id AS native_conversation_id,s.runtime_launch_id,s.runtime_handle_id,s.is_terminated,s.workspace_path,s.branch,s.created_at,a.attempt_id FROM sessions s LEFT JOIN spawn_attempt_sessions a ON a.session_id=s.id ORDER BY s.id;'], { encoding: 'utf8' }));
+  config.offlineBaselinePath = path.join(root, 'approved-offline-baseline.json');
+  durableJson(config.offlineBaselinePath, { schema_version: 'ao.legacy-offline-baseline.v1', inventory_sha256: config.legacyInventorySha256,
+    snapshot: { identities, custody: [], projects: ['fixture'], native_cids: identities.map(row => ({ ao_session_id: row.ao_session_id, native_conversation_id: row.native_conversation_id })), database: { schema: 43, integrity: 'ok' } } });
+  config.offlineBaselineSha256 = fileSha256(config.offlineBaselinePath);
+  let ports = ''; const calls = [];
+  const runner = createSystemdReleaseRunner(config, { run: (command, args, options) => {
+    calls.push([command, args]);
+    if (command === 'sqlite3') return execFileSync(command, args, { encoding: 'utf8' }).trim();
+    if (command === 'ss') return ports;
+    if (command === 'loginctl') return 'yes';
+    return f.dependencies.run(command, args, options);
+  }, fetchImpl: async () => { throw Error('Offline preflight must not call old HTTP services'); } });
+  return { ...f, runner, calls, db, setPorts(value) { ports = value; } };
+}
+it('collects offline native identities from a real SQLite DB, makes no service mutation, and fences the journal evidence', async () => {
+  const { config, runner, calls, db } = await offlineRunnerFixture();
+  if (typeof process.execve !== 'function') {
+    await expect(runner.preflight({ mode: 'first', adoptLegacy: true, adoptLegacyOffline: true })).rejects.toThrow('release_node_execve_required'); return;
+  }
+  const filesBefore = fs.readdirSync(config.dataDir).sort();
+  const dbBefore = fileSha256(db);
+  const baseline = await runner.preflight({ mode: 'first', adoptLegacy: true, adoptLegacyOffline: true });
+  expect(baseline.offline).toBe(true); expect(baseline.cids).toEqual(['historical', 'live']);
+  expect(baseline.ready).toBeUndefined(); expect(baseline.tmux).toBeUndefined();
+  await runner.checkLegacy({ evidence: baseline.legacy_adoption });
+  await runner.stop({ legacyAdoption: baseline.legacy_adoption });
+  await runner.quiescent({ offline: true });
+  await runner.backupDatabase({ backupRoot: path.join(config.stateRoot, 'transaction-backup'), offline: true });
+  await expect(runner.checkLegacy({ evidence: baseline.legacy_adoption })).resolves.toBeUndefined();
+  expect(fs.readdirSync(config.dataDir).sort()).toEqual(filesBefore);
+  expect(fileSha256(db)).toBe(dbBefore);
+  expect(calls.some(([command, args]) => command === 'systemctl' && args.includes('stop'))).toBe(false);
+  execFileSync('sqlite3', [db, "UPDATE sessions SET agent_session_id='changed' WHERE id='live'"]);
+  await expect(runner.checkLegacy({ evidence: baseline.legacy_adoption })).rejects.toThrow('approved baseline');
+  expect(fs.existsSync(config.installRoot)).toBe(false);
+});
+it('refuses occupied ports, missing locks and an altered offline baseline before service mutations', async () => {
+  const { config, runner, setPorts } = await offlineRunnerFixture();
+  if (typeof process.execve !== 'function') {
+    await expect(runner.preflight({ mode: 'first', adoptLegacy: true, adoptLegacyOffline: true })).rejects.toThrow('release_node_execve_required'); return;
+  }
+  setPorts('LISTEN 0 128 127.0.0.1:43001 0.0.0.0:*');
+  await expect(runner.preflight({ mode: 'first', adoptLegacy: true, adoptLegacyOffline: true })).rejects.toThrow('ports');
+  setPorts(''); fs.appendFileSync(config.offlineBaselinePath, ' ');
+  await expect(runner.preflight({ mode: 'first', adoptLegacy: true, adoptLegacyOffline: true })).rejects.toThrow('install_legacy_offline_baseline_invalid');
+  config.offlineBaselineSha256 = fileSha256(config.offlineBaselinePath);
+  fs.writeFileSync(path.join(config.dataDir, 'ao.db-wal'), 'pending WAL bytes must never be ignored');
+  await expect(runner.preflight({ mode: 'first', adoptLegacy: true, adoptLegacyOffline: true })).rejects.toThrow('no automatic checkpoint');
+  fs.rmSync(path.join(config.dataDir, 'ao.db-wal'));
+  fs.rmSync(path.join(config.dataDir, '.daemon-owner.lock'));
+  await expect(runner.preflight({ mode: 'first', adoptLegacy: true, adoptLegacyOffline: true })).rejects.toThrow('install_previous_locks_held');
 });

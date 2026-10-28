@@ -254,6 +254,51 @@ Only a durably completed stop permits the recorded fully stopped state, with
 unchanged unit files, ExecStart and digests. A new adoption request cannot reuse
 an existing journal.
 
+### Offline first migration after the old installation has stopped
+
+`--adopt-legacy-offline` explicitly selects the first-migration path when a WSL
+restart has removed the old processes. It is mutually exclusive with
+`--adopt-legacy`; it is rejected for daily upgrades, resume, or an installation
+with `current` or a journal. The original inventory is retained unchanged.
+All four legacy units must be loaded, inactive/dead with MainPID zero and no
+ControlGroup; unit/drop-in bytes, ExecStart and executable/script digests must
+still match that inventory. The recorded old processes must be gone, the actual
+old socket absent, and no matching legacy entrypoint may run outside its unit.
+Process matching resolves `/proc` executable identity and absolute/relative or
+symlinked script arguments; invoking an interpreter through PATH cannot hide an
+old recovery loop. An unreadable identity remains a blocking observation error.
+The sole protected-process exception is the user manager and its PAM helper:
+the system manager's `user@UID.service` MainPID, its reserved `init.scope`,
+parent identity and root-owned manager executable must prove that identity.
+No basename prefilter excludes other processes before actual executable/script
+resolution; unreadable old components or arbitrary processes still refuse admission.
+The tmux probe always uses `-N`. Observation errors refuse admission.
+
+The private configuration must additionally bind `offlineBaselinePath` and
+`offlineBaselineSha256`. This owner-only single-link JSON file has
+`schema_version: "ao.legacy-offline-baseline.v1"`, the original
+`inventory_sha256`, and `snapshot` containing the previously approved
+`identities`, `native_cids`, `custody`, `projects`, and `database` fields.
+It is derived from retained preflight evidence, not silently refreshed from a
+changed database. Current identities/CIDs/custody/schema must match exactly.
+Both daemon locks must exist and be free, all five configured ports unused,
+linger enabled, and existing trusted-host/control-lock checks must pass.
+
+The offline observation records DB/WAL byte digests before and after reading.
+It requires an absent or empty WAL and uses immutable read-only SQLite URIs
+to avoid creating WAL/SHM files during check-only. Pending WAL bytes are an
+explicit failure; it never ignores them or performs an automatic checkpoint.
+Quiescent collection and the offline source side of `.backup` use the same
+immutable URI, so taking a backup cannot invalidate the recorded DB/WAL fence
+or obstruct a legitimate resume before unit installation.
+Its exact evidence is journaled and checked again before service mutation.
+No old HTTP readiness or tmux generation is invented: these observations are
+explicitly offline/absent. The stop step rechecks and leaves the stopped old
+services untouched. The regular backup, migration, explicit restore scope,
+all 17 verify/readback checks, and rollback policy remain unchanged.
+The Owner entrypoint requires the same `--adopt-legacy-offline` flag for its
+check-only and apply commands; the hash-bound apply draft must select it too.
+
 Custody backups and restores explicitly reproduce source directory/file modes
 after copying. Node `fs.cpSync` creates new directories according to the caller's
 umask; with umask 022, a source 0700 directory otherwise becomes 0755. The full

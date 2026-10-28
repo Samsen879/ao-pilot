@@ -21,11 +21,11 @@ export async function runCli(argv, io = { writeStdout: (text) => process.stdout.
   apply = applyRelease, preflight = preflightRelease, runner = null, configLoader = loadInstallConfiguration, env = process.env,
 } = {}) {
   if (argv.includes('--help') || argv.length === 0) {
-    io.writeStdout('Usage: ao-pilot upgrade apply --release <id> [--install-config <file>] [--adopt-legacy] [--resume] [--allow-database-restore]\n       ao-pilot upgrade preflight --release <id> [--install-config <file>] [--adopt-legacy] [--prepared-config <file>] [--prepared-token <file>]\n       ao-pilot upgrade inspect [--install-config <file>]\n');
+    io.writeStdout('Usage: ao-pilot upgrade apply --release <id> [--install-config <file>] [--adopt-legacy | --adopt-legacy-offline] [--resume] [--allow-database-restore]\n       ao-pilot upgrade preflight --release <id> [--install-config <file>] [--adopt-legacy | --adopt-legacy-offline] [--prepared-config <file>] [--prepared-token <file>]\n       ao-pilot upgrade inspect [--install-config <file>]\n');
     return { exitCode: 0 };
   }
   let operation; let releaseId; let file = env.AO_INSTALL_CONFIG ?? path.join(os.homedir(), '.config/ao-pilot/install.json');
-  let resume = false; let restore = false; let adoptLegacy = false;
+  let resume = false; let restore = false; let adoptLegacy = false; let adoptLegacyOffline = false;
   const preparedInputs = {};
   try {
     [operation] = argv;
@@ -35,7 +35,8 @@ export async function runCli(argv, io = { writeStdout: (text) => process.stdout.
       else if (option === '--install-config') file = argv[++i];
       else if (option === '--resume') resume = true;
       else if (option === '--allow-database-restore') restore = true;
-      else if (option === '--adopt-legacy') adoptLegacy = true;
+      else if (option === '--adopt-legacy') { assertRelease(!adoptLegacy, 'invalid_upgrade_argument'); adoptLegacy = true; }
+      else if (option === '--adopt-legacy-offline') { assertRelease(!adoptLegacy, 'invalid_upgrade_argument'); adoptLegacy = true; adoptLegacyOffline = true; }
       else if (option === '--prepared-config') preparedInputs.configPath = argv[++i];
       else if (option === '--prepared-token') preparedInputs.terminalTokenFile = argv[++i];
       else throw Object.assign(new Error('Invalid upgrade argument'), { code: 'invalid_upgrade_argument' });
@@ -58,7 +59,7 @@ export async function runCli(argv, io = { writeStdout: (text) => process.stdout.
     assertRelease(operation !== 'preflight' || !resume && !restore, 'invalid_upgrade_argument');
     const operationRunner = runner ?? createSystemdReleaseRunner(configuration, { preparedInputs: Object.keys(preparedInputs).length ? preparedInputs : null });
     const receipt = await (operation === 'preflight' ? preflight : apply)({ bundle: entry.bundle, expectedEnvelopeSha256: entry.envelope_sha256,
-      configuration, runner: operationRunner, mode: configuration.mode ?? 'daily', resume, allowDatabaseRestore: restore, adoptLegacy });
+      configuration, runner: operationRunner, mode: configuration.mode ?? 'daily', resume, allowDatabaseRestore: restore, adoptLegacy, adoptLegacyOffline });
     io.writeStdout(`${JSON.stringify(receipt, null, 2)}\n`);
     return { exitCode: 0, receipt };
   } catch (error) {

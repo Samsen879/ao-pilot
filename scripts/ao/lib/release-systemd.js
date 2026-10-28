@@ -4,8 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import { adapterConfiguration, adapterConfigPath } from './release-adapter.js';
-import { assertRelease, fileSha256, inventoryTree, objectSha256, readJson, syncTree, verifyReleaseTree } from './release-manifest.js';
+import { assertRelease, fileSha256, inventoryTree, objectSha256, readJson, sha256, syncTree, verifyReleaseTree } from './release-manifest.js';
 import { processStartToken } from './release-lock.js';
 import { isStrictReadyz } from './install-doctor.js';
 import { RELEASE_SERVICES, renderReleaseUnits, validateEnvironmentOverride, stagingHomeEnvironment } from './release-units.js';
@@ -82,6 +83,33 @@ function processEvidence(pid) {
 function processUnchanged(evidence) {
   try { return processStartToken(evidence.pid) === evidence.start_token; } catch (error) {
     if (error.code === 'ENOENT' || error.code === 'ESRCH') return false; throw error;
+  }
+}
+export function offlineProcessEntrypoint(pid, { run, read = file => fs.readFileSync(file, 'utf8'),
+  realpath = fs.realpathSync, startToken = processStartToken, stat = fs.statSync } = {}) {
+  const proc = { pid, start_token: startToken(pid), argv: read(`/proc/${pid}/cmdline`).split('\0').filter(Boolean) };
+  try { return { ...proc, executable: realpath(`/proc/${pid}/exe`), cwd: realpath(`/proc/${pid}/cwd`) }; }
+  catch (error) {
+    if (error.code !== 'EACCES') throw error;
+    // systemd --user and its PAM helper can be non-dumpable. Identify only
+    // these core processes through the system manager's authoritative MainPID
+    // and reserved init.scope; do not filter old entrypoints by mutable names.
+    const unit = `user@${process.getuid()}.service`;
+    const manager = Number(run('systemctl', ['show', unit, '--property=MainPID', '--value']));
+    const group = run('systemctl', ['show', unit, '--property=ControlGroup', '--value']);
+    assertRelease(Number.isSafeInteger(manager) && manager > 1 && group.startsWith('/') && group !== '/', 'install_legacy_process_unknown');
+    const managerToken = startToken(manager);
+    const argv = read(`/proc/${manager}/cmdline`).split('\0').filter(Boolean);
+    assertRelease(argv.length === 2 && path.basename(argv[0]) === 'systemd' && argv[1] === '--user', 'install_legacy_process_unknown');
+    const executable = stat(realpath(argv[0]));
+    const cgroup = read(`/proc/${manager}/cgroup`);
+    assertRelease(executable.isFile() && executable.uid === 0 && (executable.mode & 0o022) === 0
+      && cgroup.trim().split('\n').every(line => line.split(':')[2] === `${group}/init.scope`), 'install_legacy_process_unknown');
+    const text = read(`/proc/${pid}/stat`), fields = text.slice(text.lastIndexOf(')') + 2).split(/\s+/);
+    const pam = Number(fields[1]) === manager && proc.argv.length === 1 && proc.argv[0] === '(sd-pam)'
+      && read(`/proc/${pid}/cgroup`) === cgroup;
+    assertRelease((pid === manager || pam) && startToken(manager) === managerToken, 'install_legacy_process_unknown', 'Unreadable process is not a proven user manager/PAM helper');
+    return { ...proc, unrelated: true, system_manager: { pid: manager, start_token: managerToken, control_group: group } };
   }
 }
 export function probeExclusiveLock(file, { expectHeld, run = spawnSync, flock = 'flock' } = {}) {
@@ -205,7 +233,8 @@ export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun 
   const env = { ...process.env, AO_DATA_DIR: config.dataDir, AO_RUN_FILE: path.join(config.discoveryDir, 'running.json'),
     AO_TMUX_SOCKET: config.tmuxSocket, AO_TMUX_UNIT: unitName('tmux'), AO_TMUX_TMPDIR: config.tmuxTmpdir, TMUX_TMPDIR: config.tmuxTmpdir };
   const ownershipFiles = [path.join(config.dataDir, '.daemon-owner.lock'), path.join(config.discoveryDir, '.daemon-discovery.lock')];
-  const legacyDependencies = { run, processEvidence, processUnchanged };
+  const legacyDependencies = { run, processEvidence, processUnchanged,
+    processEntrypoint: pid => offlineProcessEntrypoint(pid, { run }) };
   async function get(relative, { legacyReadiness = false } = {}) {
     const response = await fetchImpl(new URL(relative, config.daemonURL), { signal: AbortSignal.timeout(5000) });
     const body = await response.json();
@@ -213,8 +242,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun 
       && Array.isArray(body.reasons) && body.reasons.length === 1 && body.reasons[0]?.code === 'tmux_cgroup_violation';
     assertRelease(response.ok || knownDegraded, 'install_observation_failed', `HTTP ${response.status} collecting ${relative}`); return body;
   }
-  function identitySnapshot() {
-    const database = path.join(config.dataDir, 'ao.db');
+  function identitySnapshot(database = path.join(config.dataDir, 'ao.db')) {
     const identities = JSON.parse(run('sqlite3', ['-readonly', '-json', database, 'SELECT s.id AS ao_session_id,s.project_id,s.num,s.kind,s.harness,s.agent_session_id AS native_conversation_id,s.runtime_launch_id,s.runtime_handle_id,s.is_terminated,s.workspace_path,s.branch,s.created_at,a.attempt_id FROM sessions s LEFT JOIN spawn_attempt_sessions a ON a.session_id=s.id ORDER BY s.id;']) || '[]');
     const attempts = JSON.parse(run('sqlite3', ['-readonly', '-json', database, 'SELECT session_id,attempt_id,project_id,session_num FROM spawn_attempt_sessions ORDER BY session_id;']) || '[]');
     const custody = attempts.map((entry) => {
@@ -234,6 +262,70 @@ export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun 
       && (row.native_conversation_id === null || typeof row.native_conversation_id === 'string')), 'install_native_identity_unknown');
     const projects = JSON.parse(run('sqlite3', ['-readonly', '-json', database, 'SELECT id FROM projects ORDER BY id;']) || '[]').map((row) => row.id);
     return { identities, custody, projects, native_cids: identities.map((row) => ({ ao_session_id: row.ao_session_id, native_conversation_id: row.native_conversation_id ?? null })) };
+  }
+  function offlineSnapshot() {
+    const assertStopped = () => {
+      assertRelease(ownershipFiles.every(file => probeExclusiveLock(file, { expectHeld: false,
+        flock: tools?.flock ?? toolResolver('flock', executionEnv) }) === true), 'install_previous_locks_held');
+      const addresses = run('ss', ['-H', '-ltn']).split('\n').filter(Boolean).map(line => line.trim().split(/\s+/)[3]);
+      assertRelease(!addresses.some(address => config.listenPorts.some(port => address.endsWith(`:${port}`))),
+        'install_legacy_offline_not_quiescent', 'Offline adoption requires all configured listening ports to be unused');
+    };
+    const databaseFiles = () => ['ao.db', 'ao.db-wal'].map(name => {
+      const file = path.join(config.dataDir, name);
+      try {
+        const stat = fs.lstatSync(file);
+        assertRelease(stat.isFile() && !stat.isSymbolicLink() && stat.uid === process.getuid(), 'install_legacy_offline_baseline_invalid');
+        return { name, size: stat.size, sha256: fileSha256(file) };
+      } catch (error) { if (error.code === 'ENOENT' && name.endsWith('-wal')) return { name, absent: true }; throw error; }
+    });
+    assertStopped(); const before = databaseFiles();
+    // Even SQLite mode=ro can create WAL/SHM sidecars. Offline check-only uses
+    // immutable reads only after proving there are no pending WAL bytes.
+    // A nonempty WAL is refused, never silently ignored or checkpointed.
+    const databaseURI = offlineDatabaseURI();
+    const identity = identitySnapshot(databaseURI);
+    const output = run('sqlite3', ['-readonly', databaseURI,
+      'SELECT version_id FROM goose_db_version WHERE is_applied=1 ORDER BY id DESC LIMIT 1; PRAGMA integrity_check;']).split('\n');
+    const snapshot = { ...identity, database: { schema: Number(output[0]), integrity: output.slice(1).join('\n') } };
+    assertRelease(snapshot.database.integrity === 'ok' && Number.isSafeInteger(snapshot.database.schema), 'install_baseline_unknown');
+    assertStopped(); assertRelease(objectSha256(before) === objectSha256(databaseFiles()), 'install_baseline_changed', 'Offline database changed during observation');
+    return { snapshot, database_files: before };
+  }
+  function offlineDatabaseURI() {
+    const wal = path.join(config.dataDir, 'ao.db-wal');
+    try { const stat = fs.lstatSync(wal); assertRelease(stat.isFile() && !stat.isSymbolicLink() && stat.size === 0,
+      'install_legacy_offline_wal_pending', 'Offline read-only baseline requires an absent or empty WAL; no automatic checkpoint'); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    return pathToFileURL(path.join(config.dataDir, 'ao.db')).href + '?mode=ro&immutable=1';
+  }
+  function offlineBaseline(legacy) {
+    assertRelease(path.isAbsolute(config.offlineBaselinePath ?? '') && /^[a-f0-9]{64}$/.test(config.offlineBaselineSha256 ?? ''), 'install_legacy_offline_baseline_required');
+    const fd = fs.openSync(config.offlineBaselinePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    let saved;
+    try {
+      const stat = fs.fstatSync(fd), bytes = fs.readFileSync(fd);
+      assertRelease(stat.isFile() && stat.nlink === 1 && stat.uid === process.getuid() && (stat.mode & 0o077) === 0,
+        'install_legacy_offline_baseline_invalid');
+      // fileSha256 would reopen a mutable pathname; hash the bytes read instead.
+      assertRelease(sha256(bytes) === config.offlineBaselineSha256, 'install_legacy_offline_baseline_invalid');
+      saved = JSON.parse(bytes);
+    } finally { fs.closeSync(fd); }
+    const current = offlineSnapshot();
+    assertRelease(run('loginctl', ['show-user', String(process.getuid()), '--property=Linger', '--value']) === 'yes',
+      'install_legacy_offline_not_quiescent', 'Offline adoption requires linger');
+    assertRelease((!fs.existsSync(config.trustedHostDirectory) || fs.readdirSync(config.trustedHostDirectory).length === 0)
+      && controlLocksHaveStartTokens(config.controlPlaneRoot), 'install_legacy_offline_baseline_invalid');
+    assertRelease(saved.schema_version === 'ao.legacy-offline-baseline.v1' && saved.inventory_sha256 === legacy.inventory_sha256
+      && objectSha256(saved.snapshot) === objectSha256(current.snapshot), 'install_baseline_changed', 'Offline database identities/custody/schema differ from the approved baseline');
+    return current;
+  }
+  function recheckLegacy(evidence, stopped = false) {
+    assertLegacyAdoption(config, evidence, legacyDependencies, { stopped });
+    if (evidence.adoption_mode === 'offline') {
+      const current = offlineBaseline(evidence);
+      assertRelease(objectSha256(current) === objectSha256(evidence.offline_snapshot), 'install_baseline_changed', 'Offline database changed before switch');
+    }
   }
   async function observe({ releaseRoot, baselineOnly = false, legacy = null, tmuxProbeRoot = releaseRoot }) {
     const manifest = verifyReleaseTree(releaseRoot);
@@ -342,18 +434,29 @@ export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun 
   }
   return {
     configuration: config, observe, checkTools,
-    async preflight({ releaseRoot, probeRoot = releaseRoot, mode, adoptLegacy = false }) {
+    async preflight({ releaseRoot, probeRoot = releaseRoot, mode, adoptLegacy = false, adoptLegacyOffline = false }) {
+      assertRelease(!adoptLegacyOffline || adoptLegacy && mode === 'first', 'install_legacy_adoption_not_first');
       assertFirstRestoreConfiguration(config, mode);
       checkTools();
       // Reject missing/unsafe capabilities before any stop; new components
       // enforce the same credential and exact browser origin on every upgrade.
       try { createTerminalAuth(preparedInputs?.terminalTokenFile ?? config.terminalTokenFile, config.terminalOrigin, true); }
       catch { assertRelease(false, 'install_terminal_auth_input_invalid'); }
-      const legacy = adoptLegacy ? collectLegacyAdoption(config, legacyDependencies) : null;
+      const legacy = adoptLegacy ? collectLegacyAdoption(config, legacyDependencies, { offline: adoptLegacyOffline }) : null;
       assertRelease(typeof process.execve === 'function', 'release_node_execve_required');
       const configStat = fs.lstatSync(preparedInputs?.configPath ?? config.configPath);
       assertRelease(configStat.isFile() && !configStat.isSymbolicLink() && configStat.uid === process.getuid()
         && (configStat.mode & 0o077) === 0, 'install_config_missing');
+      if (adoptLegacyOffline) {
+        const current = offlineBaseline(legacy);
+        legacy.offline_snapshot = current;
+        const baseline = { ...current.snapshot, services: {}, cids: current.snapshot.identities.map(row => row.ao_session_id),
+          legacy_adoption: legacy, offline: true };
+        assertFirstRestoreScope(config, mode, baseline); firstRestorePlan(config, baseline);
+        for (const id of config.restoreLastSessionIDs ?? []) verifyRestoreFiles(config, baseline, id);
+        recheckLegacy(legacy);
+        return baseline;
+      }
       const baseline = await observe({ releaseRoot, baselineOnly: true, legacy, tmuxProbeRoot: probeRoot });
       assertRelease(Array.isArray(baseline.cids) && baseline.database?.integrity === 'ok' && baseline.tmux?.server_start_token && Array.isArray(baseline.native_cids) && Array.isArray(baseline.custody), 'install_baseline_unknown');
       if (legacy) assertRelease(baseline.tmux.server_pid === legacy.tmux.pid && baseline.tmux.server_start_token === legacy.tmux.start_token
@@ -363,22 +466,23 @@ export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun 
       for(const id of config.restoreLastSessionIDs??[]) verifyRestoreFiles(config,baseline,id);
       return { ...baseline, ...(legacy ? { legacy_adoption: legacy } : {}) };
     },
-    async quiescent() {
+    async quiescent({ offline = false } = {}) {
       assertRelease(ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: false, flock: tools?.flock ?? toolResolver('flock', executionEnv) }) === true), 'install_previous_locks_held');
-      const database = path.join(config.dataDir, 'ao.db');
+      const database = offline ? offlineDatabaseURI() : path.join(config.dataDir, 'ao.db');
       const rows = JSON.parse(run('sqlite3', ['-readonly', '-json', database, 'SELECT id FROM sessions ORDER BY id;']) || '[]');
       const state = run('sqlite3', ['-readonly', database, 'SELECT version_id FROM goose_db_version WHERE is_applied=1 ORDER BY id DESC LIMIT 1; PRAGMA integrity_check;']).split('\n');
       assertRelease(ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: false, flock: tools?.flock ?? toolResolver('flock', executionEnv) }) === true), 'install_previous_locks_held');
-      return { ...identitySnapshot(), cids: rows.map((row) => row.id), database: { schema: Number(state[0]), integrity: state.slice(1).join('\n') } };
+      return { ...identitySnapshot(database), cids: rows.map((row) => row.id), database: { schema: Number(state[0]), integrity: state.slice(1).join('\n') } };
     },
-    async backupDatabase({ backupRoot }) {
+    async backupDatabase({ backupRoot, offline = false }) {
       fs.mkdirSync(backupRoot, { recursive: true, mode: 0o700 });
       const backup = path.join(backupRoot, 'ao.db');
       assertRelease(!backup.includes("'"), 'unsafe_install_configuration');
-      run('sqlite3', [path.join(config.dataDir, 'ao.db'), `.backup '${backup}'`]);
+      const database = offline ? offlineDatabaseURI() : path.join(config.dataDir, 'ao.db');
+      run('sqlite3', [...(offline ? ['-readonly'] : []), database, `.backup '${backup}'`]);
       assertRelease(run('sqlite3', ['-readonly', backup, 'PRAGMA integrity_check;']) === 'ok'
         && ownershipFiles.every((file) => probeExclusiveLock(file, { expectHeld: false, flock: tools?.flock ?? toolResolver('flock', executionEnv) }) === true)
-        && run('sqlite3', ['-readonly', backup, 'SELECT id FROM sessions ORDER BY id;']) === run('sqlite3', ['-readonly', path.join(config.dataDir, 'ao.db'), 'SELECT id FROM sessions ORDER BY id;']), 'install_database_backup_invalid');
+        && run('sqlite3', ['-readonly', backup, 'SELECT id FROM sessions ORDER BY id;']) === run('sqlite3', ['-readonly', database, 'SELECT id FROM sessions ORDER BY id;']), 'install_database_backup_invalid');
       const recoverySource = path.join(config.dataDir, 'spawn-attempts');
       const recovery = { exists: fs.existsSync(recoverySource), path: path.join(backupRoot, 'spawn-attempts') };
       if (recovery.exists) {
@@ -390,9 +494,10 @@ export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun 
       const backupFd = fs.openSync(backup, 'r'); try { fs.fsyncSync(backupFd); } finally { fs.closeSync(backupFd); }
       return { path: backup, sha256: fileSha256(backup), recovery, completed_at: new Date().toISOString() };
     },
-    async checkLegacy({ evidence, stopped = false }) { assertLegacyAdoption(config, evidence, legacyDependencies, { stopped }); },
+    async checkLegacy({ evidence, stopped = false }) { recheckLegacy(evidence, stopped); },
     async stop({ legacyAdoption = null, legacyStopped = false } = {}) {
-      if (legacyAdoption) assertLegacyAdoption(config, legacyAdoption, legacyDependencies, { stopped: legacyStopped });
+      if (legacyAdoption) recheckLegacy(legacyAdoption, legacyStopped);
+      if (legacyAdoption?.adoption_mode === 'offline') return; // Already stopped; never boot the old daemon.
       const owned = [];
       for (const name of ['adapter', 'session-recovery', 'dashboard', 'runtime']) {
         const raw = systemctl(['show', unitName(name), '--property=MainPID', '--value']);
