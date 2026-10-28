@@ -36,11 +36,11 @@ export function legacyExecStart(text) {
   return { path: match[1], argv, files };
 }
 
-export function captureLegacyServices(config, { run, processEvidence, processUnchanged }) {
+export function captureLegacyServices(config, { run, processEvidence, processUnchanged }, { offline = false } = {}) {
   return components.map((component) => {
     const unit = `${config.namespace}-${component}.service`;
     const p = properties(run('systemctl', ['--user', 'show', unit,
-      '--property=Id,LoadState,MainPID,ExecStart,FragmentPath,DropInPaths,NeedDaemonReload,ControlGroup']));
+      `--property=Id,LoadState,MainPID,ExecStart,FragmentPath,DropInPaths,NeedDaemonReload,ControlGroup${offline ? ',ActiveState,SubState' : ''}`]));
     assertRelease(p.Id === unit && p.LoadState === 'loaded' && p.NeedDaemonReload === 'no'
       && p.FragmentPath === path.join(config.unitRoot, unit), code);
     const drops = p.DropInPaths ? p.DropInPaths.split(/\s+/) : [];
@@ -48,6 +48,8 @@ export function captureLegacyServices(config, { run, processEvidence, processUnc
     const execStart = legacyExecStart(p.ExecStart);
     const files = [p.FragmentPath, ...drops].map(fileIdentity);
     const pid = Number(p.MainPID); assertRelease(Number.isSafeInteger(pid) && pid >= 0, code);
+    if (offline) assertRelease(pid === 0 && p.ActiveState === 'inactive' && p.SubState === 'dead'
+      && !p.ControlGroup, code, `Offline adoption requires inactive legacy unit: ${unit}`);
     let process = null;
     if (pid > 0) {
       const proc = processEvidence(pid);
@@ -89,12 +91,29 @@ export function readLegacyInventory(config) {
     return { sha256: digest, units: inventory.units, tmux };
   } finally { fs.closeSync(fd); }
 }
-export function collectLegacyAdoption(config, dependencies) {
+export function collectLegacyAdoption(config, dependencies, { offline = false } = {}) {
   const inventory = readLegacyInventory(config);
-  const units = captureLegacyServices(config, dependencies);
-  assertRelease(objectSha256(units) === objectSha256(inventory.units), code);
-  assertLegacyTmux(inventory.tmux, dependencies);
-  return { inventory_sha256: inventory.sha256, units, tmux: inventory.tmux };
+  const units = captureLegacyServices(config, dependencies, { offline });
+  const expected = offline ? inventory.units.map(unit => ({ ...unit, process: null })) : inventory.units;
+  assertRelease(objectSha256(units) === objectSha256(expected), code, 'Legacy unit/ExecStart/file/process evidence differs from inventory');
+  if (offline) assertOfflineLegacyAbsent(inventory, dependencies);
+  else assertLegacyTmux(inventory.tmux, dependencies);
+  return { inventory_sha256: inventory.sha256, units, tmux: inventory.tmux, ...(offline ? { adoption_mode: 'offline' } : {}) };
+}
+function assertOfflineLegacyAbsent(inventory, dependencies) {
+  assertRelease(inventory.units.every(unit => !unit.process || !dependencies.processUnchanged(unit.process))
+    && !dependencies.processUnchanged(inventory.tmux), code, 'Recorded legacy process still exists');
+  const socket = path.join(inventory.tmux.tmpdir, `tmux-${process.getuid()}`, inventory.tmux.socket);
+  try { fs.lstatSync(socket); assertRelease(false, code, 'Offline adoption requires absent legacy tmux socket'); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  // -N is mandatory: this observation must never create a server.
+  dependencies.run('tmux', ['-S', socket, '-N', 'display-message', '-p', '#{pid}'], { acceptedExitCodes: [1] });
+  const rows = dependencies.run('ps', ['-ww', '-u', String(process.getuid()), '-o', 'pid=,args=']).split('\n');
+  const starts = inventory.units.map(unit => unit.exec_start.argv.join(' '));
+  assertRelease(!rows.some(row => {
+    const command = row.trim().replace(/^\d+\s+/, '');
+    return starts.some(start => command === start || command.startsWith(`${start} `));
+  }), code, 'Legacy component is running outside its stopped unit');
 }
 function assertLegacyTmux(tmux, dependencies, stopped = false) {
   const socket = path.join(tmux.tmpdir, `tmux-${process.getuid()}`, tmux.socket);
@@ -113,11 +132,14 @@ function assertLegacyTmux(tmux, dependencies, stopped = false) {
 }
 export function assertLegacyAdoption(config, evidence, dependencies, { stopped = false } = {}) {
   const inventory = readLegacyInventory(config);
+  const offline = evidence?.adoption_mode === 'offline';
+  const recorded = offline ? inventory.units.map(unit => ({ ...unit, process: null })) : inventory.units;
   assertRelease(evidence?.inventory_sha256 === inventory.sha256
-    && objectSha256(evidence.units) === objectSha256(inventory.units)
+    && objectSha256(evidence.units) === objectSha256(recorded)
     && objectSha256(evidence.tmux) === objectSha256(inventory.tmux), code);
-  const current = captureLegacyServices(config, dependencies);
+  const current = captureLegacyServices(config, dependencies, { offline });
   const expected = stopped ? evidence.units.map((unit) => ({ ...unit, process: null })) : evidence.units;
   assertRelease(objectSha256(current) === objectSha256(expected), code);
-  assertLegacyTmux(inventory.tmux, dependencies, stopped);
+  if (offline) assertOfflineLegacyAbsent(inventory, dependencies);
+  else assertLegacyTmux(inventory.tmux, dependencies, stopped);
 }

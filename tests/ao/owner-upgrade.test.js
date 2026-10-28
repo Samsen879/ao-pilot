@@ -36,6 +36,12 @@ it('only explicit apply delegates to the hash-bound Owner draft after preflight'
   const { root, marker } = fixture(); const run = spawnSync('/usr/bin/python3', ['-I', script, '--receipt', root, '--apply'], { encoding: 'utf8' });
   expect(run.status).toBe(0); expect(fs.readFileSync(marker, 'utf8')).toBe('owner only');
 });
+it('requires explicit offline adoption and forwards it to the read-only preflight without apply', () => {
+  const { root, marker } = fixture();
+  const run = spawnSync('/usr/bin/python3', ['-I', script, '--receipt', root, '--check-only', '--adopt-legacy-offline'], { encoding: 'utf8' });
+  expect(run.status).toBe(0); expect(JSON.parse(run.stdout).argv).toContain('--adopt-legacy-offline');
+  expect(fs.existsSync(marker)).toBe(false);
+});
 it('rejects a changed Owner apply draft without running it', () => {
   const { root, marker, apply } = fixture(); fs.appendFileSync(apply, '# drift\n');
   const run = spawnSync('/usr/bin/python3', ['-I', script, '--receipt', root, '--apply'], { encoding: 'utf8' });

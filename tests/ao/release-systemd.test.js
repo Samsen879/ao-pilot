@@ -97,6 +97,11 @@ it('requires the explicit CLI adoption option and forwards it only to apply', as
   const options = { configLoader: () => config, apply: async (args) => { supplied = args; return { result: 'passed' }; } };
   expect((await runCli(['apply', '--release', id, '--adopt-legacy'], io, options)).exitCode).toBe(0);
   expect(supplied.adoptLegacy).toBe(true);
+  expect((await runCli(['apply', '--release', id, '--adopt-legacy-offline'], io, options)).exitCode).toBe(0);
+  expect(supplied).toMatchObject({ adoptLegacy: true, adoptLegacyOffline: true });
+  expect((await runCli(['apply', '--release', id, '--adopt-legacy', '--adopt-legacy-offline'], io, options)).exitCode).toBe(2);
+  expect((await runCli(['apply', '--release', id, '--adopt-legacy-offline', '--adopt-legacy'], io, options)).exitCode).toBe(2);
+  expect((await runCli(['inspect', '--adopt-legacy-offline'], io, options)).exitCode).toBe(2);
   expect((await runCli(['inspect', '--adopt-legacy'], io, options)).exitCode).toBe(2);
 });
 

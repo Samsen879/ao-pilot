@@ -13,12 +13,17 @@ function fixture() { const root = fixtureRoot(); roots.push(root); return { root
 const apply = (bundle, config, runner, extra = {}) => applyRelease({ bundle: bundle.bundle, expectedEnvelopeSha256: bundle.envelopeSha, configuration: config, runner, ...extra });
 
 describe('unified release transaction on real temporary filesystem with fake services', () => {
-  it.each(['current', 'journal', 'dangling_current'])('refuses explicit legacy adoption with an existing %s before service calls', async (kind) => {
+  it.each([{ mode: 'daily', adoptLegacy: true }, { mode: 'first', adoptLegacy: false }, { mode: 'first', adoptLegacy: true, resume: true }])('rejects offline adoption outside an explicit new first transaction: %j', async extra => {
+    const { root, config } = fixture(); const bundle = createBundle(root); const runner = fakeRunner(root);
+    await expect(apply(bundle, config, runner, { ...extra, adoptLegacyOffline: true })).rejects.toThrow('install_legacy_adoption_not_first');
+    expect(runner.calls).toEqual([]); expect(fs.existsSync(config.installRoot)).toBe(false);
+  });
+  it.each(['current', 'journal', 'dangling_current'].flatMap(kind => [false, true].map(offline => [kind, offline])))('refuses explicit legacy adoption with an existing %s (offline=%s) before service calls', async (kind, offline) => {
     const { root, config } = fixture(); const bundle = createBundle(root); const runner = fakeRunner(root);
     fs.mkdirSync(config.installRoot);
     if (kind === 'journal') durableJson(path.join(config.installRoot, 'install-journal.json'), { phase: 'committed' });
     else fs.symlinkSync(kind === 'current' ? bundle.payload : '/missing-target', path.join(config.installRoot, 'current'));
-    await expect(apply(bundle, config, runner, { mode: 'first', adoptLegacy: true })).rejects.toMatchObject({ code: 'install_legacy_adoption_not_first' });
+    await expect(apply(bundle, config, runner, { mode: 'first', adoptLegacy: true, adoptLegacyOffline: offline })).rejects.toMatchObject({ code: 'install_legacy_adoption_not_first' });
     expect(runner.calls).toEqual([]);
   });
   it('journals adoption at preflight and rechecks it before the first service mutation', async () => {

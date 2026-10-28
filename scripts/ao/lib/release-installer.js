@@ -159,10 +159,11 @@ async function garbageCollect({ root, lock, runner, protectedTargets, remove = f
 }
 export async function applyRelease({
   bundle, expectedEnvelopeSha256, configuration, runner = null, mode = 'daily',
-  resume = false, allowDatabaseRestore = false, adoptLegacy = false, now = () => new Date().toISOString(),
+  resume = false, allowDatabaseRestore = false, adoptLegacy = false, adoptLegacyOffline = false, now = () => new Date().toISOString(),
   inject = () => {}, removeOldRelease = fs.rmSync,
 } = {}) {
   assertRelease(['daily', 'first'].includes(mode), 'invalid_install_mode');
+  assertRelease(!adoptLegacyOffline || adoptLegacy && mode === 'first' && !resume, 'install_legacy_adoption_not_first');
   runner ??= createSystemdReleaseRunner(configuration);
   const tools = await runner.checkTools?.();
   const root = path.resolve(configuration.installRoot);
@@ -213,9 +214,10 @@ export async function applyRelease({
     if (!journal) {
       prior = pointer(root, 'current'); previous = pointer(root, 'previous');
       oldManifest = prior ? verifyReleaseTree(path.join(root, prior)) : null;
-      const baseline = await runner.preflight({ releaseRoot: prior ? path.join(root, prior) : path.join(bundle, 'payload'), probeRoot: path.join(bundle, 'payload'), manifest, mode, adoptLegacy });
+      const baseline = await runner.preflight({ releaseRoot: prior ? path.join(root, prior) : path.join(bundle, 'payload'), probeRoot: path.join(bundle, 'payload'), manifest, mode, adoptLegacy, adoptLegacyOffline });
       assertRelease(Array.isArray(baseline.cids) && baseline.database?.integrity === 'ok', 'install_baseline_unknown');
       assertRelease(!adoptLegacy || baseline.legacy_adoption && typeof runner.checkLegacy === 'function', 'install_legacy_inventory_required');
+      assertRelease(!adoptLegacyOffline || baseline.legacy_adoption?.adoption_mode === 'offline', 'install_legacy_offline_baseline_required');
       inject('preflight', { manifest });
       const transactionId = lock.owner.transaction_id;
       txDir = path.join(transactionRoot, transactionId); fs.mkdirSync(txDir, { mode: 0o700 });
@@ -379,8 +381,9 @@ export async function applyRelease({
     throw error;
   } finally { lock.release(); }
 }
-export async function preflightRelease({ bundle, expectedEnvelopeSha256, configuration, runner = null, mode = 'daily', adoptLegacy = false } = {}) {
+export async function preflightRelease({ bundle, expectedEnvelopeSha256, configuration, runner = null, mode = 'daily', adoptLegacy = false, adoptLegacyOffline = false } = {}) {
   assertRelease(['daily', 'first'].includes(mode), 'invalid_install_mode');
+  assertRelease(!adoptLegacyOffline || adoptLegacy && mode === 'first', 'install_legacy_adoption_not_first');
   runner ??= createSystemdReleaseRunner(configuration);
   await runner.checkTools?.();
   const verified = verifyReleaseEnvelope(bundle, expectedEnvelopeSha256);
@@ -388,8 +391,9 @@ export async function preflightRelease({ bundle, expectedEnvelopeSha256, configu
   assertRelease(verified.manifest.platform.os === process.platform && verified.manifest.platform.arch === process.arch, 'release_platform_unsupported');
   const root = path.resolve(configuration.installRoot), prior = pointer(root, 'current');
   assertRelease(!adoptLegacy || mode === 'first' && !prior && !entryExists(path.join(root, 'current')) && !entryExists(path.join(root, 'install-journal.json')), 'install_legacy_adoption_not_first');
-  const baseline = await runner.preflight({ releaseRoot: prior ? path.join(root, prior) : path.join(bundle, 'payload'), probeRoot: path.join(bundle, 'payload'), manifest: verified.manifest, mode, adoptLegacy });
+  const baseline = await runner.preflight({ releaseRoot: prior ? path.join(root, prior) : path.join(bundle, 'payload'), probeRoot: path.join(bundle, 'payload'), manifest: verified.manifest, mode, adoptLegacy, adoptLegacyOffline });
   assertRelease(Array.isArray(baseline.cids) && baseline.database?.integrity === 'ok', 'install_baseline_unknown');
+  assertRelease(!adoptLegacyOffline || baseline.legacy_adoption?.adoption_mode === 'offline', 'install_legacy_offline_baseline_required');
   return { status: 'passed', phase: 'preflight', release_id: verified.manifest.release_id, tools: await runner.checkTools?.(), baseline, production_mutated: false };
 }
 export { pointer as readReleasePointer };
