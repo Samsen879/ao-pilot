@@ -185,7 +185,7 @@ it('resolves a real Node executable alias and script alias before excluding a pr
   // This single real-Node case owns its interpreter; shared CI toolcache modes
   // need not meet the product's strict executable owner/non-writable policy.
   const binary = path.join(root, 'node-private'); fs.copyFileSync(process.execPath, binary); fs.chmodSync(binary, 0o700);
-  fs.symlinkSync(binary, executable); fs.writeFileSync(script, 'process.stdin.resume();'); fs.symlinkSync(script, alias);
+  fs.symlinkSync(binary, executable); fs.writeFileSync(script, 'process.stdin.resume();', { mode: 0o600 }); fs.symlinkSync(script, alias);
   const child = spawn(executable, [alias], { argv0: 'node-alias', stdio: ['pipe', 'ignore', 'ignore'] }); children.push(child); await once(child, 'spawn');
   const proc = offlineProcessEntrypoint(child.pid);
   expect(proc.unrelated).not.toBe(true); expect(proc.executable).toBe(binary);
