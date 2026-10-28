@@ -208,6 +208,15 @@ it('allows only an authoritative user manager/PAM identity when exe is protected
   expect(offlineProcessEntrypoint(101,deps).system_manager.pid).toBe(100);
   expect(() => offlineProcessEntrypoint(101,{...deps,read:file=>file.endsWith('/stat')?'101 (renamed) S 99 0':deps.read(file)})).toThrow('not a proven');
 });
+it('does not treat an unrelated oversized inline command argument as an unknown script path', async () => {
+  const { root, config, dependencies } = await stoppedFixture();
+  const evidence = collectLegacyAdoption(config, dependencies, { offline: true });
+  const run = dependencies.run;
+  dependencies.run = (cmd,args,opts) => cmd === 'ps' ? String(process.pid) : run(cmd,args,opts);
+  dependencies.processEntrypoint = () => ({ pid:process.pid,start_token:processStartToken(process.pid),
+    executable:process.execPath,cwd:root,argv:['unrelated','x'.repeat(5000)] });
+  expect(() => assertLegacyAdoption(config,evidence,dependencies)).not.toThrow();
+});
 
 async function offlineRunnerFixture() {
   const f = await stoppedFixture(); const { root, config } = f;

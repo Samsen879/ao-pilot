@@ -121,7 +121,7 @@ function assertOfflineLegacyAbsent(inventory, dependencies) {
       if (!scripts.length) return proc.executable === fs.realpathSync(unit.exec_start.path);
       return proc.argv.slice(1).some(arg => {
         try { return scripts.includes(fs.realpathSync(path.resolve(proc.cwd, arg))); }
-        catch (error) { if (['ENOENT', 'ENOTDIR'].includes(error.code)) return false; throw error; }
+        catch (error) { if (['ENOENT', 'ENOTDIR', 'ENAMETOOLONG'].includes(error.code)) return false; throw error; }
       });
     });
     assertRelease(!matches, code, 'Legacy component is running outside its stopped unit');
