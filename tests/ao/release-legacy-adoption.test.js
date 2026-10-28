@@ -182,12 +182,15 @@ it('rejects a real unit-external interpreter launched through PATH with relative
 it('resolves a real Node executable alias and script alias before excluding a process', async () => {
   const { root, config, dependencies, records } = await stoppedFixture();
   const executable = path.join(root, 'node-alias'), script = path.join(root, 'recovery.mjs'), alias = path.join(root, 'recovery-alias.mjs');
-  fs.symlinkSync(process.execPath, executable); fs.writeFileSync(script, 'process.stdin.resume();'); fs.symlinkSync(script, alias);
+  // This single real-Node case owns its interpreter; shared CI toolcache modes
+  // need not meet the product's strict executable owner/non-writable policy.
+  const binary = path.join(root, 'node-private'); fs.copyFileSync(process.execPath, binary); fs.chmodSync(binary, 0o700);
+  fs.symlinkSync(binary, executable); fs.writeFileSync(script, 'process.stdin.resume();'); fs.symlinkSync(script, alias);
   const child = spawn(executable, [alias], { argv0: 'node-alias', stdio: ['pipe', 'ignore', 'ignore'] }); children.push(child); await once(child, 'spawn');
   const proc = offlineProcessEntrypoint(child.pid);
-  expect(proc.unrelated).not.toBe(true); expect(proc.executable).toBe(fs.realpathSync(process.execPath));
+  expect(proc.unrelated).not.toBe(true); expect(proc.executable).toBe(binary);
   const inventory = JSON.parse(fs.readFileSync(config.legacyInventoryPath));
-  const command = `{ path=${process.execPath} ; argv[]=${process.execPath} ${script} ; ignore_errors=no ; pid=0 ; }`;
+  const command = `{ path=${binary} ; argv[]=${binary} ${script} ; ignore_errors=no ; pid=0 ; }`;
   records[inventory.units[0].unit].ExecStart = command;
   inventory.units[0].exec_start = legacyExecStart(command);
   durableJson(config.legacyInventoryPath, inventory); config.legacyInventorySha256 = fileSha256(config.legacyInventoryPath);
