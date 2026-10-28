@@ -85,6 +85,33 @@ function processUnchanged(evidence) {
     if (error.code === 'ENOENT' || error.code === 'ESRCH') return false; throw error;
   }
 }
+export function offlineProcessEntrypoint(pid, { run, read = file => fs.readFileSync(file, 'utf8'),
+  realpath = fs.realpathSync, startToken = processStartToken, stat = fs.statSync } = {}) {
+  const proc = { pid, start_token: startToken(pid), argv: read(`/proc/${pid}/cmdline`).split('\0').filter(Boolean) };
+  try { return { ...proc, executable: realpath(`/proc/${pid}/exe`), cwd: realpath(`/proc/${pid}/cwd`) }; }
+  catch (error) {
+    if (error.code !== 'EACCES') throw error;
+    // systemd --user and its PAM helper can be non-dumpable. Identify only
+    // these core processes through the system manager's authoritative MainPID
+    // and reserved init.scope; do not filter old entrypoints by mutable names.
+    const unit = `user@${process.getuid()}.service`;
+    const manager = Number(run('systemctl', ['show', unit, '--property=MainPID', '--value']));
+    const group = run('systemctl', ['show', unit, '--property=ControlGroup', '--value']);
+    assertRelease(Number.isSafeInteger(manager) && manager > 1 && group.startsWith('/') && group !== '/', 'install_legacy_process_unknown');
+    const managerToken = startToken(manager);
+    const argv = read(`/proc/${manager}/cmdline`).split('\0').filter(Boolean);
+    assertRelease(argv.length === 2 && path.basename(argv[0]) === 'systemd' && argv[1] === '--user', 'install_legacy_process_unknown');
+    const executable = stat(realpath(argv[0]));
+    const cgroup = read(`/proc/${manager}/cgroup`);
+    assertRelease(executable.isFile() && executable.uid === 0 && (executable.mode & 0o022) === 0
+      && cgroup.trim().split('\n').every(line => line.split(':')[2] === `${group}/init.scope`), 'install_legacy_process_unknown');
+    const text = read(`/proc/${pid}/stat`), fields = text.slice(text.lastIndexOf(')') + 2).split(/\s+/);
+    const pam = Number(fields[1]) === manager && proc.argv.length === 1 && proc.argv[0] === '(sd-pam)'
+      && read(`/proc/${pid}/cgroup`) === cgroup;
+    assertRelease((pid === manager || pam) && startToken(manager) === managerToken, 'install_legacy_process_unknown', 'Unreadable process is not a proven user manager/PAM helper');
+    return { ...proc, unrelated: true, system_manager: { pid: manager, start_token: managerToken, control_group: group } };
+  }
+}
 export function probeExclusiveLock(file, { expectHeld, run = spawnSync, flock = 'flock' } = {}) {
   // flock never deletes or rewrites the lock, and never waits for a held lock.
   if (!fs.existsSync(file) || !fs.lstatSync(file).isFile()) return null;
@@ -206,18 +233,8 @@ export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun 
   const env = { ...process.env, AO_DATA_DIR: config.dataDir, AO_RUN_FILE: path.join(config.discoveryDir, 'running.json'),
     AO_TMUX_SOCKET: config.tmuxSocket, AO_TMUX_UNIT: unitName('tmux'), AO_TMUX_TMPDIR: config.tmuxTmpdir, TMUX_TMPDIR: config.tmuxTmpdir };
   const ownershipFiles = [path.join(config.dataDir, '.daemon-owner.lock'), path.join(config.discoveryDir, '.daemon-discovery.lock')];
-  const legacyDependencies = { run, processEvidence, processUnchanged, processEntrypoint(pid, units) {
-    const start_token = processStartToken(pid);
-    const argv = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').filter(Boolean);
-    const comm = fs.readFileSync(`/proc/${pid}/comm`, 'utf8').trim();
-    const names = new Set(units.flatMap(unit => unit.exec_start.files.map(file => path.basename(file.path))));
-    // Select candidate old executables/interpreters/scripts before privileged
-    // exe/cwd reads. E.g. systemd --user is non-dumpable but unrelated.
-    // Every candidate still requires its real /proc identity; errors block.
-    const unrelated = !names.has(comm) && !argv.some(arg => names.has(path.basename(arg)));
-    return { pid, start_token, argv, unrelated, ...(unrelated ? {} : {
-      executable: fs.realpathSync(`/proc/${pid}/exe`), cwd: fs.realpathSync(`/proc/${pid}/cwd`) }) };
-  } };
+  const legacyDependencies = { run, processEvidence, processUnchanged,
+    processEntrypoint: pid => offlineProcessEntrypoint(pid, { run }) };
   async function get(relative, { legacyReadiness = false } = {}) {
     const response = await fetchImpl(new URL(relative, config.daemonURL), { signal: AbortSignal.timeout(5000) });
     const body = await response.json();

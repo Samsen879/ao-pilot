@@ -7,7 +7,7 @@ import { fixtureRoot, configuration } from './release-fixture.js';
 import { fileSha256, durableJson } from '../../scripts/ao/lib/release-manifest.js';
 import { processStartToken } from '../../scripts/ao/lib/release-lock.js';
 import { captureLegacyServices, collectLegacyAdoption, assertLegacyAdoption, legacyExecStart } from '../../scripts/ao/lib/release-legacy-adoption.js';
-import { copyCustodyTree, createSystemdReleaseRunner } from '../../scripts/ao/lib/release-systemd.js';
+import { copyCustodyTree, createSystemdReleaseRunner, offlineProcessEntrypoint } from '../../scripts/ao/lib/release-systemd.js';
 
 const roots = []; const children = [];
 afterEach(async () => {
@@ -178,6 +178,35 @@ it('rejects a real unit-external interpreter launched through PATH with relative
   dependencies.run = (cmd, args, opts) => cmd === 'ps' ? String(child.pid) : run(cmd, args, opts);
   dependencies.processEntrypoint = pid => ({ ...dependencies.processEvidence(pid), cwd: fs.realpathSync(`/proc/${pid}/cwd`) });
   expect(() => assertLegacyAdoption(config, evidence, dependencies)).toThrow('outside its stopped unit');
+});
+it('resolves a real Node executable alias and script alias before excluding a process', async () => {
+  const { root, config, dependencies, records } = await stoppedFixture();
+  const executable = path.join(root, 'node-alias'), script = path.join(root, 'recovery.mjs'), alias = path.join(root, 'recovery-alias.mjs');
+  fs.symlinkSync(process.execPath, executable); fs.writeFileSync(script, 'process.stdin.resume();'); fs.symlinkSync(script, alias);
+  const child = spawn(executable, [alias], { argv0: 'node-alias', stdio: ['pipe', 'ignore', 'ignore'] }); children.push(child); await once(child, 'spawn');
+  const proc = offlineProcessEntrypoint(child.pid);
+  expect(proc.unrelated).not.toBe(true); expect(proc.executable).toBe(fs.realpathSync(process.execPath));
+  const inventory = JSON.parse(fs.readFileSync(config.legacyInventoryPath));
+  const command = `{ path=${process.execPath} ; argv[]=${process.execPath} ${script} ; ignore_errors=no ; pid=0 ; }`;
+  records[inventory.units[0].unit].ExecStart = command;
+  inventory.units[0].exec_start = legacyExecStart(command);
+  durableJson(config.legacyInventoryPath, inventory); config.legacyInventorySha256 = fileSha256(config.legacyInventoryPath);
+  const evidence = collectLegacyAdoption(config, dependencies, { offline: true });
+  const run = dependencies.run;
+  dependencies.run = (cmd,args,opts) => cmd === 'ps' ? String(child.pid) : run(cmd,args,opts);
+  dependencies.processEntrypoint = pid => offlineProcessEntrypoint(pid);
+  expect(() => assertLegacyAdoption(config, evidence, dependencies)).toThrow('outside its stopped unit');
+});
+it('allows only an authoritative user manager/PAM identity when exe is protected, never an arbitrary unreadable process', () => {
+  const group = '/user.slice/user@1000.service';
+  const deps = { run: (_cmd,args) => args.includes('--property=MainPID') ? '100' : group,
+    startToken: pid => 'token-' + pid, realpath: file => { if(file.startsWith('/proc/')) throw Object.assign(Error('protected'), { code:'EACCES' }); return file; },
+    stat: () => ({ isFile:()=>true,uid:0,mode:0o755 }),
+    read: file => file.endsWith('/cmdline') ? (file.includes('/100/') ? '/usr/lib/systemd/systemd\0--user\0' : '(sd-pam)\0')
+      : file.endsWith('/cgroup') ? `0::${group}/init.scope\n` : '101 (sd-pam) S 100 0 0' };
+  expect(offlineProcessEntrypoint(100,deps).system_manager.pid).toBe(100);
+  expect(offlineProcessEntrypoint(101,deps).system_manager.pid).toBe(100);
+  expect(() => offlineProcessEntrypoint(101,{...deps,read:file=>file.endsWith('/stat')?'101 (renamed) S 99 0':deps.read(file)})).toThrow('not a proven');
 });
 
 async function offlineRunnerFixture() {

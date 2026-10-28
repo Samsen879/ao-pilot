@@ -267,6 +267,11 @@ old socket absent, and no matching legacy entrypoint may run outside its unit.
 Process matching resolves `/proc` executable identity and absolute/relative or
 symlinked script arguments; invoking an interpreter through PATH cannot hide an
 old recovery loop. An unreadable identity remains a blocking observation error.
+The sole protected-process exception is the user manager and its PAM helper:
+the system manager's `user@UID.service` MainPID, its reserved `init.scope`,
+parent identity and root-owned manager executable must prove that identity.
+No basename prefilter excludes other processes before actual executable/script
+resolution; unreadable old components or arbitrary processes still refuse admission.
 The tmux probe always uses `-N`. Observation errors refuse admission.
 
 The private configuration must additionally bind `offlineBaselinePath` and
