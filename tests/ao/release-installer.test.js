@@ -13,6 +13,32 @@ function fixture() { const root = fixtureRoot(); roots.push(root); return { root
 const apply = (bundle, config, runner, extra = {}) => applyRelease({ bundle: bundle.bundle, expectedEnvelopeSha256: bundle.envelopeSha, configuration: config, runner, ...extra });
 
 describe('unified release transaction on real temporary filesystem with fake services', () => {
+  it.each([0o077, 0o027, 0o002])('preserves exact manifest permissions under installer umask %i', async mask => {
+    const { root, config } = fixture();
+    const bundle = createBundle(root, { extraFiles: { 'private/nested/sentinel': 'private bytes' }, directoryModes: { private: 0o700, 'private/nested': 0o750 } });
+    const previous = process.umask(mask);
+    try {
+      expect(await apply(bundle, config, fakeRunner(root))).toMatchObject({ phase: 'committed', result: 'passed' });
+      const installed = path.join(config.installRoot, 'releases', bundle.manifest.release_id);
+      expect(inventoryTree(installed)).toEqual(bundle.manifest.files);
+      expect(fs.statSync(path.join(installed, 'private')).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(path.join(installed, 'private/nested')).mode & 0o777).toBe(0o750);
+      expect(fs.statSync(path.join(installed, 'native/ao')).mode & 0o777).toBe(0o755);
+      expect(fs.statSync(path.join(installed, 'runtime/agent-orchestrator.lock.json')).mode & 0o777).toBe(0o600);
+      expect(fs.statSync(path.join(config.stateRoot, 'install.env')).mode & 0o777).toBe(0o600);
+      expect(process.umask()).toBe(mask);
+    } finally { process.umask(previous); }
+  });
+  it.each(['mode', 'bytes'])('still rejects copied payload %s drift before service mutation', async kind => {
+    const { root, config } = fixture(); const bundle = createBundle(root); const runner = fakeRunner(root);
+    await expect(apply(bundle, config, runner, { inject: (stage, { partial }) => {
+      if (stage !== 'partial') return;
+      if (kind === 'mode') fs.chmodSync(path.join(partial, 'native'), 0o700);
+      else fs.appendFileSync(path.join(partial, 'native/ao'), 'tampered');
+    } })).rejects.toMatchObject({ code: 'release_payload_digest_mismatch' });
+    expect(runner.calls).not.toContain('stop');
+    expect(readReleasePointer(config.installRoot, 'current')).toBeNull();
+  });
   it.each([{ mode: 'daily', adoptLegacy: true }, { mode: 'first', adoptLegacy: false }, { mode: 'first', adoptLegacy: true, resume: true }])('rejects offline adoption outside an explicit new first transaction: %j', async extra => {
     const { root, config } = fixture(); const bundle = createBundle(root); const runner = fakeRunner(root);
     await expect(apply(bundle, config, runner, { ...extra, adoptLegacyOffline: true })).rejects.toThrow('install_legacy_adoption_not_first');

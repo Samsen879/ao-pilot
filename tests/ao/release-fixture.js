@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileSha256, inventoryTree, objectSha256, durableJson, readJson } from '../../scripts/ao/lib/release-manifest.js';
 export function fixtureRoot() { return fs.mkdtempSync(path.join(os.tmpdir(), 'ao-release-test-')); }
-export function createBundle(root, { version = '1.0.0', commit = 'a'.repeat(40), native = '#!/bin/sh\nexit 0\n', schema = 43, extraFiles = {} } = {}) {
+export function createBundle(root, { version = '1.0.0', commit = 'a'.repeat(40), native = '#!/bin/sh\nexit 0\n', schema = 43, extraFiles = {}, directoryModes = {} } = {}) {
   const bundle = path.join(root, `bundle-${version}`); const payload = path.join(bundle, 'payload');
   fs.mkdirSync(payload, { recursive: true });
   for (const [file, bytes] of Object.entries({
@@ -20,6 +20,7 @@ export function createBundle(root, { version = '1.0.0', commit = 'a'.repeat(40),
   const lock = { runtime_ref: 'fixture.runtime', artifact: { repository: 'https://example.invalid/fixture', version, ref: { commit_sha: 'f'.repeat(40), tree_sha: 'e'.repeat(40) } },
     compatibility: { platforms: [{ os: 'linux', arch: process.arch, binary_sha256: daemonSha }] } };
   fs.mkdirSync(path.join(payload, 'runtime')); durableJson(path.join(payload, 'runtime/agent-orchestrator.lock.json'), lock);
+  for (const [directory, mode] of Object.entries(directoryModes)) fs.chmodSync(path.join(payload, directory), mode);
   const files = inventoryTree(payload);
   const scopes = { daemon: ['native/ao'], cli: ['bin/ao-pilot.js', 'scripts/ao-session.js'], dashboard: ['scripts/ao-dashboard.js', 'browser/dist.js'], adapter: ['adapter/server.mjs'] };
   const manifest = {

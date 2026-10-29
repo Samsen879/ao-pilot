@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { adapterConfiguration, adapterConfigPath } from './release-adapter.js';
 import { acquireInstallLock } from './release-lock.js';
 import { verifyReleaseEnvelope } from './release-builder.js';
-import { assertRelease, durableJson, fileSha256, objectSha256, readJson, syncDirectory, syncTree, verifyReleaseTree } from './release-manifest.js';
+import { assertRelease, confined, durableJson, fileSha256, objectSha256, readJson, syncDirectory, syncTree, verifyReleaseTree } from './release-manifest.js';
 import { backupAndInstallUnits, restoreUnitBackup, writeReleaseUnits, renderReleaseUnits, validateEnvironmentOverride, stagingHomeEnvironment } from './release-units.js';
 import { inspectInstall, nativeBindingsUnchanged } from './install-doctor.js';
 import { publicInstallReceipt, savePrivateInstallReceipt } from './release-receipt.js';
@@ -242,6 +242,15 @@ export async function applyRelease({
         lock.assertOwned(); durableJson(partialOwner, { schema_version: 'ao.install-partial.v1', release_id: manifest.release_id,
           envelope_sha256: expectedEnvelopeSha256, nonce: lock.owner.nonce });
         fs.cpSync(path.join(bundle, 'payload'), partial, { recursive: true, dereference: false, preserveTimestamps: true, verbatimSymlinks: true });
+        // cpSync applies the caller's umask to newly created directories. Restore
+        // only their authenticated modes; leave private files and umask intact.
+        for (const entry of manifest.files.filter(file => file.type === 'directory')) {
+          lock.assertOwned();
+          const directory = confined(partial, entry.path);
+          assertRelease(fs.realpathSync(directory) === directory, 'unsafe_release_path');
+          const fd = fs.openSync(directory, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+          try { fs.fchmodSync(fd, entry.mode); } finally { fs.closeSync(fd); }
+        }
         inject('partial', { partial }); lock.assertOwned();
         verifyReleaseTree(partial, manifestSha256); syncTree(partial);
         fs.renameSync(partial, final); syncDirectory(path.dirname(final)); fs.rmSync(partialOwner, { force: true });
