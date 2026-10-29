@@ -69,6 +69,7 @@ it('exports immutable archive and packs once; verifier and installer consume the
   const result = await buildRelease(options); const { manifest, envelope } = verifyReleaseEnvelope(result.bundle, result.envelope_sha256);
   expect(manifest.files.some((file) => file.path === 'WORKTREE_ONLY')).toBe(false);
   expect(manifest.inputs.root_lock_sha256).toBe(sha256('{"lockfileVersion":3}'));
+  expect(manifest.components.cli.recovery_bindings).toBe('managed-data-dir-v1');
   expect(options.calls.filter(([command, args]) => command === 'npm' && args[0] === 'pack')).toHaveLength(1);
   expect(envelope.npm_tarball_sha256).toBe(result.npm_tarball_sha256);
   expect(verifyReleaseTree(path.join(result.bundle, 'payload')).components.adapter.entrypoint).toBe('adapter/server.mjs');
