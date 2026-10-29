@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { MANAGED_RECOVERY_BINDINGS_CONTRACT } from './session-recovery.js';
 import { verifyPackedRelease, payloadOnlyPath } from './release-tarball.js';
 import { NATIVE_ADAPTER_SOURCE } from './release-adapter.js';
 import { materializeRegisteredReleaseFiles } from './release-inputs.js';
@@ -144,6 +145,7 @@ export async function buildRelease({
       const componentFiles = files.filter((entry) => spec.roots.some((root) => entry.path === root || entry.path.startsWith(`${root}/`)));
       return [name, { entrypoint: spec.entrypoint, source_commit: resolved, files: componentFiles, sha256: objectSha256(componentFiles) }];
     }));
+    components.cli.recovery_bindings = MANAGED_RECOVERY_BINDINGS_CONTRACT;
     const manifest = {
       schema_version: 'ao.release.v1', release_id: `${version}+${resolved}`, version, commit: resolved, tree,
       built_at: now(), platform: { os: 'linux', arch: process.arch }, toolchain,

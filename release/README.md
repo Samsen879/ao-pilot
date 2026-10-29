@@ -1,5 +1,14 @@
 # Schema compatibility inputs
 
+Unified releases authenticate the recovery service launch contract in
+`components.cli.recovery_bindings: "managed-data-dir-v1"`. Their immutable entry
+passes an explicit bindings file inside the managed DataDir and does not read
+or adopt unrelated global pins. Preflight and rollback validate each loaded
+release's own contract: older manifests without this field require the exact
+legacy `serve` argv, while the new contract requires the exact scoped
+`--bindings` argument. Unknown contracts are rejected; the existing bindings
+configuration/transcript identity checks remain mandatory.
+
 For `verify:fresh-clone --tarball ... --sha256 ... --release-payload ...`, the archived annotated-tag
 lock still exercises bootstrap, offline replay, reinstall and PATH-shadow
 rejection. Lifecycle acceptance then binds the installed package's complete

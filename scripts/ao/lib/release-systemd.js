@@ -1,5 +1,5 @@
 import {verifyRestoreFiles} from './restore-files.js';
-import { managedBindingsPath } from './session-recovery.js';
+import { managedBindingsPath, MANAGED_RECOVERY_BINDINGS_CONTRACT } from './session-recovery.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -199,10 +199,12 @@ export function firstRestorePlan(config, baseline) {
   return plan;
 }
 export function assertLoadedProcess({ proc, root, manifest, component, config }) {
+  const recoveryContract = manifest.components.cli.recovery_bindings;
+  assertRelease(recoveryContract === undefined || recoveryContract === MANAGED_RECOVERY_BINDINGS_CONTRACT, 'install_loaded_release_drift');
   const entry = component === 'session-recovery' ? 'scripts/ao-session.js' : manifest.components[component].entrypoint;
   const executable = component === 'daemon' ? path.join(root, entry) : manifest.toolchain.node_executable;
   const args = component === 'daemon' ? [executable, 'daemon']
-    : [executable, path.join(root, entry), ...(component === 'session-recovery' ? ['serve', '--bindings', managedBindingsPath(config.dataDir)] : [])];
+    : [executable, path.join(root, entry), ...(component === 'session-recovery' ? ['serve', ...(recoveryContract === MANAGED_RECOVERY_BINDINGS_CONTRACT ? ['--bindings', managedBindingsPath(config.dataDir)] : [])] : [])];
   assertRelease(proc.executable === fs.realpathSync(executable) && JSON.stringify(proc.argv) === JSON.stringify(args)
     && proc.cwd === (component === 'daemon' ? fs.realpathSync(config.dataDir) : root)
     && proc.environment.AO_RELEASE_ID === manifest.release_id && proc.environment.AO_RELEASE_ROOT === root

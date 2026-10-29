@@ -13,6 +13,7 @@ test('managed recovery isolates foreign legacy pins without changing their ident
     fs.writeFileSync(oldConfig,'old');fs.writeFileSync(config,'new');
     writeBindings(legacy,{schema_version:'ao.session-recovery.v1',configPath:oldConfig,sessions:{foreign:{conversationId:id}}});
     const original=fs.readFileSync(legacy), scoped=managedBindingsPath(path.join(dir,'data'));
+    expect(managedBindingsPath(path.join(dir,'data')+'/')).toBe(scoped);
     expect(()=>readBindings(legacy,config)).toThrow('identity mismatch');
     const manifest=readBindings(scoped,config),adapter={validate:jest.fn(),alive:jest.fn(),restore:jest.fn()};
     expect((await recoverySweep(manifest,adapter,{restore:true})).results).toEqual([]);
