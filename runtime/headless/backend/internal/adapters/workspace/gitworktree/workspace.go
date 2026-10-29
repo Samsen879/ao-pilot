@@ -663,7 +663,7 @@ func (w *Workspace) countIgnoredPaths(ctx context.Context, worktree string) (int
 	return count, nil
 }
 
-func (w *Workspace) materializePreservedPaths(ctx context.Context, worktree, commit string) error {
+func (w *Workspace) materializePreservedPaths(ctx context.Context, worktree, commit string, recovery *recoveryRecord) error {
 	if w.minFreeBytes > 0 {
 		w.materializeMu.Lock()
 		defer w.materializeMu.Unlock()
@@ -674,6 +674,32 @@ func (w *Workspace) materializePreservedPaths(ctx context.Context, worktree, com
 	}
 	if err != nil {
 		return fmt.Errorf("gitworktree: inspect preserved sparse checkout: %w", err)
+	}
+	patternPath, err := w.run(ctx, w.binary, "-C", worktree, "rev-parse", "--path-format=absolute", "--git-path", "info/sparse-checkout")
+	if err != nil {
+		return err
+	}
+	patterns := strings.TrimSpace(string(patternPath))
+	_, patternErr := os.Lstat(patterns)
+	missingPatterns := errors.Is(patternErr, os.ErrNotExist)
+	if patternErr != nil && !missingPatterns {
+		return patternErr
+	}
+	if missingPatterns {
+		// Repair only the missing file in this snapshotted linked registration.
+		// A foreign/common path or a symlink must never redirect the repair.
+		if recovery == nil || patterns != filepath.Join(recovery.GitDir, "info", "sparse-checkout") {
+			return fmt.Errorf("missing sparse patterns outside owned recovery registration; retained")
+		}
+		if st, e := os.Lstat(filepath.Dir(patterns)); e == nil && (!st.IsDir() || st.Mode()&os.ModeSymlink != 0) {
+			return fmt.Errorf("unsafe sparse patterns directory; retained")
+		} else if e != nil && !errors.Is(e, os.ErrNotExist) {
+			return e
+		}
+		cone, e := w.run(ctx, w.binary, "-C", worktree, "config", "--bool", "core.sparseCheckoutCone")
+		if e != nil || strings.TrimSpace(string(cone)) != "true" {
+			return fmt.Errorf("missing non-cone sparse patterns require manual recovery; retained")
+		}
 	}
 	out, err = w.run(ctx, w.binary, "-C", worktree, "diff-tree", "--root", "--no-commit-id", "--no-renames", "--name-only", "-r", "-z", commit)
 	if err != nil {
@@ -689,13 +715,39 @@ func (w *Workspace) materializePreservedPaths(ctx context.Context, worktree, com
 			directories = append(directories, dir)
 		}
 	}
-	if len(directories) == 0 {
+	if missingPatterns {
+		// The old cone is unknown. Retain every physical directory, including
+		// ignored content, plus replay paths. Leaf cones also retain parent files.
+		keep := make(map[string]bool)
+		for _, directory := range directories {
+			keep[directory] = true
+		}
+		for name, file := range recovery.Files {
+			if name != "." && file.Kind == "directory" {
+				keep[name] = true
+			}
+		}
+		for directory := range keep {
+			for parent := filepath.ToSlash(filepath.Dir(directory)); parent != "."; parent = filepath.ToSlash(filepath.Dir(parent)) {
+				delete(keep, parent)
+			}
+		}
+		directories = directories[:0]
+		for directory := range keep {
+			directories = append(directories, directory)
+		}
+		slices.Sort(directories)
+	}
+	if len(directories) == 0 && !missingPatterns {
 		return nil // Root files are already in every cone.
 	}
 	if w.minFreeBytes > 0 {
-		out, err = w.run(ctx, w.binary, "-C", worktree, "sparse-checkout", "list")
-		if err != nil {
-			return fmt.Errorf("gitworktree: list restored cones: %w", err)
+		out = nil
+		if !missingPatterns {
+			out, err = w.run(ctx, w.binary, "-C", worktree, "sparse-checkout", "list")
+			if err != nil {
+				return fmt.Errorf("gitworktree: list restored cones: %w", err)
+			}
 		}
 		all := append([]string(nil), directories...)
 		for _, line := range strings.Split(strings.TrimSuffix(string(out), "\n"), "\n") {
@@ -728,6 +780,9 @@ func (w *Workspace) materializePreservedPaths(ctx context.Context, worktree, com
 		}
 	}
 	args := append([]string{"-C", worktree, "sparse-checkout", "add", "--skip-checks", "--"}, directories...)
+	if missingPatterns {
+		args = sparseCheckoutSetArgs(worktree, directories)
+	}
 	if _, err := w.run(ctx, w.binary, args...); err != nil {
 		return fmt.Errorf("gitworktree: materialize preserved cones: %w", err)
 	}
