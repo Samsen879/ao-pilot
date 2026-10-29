@@ -5,6 +5,10 @@ import readline from 'node:readline';
 import crypto from 'node:crypto';
 
 export const defaultBindingsPath = () => path.join(os.homedir(), '.config/ao-pilot/session-recovery.json');
+export function managedBindingsPath(dataDir) {
+  if (typeof dataDir !== 'string' || !path.isAbsolute(dataDir) || path.resolve(dataDir) !== dataDir) throw new Error('Invalid managed recovery DataDir; HOLD');
+  return path.join(dataDir, 'session-recovery.json');
+}
 export const PINNED_RESTORE_CLI_GUIDANCE = 'Managed AO CLI compatibility update: use `ao status --json` only for daemon health; use `ao session ls --all --project "$AO_PROJECT_ID" --json` for coordination; claim an existing PR with `ao session claim-pr "$AO_SESSION_ID" <pr-number-or-url> --project "$AO_PROJECT_ID"`; use `ao send --session <session-id> --message <message>` and run command-specific `--help` before relying on older syntax.';
 export function hasCompleteManagedRuntimeBinding(env = process.env) {
   return ['AO_MANAGED_RUNTIME_BINARY','AO_MANAGED_RUNTIME_BINARY_SHA256','AO_MANAGED_RUNTIME_DATA_DIR','AO_MANAGED_RUNTIME_RUN_FILE'].every(name => Boolean(env[name]));

@@ -127,6 +127,13 @@ it('checks real native cwd=DataDir while release provenance comes from immutable
     ...['HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'AO_TMUX_SOCKET', 'AO_TMUX_UNIT', 'AO_TMUX_TMPDIR', 'TMUX_TMPDIR', 'AO_DASHBOARD_ADAPTER_CONFIG'].map((key) => ({ ...proc, environment: { ...proc.environment, [key]: '/host-profile' } }))]) {
     expect(() => assertLoadedProcess({ ...evidence, proc: changed })).toThrow('install_loaded_release_drift');
   }
+  const node = fs.realpathSync(manifest.toolchain.node_executable);
+  const recovery = { ...proc, executable: node, executable_sha256: manifest.toolchain.node_sha256, cwd: bundle.payload,
+    argv: [node, path.join(bundle.payload, 'scripts/ao-session.js'), 'serve', '--bindings', path.join(config.dataDir, 'session-recovery.json')] };
+  expect(() => assertLoadedProcess({ ...evidence, component: 'session-recovery', proc: recovery })).not.toThrow();
+  for (const argv of [recovery.argv.slice(0, 3), [...recovery.argv.slice(0, 4), '/other-install/session-recovery.json']]) {
+    expect(() => assertLoadedProcess({ ...evidence, component: 'session-recovery', proc: { ...recovery, argv } })).toThrow('install_loaded_release_drift');
+  }
 });
 it('requires explicit first restore inputs before effects and never restores in daily mode', async () => {
   const { config } = fixture(); let calls = 0;

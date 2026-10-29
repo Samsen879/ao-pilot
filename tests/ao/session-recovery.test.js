@@ -2,10 +2,27 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {test,expect,jest} from '@jest/globals';
-import {verifyTranscript,recoverySweep,readBindings,writeBindings,withRecoveryLock} from '../../scripts/ao/lib/session-recovery.js';
+import {verifyTranscript,recoverySweep,readBindings,writeBindings,withRecoveryLock,managedBindingsPath} from '../../scripts/ao/lib/session-recovery.js';
 import {runCli} from '../../bin/ao-pilot.js';
 import {buildDashboardUnits} from '../../scripts/ao/lib/dashboard-service.js';
 const id='01a086a5-2450-7931-9ca2-c1ba5625efdd';
+test('managed recovery isolates foreign legacy pins without changing their identity or dropping scoped checks',async()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ao-recovery-scope-'));
+  try {
+    const oldConfig=path.join(dir,'old.yaml'), config=path.join(dir,'new.yaml'), legacy=path.join(dir,'legacy-pins.json');
+    fs.writeFileSync(oldConfig,'old');fs.writeFileSync(config,'new');
+    writeBindings(legacy,{schema_version:'ao.session-recovery.v1',configPath:oldConfig,sessions:{foreign:{conversationId:id}}});
+    const original=fs.readFileSync(legacy), scoped=managedBindingsPath(path.join(dir,'data'));
+    expect(()=>readBindings(legacy,config)).toThrow('identity mismatch');
+    const manifest=readBindings(scoped,config),adapter={validate:jest.fn(),alive:jest.fn(),restore:jest.fn()};
+    expect((await recoverySweep(manifest,adapter,{restore:true})).results).toEqual([]);
+    expect(adapter.restore).not.toHaveBeenCalled();expect(fs.readFileSync(legacy)).toEqual(original);
+    expect(managedBindingsPath(path.join(dir,'other-data'))).not.toBe(scoped);
+    writeBindings(scoped,{schema_version:'ao.session-recovery.v1',configPath:oldConfig,sessions:{foreign:{conversationId:id}}});
+    expect(()=>readBindings(scoped,config)).toThrow('identity mismatch');
+    expect(()=>managedBindingsPath('relative')).toThrow('HOLD');
+  }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});
 test('requires exact original header ID/cwd and rejects conflicting legacy identity',async()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ao-recovery-test-'));
   try {
