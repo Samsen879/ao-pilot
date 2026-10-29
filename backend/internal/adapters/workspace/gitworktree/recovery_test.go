@@ -6,11 +6,110 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"syscall"
 	"testing"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 )
+
+func TestReplayRepairsMissingSparsePatternsWithoutLosingExistingFiles(t *testing.T) {
+	for _, mode := range []string{"success", "capacity", "after-set-failure", "no-capacity"} {
+		t.Run(mode, func(t *testing.T) {
+			_, _, w := newSparseRepoFixture(t)
+			ctx := context.Background()
+			cfg := ports.WorkspaceConfig{ProjectID: "project", SessionID: "missing-patterns", Branch: "feature/missing-patterns", BaseBranch: "main", SparseCheckout: []string{"keep", "outside", "untouched"}}
+			info, err := w.Create(ctx, cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeSparseFile(t, info.Path, "outside/edited.txt", "saved WIP\n")
+			ref, err := w.StashUncommitted(ctx, info)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runGitTest(t, info.Path, "reset", "--hard", "HEAD")
+			runGitTest(t, info.Path, "sparse-checkout", "set", "keep", "untouched")
+			writeSparseFile(t, info.Path, ".gitignore", "local-private/\n")
+			writeSparseFile(t, info.Path, "local-private/db", "unique ignored bytes")
+			patterns := runGitTest(t, info.Path, "rev-parse", "--path-format=absolute", "--git-path", "info/sparse-checkout")
+			if err := os.Remove(patterns); err != nil {
+				t.Fatal(err)
+			}
+			before, err := recoveryInventory(info.Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			inode, _ := os.Stat(info.Path)
+			gitdir := runGitTest(t, info.Path, "rev-parse", "--absolute-git-dir")
+			metadata, err := recoveryInventory(gitdir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mode == "capacity" || mode == "no-capacity" {
+				w.minFreeBytes = 1
+				w.availableBytes = func(string) (uint64, error) {
+					if mode == "no-capacity" {
+						return 0, nil
+					}
+					return 1 << 40, nil
+				}
+			}
+			if mode == "after-set-failure" {
+				real := w.run
+				w.run = func(ctx context.Context, binary string, args ...string) ([]byte, error) {
+					out, err := real(ctx, binary, args...)
+					if err == nil && len(args) > 3 && args[2] == "sparse-checkout" && args[3] == "set" {
+						return out, fmt.Errorf("injected after patterns repair")
+					}
+					return out, err
+				}
+			}
+			err = w.ApplyPreserved(ctx, info, ref)
+			if mode == "after-set-failure" || mode == "no-capacity" {
+				if err == nil {
+					t.Fatal("expected guarded failure")
+				}
+				after, e := recoveryInventory(info.Path)
+				if e != nil || !reflect.DeepEqual(before, after) {
+					t.Fatal("original files changed", e)
+				}
+				got, e := recoveryInventory(gitdir)
+				if e != nil || !reflect.DeepEqual(metadata, got) {
+					t.Fatal("Git metadata changed", e)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			after, err := recoveryInventory(info.Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !sameRecoveryFiles(before, after, false) {
+				t.Fatal("unrelated or ignored files changed")
+			}
+			if b, _ := os.ReadFile(filepath.Join(info.Path, "outside/edited.txt")); string(b) != "saved WIP\n" {
+				t.Fatal("preserved WIP not replayed")
+			}
+			newInode, _ := os.Stat(info.Path)
+			if !os.SameFile(inode, newInode) {
+				t.Fatal("worktree rebuilt")
+			}
+			if !strings.Contains(runGitTest(t, info.Path, "sparse-checkout", "list"), "untouched") {
+				t.Fatal("existing materialized directory excluded")
+			}
+			if err := w.VerifyRestore(ctx, info); err != nil {
+				t.Fatal(err)
+			}
+			if err := w.CommitRestore(ctx, info); err != nil {
+				t.Fatal(err)
+			}
+			runGitTest(t, info.Path, "rev-parse", "--verify", ref)
+		})
+	}
+}
 
 func TestRecoveryReplayFailureRestoresAllBytesIncludingIgnored(t *testing.T) {
 	_, _, w := newSparseRepoFixture(t)
