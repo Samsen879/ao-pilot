@@ -813,7 +813,7 @@ func (w *Workspace) applyPreservedSafely(ctx context.Context, info ports.Workspa
 			err = errors.Join(err, w.RollbackRestore(context.WithoutCancel(ctx), info))
 		}
 	}()
-	if e = w.materializePreservedPaths(ctx, info.Path, commit); e != nil {
+	if e = w.materializePreservedPaths(ctx, info.Path, commit, r); e != nil {
 		return e
 	}
 	if e = w.runCherryPickNoCommit(ctx, info.Path, commit); e != nil {
