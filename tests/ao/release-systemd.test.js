@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, expect, it } from '@jest/globals';
 import { configuration, fixtureRoot, createBundle } from './release-fixture.js';
-import { createSystemdReleaseRunner, validateInstallConfiguration, probeExclusiveLock, assertLoadedProcess, assertFirstRestoreConfiguration, firstRestorePlan } from '../../scripts/ao/lib/release-systemd.js';
+import { createSystemdReleaseRunner, validateInstallConfiguration, probeExclusiveLock, assertLoadedProcess, assertFirstRestoreConfiguration, firstRestorePlan, checkNativeRecoveryConfiguration } from '../../scripts/ao/lib/release-systemd.js';
 import { prepareStaging, assertStagingIsolation } from '../../scripts/verify-install-staging.js';
 import { runCli } from '../../scripts/ao-upgrade.js';
 import { validateEnvironmentOverride } from '../../scripts/ao/lib/release-units.js';
@@ -137,6 +137,9 @@ it('checks real native cwd=DataDir while release provenance comes from immutable
   for (const argv of [recovery.argv.slice(0, 3), [...recovery.argv.slice(0, 4), '/other-install/session-recovery.json']]) {
     expect(() => assertLoadedProcess({ ...evidence, component: 'session-recovery', proc: { ...recovery, argv } })).toThrow('install_loaded_release_drift');
   }
+  manifest.components.cli.recovery_bindings = 'native-daemon-v1';
+  expect(() => assertLoadedProcess({ ...evidence, component: 'session-recovery', proc: { ...recovery, argv: [...recovery.argv, '--native-daemon'] } })).not.toThrow();
+  expect(() => assertLoadedProcess({ ...evidence, component: 'session-recovery', proc: recovery })).toThrow('install_loaded_release_drift');
   manifest.components.cli.recovery_bindings = 'unknown';
   expect(() => assertLoadedProcess({ ...evidence, component: 'session-recovery', proc: recovery })).toThrow('install_loaded_release_drift');
 });
@@ -216,4 +219,13 @@ it('restores only live by default, permits explicit historical IDs, and schedule
  const baseline={projects:['one'],identities:[['orc','orchestrator',0],['worker','worker',0],['last-2','worker',0],['last-4','worker',1],['historical','worker',1]].map(([ao_session_id,kind,is_terminated])=>({ao_session_id,kind,is_terminated,project_id:'one'}))};
  expect(firstRestorePlan(config,baseline)).toEqual([{project:'one',ids:['orc']},{project:'one',ids:['worker']},{project:'one',ids:['last-2']},{project:'one',ids:['last-4']}]);
  expect(firstRestorePlan({...config,firstRestoreSessionIDs:undefined,restoreLastSessionIDs:undefined},baseline).flatMap(row=>row.ids).sort()).toEqual(['last-2','orc','worker']);
+});
+
+it('checks native observer YAML/schema before status using the prepared config and exact namespace',async()=>{
+ const {root,config}=fixture(),bundle=createBundle(root);bundle.manifest.components.cli.recovery_bindings='native-daemon-v1';const prepared=path.join(root,'prepared-native.yaml');fs.writeFileSync(prepared,'projects: {}');let options,validated;
+ const loadConfig=file=>{validated=file;};
+ const run=(binary,args,o)=>{expect(binary).toBe(path.join(bundle.payload,'native/ao'));expect(args).toEqual(['status','--json']);options=o;return JSON.stringify({state:'stopped',dataDir:config.dataDir,runFile:path.join(config.discoveryDir,'running.json')});};
+ await expect(checkNativeRecoveryConfiguration(config,bundle.manifest,bundle.payload,{run,env:{},preparedConfigPath:prepared,loadConfig})).resolves.toBeUndefined();expect(validated).toBe(prepared);expect(options.env.AO_CONFIG_PATH).toBe(prepared);expect(options.env.AO_MANAGED_RUNTIME_DATA_DIR).toBe(config.dataDir);
+ await expect(checkNativeRecoveryConfiguration(config,bundle.manifest,bundle.payload,{run:()=>JSON.stringify({dataDir:'/foreign',runFile:'/foreign/run'}),env:{},loadConfig})).rejects.toThrow('install_native_recovery_config_invalid');
+ let called=false;await expect(checkNativeRecoveryConfiguration(config,bundle.manifest,bundle.payload,{run:()=>{called=true;},env:{},loadConfig:()=>{throw Error('malformed YAML');}})).rejects.toThrow('malformed YAML');expect(called).toBe(false);
 });

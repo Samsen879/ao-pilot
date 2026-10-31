@@ -3,9 +3,14 @@ import path from 'node:path';
 import os from 'node:os';
 import readline from 'node:readline';
 import crypto from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { assertManagedReleaseEnvironment, resolveUnifiedRuntime } from './release-runtime.js';
+import { fileSha256 } from './release-manifest.js';
+import { processStartToken } from './release-lock.js';
 
 export const defaultBindingsPath = () => path.join(os.homedir(), '.config/ao-pilot/session-recovery.json');
 export const MANAGED_RECOVERY_BINDINGS_CONTRACT = 'managed-data-dir-v1';
+export const NATIVE_RECOVERY_BINDINGS_CONTRACT = 'native-daemon-v1';
 export function managedBindingsPath(dataDir) {
   if (typeof dataDir !== 'string' || !path.isAbsolute(dataDir)) throw new Error('Invalid managed recovery DataDir; HOLD');
   return path.join(dataDir, 'session-recovery.json');
@@ -34,7 +39,7 @@ export async function verifyTranscript(binding) {
 export function readBindings(file, configPath) {
   if (!fs.existsSync(file)) return {schema_version:'ao.session-recovery.v1',configPath:fs.realpathSync(configPath),sessions:{}};
   const manifest = JSON.parse(fs.readFileSync(file,'utf8'));
-  if (manifest.schema_version !== 'ao.session-recovery.v1' || manifest.configPath !== fs.realpathSync(configPath) || !manifest.sessions || Array.isArray(manifest.sessions)) throw new Error('Recovery manifest/config identity mismatch; HOLD');
+  if (manifest.schema_version !== 'ao.session-recovery.v1' || manifest.configPath !== fs.realpathSync(configPath) || !manifest.sessions || typeof manifest.sessions !== 'object' || Array.isArray(manifest.sessions)) throw new Error('Recovery manifest/config identity mismatch; HOLD');
   return manifest;
 }
 export function writeBindings(file, manifest) {
@@ -118,4 +123,63 @@ export async function createRecoveryAdapter(configPath, manifest) {
     async alive(id,binding){const {raw}=metadata(id,binding);const handle=JSON.parse(raw.runtimeHandle || 'null');if(!handle || handle.id!==binding.tmuxName || handle.runtimeName!=='tmux') throw new Error('Runtime handle identity mismatch; HOLD');return runtime.isAlive(handle);},
     async restore(id,binding){await validate(id,binding);if(await this.alive(id,binding)) return;await setupManagedAoLauncher();await manager.restore(id);},
   };
+}
+
+// Native namespaces use the daemon's configured project IDs, not the legacy
+// hash+basename metadata directories. The daemon remains the only automatic
+// recovery owner (including its four-session boot limit); this service observes.
+export async function createNativeRecoveryProbe(configPath, {
+  env = process.env, resolve = resolveUnifiedRuntime, run = spawnSync,
+  readFile = fs.readFileSync, realpath = fs.realpathSync, startToken = processStartToken, loadConfig = null,
+} = {}) {
+  if (!hasCompleteManagedRuntimeBinding(env) || realpath(configPath) !== realpath(env.AO_CONFIG_PATH)) throw new Error('Native recovery config binding mismatch; HOLD');
+  const validateConfig = loadConfig ?? (await import('../../../browser/packages/core/dist/config.js')).loadNativeRecoveryConfig;
+  validateConfig(configPath);
+  const runtime = resolve({ env });
+  assertManagedReleaseEnvironment(env, runtime.runtime_directory);
+  if (env.AO_RELEASE_ROOT !== runtime.runtime_directory || env.AO_MANAGED_RUNTIME_BINARY !== runtime.binary_path
+      || env.AO_MANAGED_RUNTIME_BINARY_SHA256 !== runtime.binary_sha256) throw new Error('Native recovery release binding mismatch; HOLD');
+  const verifyBinary = () => { if (fileSha256(runtime.binary_path) !== runtime.binary_sha256) throw new Error('Native recovery binary drift; HOLD'); };
+  return () => {
+    const configSha = fileSha256(configPath); validateConfig(configPath);
+    verifyBinary();
+    const result = run(runtime.binary_path, ['status', '--json'], { env, encoding: 'utf8', timeout: 8000, maxBuffer: 1024 * 1024 });
+    if (result.error || result.status !== 0) throw new Error(`Native recovery config/status probe failed: ${result.error?.message ?? result.stderr ?? result.status}; HOLD`);
+    const status = JSON.parse(result.stdout);
+    if (!path.isAbsolute(status.dataDir ?? '') || !path.isAbsolute(status.runFile ?? '') || path.resolve(status.dataDir) !== path.resolve(env.AO_MANAGED_RUNTIME_DATA_DIR)
+        || path.resolve(status.runFile ?? '') !== path.resolve(env.AO_MANAGED_RUNTIME_RUN_FILE)
+        || !['ready','degraded','not_ready','stopped','stale','unhealthy'].includes(status.state)) throw new Error('Native recovery namespace/status mismatch; HOLD');
+    if (status.health === 'ok') {
+      if (!Number.isSafeInteger(status.pid) || status.pid <= 0) throw new Error('Native recovery daemon identity unknown; HOLD');
+      const token = startToken(status.pid), proc = `/proc/${status.pid}`;
+      const argv = readFile(proc + '/cmdline').toString().split('\0').filter(Boolean);
+      const actual = Object.fromEntries(readFile(proc + '/environ').toString().split('\0').filter(Boolean).map(item => { const i=item.indexOf('='); return [item.slice(0,i),item.slice(i+1)]; }));
+      if (!token || realpath(proc + '/exe') !== runtime.binary_path || fileSha256(proc + '/exe') !== runtime.binary_sha256
+          || JSON.stringify(argv) !== JSON.stringify([runtime.binary_path,'daemon'])
+          || ['AO_RELEASE_ROOT','AO_RELEASE_ID','AO_DATA_DIR','AO_RUN_FILE','AO_CONFIG_PATH'].some(key => actual[key] !== env[key])
+          || startToken(status.pid) !== token) throw new Error('Native recovery daemon process drift; HOLD');
+    }
+    verifyBinary();
+    if (fileSha256(configPath) !== configSha) throw new Error('Native recovery configuration changed during probe; HOLD');
+    return { schema_version:'ao.native-recovery-watch.v1', recovery_owner:'native-daemon', automation_dispatch:false,
+      independent_restore:false, state:status.state, health:status.health ?? null, ready:status.ready ?? null,
+      reasons:status.reasons ?? [], ...(status.error ? { error:status.error } : {}) };
+  };
+}
+
+export async function serveNativeRecovery(configPath, manifest, file, io, { env=process.env, probe=null }={}) {
+  if (path.resolve(file) !== managedBindingsPath(env.AO_MANAGED_RUNTIME_DATA_DIR) || Object.keys(manifest.sessions).length !== 0) throw new Error('Native recovery requires its empty scoped manifest; legacy pins remain on the explicit legacy path; HOLD');
+  probe ??= await createNativeRecoveryProbe(configPath,{env});
+  let stopped=false;
+  const stop=()=>{stopped=true;};process.on('SIGTERM',stop);process.on('SIGINT',stop);
+  try {
+    do {
+      // Revalidate config identity/pins every sweep; never drop changed pins.
+      const current=readBindings(file,configPath);
+      if (Object.keys(current.sessions).length !== 0) throw new Error('Native recovery scoped pins changed; HOLD');
+      io.writeStdout(JSON.stringify(probe())+'\n');
+      await new Promise(resolve=>{const done=()=>{clearTimeout(timer);process.off('SIGTERM',done);process.off('SIGINT',done);resolve();};const timer=setTimeout(done,30000);process.once('SIGTERM',done);process.once('SIGINT',done);if(stopped)done();});
+    } while(!stopped);
+    return {exitCode:0};
+  } finally { process.off('SIGTERM',stop);process.off('SIGINT',stop); }
 }

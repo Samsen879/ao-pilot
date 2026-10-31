@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertManagedReleaseEnvironment } from './ao/lib/release-runtime.js';
 import { assertRelease, fileSha256, verifyReleaseTree } from './ao/lib/release-manifest.js';
-import { managedBindingsPath, MANAGED_RECOVERY_BINDINGS_CONTRACT } from './ao/lib/session-recovery.js';
+import { managedBindingsPath, MANAGED_RECOVERY_BINDINGS_CONTRACT, NATIVE_RECOVERY_BINDINGS_CONTRACT } from './ao/lib/session-recovery.js';
 
 // Resolve once before any component imports. All subsequent paths are pinned.
 const release = fs.realpathSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'));
@@ -22,8 +22,9 @@ const environment = { ...process.env, AO_RELEASE_ID: manifest.release_id, AO_REL
   AO_MANAGED_RUNTIME_BINARY_SHA256: manifest.components.daemon.files.find((file) => file.path === manifest.components.daemon.entrypoint).sha256 };
 assertManagedReleaseEnvironment(environment, release);
 if (component === 'session-recovery') {
-  assertRelease(manifest.components.cli.recovery_bindings === MANAGED_RECOVERY_BINDINGS_CONTRACT, 'installed_recovery_contract_unknown');
+  assertRelease([MANAGED_RECOVERY_BINDINGS_CONTRACT,NATIVE_RECOVERY_BINDINGS_CONTRACT].includes(manifest.components.cli.recovery_bindings), 'installed_recovery_contract_unknown');
   args.push('--bindings', managedBindingsPath(environment.AO_MANAGED_RUNTIME_DATA_DIR));
+  if(manifest.components.cli.recovery_bindings===NATIVE_RECOVERY_BINDINGS_CONTRACT)args.push('--native-daemon');
 }
 if (component === 'adapter') {
   // The reviewed JSON is authoritative; inherited site variables cannot silently

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { loadConfig, findConfigFile } from "../src/config.js";
+import { loadConfig, findConfigFile, loadNativeRecoveryConfig } from "../src/config.js";
 import { ConfigNotFoundError } from "../src/types.js";
 
 describe("Config Loading", () => {
@@ -141,5 +141,25 @@ projects:
       const config = loadConfig();
       expect(config.port).toBe(3001); // Should use env, not local
     });
+  });
+});
+
+describe("Native recovery configuration", () => {
+  const root = join(tmpdir(), "ao-native-config-" + process.pid);
+  beforeEach(() => mkdirSync(root, { recursive: true }));
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+  it("uses configured IDs with the same full schema and preserves legacy rejection", () => {
+    const file=join(root,"native.yaml");
+    writeFileSync(file,"projects:\n  first:\n    repo: example/first\n    path: /one/project-root\n  second:\n    repo: example/second\n    path: /two/project-root\n");
+    expect(Object.keys(loadNativeRecoveryConfig(file).projects)).toEqual(["first","second"]);
+    expect(() => loadConfig(file)).toThrow("Duplicate project ID");
+    writeFileSync(file,"projects:\n  one:\n    repo: example/one\n    path: /one/root\n    sessionPrefix: shared\n  two:\n    repo: example/two\n    path: /two/root\n    sessionPrefix: shared\n");
+    expect(() => loadNativeRecoveryConfig(file)).toThrow("Duplicate session prefix");
+  });
+  it("rejects malformed YAML, schema errors, duplicate mapping keys and invalid native IDs", () => {
+    const file=join(root,"native.yaml");
+    for(const raw of ["projects: [", "projects: {one: {repo: example/one, path: 12}}", "defaults: {runtime: 1}\nprojects: {}", "projects: {}\nprojects: {}", "projects: {bad..id: {repo: example/one, path: /one/root}}"]){
+      writeFileSync(file,raw);expect(() => loadNativeRecoveryConfig(file)).toThrow();
+    }
   });
 });

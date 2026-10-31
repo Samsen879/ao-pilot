@@ -3,7 +3,7 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { once } from 'node:events';
 import { afterEach, expect, it } from '@jest/globals';
-import { fixtureRoot, configuration } from './release-fixture.js';
+import { fixtureRoot, configuration, createBundle } from './release-fixture.js';
 import { fileSha256, durableJson } from '../../scripts/ao/lib/release-manifest.js';
 import { processStartToken } from '../../scripts/ao/lib/release-lock.js';
 import { captureLegacyServices, collectLegacyAdoption, assertLegacyAdoption, legacyExecStart } from '../../scripts/ao/lib/release-legacy-adoption.js';
@@ -247,6 +247,8 @@ async function offlineRunnerFixture() {
     if (command === 'loginctl') return 'yes';
     return f.dependencies.run(command, args, options);
   }, fetchImpl: async () => { throw Error('Offline preflight must not call old HTTP services'); } });
+  const bundle=createBundle(root),preflight=runner.preflight;
+  runner.preflight=options=>preflight({...options,manifest:bundle.manifest,probeRoot:bundle.payload});
   return { ...f, runner, calls, db, setPorts(value) { ports = value; } };
 }
 it('collects offline native identities from a real SQLite DB, makes no service mutation, and fences the journal evidence', async () => {
