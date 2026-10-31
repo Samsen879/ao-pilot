@@ -16,7 +16,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -41,6 +43,7 @@ type recoveryRecord struct {
 	After            map[string]recoveryFile `json:"verified_files,omitempty"`
 	PreservedRef     string                  `json:"preserved_ref,omitempty"`
 	RefPolicy        string                  `json:"ref_policy"`
+	CopyAbortToken   string                  `json:"copy_abort_token,omitempty"`
 	CleanupAt        string                  `json:"cleanup_at,omitempty"`
 	CleanupStartedAt string                  `json:"cleanup_started_at,omitempty"`
 	GitFiles         map[string]recoveryFile `json:"git_files,omitempty"`
@@ -97,9 +100,43 @@ func recoveryInventory(root string) (map[string]recoveryFile, error) {
 	})
 	return result, err
 }
+
+const recoveryCopyWorkers = 8
+
+type recoveryCopyJob struct {
+	source, target string
+	mode           fs.FileMode
+}
+
 func copyRecoveryTree(source, target string, skipGit bool) error {
-	return filepath.WalkDir(source, func(path string, d fs.DirEntry, err error) error {
+	return copyRecoveryTreeContext(context.Background(), source, target, skipGit)
+}
+func copyRecoveryTreeContext(parent context.Context, source, target string, skipGit bool) error {
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
+	jobs := make(chan recoveryCopyJob, recoveryCopyWorkers)
+	var workers sync.WaitGroup
+	var firstError error
+	var once sync.Once
+	for range recoveryCopyWorkers {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for job := range jobs {
+				if ctx.Err() != nil {
+					continue
+				}
+				if err := copyRecoveryFile(job); err != nil {
+					once.Do(func() { firstError = err; cancel() })
+				}
+			}
+		}()
+	}
+	walkError := filepath.WalkDir(source, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 		rel, e := filepath.Rel(source, path)
@@ -148,31 +185,43 @@ func copyRecoveryTree(source, target string, skipGit bool) error {
 			}
 			return os.Symlink(v, out)
 		case st.Mode().IsRegular():
-			if old, e := os.Lstat(out); e == nil && !old.Mode().IsRegular() {
-				return fmt.Errorf("recovery overlay type collision %q", rel)
+			select {
+			case jobs <- recoveryCopyJob{path, out, st.Mode().Perm()}:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
 			}
-			in, e := os.Open(path)
-			if e != nil {
-				return e
-			}
-			defer in.Close()
-			f, e := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, st.Mode().Perm())
-			if e != nil {
-				return e
-			}
-			_, e = io.Copy(f, in)
-			if e == nil {
-				e = f.Chmod(st.Mode().Perm())
-			}
-			if e == nil {
-				e = f.Sync()
-			}
-			closeErr := f.Close()
-			return errors.Join(e, closeErr)
+
 		default:
 			return fmt.Errorf("cannot copy special recovery file %q", rel)
 		}
 	})
+	close(jobs)
+	workers.Wait()
+	return errors.Join(walkError, firstError, parent.Err())
+}
+func copyRecoveryFile(job recoveryCopyJob) error {
+	if old, e := os.Lstat(job.target); e == nil && !old.Mode().IsRegular() {
+		return fmt.Errorf("recovery overlay type collision %q", job.target)
+	}
+	in, e := os.Open(job.source)
+	if e != nil {
+		return e
+	}
+	defer in.Close()
+	f, e := os.OpenFile(job.target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, job.mode)
+	if e != nil {
+		return e
+	}
+	_, e = io.Copy(f, in)
+	if e == nil {
+		e = f.Chmod(job.mode)
+	}
+	if e == nil {
+		e = f.Sync()
+	}
+	closeErr := f.Close()
+	return errors.Join(e, closeErr)
 }
 func writeRecovery(r recoveryRecord) error {
 	raw, e := json.MarshalIndent(r, "", "  ")
@@ -227,6 +276,9 @@ func readRecovery(path string) (*recoveryRecord, error) {
 		return nil, fmt.Errorf("unknown recovery receipt")
 	}
 
+	if r.CopyAbortToken != "" && !regexp.MustCompile(`^ao-create-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$`).MatchString(r.CopyAbortToken) {
+		return nil, fmt.Errorf("invalid copy abort token")
+	}
 	if len(r.Files) == 0 || (r.Mode != "copy" && r.Mode != "rename" && r.Mode != "reuse") {
 		return nil, fmt.Errorf("invalid recovery manifest")
 	}
@@ -266,6 +318,9 @@ func (w *Workspace) prepareRecovery(ctx context.Context, info ports.WorkspaceInf
 	if old, e := readRecovery(info.Path); e != nil {
 		return nil, e
 	} else if old != nil {
+		if old.Phase == "copying" {
+			return nil, errors.Join(fmt.Errorf("interrupted snapshot retained; explicit retry required"), w.RollbackRestore(context.WithoutCancel(ctx), info))
+		}
 		if old.Phase == "pending" || old.Phase == "verified" {
 			return old, nil
 		}
@@ -327,24 +382,35 @@ func (w *Workspace) prepareRecovery(ctx context.Context, info ports.WorkspaceInf
 		if _, e := os.Lstat(r.GitBackup); !os.IsNotExist(e) {
 			return nil, fmt.Errorf("unowned git recovery backup")
 		}
-		if e = copyRecoveryTree(info.Path, backup, false); e != nil {
-			return nil, e
-		}
-		if e = copyRecoveryTree(r.GitDir, r.GitBackup, false); e != nil {
-			return nil, e
-		}
-		meta, e := recoveryInventory(r.GitBackup)
-		if e != nil || !exactRecoveryFiles(r.GitFiles, meta) {
-			return nil, fmt.Errorf("git snapshot changed: %w", e)
-		}
-
-		copied, e := recoveryInventory(backup)
-		if e != nil || !exactRecoveryFiles(files, copied) {
-			return nil, fmt.Errorf("recovery snapshot changed: %w", e)
-		}
+		r.Phase = "copying"
 		if e = writeRecovery(*r); e != nil {
 			return nil, e
 		}
+		copyError := func() error {
+			if e := copyRecoveryTreeContext(ctx, info.Path, backup, false); e != nil {
+				return e
+			}
+			if e := copyRecoveryTreeContext(ctx, r.GitDir, r.GitBackup, false); e != nil {
+				return e
+			}
+			meta, e := recoveryInventory(r.GitBackup)
+			if e != nil || !exactRecoveryFiles(r.GitFiles, meta) {
+				return fmt.Errorf("git snapshot changed: %w", e)
+			}
+			copied, e := recoveryInventory(backup)
+			if e != nil || !exactRecoveryFiles(files, copied) {
+				return fmt.Errorf("recovery snapshot changed: %w", e)
+			}
+			if e := ctx.Err(); e != nil {
+				return e
+			}
+			r.Phase = "pending"
+			return writeRecovery(*r)
+		}()
+		if copyError != nil {
+			return nil, errors.Join(copyError, w.RollbackRestore(context.WithoutCancel(ctx), info))
+		}
+
 	} else {
 		// Record intent before the whole-directory rename. No existing bytes deleted.
 		if e = writeRecovery(*r); e != nil {
@@ -370,6 +436,9 @@ func (w *Workspace) RollbackRestore(ctx context.Context, info ports.WorkspaceInf
 	}
 	if r.Phase == "rolled_back" || r.Phase == "committed" {
 		return nil
+	}
+	if r.Phase == "copying" {
+		return abortRecoveryCopy(r)
 	}
 	original, e := recoveryInventory(r.Backup)
 	if os.IsNotExist(e) {
@@ -416,6 +485,61 @@ func (w *Workspace) RollbackRestore(ctx context.Context, info ports.WorkspaceInf
 	r.Phase = "rolled_back"
 	return writeRecovery(*r)
 }
+func abortRecoveryCopy(r *recoveryRecord) error {
+	if r.Mode != "copy" {
+		return fmt.Errorf("invalid copying mode; HOLD")
+	}
+	st, err := os.Lstat(r.Path)
+	if err != nil {
+		return err
+	}
+	identity := st.Sys().(*syscall.Stat_t)
+	if identity.Ino != r.CurrentInode || uint64(identity.Dev) != r.CurrentDevice {
+		return fmt.Errorf("copy source ownership changed; HOLD")
+	}
+	files, err := recoveryInventory(r.Path)
+	if err != nil || !exactRecoveryFiles(r.Files, files) {
+		return fmt.Errorf("copy source changed; HOLD: %w", err)
+	}
+	metadata, err := recoveryInventory(r.GitDir)
+	if err != nil || !exactRecoveryFiles(r.GitFiles, metadata) {
+		return fmt.Errorf("copy source Git metadata changed; HOLD: %w", err)
+	}
+	if r.CopyAbortToken == "" {
+		r.CopyAbortToken = newWorktreeCreateToken()
+		if err := writeRecovery(*r); err != nil {
+			return err
+		}
+	}
+	for _, source := range []string{r.Backup, r.GitBackup} {
+		if source == "" {
+			continue
+		}
+		target := source + ".incomplete-" + r.CopyAbortToken
+		src, se := os.Lstat(source)
+		dst, de := os.Lstat(target)
+		if se != nil && !os.IsNotExist(se) {
+			return se
+		}
+		if de != nil && !os.IsNotExist(de) {
+			return de
+		}
+		if se == nil && (!src.IsDir() || src.Mode()&os.ModeSymlink != 0) || de == nil && (!dst.IsDir() || dst.Mode()&os.ModeSymlink != 0) {
+			return fmt.Errorf("unsafe partial copy; HOLD")
+		}
+		if se == nil && de == nil {
+			return fmt.Errorf("partial copy destination already exists; HOLD")
+		}
+		if se == nil {
+			if err := os.Rename(source, target); err != nil {
+				return err
+			}
+		}
+	}
+	r.Phase = "rolled_back"
+	return writeRecovery(*r)
+}
+
 func (w *Workspace) VerifyRestore(ctx context.Context, info ports.WorkspaceInfo) error {
 	if _, err := w.validateManagedPath(info.Path); err != nil {
 		return err
@@ -426,6 +550,9 @@ func (w *Workspace) VerifyRestore(ctx context.Context, info ports.WorkspaceInfo)
 		return e
 	}
 	if r != nil {
+		if r.Phase == "copying" {
+			return fmt.Errorf("snapshot copy incomplete; HOLD")
+		}
 		if err := validateRecoveryBackups(r); err != nil {
 			return err
 		}
@@ -631,7 +758,7 @@ func (w *Workspace) replaySnapshotPresent(ctx context.Context, path string, name
 			return false, nil
 		}
 		if !dirtyLoaded {
-			out, e := w.run(ctx, w.binary, "-C", path, "status", "--porcelain=v2", "-z", "--untracked-files=all", "--no-renames")
+			out, e := w.run(ctx, w.binary, "-C", path, "--no-optional-locks", "status", "--porcelain=v2", "-z", "--untracked-files=all", "--no-renames")
 			if e != nil {
 				return false, e
 			}

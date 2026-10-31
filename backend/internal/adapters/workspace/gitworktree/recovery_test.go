@@ -1,7 +1,9 @@
 package gitworktree
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 )
@@ -651,5 +654,153 @@ func TestCleanupResumesOnlyAfterDurableVerifiedCheckpoint(t *testing.T) {
 	record, e := readRecovery(info.Path)
 	if e != nil || record.Phase != "committed" {
 		t.Fatal(record, e)
+	}
+}
+
+func TestRecoveryStatusProbesKeepColdIndexBytes(t *testing.T) {
+	_, _, w := newSparseRepoFixture(t)
+	ctx := context.Background()
+	info, e := w.Create(ctx, ports.WorkspaceConfig{ProjectID: "project", SessionID: "cold-index", Branch: "feature/cold-index", BaseBranch: "main", SparseCheckout: []string{"keep"}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	writeSparseFile(t, info.Path, "keep/cold.txt", "same content\n")
+	runGitTest(t, info.Path, "add", "keep/cold.txt")
+	runGitTest(t, info.Path, "commit", "-m", "cold fixture")
+	index := runGitTest(t, info.Path, "rev-parse", "--path-format=absolute", "--git-path", "index")
+	before, e := os.ReadFile(index)
+	if e != nil {
+		t.Fatal(e)
+	}
+	future := time.Now().Add(10 * time.Second)
+	if e = os.Chtimes(filepath.Join(info.Path, "keep/cold.txt"), future, future); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = w.preserveChanges(ctx, info.Path); e != nil {
+		t.Fatal(e)
+	}
+	_, tree, e := w.replayPaths(ctx, info.Path, "HEAD")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = w.replaySnapshotPresent(ctx, info.Path, []string{"keep/cold.txt"}, tree, true); e != nil {
+		t.Fatal(e)
+	}
+	after, e := os.ReadFile(index)
+	if e != nil || !bytes.Equal(before, after) {
+		t.Fatal("read-only recovery probes refreshed the real index", e)
+	}
+}
+func TestCancelledCopyHasDurableOwnerAndPreservesOriginal(t *testing.T) {
+	_, _, w := newSparseRepoFixture(t)
+	info, e := w.Create(context.Background(), ports.WorkspaceConfig{ProjectID: "project", SessionID: "cancel-copy", Branch: "feature/cancel-copy", BaseBranch: "main", SparseCheckout: []string{"keep"}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	for i := range 512 {
+		writeSparseFile(t, info.Path, fmt.Sprintf("private/ignored-%04d", i), strings.Repeat("private bytes", 128))
+	}
+	writeSparseFile(t, info.Path, ".gitignore", "private/\n")
+	before, e := recoveryInventory(info.Path)
+	if e != nil {
+		t.Fatal(e)
+	}
+	gitdir := runGitTest(t, info.Path, "rev-parse", "--absolute-git-dir")
+	meta, e := recoveryInventory(gitdir)
+	if e != nil {
+		t.Fatal(e)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	observed := make(chan error, 1)
+	go func() {
+		deadline := time.NewTimer(10 * time.Second)
+		defer deadline.Stop()
+		ticker := time.NewTicker(time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-deadline.C:
+				cancel()
+				observed <- fmt.Errorf("copy did not start")
+				return
+			case <-ticker.C:
+				files, _ := filepath.Glob(info.Path + ".ao-recovery-backup/private/*")
+				if len(files) > 0 {
+					r, err := readRecovery(info.Path)
+					if err == nil && (r == nil || r.Phase != "copying") {
+						err = fmt.Errorf("backup appeared before durable intent")
+					}
+					cancel()
+					observed <- err
+					return
+				}
+			}
+		}
+	}()
+	if _, e = w.prepareRecovery(ctx, info, "copy"); !errors.Is(e, context.Canceled) {
+		t.Fatalf("want cancellation, got %v", e)
+	}
+	if e = <-observed; e != nil {
+		t.Fatal(e)
+	}
+	after, e := recoveryInventory(info.Path)
+	if e != nil || !exactRecoveryFiles(before, after) {
+		t.Fatal("cancel changed original ignored files", e)
+	}
+	got, e := recoveryInventory(gitdir)
+	if e != nil || !exactRecoveryFiles(meta, got) {
+		t.Fatal("cancel changed original Git bytes", e)
+	}
+	r, e := readRecovery(info.Path)
+	if e != nil || r == nil || r.Phase != "rolled_back" || r.CopyAbortToken == "" {
+		t.Fatalf("copy cancellation not durably closed: %v %+v", e, r)
+	}
+	if _, e = os.Stat(r.Backup + ".incomplete-" + r.CopyAbortToken); e != nil {
+		t.Fatal("partial backup not retained", e)
+	}
+	if e = w.RollbackRestore(context.Background(), info); e != nil {
+		t.Fatal("repeat rollback", e)
+	}
+	if _, e = w.prepareRecovery(context.Background(), info, "copy"); e != nil {
+		t.Fatal("explicit retry cannot snapshot", e)
+	}
+	if e = w.RollbackRestore(context.Background(), info); e != nil {
+		t.Fatal(e)
+	}
+}
+func TestInterruptedCopyAbortResumesRenameWithoutDeletingOriginal(t *testing.T) {
+	_, _, w := newSparseRepoFixture(t)
+	ctx := context.Background()
+	info, e := w.Create(ctx, ports.WorkspaceConfig{ProjectID: "project", SessionID: "abort-resume", Branch: "feature/abort-resume", BaseBranch: "main", SparseCheckout: []string{"keep"}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	writeSparseFile(t, info.Path, "private/unique.db", "ignored unique bytes")
+	before, _ := recoveryInventory(info.Path)
+	r, e := w.prepareRecovery(ctx, info, "copy")
+	if e != nil {
+		t.Fatal(e)
+	}
+	r.Phase = "copying"
+	r.CopyAbortToken = newWorktreeCreateToken()
+	if e = writeRecovery(*r); e != nil {
+		t.Fatal(e)
+	}
+	if e = os.Rename(r.Backup, r.Backup+".incomplete-"+r.CopyAbortToken); e != nil {
+		t.Fatal(e)
+	}
+	if e = w.RollbackRestore(ctx, info); e != nil {
+		t.Fatal("resume after first rename", e)
+	}
+	if e = w.RollbackRestore(ctx, info); e != nil {
+		t.Fatal("repeat", e)
+	}
+	after, e := recoveryInventory(info.Path)
+	if e != nil || !exactRecoveryFiles(before, after) {
+		t.Fatal("original changed", e)
+	}
+	if _, e = os.Stat(r.GitBackup + ".incomplete-" + r.CopyAbortToken); e != nil {
+		t.Fatal("metadata backup not retained", e)
 	}
 }

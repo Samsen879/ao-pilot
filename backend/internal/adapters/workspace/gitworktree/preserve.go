@@ -39,7 +39,7 @@ func (c preserveChange) status() string {
 
 func (w *Workspace) preserveChanges(ctx context.Context, path string) ([]preserveChange, error) {
 	// Normalize renames to D+A, matching the verification diff.
-	out, err := w.run(ctx, w.binary, "-C", path, "status", "--porcelain=v2", "-z", "--untracked-files=all", "--no-renames")
+	out, err := w.run(ctx, w.binary, "-C", path, "--no-optional-locks", "status", "--porcelain=v2", "-z", "--untracked-files=all", "--no-renames")
 	if err != nil {
 		return nil, err
 	}

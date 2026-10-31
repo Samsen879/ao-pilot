@@ -901,7 +901,7 @@ func (w *Workspace) Restore(ctx context.Context, cfg ports.WorkspaceConfig) (ret
 	}
 	if recovery, e := readRecovery(path); e != nil {
 		return ports.WorkspaceInfo{}, e
-	} else if recovery != nil && recovery.Phase == "pending" {
+	} else if recovery != nil && (recovery.Phase == "pending" || recovery.Phase == "copying") {
 		if _, e := os.Lstat(path); e == nil {
 			info := ports.WorkspaceInfo{Path: path, RepoPath: repo}
 			return ports.WorkspaceInfo{}, errors.Join(fmt.Errorf("interrupted recovery rolled back; explicit retry required"), w.RollbackRestore(context.WithoutCancel(ctx), info))
