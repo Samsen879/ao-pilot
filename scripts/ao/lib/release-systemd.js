@@ -222,10 +222,13 @@ export function assertLoadedProcess({ proc, root, manifest, component, config })
     && proc.executable_sha256 === (component === 'daemon' ? manifest.components.daemon.files.find((file) => file.path === entry).sha256 : manifest.toolchain.node_sha256),
   'install_loaded_release_drift');
 }
-// Validate the managed observer with the same native configuration parser before
-// any migration/switch. Stopped/degraded is a baseline state, not readiness proof.
-export function checkNativeRecoveryConfiguration(config, manifest, releaseRoot, { run, env, preparedConfigPath } = {}) {
+// Parse YAML with the shared full schema and native project-key identity before
+// migration/switch. Native status only probes namespace/health, not YAML validity.
+export async function checkNativeRecoveryConfiguration(config, manifest, releaseRoot, { run, env, preparedConfigPath, loadConfig = null } = {}) {
   if(manifest.components.cli.recovery_bindings!==NATIVE_RECOVERY_BINDINGS_CONTRACT)return;
+  const configPath=preparedConfigPath??config.configPath, configSha=fileSha256(configPath);
+  const validateConfig=loadConfig??(await import('../../../browser/packages/core/dist/config.js')).loadNativeRecoveryConfig;
+  validateConfig(configPath);
   const binary=path.join(releaseRoot,manifest.components.daemon.entrypoint);
   const expected=manifest.components.daemon.files.find(file=>file.path===manifest.components.daemon.entrypoint)?.sha256;
   assertRelease(fileSha256(binary)===expected,'release_external_binary_drift');
@@ -235,7 +238,7 @@ export function checkNativeRecoveryConfiguration(config, manifest, releaseRoot, 
     AO_MANAGED_RUNTIME_DATA_DIR:config.dataDir,AO_MANAGED_RUNTIME_RUN_FILE:runFile},timeout:10000}));
   assertRelease(path.isAbsolute(status.dataDir??'')&&path.isAbsolute(status.runFile??'')
     &&path.resolve(status.dataDir)===path.resolve(config.dataDir)&&path.resolve(status.runFile)===path.resolve(runFile)
-    &&fileSha256(binary)===expected,'install_native_recovery_config_invalid');
+    &&fileSha256(binary)===expected&&fileSha256(configPath)===configSha,'install_native_recovery_config_invalid');
 }
 
 export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun = null, fetchImpl = fetch, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), startupAttempts = 60, toolResolver = executableOnPath, preparedInputs = null } = {}) {
@@ -466,7 +469,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun 
       const configStat = fs.lstatSync(preparedInputs?.configPath ?? config.configPath);
       assertRelease(configStat.isFile() && !configStat.isSymbolicLink() && configStat.uid === process.getuid()
         && (configStat.mode & 0o077) === 0, 'install_config_missing');
-      checkNativeRecoveryConfiguration(config,candidateManifest??verifyReleaseTree(probeRoot),probeRoot,{run,env,preparedConfigPath:preparedInputs?.configPath});
+      await checkNativeRecoveryConfiguration(config,candidateManifest??verifyReleaseTree(probeRoot),probeRoot,{run,env,preparedConfigPath:preparedInputs?.configPath});
       if (adoptLegacyOffline) {
         const current = offlineBaseline(legacy);
         legacy.offline_snapshot = current;

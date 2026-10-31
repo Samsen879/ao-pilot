@@ -128,17 +128,20 @@ export async function createRecoveryAdapter(configPath, manifest) {
 // Native namespaces use the daemon's configured project IDs, not the legacy
 // hash+basename metadata directories. The daemon remains the only automatic
 // recovery owner (including its four-session boot limit); this service observes.
-export function createNativeRecoveryProbe(configPath, {
+export async function createNativeRecoveryProbe(configPath, {
   env = process.env, resolve = resolveUnifiedRuntime, run = spawnSync,
-  readFile = fs.readFileSync, realpath = fs.realpathSync, startToken = processStartToken,
+  readFile = fs.readFileSync, realpath = fs.realpathSync, startToken = processStartToken, loadConfig = null,
 } = {}) {
   if (!hasCompleteManagedRuntimeBinding(env) || realpath(configPath) !== realpath(env.AO_CONFIG_PATH)) throw new Error('Native recovery config binding mismatch; HOLD');
+  const validateConfig = loadConfig ?? (await import('../../../browser/packages/core/dist/config.js')).loadNativeRecoveryConfig;
+  validateConfig(configPath);
   const runtime = resolve({ env });
   assertManagedReleaseEnvironment(env, runtime.runtime_directory);
   if (env.AO_RELEASE_ROOT !== runtime.runtime_directory || env.AO_MANAGED_RUNTIME_BINARY !== runtime.binary_path
       || env.AO_MANAGED_RUNTIME_BINARY_SHA256 !== runtime.binary_sha256) throw new Error('Native recovery release binding mismatch; HOLD');
   const verifyBinary = () => { if (fileSha256(runtime.binary_path) !== runtime.binary_sha256) throw new Error('Native recovery binary drift; HOLD'); };
   return () => {
+    const configSha = fileSha256(configPath); validateConfig(configPath);
     verifyBinary();
     const result = run(runtime.binary_path, ['status', '--json'], { env, encoding: 'utf8', timeout: 8000, maxBuffer: 1024 * 1024 });
     if (result.error || result.status !== 0) throw new Error(`Native recovery config/status probe failed: ${result.error?.message ?? result.stderr ?? result.status}; HOLD`);
@@ -157,14 +160,16 @@ export function createNativeRecoveryProbe(configPath, {
           || startToken(status.pid) !== token) throw new Error('Native recovery daemon process drift; HOLD');
     }
     verifyBinary();
+    if (fileSha256(configPath) !== configSha) throw new Error('Native recovery configuration changed during probe; HOLD');
     return { schema_version:'ao.native-recovery-watch.v1', recovery_owner:'native-daemon', automation_dispatch:false,
       independent_restore:false, state:status.state, health:status.health ?? null, ready:status.ready ?? null,
       reasons:status.reasons ?? [], ...(status.error ? { error:status.error } : {}) };
   };
 }
 
-export async function serveNativeRecovery(configPath, manifest, file, io, { env=process.env, probe=createNativeRecoveryProbe(configPath,{env}) }={}) {
+export async function serveNativeRecovery(configPath, manifest, file, io, { env=process.env, probe=null }={}) {
   if (path.resolve(file) !== managedBindingsPath(env.AO_MANAGED_RUNTIME_DATA_DIR) || Object.keys(manifest.sessions).length !== 0) throw new Error('Native recovery requires its empty scoped manifest; legacy pins remain on the explicit legacy path; HOLD');
+  probe ??= await createNativeRecoveryProbe(configPath,{env});
   let stopped=false;
   const stop=()=>{stopped=true;};process.on('SIGTERM',stop);process.on('SIGINT',stop);
   try {

@@ -221,10 +221,11 @@ it('restores only live by default, permits explicit historical IDs, and schedule
  expect(firstRestorePlan({...config,firstRestoreSessionIDs:undefined,restoreLastSessionIDs:undefined},baseline).flatMap(row=>row.ids).sort()).toEqual(['last-2','orc','worker']);
 });
 
-it('checks native observer configuration read-only before migration using the prepared config and exact namespace',()=>{
- const {root,config}=fixture(),bundle=createBundle(root);bundle.manifest.components.cli.recovery_bindings='native-daemon-v1';const prepared=path.join(root,'prepared-native.yaml');fs.writeFileSync(prepared,'projects: {}');let options;
+it('checks native observer YAML/schema before status using the prepared config and exact namespace',async()=>{
+ const {root,config}=fixture(),bundle=createBundle(root);bundle.manifest.components.cli.recovery_bindings='native-daemon-v1';const prepared=path.join(root,'prepared-native.yaml');fs.writeFileSync(prepared,'projects: {}');let options,validated;
+ const loadConfig=file=>{validated=file;};
  const run=(binary,args,o)=>{expect(binary).toBe(path.join(bundle.payload,'native/ao'));expect(args).toEqual(['status','--json']);options=o;return JSON.stringify({state:'stopped',dataDir:config.dataDir,runFile:path.join(config.discoveryDir,'running.json')});};
- expect(()=>checkNativeRecoveryConfiguration(config,bundle.manifest,bundle.payload,{run,env:{},preparedConfigPath:prepared})).not.toThrow();expect(options.env.AO_CONFIG_PATH).toBe(prepared);expect(options.env.AO_MANAGED_RUNTIME_DATA_DIR).toBe(config.dataDir);
- expect(()=>checkNativeRecoveryConfiguration(config,bundle.manifest,bundle.payload,{run:()=>JSON.stringify({dataDir:'/foreign',runFile:'/foreign/run'}),env:{}})).toThrow('install_native_recovery_config_invalid');
- expect(()=>checkNativeRecoveryConfiguration(config,bundle.manifest,bundle.payload,{run:()=>{throw new Error('native parser rejects bad project identity');},env:{}})).toThrow('native parser rejects bad project identity');
+ await expect(checkNativeRecoveryConfiguration(config,bundle.manifest,bundle.payload,{run,env:{},preparedConfigPath:prepared,loadConfig})).resolves.toBeUndefined();expect(validated).toBe(prepared);expect(options.env.AO_CONFIG_PATH).toBe(prepared);expect(options.env.AO_MANAGED_RUNTIME_DATA_DIR).toBe(config.dataDir);
+ await expect(checkNativeRecoveryConfiguration(config,bundle.manifest,bundle.payload,{run:()=>JSON.stringify({dataDir:'/foreign',runFile:'/foreign/run'}),env:{},loadConfig})).rejects.toThrow('install_native_recovery_config_invalid');
+ let called=false;await expect(checkNativeRecoveryConfiguration(config,bundle.manifest,bundle.payload,{run:()=>{called=true;},env:{},loadConfig:()=>{throw Error('malformed YAML');}})).rejects.toThrow('malformed YAML');expect(called).toBe(false);
 });

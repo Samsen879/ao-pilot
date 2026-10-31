@@ -254,13 +254,13 @@ function applyProjectDefaults(config: OrchestratorConfig): OrchestratorConfig {
 }
 
 /** Validate project uniqueness and session prefix collisions */
-function validateProjectUniqueness(config: OrchestratorConfig): void {
+function validateProjectUniqueness(config: OrchestratorConfig, nativeIDs = false): void {
   // Check for duplicate project IDs (basenames)
   const projectIds = new Set<string>();
   const projectIdToPaths: Record<string, string[]> = {};
 
-  for (const [_configKey, project] of Object.entries(config.projects)) {
-    const projectId = basename(project.path);
+  for (const [configKey, project] of Object.entries(config.projects)) {
+    const projectId = nativeIDs ? configKey : basename(project.path);
 
     if (!projectIdToPaths[projectId]) {
       projectIdToPaths[projectId] = [];
@@ -495,6 +495,25 @@ export function loadConfig(configPath?: string): OrchestratorConfig {
   // Set the config path in the config object for hash generation
   config.configPath = path;
 
+  return config;
+}
+
+/** Read-only native observer config. Native project IDs are configured keys;
+ * legacy loadConfig keeps its basename identity and every existing check.
+ * The YAML parser, full schema and session-prefix collision checks are shared.
+ */
+export function loadNativeRecoveryConfig(configPath: string): OrchestratorConfig {
+  const parsed = parseYaml(readFileSync(configPath, "utf-8"));
+  let config = expandPaths(OrchestratorConfigSchema.parse(parsed) as OrchestratorConfig);
+  for (const [id, project] of Object.entries(config.projects)) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) || id.includes("..")) {
+      throw new Error(`Invalid native project ID: ${id}`);
+    }
+    project.sessionPrefix ??= generateSessionPrefix(id);
+  }
+  config = applyDefaultReactions(applyProjectDefaults(config));
+  validateProjectUniqueness(config, true);
+  config.configPath = configPath;
   return config;
 }
 

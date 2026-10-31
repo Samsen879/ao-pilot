@@ -74,7 +74,7 @@ test('recovery service is isolated from API automation and uses owned foreground
   expect(unit).toContain('Requires=ao-pilot-runtime.service');expect(unit).toContain('After=network-online.target ao-pilot-runtime.service');
 });
 
-test('native observer uses native config/project IDs, validates namespace/process and never restores',()=>{
+test('native observer uses native config/project IDs, validates namespace/process and never restores',async()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ao-native-recovery-'));
  try {
   const config=path.join(dir,'native.yaml'),data=path.join(dir,'data'),runFile=path.join(dir,'discovery/running.json');
@@ -85,13 +85,15 @@ test('native observer uses native config/project IDs, validates namespace/proces
   const status={state:'degraded',health:'ok',ready:'degraded',dataDir:data,runFile,pid:process.pid,reasons:[{code:'restore_pending',message:'only first four at boot'}]};
   const run=jest.fn(()=>({status:0,stdout:JSON.stringify(status)})),resolve=()=>({runtime_directory:root,binary_path:binary,binary_sha256:sha});
   const readFile=file=>file.endsWith('/cmdline')?Buffer.from([binary,'daemon',''].join('\0')):Buffer.from(Object.entries(env).map(([k,v])=>k+'='+v).join('\0'));
-  const probe=createNativeRecoveryProbe(config,{env,resolve,run,readFile,realpath:file=>file.endsWith('/exe')?binary:fs.realpathSync(file),startToken:()=> 'token'});
+  const loadConfig=jest.fn();
+  const probe=await createNativeRecoveryProbe(config,{env,resolve,run,readFile,loadConfig,realpath:file=>file.endsWith('/exe')?binary:fs.realpathSync(file),startToken:()=> 'token'});
   expect(probe()).toMatchObject({recovery_owner:'native-daemon',independent_restore:false,state:'degraded',reasons:status.reasons});
   expect(run.mock.calls.every(([,args])=>JSON.stringify(args)==='["status","--json"]')).toBe(true);
   status.dataDir=path.join(dir,'foreign');expect(()=>probe()).toThrow('namespace/status mismatch');status.dataDir=data;
-  const drift=createNativeRecoveryProbe(config,{env,resolve,run,readFile:file=>file.endsWith('/cmdline')?Buffer.from([binary,'daemon',''].join('\0')):Buffer.from(Object.entries({...env,AO_CONFIG_PATH:path.join(dir,'foreign.yaml')}).map(([k,v])=>k+'='+v).join('\0')),realpath:file=>file.endsWith('/exe')?binary:fs.realpathSync(file),startToken:()=> 'token'});
+  const drift=await createNativeRecoveryProbe(config,{env,resolve,run,loadConfig,readFile:file=>file.endsWith('/cmdline')?Buffer.from([binary,'daemon',''].join('\0')):Buffer.from(Object.entries({...env,AO_CONFIG_PATH:path.join(dir,'foreign.yaml')}).map(([k,v])=>k+'='+v).join('\0')),realpath:file=>file.endsWith('/exe')?binary:fs.realpathSync(file),startToken:()=> 'token'});
   expect(()=>drift()).toThrow('process drift');
-  run.mockReturnValue({status:1,stderr:'native config rejected duplicate configured identity'});expect(()=>probe()).toThrow('native config rejected');
+  loadConfig.mockImplementationOnce(()=>{throw new Error('malformed YAML');});const before=run.mock.calls.length;expect(()=>probe()).toThrow('malformed YAML');expect(run).toHaveBeenCalledTimes(before);
+  run.mockReturnValue({status:1,stderr:'native status failed'});expect(()=>probe()).toThrow('native status failed');
  }finally{fs.rmSync(dir,{recursive:true,force:true});}
 });
 test('native observer rejects nonempty/corrupt scoped pins, never imports a foreign legacy manifest',async()=>{

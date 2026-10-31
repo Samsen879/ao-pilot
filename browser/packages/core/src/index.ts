@@ -11,6 +11,7 @@ export * from "./types.js";
 // Config — YAML loader + validation
 export {
   loadConfig,
+  loadNativeRecoveryConfig,
   loadConfigWithPath,
   validateConfig,
   getDefaultConfig,

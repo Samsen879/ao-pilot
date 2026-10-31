@@ -379,7 +379,9 @@ entries) before executing any payload code, in addition to the tarball digest.
 
 Managed recovery authority: new CLI manifests set `recovery_bindings: native-daemon-v1`.
 The exact service argv includes `serve --bindings <DataDir>/session-recovery.json --native-daemon`.
-The service validates the pinned native binary, native configuration, namespace and
+The service parses YAML with the shared full schema and explicit native project-key
+identity (keeping legacy basename checks unchanged), then validates the pinned native
+binary, namespace and
 live daemon PID/start-token/executable/argv/environment, and reports native readiness
 (including degraded reasons). The native daemon alone performs automatic recovery
 and enforces its existing four-session boot limit; the observer never restores or
