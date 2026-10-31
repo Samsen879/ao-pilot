@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import {test,expect,jest} from '@jest/globals';
-import {verifyTranscript,recoverySweep,readBindings,writeBindings,withRecoveryLock,managedBindingsPath} from '../../scripts/ao/lib/session-recovery.js';
+import {verifyTranscript,recoverySweep,readBindings,writeBindings,withRecoveryLock,managedBindingsPath,createNativeRecoveryProbe,serveNativeRecovery} from '../../scripts/ao/lib/session-recovery.js';
 import {runCli} from '../../bin/ao-pilot.js';
 import {buildDashboardUnits} from '../../scripts/ao/lib/dashboard-service.js';
 const id='01a086a5-2450-7931-9ca2-c1ba5625efdd';
@@ -71,4 +72,34 @@ test('recovery service is isolated from API automation and uses owned foreground
   const unit=buildDashboardUnits({packageRoot:'/installed/ao-pilot',nodePath:'/bin/node',home:'/user'})['ao-pilot-session-recovery.service'];
   expect(unit).toContain('/installed/ao-pilot/scripts/ao-session.js" serve');expect(unit).not.toContain('code/agent-orchestrator');
   expect(unit).toContain('Requires=ao-pilot-runtime.service');expect(unit).toContain('After=network-online.target ao-pilot-runtime.service');
+});
+
+test('native observer uses native config/project IDs, validates namespace/process and never restores',()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ao-native-recovery-'));
+ try {
+  const config=path.join(dir,'native.yaml'),data=path.join(dir,'data'),runFile=path.join(dir,'discovery/running.json');
+  fs.writeFileSync(config,'projects:\n  first:\n    repo: example/one\n    path: '+dir+'/one/project-root\n  second:\n    repo: example/two\n    path: '+dir+'/two/project-root\n');
+  const binary=fs.realpathSync(process.execPath),sha=crypto.createHash('sha256').update(fs.readFileSync(binary)).digest('hex');
+  const root=path.join(dir,'install/releases/native-fixture');
+  const env={AO_INSTALL_ROOT:path.join(dir,'install'),AO_RELEASE_ROOT:root,AO_RELEASE_ID:'fixture',AO_INSTALL_NAMESPACE:'ao-pilot-staging-fixture',AO_TMUX_SOCKET:'ao-pilot-staging-fixture',AO_TMUX_UNIT:'ao-pilot-staging-fixture-tmux.service',AO_TMUX_TMPDIR:path.join(dir,'tmux'),TMUX_TMPDIR:path.join(dir,'tmux'),AO_CONFIG_PATH:config,AO_DATA_DIR:data,AO_RUN_FILE:runFile,AO_MANAGED_RUNTIME_BINARY:binary,AO_MANAGED_RUNTIME_BINARY_SHA256:sha,AO_MANAGED_RUNTIME_DATA_DIR:data,AO_MANAGED_RUNTIME_RUN_FILE:runFile};
+  const status={state:'degraded',health:'ok',ready:'degraded',dataDir:data,runFile,pid:process.pid,reasons:[{code:'restore_pending',message:'only first four at boot'}]};
+  const run=jest.fn(()=>({status:0,stdout:JSON.stringify(status)})),resolve=()=>({runtime_directory:root,binary_path:binary,binary_sha256:sha});
+  const readFile=file=>file.endsWith('/cmdline')?Buffer.from([binary,'daemon',''].join('\0')):Buffer.from(Object.entries(env).map(([k,v])=>k+'='+v).join('\0'));
+  const probe=createNativeRecoveryProbe(config,{env,resolve,run,readFile,realpath:file=>file.endsWith('/exe')?binary:fs.realpathSync(file),startToken:()=> 'token'});
+  expect(probe()).toMatchObject({recovery_owner:'native-daemon',independent_restore:false,state:'degraded',reasons:status.reasons});
+  expect(run.mock.calls.every(([,args])=>JSON.stringify(args)==='["status","--json"]')).toBe(true);
+  status.dataDir=path.join(dir,'foreign');expect(()=>probe()).toThrow('namespace/status mismatch');status.dataDir=data;
+  const drift=createNativeRecoveryProbe(config,{env,resolve,run,readFile:file=>file.endsWith('/cmdline')?Buffer.from([binary,'daemon',''].join('\0')):Buffer.from(Object.entries({...env,AO_CONFIG_PATH:path.join(dir,'foreign.yaml')}).map(([k,v])=>k+'='+v).join('\0')),realpath:file=>file.endsWith('/exe')?binary:fs.realpathSync(file),startToken:()=> 'token'});
+  expect(()=>drift()).toThrow('process drift');
+  run.mockReturnValue({status:1,stderr:'native config rejected duplicate configured identity'});expect(()=>probe()).toThrow('native config rejected');
+ }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});
+test('native observer rejects nonempty/corrupt scoped pins, never imports a foreign legacy manifest',async()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ao-native-pins-'));
+ try {
+  const config=path.join(dir,'native.yaml'),data=path.join(dir,'data'),file=managedBindingsPath(data),env={AO_MANAGED_RUNTIME_DATA_DIR:data};fs.writeFileSync(config,'projects: {}');
+  const manifest={schema_version:'ao.session-recovery.v1',configPath:config,sessions:{old:{conversationId:id}}};writeBindings(file,manifest);
+  const probe=jest.fn();await expect(serveNativeRecovery(config,manifest,file,{writeStdout:jest.fn()},{env,probe})).rejects.toThrow('empty scoped manifest');expect(probe).not.toHaveBeenCalled();
+  for(const sessions of [1,'bad',[]]){writeBindings(file,{...manifest,sessions});expect(()=>readBindings(file,config)).toThrow('identity mismatch');}
+ }finally{fs.rmSync(dir,{recursive:true,force:true});}
 });

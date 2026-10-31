@@ -264,7 +264,7 @@
           ],
           "properties": {
             "recovery_bindings": {
-              "const": "managed-data-dir-v1"
+              "enum": ["managed-data-dir-v1", "native-daemon-v1"]
             },
             "entrypoint": {
               "type": "string"

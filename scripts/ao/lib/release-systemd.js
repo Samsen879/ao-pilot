@@ -1,5 +1,5 @@
 import {verifyRestoreFiles} from './restore-files.js';
-import { managedBindingsPath, MANAGED_RECOVERY_BINDINGS_CONTRACT } from './session-recovery.js';
+import { managedBindingsPath, MANAGED_RECOVERY_BINDINGS_CONTRACT, NATIVE_RECOVERY_BINDINGS_CONTRACT } from './session-recovery.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -200,11 +200,11 @@ export function firstRestorePlan(config, baseline) {
 }
 export function assertLoadedProcess({ proc, root, manifest, component, config }) {
   const recoveryContract = manifest.components.cli.recovery_bindings;
-  assertRelease(recoveryContract === undefined || recoveryContract === MANAGED_RECOVERY_BINDINGS_CONTRACT, 'install_loaded_release_drift');
+  assertRelease(recoveryContract === undefined || [MANAGED_RECOVERY_BINDINGS_CONTRACT,NATIVE_RECOVERY_BINDINGS_CONTRACT].includes(recoveryContract), 'install_loaded_release_drift');
   const entry = component === 'session-recovery' ? 'scripts/ao-session.js' : manifest.components[component].entrypoint;
   const executable = component === 'daemon' ? path.join(root, entry) : manifest.toolchain.node_executable;
   const args = component === 'daemon' ? [executable, 'daemon']
-    : [executable, path.join(root, entry), ...(component === 'session-recovery' ? ['serve', ...(recoveryContract === MANAGED_RECOVERY_BINDINGS_CONTRACT ? ['--bindings', managedBindingsPath(config.dataDir)] : [])] : [])];
+    : [executable, path.join(root, entry), ...(component === 'session-recovery' ? ['serve', ...(recoveryContract !== undefined ? ['--bindings', managedBindingsPath(config.dataDir), ...(recoveryContract===NATIVE_RECOVERY_BINDINGS_CONTRACT?['--native-daemon']:[])] : [])] : [])];
   assertRelease(proc.executable === fs.realpathSync(executable) && JSON.stringify(proc.argv) === JSON.stringify(args)
     && proc.cwd === (component === 'daemon' ? fs.realpathSync(config.dataDir) : root)
     && proc.environment.AO_RELEASE_ID === manifest.release_id && proc.environment.AO_RELEASE_ROOT === root
@@ -222,6 +222,22 @@ export function assertLoadedProcess({ proc, root, manifest, component, config })
     && proc.executable_sha256 === (component === 'daemon' ? manifest.components.daemon.files.find((file) => file.path === entry).sha256 : manifest.toolchain.node_sha256),
   'install_loaded_release_drift');
 }
+// Validate the managed observer with the same native configuration parser before
+// any migration/switch. Stopped/degraded is a baseline state, not readiness proof.
+export function checkNativeRecoveryConfiguration(config, manifest, releaseRoot, { run, env, preparedConfigPath } = {}) {
+  if(manifest.components.cli.recovery_bindings!==NATIVE_RECOVERY_BINDINGS_CONTRACT)return;
+  const binary=path.join(releaseRoot,manifest.components.daemon.entrypoint);
+  const expected=manifest.components.daemon.files.find(file=>file.path===manifest.components.daemon.entrypoint)?.sha256;
+  assertRelease(fileSha256(binary)===expected,'release_external_binary_drift');
+  const runFile=path.join(config.discoveryDir,'running.json');
+  const status=JSON.parse(run(binary,['status','--json'],{env:{...env,AO_CONFIG_PATH:preparedConfigPath??config.configPath,
+    AO_MANAGED_RUNTIME_BINARY:binary,AO_MANAGED_RUNTIME_BINARY_SHA256:expected,
+    AO_MANAGED_RUNTIME_DATA_DIR:config.dataDir,AO_MANAGED_RUNTIME_RUN_FILE:runFile},timeout:10000}));
+  assertRelease(path.isAbsolute(status.dataDir??'')&&path.isAbsolute(status.runFile??'')
+    &&path.resolve(status.dataDir)===path.resolve(config.dataDir)&&path.resolve(status.runFile)===path.resolve(runFile)
+    &&fileSha256(binary)===expected,'install_native_recovery_config_invalid');
+}
+
 export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun = null, fetchImpl = fetch, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), startupAttempts = 60, toolResolver = executableOnPath, preparedInputs = null } = {}) {
   const config = validateInstallConfiguration(rawConfiguration);
   const executionEnv = { ...process.env }; let tools;
@@ -437,7 +453,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun 
   }
   return {
     configuration: config, observe, checkTools,
-    async preflight({ releaseRoot, probeRoot = releaseRoot, mode, adoptLegacy = false, adoptLegacyOffline = false }) {
+    async preflight({ releaseRoot, probeRoot = releaseRoot, manifest: candidateManifest = null, mode, adoptLegacy = false, adoptLegacyOffline = false }) {
       assertRelease(!adoptLegacyOffline || adoptLegacy && mode === 'first', 'install_legacy_adoption_not_first');
       assertFirstRestoreConfiguration(config, mode);
       checkTools();
@@ -450,6 +466,7 @@ export function createSystemdReleaseRunner(rawConfiguration, { run: suppliedRun 
       const configStat = fs.lstatSync(preparedInputs?.configPath ?? config.configPath);
       assertRelease(configStat.isFile() && !configStat.isSymbolicLink() && configStat.uid === process.getuid()
         && (configStat.mode & 0o077) === 0, 'install_config_missing');
+      checkNativeRecoveryConfiguration(config,candidateManifest??verifyReleaseTree(probeRoot),probeRoot,{run,env,preparedConfigPath:preparedInputs?.configPath});
       if (adoptLegacyOffline) {
         const current = offlineBaseline(legacy);
         legacy.offline_snapshot = current;

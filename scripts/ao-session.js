@@ -2,20 +2,21 @@
 import fs from 'node:fs';
 import {randomUUID} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {defaultBindingsPath,readBindings,writeBindings,verifyTranscript,createRecoveryAdapter,recoverySweep,withRecoveryLock} from './ao/lib/session-recovery.js';
+import {defaultBindingsPath,readBindings,writeBindings,verifyTranscript,createRecoveryAdapter,recoverySweep,withRecoveryLock,serveNativeRecovery} from './ao/lib/session-recovery.js';
 
 export async function runCli(args,io={writeStdout:s=>process.stdout.write(s),writeStderr:s=>process.stderr.write(s)}) {
   try {
     if(args.includes('--help') || args.includes('-h')) {io.writeStdout('Usage: ao-pilot session <list|bind|restore|send> [session] [message] --config <existing.yaml> [--bindings <manifest>]\nBind requires --conversation <original-id> --transcript <absolute-jsonl> --binary <absolute-codex>.\nao-pilot lifecycle <status|recover|serve> --config <existing.yaml> [--bindings <manifest>]\nRecovery is pinned, no fresh conversation, no dispatch or successor spawning.\n');return {exitCode:0};}
     const options={}, positional=[];
     const allowed=new Set(['--config','--bindings','--conversation','--transcript','--binary']);
-    for(let i=0;i<args.length;i++){if(args[i]==='--json')continue;if(args[i].startsWith('--')){if(!allowed.has(args[i]) || !args[i+1] || args[i+1].startsWith('--'))throw new Error('Invalid option '+args[i]);options[args[i].slice(2)]=args[++i];}else positional.push(args[i]);}
+    for(let i=0;i<args.length;i++){if(args[i]==='--json')continue;if(args[i]==='--native-daemon'){if(options.nativeDaemon)throw new Error('Duplicate native recovery option');options.nativeDaemon=true;continue;}if(args[i].startsWith('--')){if(!allowed.has(args[i]) || !args[i+1] || args[i+1].startsWith('--'))throw new Error('Invalid option '+args[i]);options[args[i].slice(2)]=args[++i];}else positional.push(args[i]);}
     const [command,id,message]=positional;
     if(!['list','bind','restore','send','status','recover','serve'].includes(command))throw new Error('Unknown session/recovery command');
     if(['bind','restore','send'].includes(command) ? !id || positional.length!==(command==='send'?3:2) : positional.length!==1)throw new Error('Invalid command arguments');
     const configPath=options.config || process.env.AO_CONFIG_PATH;
     if(!configPath)throw new Error('Explicit --config or AO_CONFIG_PATH required');
     const file=options.bindings || defaultBindingsPath(), manifest=readBindings(file,configPath);
+    if(options.nativeDaemon){if(command!=='serve')throw new Error('Native daemon recovery mode is serve-only');return await serveNativeRecovery(configPath,manifest,file,io);}
     const adapter=await createRecoveryAdapter(configPath,manifest);
     const print=result=>io.writeStdout(JSON.stringify(result,null,2)+'\n');
     if(command==='list') {

@@ -375,3 +375,15 @@ collection. Verify/readback retain strict readiness and all 17 checks.
 The trusted Python Owner entrypoint verifies the manifest digest from the pinned
 envelope and the full unpacked inventory (bytes, modes, types, symlinks, no extra
 entries) before executing any payload code, in addition to the tarball digest.
+
+
+Managed recovery authority: new CLI manifests set `recovery_bindings: native-daemon-v1`.
+The exact service argv includes `serve --bindings <DataDir>/session-recovery.json --native-daemon`.
+The service validates the pinned native binary, native configuration, namespace and
+live daemon PID/start-token/executable/argv/environment, and reports native readiness
+(including degraded reasons). The native daemon alone performs automatic recovery
+and enforces its existing four-session boot limit; the observer never restores or
+dispatches. Its scoped manifest must be empty; foreign/changed/nonempty pins fail
+closed. Explicit legacy recovery keeps its original config, metadata, transcript,
+identity and basename collision checks. Old absent/managed-data-dir-v1 manifests
+retain their exact authenticated launch contracts; unknown contracts are rejected.
