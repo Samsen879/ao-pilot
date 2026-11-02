@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -22,6 +23,24 @@ type bootRecoveryWorkspace struct {
 	forceDestroyed []domain.SessionID
 	applied        []string
 	applyErr       error
+	stashErr       error
+}
+
+func (w *bootRecoveryWorkspace) StashUncommitted(ctx context.Context, info ports.WorkspaceInfo) (string, error) {
+	if w.stashErr != nil {
+		return "", w.stashErr
+	}
+	return w.fakeWorkspace.StashUncommitted(ctx, info)
+}
+
+type bootRecoveryRuntime struct {
+	*fakeRuntime
+	created []domain.SessionID
+}
+
+func (r *bootRecoveryRuntime) Create(ctx context.Context, cfg ports.RuntimeConfig) (ports.RuntimeHandle, error) {
+	r.created = append(r.created, cfg.SessionID)
+	return r.fakeRuntime.Create(ctx, cfg)
 }
 
 func (w *bootRecoveryWorkspace) ForceDestroy(_ context.Context, info ports.WorkspaceInfo) error {
@@ -86,11 +105,13 @@ func seedBootRecoverySession(t *testing.T, store *sqlite.Store, root string, ind
 
 func TestRestoreAllBoundsColdStartAndQuarantinesOverflow(t *testing.T) {
 	m, store, runtime, _, _ := newSpawnFixture(t)
+	orderedRuntime := &bootRecoveryRuntime{fakeRuntime: runtime}
+	m.runtime = orderedRuntime
 	root := t.TempDir()
 	var recs []domain.SessionRecord
 	for i := 1; i <= 7; i++ {
 		kind := domain.KindWorker
-		if i == 1 {
+		if i <= 2 {
 			kind = domain.KindOrchestrator
 		}
 		recs = append(recs, seedBootRecoverySession(t, store, root, i, kind, true, "removed"))
@@ -102,10 +123,13 @@ func TestRestoreAllBoundsColdStartAndQuarantinesOverflow(t *testing.T) {
 	if runtime.creates != bootRestoreLimit {
 		t.Fatalf("runtime creates=%d, want %d", runtime.creates, bootRestoreLimit)
 	}
+	if !slices.Equal(orderedRuntime.created, []domain.SessionID{recs[1].ID, recs[0].ID, recs[6].ID, recs[5].ID}) {
+		t.Fatalf("older orchestrators must launch before newer workers: %v", orderedRuntime.created)
+	}
 
 	restored := map[domain.SessionID]bool{
-		recs[0].ID: true, // reserve one controller slot
-		recs[4].ID: true,
+		recs[0].ID: true,
+		recs[1].ID: true,
 		recs[5].ID: true,
 		recs[6].ID: true,
 	}
@@ -140,13 +164,15 @@ func TestRestoreAllBoundsColdStartAndQuarantinesOverflow(t *testing.T) {
 
 func TestReconcileBoundsDeadLiveSessionsAndPreservesOverflowWorktrees(t *testing.T) {
 	m, store, runtime, baseWorkspace, _ := newSpawnFixture(t)
+	orderedRuntime := &bootRecoveryRuntime{fakeRuntime: runtime}
+	m.runtime = orderedRuntime
 	workspace := &bootRecoveryWorkspace{fakeWorkspace: baseWorkspace}
 	m.workspace = workspace
 	root := t.TempDir()
 	var recs []domain.SessionRecord
 	for i := 1; i <= 7; i++ {
 		kind := domain.KindWorker
-		if i == 1 {
+		if i <= 2 {
 			kind = domain.KindOrchestrator
 		}
 		recs = append(recs, seedBootRecoverySession(t, store, root, i, kind, false, "active"))
@@ -158,13 +184,16 @@ func TestReconcileBoundsDeadLiveSessionsAndPreservesOverflowWorktrees(t *testing
 	if runtime.creates != bootRestoreLimit {
 		t.Fatalf("runtime creates=%d, want %d", runtime.creates, bootRestoreLimit)
 	}
+	if !slices.Equal(orderedRuntime.created, []domain.SessionID{recs[1].ID, recs[0].ID, recs[6].ID, recs[5].ID}) {
+		t.Fatalf("older orchestrators must launch before newer workers: %v", orderedRuntime.created)
+	}
 	if len(workspace.forceDestroyed) != 0 {
 		t.Fatalf("cold recovery destroyed existing directories: %v", workspace.forceDestroyed)
 	}
 
 	restored := map[domain.SessionID]bool{
 		recs[0].ID: true,
-		recs[4].ID: true,
+		recs[1].ID: true,
 		recs[5].ID: true,
 		recs[6].ID: true,
 	}
@@ -189,6 +218,42 @@ func TestReconcileBoundsDeadLiveSessionsAndPreservesOverflowWorktrees(t *testing
 	}
 	if runtime.creates != bootRestoreLimit {
 		t.Fatalf("overflow resurrected on later pass: creates=%d", runtime.creates)
+	}
+}
+
+func TestReconcileReportsSaveFailureWithoutLosingWorkspace(t *testing.T) {
+	m, store, runtime, baseWorkspace, _ := newSpawnFixture(t)
+	captureErr := errors.New("capture failed")
+	m.workspace = &bootRecoveryWorkspace{fakeWorkspace: baseWorkspace, stashErr: captureErr}
+	ctx := context.Background()
+	rec := seedBootRecoverySession(t, store, t.TempDir(), 1, domain.KindWorker, false, "active")
+	rows, err := store.ListSessionWorktrees(ctx, rec.ID)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("seed marker: %v %v", rows, err)
+	}
+	rows[0].PreservedRef = "refs/ao/preserved/original"
+	if err := store.UpsertSessionWorktree(ctx, rows[0]); err != nil {
+		t.Fatal(err)
+	}
+	ignored := filepath.Join(rec.Metadata.WorkspacePath, "local.secret")
+	if err := os.WriteFile(ignored, []byte("retain ignored bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Reconcile(ctx); !errors.Is(err, captureErr) || errors.Is(err, ErrRecoveryUnavailable) {
+		t.Fatalf("save failure must reach the existing degraded-readiness handler: %v", err)
+	}
+	got, _, err := store.GetSession(ctx, rec.ID)
+	if err != nil || !got.IsTerminated || runtime.creates != 0 {
+		t.Fatalf("failed save relaunched: terminated=%v creates=%d err=%v", got.IsTerminated, runtime.creates, err)
+	}
+	rows, err = store.ListSessionWorktrees(ctx, rec.ID)
+	if err != nil || len(rows) != 1 || rows[0].State != "active" || rows[0].PreservedRef != "refs/ao/preserved/original" {
+		t.Fatalf("failed save lost custody or left an auto-restore marker: %v %v", rows, err)
+	}
+	for name, want := range map[string]string{"wip.txt": "preserve", "local.secret": "retain ignored bytes"} {
+		if data, err := os.ReadFile(filepath.Join(rec.Metadata.WorkspacePath, name)); err != nil || string(data) != want {
+			t.Fatalf("failed save lost %s: %v", name, err)
+		}
 	}
 }
 
