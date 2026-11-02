@@ -108,14 +108,14 @@ func writeTreeArgs(worktree string) []string {
 }
 
 // commitTreeArgs creates a commit object from a tree SHA. parent is the HEAD
-// SHA to set as parent; message is the commit message. When parent is empty
-// (unborn HEAD), the -p flag is omitted.
-func commitTreeArgs(worktree, treeSHA, parent, message string) []string {
+// SHA to set as parent. The complete message is read from stdin, avoiding the
+// operating system's argument-size limit. An unborn HEAD omits the -p flag.
+func commitTreeArgs(worktree, treeSHA, parent string) []string {
 	args := []string{"-C", worktree, "commit-tree", treeSHA}
 	if parent != "" {
 		args = append(args, "-p", parent)
 	}
-	args = append(args, "-m", message)
+	args = append(args, "-F", "-")
 	return args
 }
 

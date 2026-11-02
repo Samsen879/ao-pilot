@@ -628,9 +628,14 @@ func (w *Workspace) StashUncommitted(ctx context.Context, info ports.WorkspaceIn
 		return "", err
 	}
 	msg := "ao preserved " + string(info.SessionID) + "\n\n" + string(receipt)
-	commitOut, err := w.run(ctx, w.binary, commitTreeArgs(path, treeSHA, headSHA, msg)...)
+	commitArgs := commitTreeArgs(path, treeSHA, headSHA)
+	commitCmd := aoprocess.CommandContext(ctx, w.binary, commitArgs...)
+	commitCmd.Stdin = strings.NewReader(msg)
+	commitOut, err := commitCmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("gitworktree: commit-tree: %w", err)
+		return "", fmt.Errorf("gitworktree: commit-tree: %w", commandError{
+			args: append([]string{w.binary}, commitArgs...), output: string(commitOut), err: err,
+		})
 	}
 	commitSHA := strings.TrimSpace(string(commitOut))
 
