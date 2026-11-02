@@ -1,7 +1,7 @@
 <p align="center">
   <h1 align="center">ao-pilot</h1>
   <p align="center">
-    <strong>Experimental control-plane tooling for AI-assisted coding workflows</strong>
+    <strong>A control plane for running AI coding agents in parallel</strong>
   </p>
   <p align="center">
     Observe → Reconcile → Decide → Recover → Verify
@@ -9,325 +9,216 @@
 </p>
 
 <p align="center">
-  <a href="#what-is-this">What Is This?</a> •
-  <a href="#why-this-exists">Why</a> •
+  <a href="#what-it-does">What It Does</a> •
+  <a href="#in-practice">In Practice</a> •
   <a href="#quick-start">Quick Start</a> •
   <a href="#architecture">Architecture</a> •
-  <a href="#cli-reference">CLI</a> •
-  <a href="#current-status">Status</a>
+  <a href="#cli">CLI</a> •
+  <a href="#status">Status</a>
 </p>
 
 ---
 
-## What Is This?
+## What It Does
 
-**ao-pilot** is an independently maintained control-plane companion for
-[Untrivial-ai/agent-orchestrator](https://github.com/Untrivial-ai/agent-orchestrator)
-and compatible AI coding-agent runtimes.
+Running one AI coding agent in a terminal is easy. Running several at once — each on its own issue, branch, worktree and PR, with CI and code review in the loop — is where things start to drift. Sessions stop without leaving recovery context, PRs go stale while local state still thinks they are active, two sessions pick up the same task, and nobody can say afterwards why an automated action happened.
 
-The original project provides a lightweight way to run and coordinate AI coding
-agents. `ao-pilot` adds a separate control-plane layer around that workflow:
-task state, PR reconciliation, ownership, handoff, recovery, diagnostics,
-policy gates, and evaluation.
+**ao-pilot** is the layer that keeps that work coherent. It sits on top of [agent-orchestrator](https://github.com/Untrivial-ai/agent-orchestrator) (AO), which spawns and coordinates the agent sessions, and adds:
 
-This repository packages those control-plane capabilities as a standalone,
-file-based Node.js tool. It remains conservative and experimental, but its
-installation, configuration, tests, and CLI are maintained independently from
-any downstream product repository.
+- **durable task state** — tasks, ownership leases, PR bindings, handoffs and checkpoints that survive any single session;
+- **reconciliation** — continuous comparison of what AO believes against what GitHub actually shows for PRs, CI and reviews;
+- **lifecycle diagnostics** — classifying work as healthy, blocked, ambiguous, stale, orphaned or ready for review;
+- **recovery** — successor handoff and checkpoint resume when a worker session dies mid-task;
+- **policy gates and audit records** — every automated action is tied to an explicit decision;
+- **evaluation** — replayable scenarios, metrics and scorecards to check that changes actually make the system better.
 
-The core question behind this project is:
+When sources disagree in a way that cannot be resolved safely, ao-pilot marks the work `blocked` or `ambiguous` and surfaces it, rather than letting automation continue on a guess.
 
-> How can AI-assisted coding work stay auditable, recoverable, and reviewable when agents are working across multiple tasks?
+## In Practice
 
-## Unified installation (R3)
+ao-pilot is used every day to develop a separate (private) product repository:
 
-The new unified release/installer supports Linux x64/arm64 and WSL2 with systemd.
-See [the unified installation runbook](docs/AO_UNIFIED_INSTALL.md) for archive/pack-once builds, private configuration, current/previous transactions, rollback and local staging gates. Source merge does not promote the unchanged p0.4 runtime lock or authorize deployment. Existing Node 20 control-plane commands remain supported; new execve release launchers require Node >=22.15.
+- An **orchestrator session** (referred to as the *OR* throughout the docs) drives a chain of related issues.
+- **Worker sessions** implement each issue on its own branch and worktree and open a PR.
+- An **independent reviewer session** reviews each PR; corrections loop back to the worker, usually over several rounds.
+- Once review passes, the OR merges.
 
-## P0 Runtime Portability Incident
-
-The `0.2.0` package boundary is installable, but the complete fresh-clone and
-self-hosting proof is not yet complete. P0-R04 supplies a package-owned
-[immutable runtime lock and fail-closed resolver](docs/AO_RUNTIME.md). P0-R05
-adds deterministic source/toolchain retrieval and an atomic managed bootstrap,
-and P0-R06 routes doctor, observation, and lifecycle commands through the
-verified managed binary. P0-R07 adds an empty-HOME fresh-clone release gate
-covering install, bootstrap recovery/reinstall, provenance, hostile PATH,
-daemon lifecycle, and bounded local worktree cleanup. The new-workstation
-self-hosting receipt is still incomplete, so the system must not yet claim
-workstation self-hosting or admit #12.
-
-The package-level portability claim remains narrower and already accepted;
-runtime bootstrap and workstation self-hosting require their own evidence.
-
-Therefore package installation, control-plane installation, external runtime
-installation, user-provided GitHub/Codex credentials, runtime bootstrap, and
-self-hosting acceptance are separate gates. Do not claim operational
-portability from `npm ci` or `npm run verify:package`. See the
-[P0-R01 incident baseline](docs/runtime-portability/P0-R01_INCIDENT_BASELINE.md).
-
-The runtime identity contract can be inspected offline with:
-
-```bash
-npm run verify:runtime-lock
-npm run verify:runtime-bootstrap
-npm run verify:fresh-clone
-./scripts/bootstrap.sh --json
-```
-
-## Why This Exists
-
-Running one AI coding agent in a terminal is relatively easy. The harder problem starts when there are multiple issues, branches, worktrees, PRs, CI results, and review threads.
-
-Without a control layer, several problems appear quickly:
-
-1. A worker session may stop without leaving enough recovery context.
-2. A PR can become stale while local state still assumes it is active.
-3. CI and review state can drift away from what the agent believes happened.
-4. Multiple sessions can accidentally overlap ownership of the same task.
-5. Automation can become hard to audit if actions are not tied to explicit decisions.
-6. A human operator may lose track of which tasks are blocked, ambiguous, or ready for review.
-
-**ao-pilot** experiments with ways to make those states visible, durable, and recoverable.
-
-The goal is not to remove human judgment. The goal is to make the automation boundary clearer.
-
-## Relationship to the Original Project
-
-This repository is a companion to `Untrivial-ai/agent-orchestrator`, not a copy of
-its session runtime.
-
-The original AO project focuses on agent orchestration primitives such as
-spawning sessions, routing feedback, and coordinating work. This companion
-project adds experimental control-plane layers around:
-
-- persistent task state;
-- ownership and handoff;
-- PR / CI / review reconciliation;
-- lifecycle reasoning;
-- diagnostics;
-- policy decisions;
-- review separation;
-- checkpoints and recovery;
-- evaluation and scorecards.
-
-Some implementation details may still reflect the original project structure. That is expected.
-
-## Current Status
-
-This repository is currently an **experimental prototype**.
-
-What is reasonably implemented:
-
-- CLI tools for controller runs, task management, reconciliation, lifecycle checks, diagnostics, handoff, state inspection, overrides, and knowledge inspection.
-- A fail-closed Git publication preflight that emits redacted receipts and uses only a non-interactive read-only remote probe.
-- Persistent state contracts for tasks, ownership leases, controller leases, handoffs, checkpoints, review records, actions, overrides, and policy decisions.
-- A reconciliation model for comparing AO state with GitHub-facing PR / CI / review state.
-- Lifecycle and diagnostic checks for blocked, ambiguous, orphaned, stale, or review-dependent work.
-- Handoff and checkpoint concepts for recovering interrupted agent sessions.
-- Acceptance tests for several representative lifecycle scenarios.
-- Deterministic evaluation packs, bounded metrics, scorecards, and baseline gates.
-- Explicit ESM package exports for CLI runners, contracts, repositories, engines, protocols, and providers.
-
-What is not guaranteed:
-
-- Compatibility for modules outside the declared `package.json#exports` boundary.
-- Production deployment safety.
-- Complete documentation for external users.
-- Compatibility with every AI coding workflow.
-- Clean separation from every assumption in the original project.
-- A polished installation or onboarding experience.
-
-In other words: this repo is a working lab for control-plane ideas, not a finished product.
-
-## What The Control Plane Adds
-
-Compared with the original AO runtime, this project experiments with the
-following areas:
-
-| Area | What the control plane explores |
-|---|---|
-| Task state | Durable task records, PR bindings, ownership leases, lifecycle status |
-| Reconciliation | Comparing local AO state with GitHub PR / CI / review state |
-| Recovery | Checkpoints, handoff requests, successor claims, stale-worker detection |
-| Diagnostics | Doctor-style checks for blocked, ambiguous, orphaned, or stale work |
-| Review flow | Separation between implementation and review-oriented sessions |
-| Policy | Explicit decision points before automation is allowed to mutate state |
-| Evaluation | Replay-stable scenarios, metrics windows, scorecards, and baseline gates |
-| Auditability | Machine-readable state, decision records, and run metrics |
-
-These pieces are intentionally conservative. The preferred failure mode is to mark work as `blocked` or `ambiguous`, rather than allowing automation to continue based on unclear state.
-
-## Design Principles
-
-The project is built around a few assumptions:
-
-- Prefer explicit state over hidden session memory.
-- Prefer `blocked` or `ambiguous` over unsafe automatic progress.
-- Keep human review gates visible.
-- Treat GitHub PR / CI / review state as a source of truth during reconciliation.
-- Make handoff and recovery durable instead of relying only on conversation history.
-- Let automation propose or assist, but keep policy boundaries clear.
-- Keep machine-readable output available for debugging and audit trails.
+ao-pilot observes and judges throughout — which tasks are healthy, which are stuck, which sessions need a successor — while the OR keeps the authority to act. Run this way, the system works unattended overnight and has carried more than 100 issues, across dozens of parent-issue chains, from issue to merged PR.
 
 ## Quick Start
 
+**Platform:** Linux x64/arm64, including WSL2. Windows-native runtime is not supported.
+
 ### Prerequisites
 
-> **P0 limitation:** package installation and runtime bootstrap are separate.
-> The bootstrap below installs and verifies the external runtime, but it does
-> not start an OR or constitute the P0-R08 workstation self-hosting proof.
-
-- Node.js 20+
-- npm
-- Git
-- `curl`, `tar`, and `gzip` for the checksummed Go toolchain bootstrap
-- tmux
-- GitHub CLI (`gh`)
-- A repository/workflow where AO-style agent sessions are expected to operate
-
-Make sure GitHub CLI is authenticated:
-
-```bash
-gh auth login
-```
+- Node.js 20+ (the unified release launchers need Node ≥ 22.15)
+- npm, Git, tmux
+- `curl`, `tar` and `gzip` for the checksummed Go toolchain bootstrap
+- GitHub CLI (`gh`), authenticated with `gh auth login`
+- A repository where AO-style agent sessions will operate
 
 ### Install
 
 ```bash
 git clone https://github.com/Samsen879/ao-pilot.git
 cd ao-pilot
-npm install
-```
-
-For a reproducible install after the lockfile is present:
-
-```bash
 npm ci
 ```
 
-Bootstrap the exact public runtime into the content-addressed managed store:
+Bootstrap the pinned AO runtime into a content-addressed managed store:
 
 ```bash
 ./scripts/bootstrap.sh --json
 ```
 
-The bootstrap never invokes a PATH `ao`. It fails closed if one shadows the
-managed runtime. Use `--offline` only after the source, toolchain, and Go module
-caches have been verified by an online run; use `--reinstall` for an atomic
-clean rebuild. See [AO Runtime](docs/AO_RUNTIME.md) for paths and recovery.
+The bootstrap builds the exact locked runtime source and never uses an `ao` found on `PATH`; it refuses to continue if one would shadow the managed binary. See [AO Runtime](docs/AO_RUNTIME.md) for paths, offline mode, reinstall and recovery, and [Unified installation](docs/AO_UNIFIED_INSTALL.md) for packaged releases with systemd services and rollback.
 
-Inspect the exact runtime and use the managed lifecycle entrypoints:
-
-```bash
-node ./bin/ao-pilot.js runtime-path --json
-node ./bin/ao-pilot.js doctor --json
-node ./bin/ao-pilot.js start
-node ./bin/ao-pilot.js status --json
-node ./bin/ao-pilot.js runtime-project-get my-project --json
-node ./bin/ao-pilot.js stop
-```
-
-The `ao-pilot` lifecycle and contract commands verify the committed lock,
-provenance, bootstrap receipt, compatibility, binary digest, and PATH-shadow
-state before runtime execution. Installed worker services then bind the verified
-absolute binary as the bare `ao` launcher; the wrapper fails closed if that
-binding is missing, relative, non-executable, a symlink, or no longer matches
-the installed binary SHA-256.
-After the runtime service is active and a managed Codex worker/orchestrator has
-been spawned (or a pinned Codex session restored), the workspace hook has
-provisioned the launcher. Validate that installed boundary separately:
-
-```bash
-node ./bin/ao-pilot.js runtime-contract --json
-```
-
-`start` launches the exact managed binary's daemon entrypoint as a detached
-local service. The repository-owned runtime also makes its own `ao start`
-command fail closed, so no managed or ambient path can fetch or open a desktop
-release.
-`doctor` reports GitHub/Codex authentication availability but never includes
-probe output or credentials. These commands establish the R06 lifecycle
-boundary. The isolated R07 gate is:
-
-```bash
-npm run verify:fresh-clone
-```
-
-It creates and removes its own fresh clone, HOME, managed store, daemon state,
-and local worktree fixture. It uses no GitHub/Codex credentials and does not
-claim R08 self-hosting. Only the protected/manual receipt verifier may validate
-that later proof:
-
-```bash
-npm run verify:self-hosting -- --receipt <new-workstation-receipt.json>
-```
-
-Link the unified CLI and create a project configuration:
+### Run
 
 ```bash
 npm link
-ao-pilot init --project my-project
-```
+ao-pilot init --project my-project   # writes ao.config.json
 
-### Run Tests
+ao-pilot doctor --json               # runtime provenance, auth availability, unhealthy work
+ao-pilot start                       # start the managed runtime daemon
+ao-pilot status --json
+ao-pilot dashboard                   # localhost-only browser dashboard
 
-```bash
-npm test
-```
-
-If you only want to run the AO acceptance tests:
-
-```bash
-npm run ao:test:acceptance
-```
-
-### Run the Controller
-
-Single pass:
-
-```bash
-ao-pilot controller --holder my-session
-```
-
-Continuous mode:
-
-```bash
-ao-pilot controller --holder my-session --continuous
-```
-
-Observe-only mode:
-
-```bash
 ao-pilot controller --holder my-session --mode observe
 ```
 
-Target a specific issue:
+`doctor` reports whether GitHub and Codex credentials are available but never prints probe output or the credentials themselves.
+
+### Test
 
 ```bash
-ao-pilot controller --holder my-session --issue 42
+npm test                         # unit and integration suite
+npm run ao:test:acceptance       # lifecycle acceptance scenarios
+ao-pilot eval --pack all         # bundled evaluation packs
 ```
 
-The project id is read from `ao.config.json`. A command-level `--project`
-option overrides it. Most commands support `--json` for machine-readable
-output. The files below `scripts/` are package internals; downstream consumers
-must use the binary or declared library exports rather than deep imports.
+## Architecture
 
-### Public library API
-
-The supported ESM entrypoints are:
+ao-pilot is organised around a control loop:
 
 ```text
-ao-pilot
-ao-pilot/cli
-ao-pilot/contracts
-ao-pilot/repository
-ao-pilot/engines
-ao-pilot/protocols
-ao-pilot/providers
+┌──────────────────────────────────────────────────────────────┐
+│                          ao-pilot                            │
+│                                                              │
+│  Observation Sources                                         │
+│  ├─ AO state                                                 │
+│  ├─ GitHub PR state                                          │
+│  ├─ CI/check state                                           │
+│  └─ Review state                                             │
+│          │                                                   │
+│          ▼                                                   │
+│  Event Ingest                                                │
+│          │                                                   │
+│          ▼                                                   │
+│  Reconciliation                                              │
+│  ├─ local AO state                                           │
+│  ├─ GitHub-facing truth                                      │
+│  └─ drift / ambiguity detection                              │
+│          │                                                   │
+│          ▼                                                   │
+│  Lifecycle / Diagnostics                                     │
+│  ├─ blocked                                                  │
+│  ├─ ambiguous                                                │
+│  ├─ stale                                                    │
+│  ├─ orphaned                                                 │
+│  └─ ready / needs review                                     │
+│          │                                                   │
+│          ▼                                                   │
+│  Decision + Policy Gates                                     │
+│          │                                                   │
+│          ▼                                                   │
+│  Action Proposal / Assisted Execution                        │
+│          │                                                   │
+│          ▼                                                   │
+│  Persistent State + Audit Trail                              │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-For example:
+1. **Observe** — read active tasks, ownership leases, PR bindings, branch heads, CI checks, review decisions, handoff records and checkpoints.
+2. **Reconcile** — compare local AO state with GitHub. If AO thinks a PR is failing but GitHub shows green checks, the stale local view loses. A task with an open PR but no valid owner becomes *orphaned*. A disagreement that cannot be resolved safely becomes *ambiguous*.
+3. **Diagnose** — classify each task: healthy, blocked, ambiguous, stale, orphaned, review-pending, or ready for its next action.
+4. **Decide** — map the diagnosis to an action: keep observing, refresh stale observations, retry bounded recovery, request review, propose a handoff, resume from a checkpoint, notify a session, or hold until CI or review changes.
+5. **Act** — in `assist` mode, permitted actions execute through policy gates.
+6. **Persist** — write state changes and decision records to the durable state model.
+
+### Controller modes
+
+| Mode | Observes | Reasons | Proposes actions | Executes actions |
+|---|:---:|:---:|:---:|:---:|
+| `observe` | ✅ | ✅ | ❌ | ❌ |
+| `shadow` | ✅ | ✅ | ✅ | ❌ |
+| `assist` | ✅ | ✅ | ✅ | ✅ |
+
+`shadow` shows what the system would do without changing anything, which makes it the natural way to trial a new policy before enabling it.
+
+### Durable state
+
+Control-plane records live in a local, file-based state model:
+
+```text
+tasks · ownership leases · controller leases · PR bindings
+actions · policy decisions · handoff requests / claims / transfers
+checkpoints · review records · run metrics · audit entries
+```
+
+The schemas are still evolving; versioned JSON Schemas for the stable contracts are in [`schemas/`](schemas).
+
+### Design principles
+
+- Explicit state over hidden session memory.
+- `blocked` or `ambiguous` over unsafe automatic progress.
+- GitHub PR / CI / review state is the source of truth during reconciliation.
+- Handoff and recovery are durable, not reconstructed from conversation history.
+- Observing and acting are separated: ao-pilot judges, the orchestrator holds merge authority.
+- Machine-readable output everywhere, for debugging and audit.
+
+## CLI
+
+All commands are subcommands of `ao-pilot`; most accept `--project <id>` (default: from `ao.config.json`) and `--json`. Run `ao-pilot <command> --help` for full options.
+
+| Area | Commands |
+|---|---|
+| Control loop | `controller` |
+| Diagnostics | `doctor`, `reconcile`, `lifecycle`, `state`, `metrics` |
+| Task management | `manage`, `handoff`, `review`, `override`, `knowledge` |
+| Runtime | `start`, `stop`, `status`, `runtime-path`, `runtime-project-get`, `runtime-contract`, `upgrade`, `restore` |
+| Sessions & messages | `session`, `send`, `ack` |
+| Tooling | `init`, `dashboard`, `eval`, `execution`, `publication-preflight` |
+
+Common examples:
+
+```bash
+# Control loop: single pass, continuous, or focused on one issue
+ao-pilot controller --holder dev-session --mode shadow --json
+ao-pilot controller --holder dev-session --mode assist --continuous
+ao-pilot controller --holder dev-session --issue 42
+
+# Does AO state agree with the PR's branch, CI and review state?
+ao-pilot reconcile --pr 42 --json --strict
+
+# Is there enough continuity, CI and review evidence to move forward?
+ao-pilot lifecycle --pr 42 --json
+
+# Enroll an issue as a managed task
+ao-pilot manage enroll --issue 42 --title "Fix failing parser test" \
+  --branch feat/fix-parser-test --worktree ../worktrees/fix-parser-test
+
+# Hand a task to a successor session
+ao-pilot handoff request --issue 42 --successor-session next-worker
+
+# Check Git publication identity and credentials without pushing or changing config
+ao-pilot publication-preflight --expected-repository owner/repo \
+  --expected-principal github-login --worker-principal github-login --json
+```
+
+### Library API
+
+The supported ESM entrypoints are `ao-pilot`, `ao-pilot/cli`, `ao-pilot/contracts`, `ao-pilot/repository`, `ao-pilot/engines`, `ao-pilot/protocols`, `ao-pilot/providers`, `ao-pilot/authority` and `ao-pilot/execution`:
 
 ```js
 import { createStateRepository } from 'ao-pilot/repository';
@@ -335,511 +226,51 @@ import { reconcileObservations, runControllerLoop } from 'ao-pilot/engines';
 import { createLocalCommandRunner } from 'ao-pilot/providers';
 ```
 
-Undeclared paths intentionally fail with `ERR_PACKAGE_PATH_NOT_EXPORTED`.
+Paths outside `package.json#exports` intentionally fail with `ERR_PACKAGE_PATH_NOT_EXPORTED`.
 
-## Architecture
+## Status
 
-At a high level, `ao-pilot` is organized around a control loop:
+ao-pilot is at **v0.2.0** and runs a real development workflow every day (see [In Practice](#in-practice)), but it is a single-maintainer project rather than a general-purpose product:
 
-```text
-┌──────────────────────────────────────────────────────────────┐
-│                          ao-pilot                            │
-│                                                              │
-│  Observation Sources                                         │
-│  ├─ AO state                                                  │
-│  ├─ GitHub PR state                                           │
-│  ├─ CI/check state                                            │
-│  └─ Review state                                              │
-│          │                                                    │
-│          ▼                                                    │
-│  Event Ingest                                                 │
-│          │                                                    │
-│          ▼                                                    │
-│  Reconciliation                                               │
-│  ├─ local AO state                                             │
-│  ├─ GitHub-facing truth                                        │
-│  └─ drift / ambiguity detection                                │
-│          │                                                    │
-│          ▼                                                    │
-│  Lifecycle / Diagnostics                                      │
-│  ├─ blocked                                                    │
-│  ├─ ambiguous                                                  │
-│  ├─ stale                                                      │
-│  ├─ orphaned                                                   │
-│  └─ ready / needs review                                       │
-│          │                                                    │
-│          ▼                                                    │
-│  Decision + Policy Gates                                      │
-│          │                                                    │
-│          ▼                                                    │
-│  Action Proposal / Assisted Execution                         │
-│          │                                                    │
-│          ▼                                                    │
-│  Persistent State + Audit Trail                               │
-└──────────────────────────────────────────────────────────────┘
-```
+- The declared library exports and CLI are maintained; internals under `scripts/` may change without notice.
+- Documentation is written for the maintainer's workflow first; onboarding for other setups is still thin.
+- It assumes human review stays in the loop and is not designed to operate without it.
 
-The control loop does not assume that automation should always act. Depending on mode and policy, it may only observe, propose, block, or escalate.
+See the [CHANGELOG](CHANGELOG.md) for release history.
 
-## Controller Modes
+### P0 Runtime Portability Incident
 
-| Mode | Observes | Reasons | Proposes Actions | Executes Actions |
-|---|:---:|:---:|:---:|:---:|
-| `observe` | ✅ | ✅ | ❌ | ❌ |
-| `shadow` | ✅ | ✅ | ✅ | ❌ |
-| `assist` | ✅ | ✅ | ✅ | ✅ |
+Installing the package and running it on a fresh workstation are verified separately. The package-level portability claim (`npm ci`, `npm run verify:package`) is accepted; runtime bootstrap is covered by an empty-HOME fresh-clone gate (`npm run verify:fresh-clone`); full new-workstation self-hosting is still awaiting its receipt. Details are in the [P0-R01 incident baseline](docs/runtime-portability/P0-R01_INCIDENT_BASELINE.md) and [AO Runtime](docs/AO_RUNTIME.md).
 
-The separation is intentional:
-
-- `observe` is useful for diagnostics and understanding state.
-- `shadow` is useful for seeing what the system would do without mutating state.
-- `assist` allows permitted actions to execute through policy gates.
-
-## CLI Reference
-
-The project provides several focused CLI entry points.
-
-### `ao-controller`
-
-Runs the main control loop.
-
-```bash
-ao-pilot controller --holder <id> [options]
-```
-
-Common options:
-
-```bash
---project <id>                 Project identifier
---controller <id>              Controller identity
---holder <id>                  Durable holder identity
---mode observe|shadow|assist   Controller mutation mode
---issue <number>               Focus on a specific issue
---continuous                   Keep running until stopped
---poll-interval-ms <ms>        Poll interval in continuous mode
---shutdown-timeout-ms <ms>     Shutdown grace bound
---json                         Machine-readable JSON output
-```
-
-Examples:
-
-```bash
-ao-pilot controller --holder dev-session --mode observe
-ao-pilot controller --holder dev-session --mode shadow --json
-ao-pilot controller --holder dev-session --mode assist --continuous
-```
-
-### `ao-reconcile`
-
-Compares AO state with GitHub-facing state.
-
-```bash
-ao-pilot reconcile [options]
-```
-
-Examples:
-
-```bash
-ao-pilot reconcile --project my-project
-ao-pilot reconcile --pr 42 --json
-ao-pilot reconcile --pr 42 --json --strict
-```
-
-Use this when you want to know whether AO state agrees with PR, branch, CI, and review state.
-
-### `ao-doctor`
-
-Runs diagnostic checks.
-
-```bash
-ao-pilot doctor [options]
-```
-
-Examples:
-
-```bash
-ao-pilot doctor --project my-project
-ao-pilot doctor --pr 42 --json
-ao-pilot doctor --pr 42 --json --strict
-```
-
-Use this to surface blocked, ambiguous, orphaned, stale, or otherwise unhealthy
-work and to inspect the external runtime repository/version/commit/tree,
-integrity, binary path/digest, compatibility, PATH shadowing, and secret-free
-GitHub/Codex authentication availability.
-
-### `ao-publication-preflight`
-
-Diagnoses Git publication readiness without committing, pushing, changing Git
-configuration, switching accounts, or printing credential and email values.
-
-```bash
-ao-pilot publication-preflight \
-  --expected-repository owner/repository \
-  --expected-principal github-login \
-  --worker-principal github-login \
-  --receipt-out ./publication-preflight.json \
-  --json
-```
-
-The fail-closed R2 receipt verifies the effective credential-helper executable,
-authenticated GitHub principal, remote repository, redacted author and
-committer identity shape, every outgoing commit identity, and the actual
-publication credential and repository write permission. The remote check is a
-non-interactive `git push --dry-run` against the validated push URL. HTTPS
-credentials are replayed through a bundled read-only helper that ignores
-credential `store` and `erase`, and hooks are disabled for the probe.
-An explicit `--credential-helper` applies only to non-interactive credential
-acquisition through command-scoped Git configuration. The dry run uses the
-isolated no-store helper; neither phase changes repository or global Git
-configuration. A blocked receipt exits with status `2`, while invalid usage
-exits with status `4`.
-
-### `ao-lifecycle`
-
-Inspects lifecycle state and readiness.
-
-```bash
-ao-pilot lifecycle [options]
-```
-
-Examples:
-
-```bash
-ao-pilot lifecycle --project my-project
-ao-pilot lifecycle --pr 42 --json
-ao-pilot lifecycle --pr 42 --json --strict
-```
-
-Use this to inspect whether a task or PR has enough continuity, CI, and review evidence to move forward.
-
-### `ao-manage`
-
-Manages task lifecycle records.
-
-```bash
-ao-pilot manage <command> [options]
-```
-
-Audit historical managed-task metadata without changing it:
-
-```bash
-ao-pilot manage scan-metadata --project my-project --json
-```
-
-The scan exits with status `2` when it finds a reserved metadata key. Each
-finding identifies the task, source state artifact, offending key, target
-first-class contract, and migration destination. Keys whose first-class
-contract does not exist yet (including Workstream and path claims) are
-reported as explicitly unsupported. New managed-task writes reject reserved
-keys; unrelated free-form metadata remains compatible. The scan never migrates
-or deletes historical metadata.
-
-Supported commands include:
+## Repository Layout
 
 ```text
-enroll
-adopt
-resume
-unmanage
-retire
-scan-metadata
+bin/ao-pilot.js        Unified CLI entrypoint
+lib/                   Public ESM entrypoints (package.json#exports)
+scripts/               CLI command implementations
+scripts/ao/lib/        Engines: controller loop, reconciliation, lifecycle,
+                       doctor, handoff, checkpoints, policy, actions, eval
+schemas/               Versioned JSON Schemas for stable contracts
+dashboard/             Localhost dashboard front end
+browser/               Imported upstream dashboard source (see browser/SOURCE_IMPORT.json)
+integrations/          Dashboard native adapter
+runtime/               Runtime locks and the vendored headless AO runtime source
+templates/             Example config, systemd units, tmux layouts
+docs/                  Architecture, runtime, release, evaluation and design notes
+tests/ao/              Unit, integration and acceptance tests
 ```
 
-Example:
+## Relationship to agent-orchestrator
 
-```bash
-ao-pilot manage enroll \
-  --project my-project \
-  --issue 42 \
-  --title "Fix failing parser test" \
-  --branch feat/fix-parser-test \
-  --worktree ../worktrees/fix-parser-test
-```
+[agent-orchestrator](https://github.com/Untrivial-ai/agent-orchestrator) (formerly `ComposioHQ/agent-orchestrator`) provides the session runtime: spawning agent sessions, routing feedback and coordinating work. ao-pilot is maintained independently and adds the control plane described above. To make installs reproducible it also vendors two pieces of upstream code:
 
-### `ao-handoff`
-
-Handles successor-session handoff.
-
-```bash
-ao-pilot handoff <command> [options]
-```
-
-Supported commands include:
-
-```text
-request
-claim
-accept
-reject
-expire
-inspect
-```
-
-Examples:
-
-```bash
-ao-pilot handoff request \
-  --project my-project \
-  --issue 42 \
-  --successor-session next-worker
-
-ao-pilot handoff inspect \
-  --project my-project \
-  --issue 42 \
-  --json
-```
-
-### `ao-state`
-
-Inspects persistent AO state.
-
-```bash
-ao-pilot state --project my-project
-ao-pilot state --project my-project --json
-```
-
-### `ao-override`
-
-Manages explicit overrides.
-
-```bash
-ao-pilot override <command> [options]
-```
-
-Overrides are intended for controlled operator intervention, not as a replacement for fixing state.
-
-### `ao-knowledge`
-
-Inspects repository knowledge files and related metadata.
-
-```bash
-ao-pilot knowledge --project my-project
-ao-pilot knowledge --project my-project --json
-```
-
-## How It Works
-
-### 1. Observe
-
-The controller reads available state from AO and GitHub-facing sources.
-
-Typical observed inputs include:
-
-- active tasks;
-- ownership leases;
-- PR bindings;
-- GitHub PR status;
-- branch/head state;
-- CI checks;
-- review decisions;
-- handoff records;
-- checkpoints.
-
-### 2. Reconcile
-
-The reconciliation engine compares local AO state with external state.
-
-For example:
-
-- If AO believes a PR is failing but GitHub shows passing checks, the stale AO view should not be blindly trusted.
-- If a task has no valid owner but still has an open PR, it may be marked as orphaned.
-- If local state and GitHub state disagree in a way that cannot be safely resolved, the result should become ambiguous.
-
-### 3. Diagnose
-
-The doctor and lifecycle logic classify work into states such as:
-
-- healthy;
-- blocked;
-- ambiguous;
-- stale;
-- orphaned;
-- review-pending;
-- ready for next action.
-
-This is meant to make operator decisions easier, not to hide them.
-
-### 4. Decide
-
-The decision layer maps observed state and diagnostics into possible actions.
-
-Examples:
-
-- continue observing;
-- retry bounded provider/source recovery;
-- refresh missing or stale observations;
-- pause only an affected scope for unresolved authority ambiguity;
-- request human review;
-- mark work as blocked;
-- propose a handoff;
-- recover from checkpoint;
-- notify a session;
-- hold until CI or review changes.
-
-### 5. Act
-
-In `assist` mode, allowed actions can be executed through policy gates.
-
-In `observe` and `shadow` modes, the system should avoid mutating state directly.
-
-### 6. Persist
-
-State changes are written into the persistent AO state model, with audit-oriented records where applicable.
-
-## Persistent State
-
-The project uses a local persistent state model for control-plane records.
-
-Conceptually, it includes:
-
-```text
-tasks
-ownership leases
-controller leases
-PR bindings
-actions
-policy decisions
-handoff requests
-handoff claims
-handoff transfers
-checkpoints
-review records
-run metrics
-audit entries
-```
-
-The exact schema is still experimental and may change.
-
-## Testing
-
-Run the default test suite:
-
-```bash
-npm test
-```
-
-Run AO acceptance tests:
-
-```bash
-npm run ao:test:acceptance
-```
-
-Run the bundled generic evaluation suite:
-
-```bash
-ao-pilot eval --pack all
-```
-
-See [AO Evaluation](docs/AO_EVALUATION.md) for project-owned packs, replay,
-metrics windows, scorecards, and baselines.
-
-Release candidates use `npm run release:check`. See
-[AO Release](docs/AO_RELEASE.md) for the second-machine checklist, tagging, and
-npm publication boundary.
-
-The acceptance tests cover representative situations such as:
-
-- clean PR continuity;
-- failed CI;
-- approved and green PRs;
-- orphaned ownership;
-- stale worker ownership;
-- cross-source disagreement between AO and GitHub state.
-
-## Project Structure
-
-The exact structure may change, but the important areas are:
-
-```text
-scripts/
-  ao-controller.js        Main controller loop CLI
-  ao-reconcile.js         State reconciliation CLI
-  ao-doctor.js            Diagnostics CLI
-  ao-publication-preflight.js Git publication diagnostics CLI
-  ao-lifecycle.js         Lifecycle inspection CLI
-  ao-manage.js            Task management CLI
-  ao-handoff.js           Handoff CLI
-  ao-state.js             State inspection CLI
-  ao-override.js          Override CLI
-  ao-knowledge.js         Repository knowledge CLI
-
-scripts/ao/lib/
-  controller-loop.js      Main control loop implementation
-  state-contracts.js      State contract definitions
-  reconciliation-*.js     Reconciliation contracts, runner, engine
-  doctor-*.js             Diagnostic contracts, runner, engine
-  lifecycle-*.js          Lifecycle contracts and engine
-  handoff-*.js            Handoff protocol
-  checkpoint-*.js         Checkpoint storage and recovery concepts
-  policy-*.js             Policy evaluation
-  action-*.js             Action proposal/execution
-  run-metrics.js          Measurement and run summaries
-  eval-harness.js         Generic eval orchestration
-  eval/                    Catalog, replay, and built-in scenario runners
-  scorecard.js             Eval scorecards and baseline comparison
-
-tests/
-  ao/                     AO-specific acceptance and unit tests
-```
-
-## Intended Use
-
-This repo is mainly useful if you are interested in:
-
-- AI-assisted software engineering;
-- coding-agent orchestration;
-- PR-based automation;
-- recovering interrupted agent sessions;
-- making agent workflows auditable;
-- designing conservative automation gates;
-- thinking about state machines around AI coding tools.
-
-It is probably not the right tool if you want:
-
-- a plug-and-play production agent platform;
-- a polished SaaS-style product;
-- compatibility for undeclared package internals or deep imports;
-- a fully documented contributor experience;
-- an agent that can safely operate without human review.
-
-## Development Notes
-
-This project intentionally keeps many concepts explicit:
-
-- task IDs;
-- owner sessions;
-- controller leases;
-- PR bindings;
-- decision records;
-- policy decisions;
-- handoff records;
-- checkpoint records;
-- diagnostic findings.
-
-That makes the system more verbose, but also easier to inspect when something goes wrong.
-
-The current codebase may still contain rough edges, old assumptions, and names inherited from the original AO project. Those are part of the prototype status.
+- [`runtime/headless/`](runtime/headless/ORIGIN.md) — a reduced copy of the upstream Go runtime, pinned to an exact commit, with the desktop launcher replaced by a fail-closed command;
+- [`browser/`](browser/SOURCE_IMPORT.json) — the upstream browser dashboard source, imported byte-for-byte with a hash manifest.
 
 ## Contributing
 
-Contributions are welcome, but please treat this repository as experimental.
-
-Useful contribution areas include:
-
-- clearer documentation;
-- smaller examples;
-- better tests;
-- simpler setup;
-- bug fixes in CLI behavior;
-- improved diagnostics;
-- safer default policies;
-- clearer state transition rules.
-
-Before making large architectural changes, opening an issue first is recommended.
+Issues and PRs are welcome. For larger architectural changes, please open an issue first. Useful areas include clearer docs, smaller examples, simpler setup, better diagnostics and safer default policies.
 
 ## License
 
-MIT License.
-
-See [LICENSE](./LICENSE).
+ao-pilot is released under the [MIT License](LICENSE). Vendored upstream code keeps its original license: [`runtime/headless/`](runtime/headless/LICENSE.upstream) is Apache-2.0, and [`browser/`](browser/LICENSE) is MIT.
