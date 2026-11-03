@@ -577,11 +577,21 @@ export async function verifyFreshClone(options, {
     }
 
     runtimeStopRequired = true;
-    const start = parseJsonOutput(run(node, [cli, 'start', '--runtime-store', storeRoot, '--json'], {
-      cwd: cloneRoot,
-      env,
-      timeout: 30_000,
-    }));
+    let start;
+    try {
+      start = parseJsonOutput(run(node, [cli, 'start', '--runtime-store', storeRoot, '--json'], {
+        cwd: cloneRoot,
+        env,
+        timeout: 30_000,
+      }));
+    } catch (error) {
+      // Preserve the original failure; read the private daemon's readiness
+      // reason before finally stops it and removes the isolated workspace.
+      error.details = { ...error.details, native_status: run(runtimePath.binary_path, ['status', '--json'], {
+        cwd: cloneRoot, env, allowFailure: true, timeout: 5_000,
+      }) };
+      throw error;
+    }
     if (start.status === 'already_running') {
       runtimeStopRequired = false;
       fail('fresh_clone_daemon_preexisting', 'Isolated HOME already had a reachable runtime daemon; refusing to stop a daemon this gate did not create');
