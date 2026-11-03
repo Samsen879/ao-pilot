@@ -3,7 +3,7 @@
 ## Unified installation (R3)
 
 The new unified release/installer supports Linux x64/arm64 and WSL2 with systemd.
-See [the unified installation runbook](AO_UNIFIED_INSTALL.md) for archive/pack-once builds, private configuration, current/previous transactions, rollback and local staging gates. Source merge does not promote the unchanged p0.4 runtime lock or authorize deployment. Existing Node 20 control-plane commands remain supported; new execve release launchers require Node >=22.15.
+See [the unified installation runbook](AO_UNIFIED_INSTALL.md) for archive/pack-once builds, private configuration, current/previous transactions, rollback and local staging gates. Source merges do not by themselves promote the runtime lock or authorize deployment. Existing Node 20 control-plane commands remain supported; new execve release launchers require Node >=22.15.
 
 `ao-pilot` owns both its control plane and the minimal headless runtime source.
 The package must never treat a command named `ao` on `PATH`, an old HOME
@@ -28,31 +28,39 @@ npm run verify:runtime-bootstrap
 
 ## Canonical runtime
 
-- runtime ref: `runtime.ao_pilot_headless.v0_11_2_p0_4`
+- runtime ref: `runtime.ao_pilot_headless.v0_12_0_p0_1`
 - repository: `https://github.com/Samsen879/ao-pilot.git`
 - upstream package identity: `@aoagents/ao@0.11.2` (identity only; not install
   authority for the fork delta)
-- immutable subtree tag: `ao-pilot-headless-runtime-v0.11.2-p0.4`
-- annotated tag object: `7947c3ac8787576bce0d5d7627c8020e95643bef`
-- commit: `43d37ef2a76e1949c8032c49c5e6197d98bf0b96`
-- tree/integrity: `91282c19b408935e94d732e8e10699d393f3c821`
+- immutable subtree tag: `ao-pilot-headless-runtime-v0.12.0-p0.1`
+- annotated tag object: `b0b354024cf144f82f1b6f4ab8796184dde786bd`
+- commit: `4beefc2fb446ea28a7bdece5a457ca7a9f9a8d25`
+- tree/integrity: `74f78828fc44bf123368dc338c68f9a0a8335a07`
 - source toolchain: Go `1.25.7`, `CGO_ENABLED=0`
 - managed binary relative path: `bin/ao`
 - Linux x64 expected binary SHA-256:
-  `45d257d19810cb606917ce734ec281c16617b0ec0088591e3cea909c27868919`
+  `3bef05442a7244bc3c64064352ce48888a7b31e1346304f7f7e315d3e0c4b256`
 - Linux arm64 expected binary SHA-256:
-  `2b2025e9aaf3fd8799fa6c5ed149118f15d8d62e56123c3fa13c70c7c3ea3ffe`
+  `59c552b49a90946c3ee95a8a234e7978e14455c439d589da95bc38e064c8dfaf`
 - ao-pilot compatibility: `>=0.2.0` and `<0.3.0`
 
-The tagged subtree contains only `backend/`, upstream license/provenance, and
-the ao-pilot modification that makes `ao start` fail closed. It contains no
-frontend, Electron, AppImage, installer, or desktop acquisition/open source.
-No separate runtime repository or GitHub Release is required.
+The tagged headless tree is an exact `runtime/headless/` subtree of verified
+main `b935697417a8231cb579c375d2a736c7e35b9324` (main tree
+`3e2d8e0ffaa0c3d4cef7b4b89bbb5d682df00384`). It retains the `backend/` build
+root, upstream license/provenance, and the headless runtime changes. It contains
+no frontend, Electron, AppImage, installer, or desktop acquisition/open source;
+`ao start` remains disabled. No separate runtime repository or GitHub Release
+is required.
 
-The p0.1 tag/commit/tree and binary digests remain immutable historical
-evidence for the principal/bootstrap proof produced before this canonical
-p0.4 transition. They are not the current runtime lock and must not be
-rewritten in that historical receipt layer.
+The Linux x64 digest is the unchanged pack-once daemon validated through
+staging, production cutover, a nondestructive daemon restart, and a complete WSL
+cold recovery. The Linux ARM64 digest is an exact-source Go cross-build; native
+ARM64 execution was not performed in this workstation validation. The upstream
+package identity remains `@aoagents/ao@0.11.2` independently of this fork release.
+
+The earlier p0.1 and p0.4 tags, commits, trees and binary digest receipts remain
+immutable historical evidence. They are not the current runtime lock and must
+not be rewritten in that historical receipt layer.
 
 ## Managed provenance contract
 

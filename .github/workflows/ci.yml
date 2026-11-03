@@ -54,7 +54,15 @@ jobs:
           path: ${{ runner.temp }}/ao-pilot-runtime-cache
           key: ao-pilot-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('runtime/agent-orchestrator.lock.json', 'runtime/go-toolchain.lock.json') }}
       - run: npm ci
-      - run: npm run verify:fresh-clone -- --expected-head "$GITHUB_SHA" --cache "$RUNNER_TEMP/ao-pilot-runtime-cache" --receipt-out "$RUNNER_TEMP/fresh-clone-receipt.json"
+      - name: Install isolated managed tmux fixture tools
+        if: runner.environment == 'github-hosted'
+        run: sudo apt-get update && sudo apt-get install -y tmux dbus-user-session
+      - name: Prepare independent hosted-runner tmux unit
+        run: node scripts/ci/fresh-clone-tmux-fixture.js prepare
+      - run: npm run verify:fresh-clone -- --expected-head "$GITHUB_SHA" --cache "$RUNNER_TEMP/ao-pilot-runtime-cache" --temp-root "$RUNNER_TEMP" --managed-tmux-fixture "$RUNNER_TEMP/ao-fresh-tmux/fixture.json" --receipt-out "$RUNNER_TEMP/fresh-clone-receipt.json"
+      - name: Clean only the owned managed tmux fixture
+        if: always()
+        run: node scripts/ci/fresh-clone-tmux-fixture.js cleanup
       - uses: actions/upload-artifact@v4
         with:
           name: fresh-clone-runtime-receipt

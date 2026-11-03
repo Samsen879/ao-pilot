@@ -163,7 +163,7 @@ try {
       '}',
       "if (!deepImportBlocked) throw new Error('Undeclared package deep import was not blocked');",
       'const runtimeLock = contracts.loadRuntimeLock();',
-      "if (runtimeLock.lock.runtime_ref !== 'runtime.ao_pilot_headless.v0_11_2_p0_4') {",
+      "if (runtimeLock.lock.runtime_ref !== 'runtime.ao_pilot_headless.v0_12_0_p0_1') {",
       "  throw new Error('Installed package runtime lock ref mismatch');",
       '}',
       "if (!runtimeLock.digest.match(/^sha256:[a-f0-9]{64}$/)) {",

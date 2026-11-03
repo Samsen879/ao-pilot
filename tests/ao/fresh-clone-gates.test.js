@@ -1311,8 +1311,8 @@ describe('fresh-clone and protected self-hosting gates', () => {
     expect(runtimeDoc).toContain(`tree/integrity: \`${current.artifact.ref.tree_sha}\``);
     expect(runtimeDoc).toContain(current.compatibility.platforms[0].binary_sha256);
     expect(runtimeDoc).toContain(current.compatibility.platforms[1].binary_sha256);
-    expect(runtimeDoc).toContain('p0.1 tag/commit/tree and binary digests remain immutable historical');
-    expect(runtimeDoc).toContain('p0.4 transition');
+    expect(runtimeDoc).toContain('The earlier p0.1 and p0.4 tags, commits, trees and binary digest receipts remain');
+    expect(runtimeDoc).toContain('immutable historical evidence.');
   });
 
   it.each([
