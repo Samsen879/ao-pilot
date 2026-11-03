@@ -188,7 +188,7 @@ export function loadManagedTmuxFixture(file, tempRoot) {
   return fixture;
 }
 
-function isolatedEnvironment(root, safePath, cacheRoot, inherited = process.env, fixture = null) {
+export function isolatedEnvironment(root, safePath, cacheRoot, inherited = process.env, fixture = null) {
   const home = path.join(root, 'home');
   const xdg = {
     config: path.join(root, 'xdg-config'),
@@ -224,6 +224,9 @@ function isolatedEnvironment(root, safePath, cacheRoot, inherited = process.env,
     ...network,
     ...(fixture ? { AO_TMUX_SOCKET: fixture.socket, AO_TMUX_UNIT: fixture.unit,
       AO_TMUX_TMPDIR: fixture.tmpdir, TMUX_TMPDIR: fixture.tmpdir,
+      // systemctl uses this user's private manager socket before the session
+      // bus. A synthetic XDG runtime directory cannot reach the hosted fixture.
+      XDG_RUNTIME_DIR: `/run/user/${process.getuid()}`,
       DBUS_SESSION_BUS_ADDRESS: fixture.dbus_address } : {}),
   };
 }

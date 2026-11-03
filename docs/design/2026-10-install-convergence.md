@@ -12,7 +12,7 @@
 
 遵守 Typed Review Policy v2：稳定候选及 focused preflight 后做 `candidate_review`；修正按 finding ID 做 `finding_verification`，扩展契约做 `semantic_delta_review`；R3 最终发布须有 exact-final-head `release_attestation`、回退证据及效果后的观察。设计通过不等于授权生产切换；云端不连接真实 AO、systemd 或生产数据。
 
-2026-11-03 Owner 明确批准一项窄例外：仅本仓库的 GitHub-hosted 临时 runner 可创建、清理 `ao-pilot-staging-fresh-<run>-<attempt>-tmux.service`，为 source fresh-clone 提供真实且独立的 tmux cgroup。fixture 使用私有 socket、临时目录及当前测试用户的本地 bus；必要的 user manager 初始化只作用于该临时 runner。禁止连接工作站或生产 AO/systemd/数据，禁止 self-hosted runner 使用此 helper。所有 ready、PID/start-token、cgroup、退出及两把 ownership-lock 检查和原 deadline 保持不变；verifier 本身仍不安装或启动 units。
+2026-11-03 Owner 明确批准一项窄例外：仅本仓库的 GitHub-hosted 临时 runner 可创建、清理 `ao-pilot-staging-fresh-<run>-<attempt>-tmux.service`，为 source fresh-clone 提供真实且独立的 tmux cgroup。fixture 使用私有 socket、临时目录及当前测试用户的本地 bus；为实际访问 user manager，显式 fixture 的 `XDG_RUNTIME_DIR` 固定为 `/run/user/<当前uid>`，不继承外部值，HOME/DataDir/discovery 与 tmux 目录仍独立。必要的 user manager 初始化只作用于该临时 runner。禁止连接工作站或生产 AO/systemd/数据，禁止 self-hosted runner 使用此 helper。所有 ready、PID/start-token、cgroup、退出及两把 ownership-lock 检查和原 deadline 保持不变；verifier 本身仍不安装或启动 units。
 
 - **拟改文件**：本 PR 仅本文；后续路径见各节。
 - **验收**：文档覆盖 P1/P3/staging、各项文件归属和失败行为；review 状态明确；没有实现改动。
