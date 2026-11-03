@@ -42,6 +42,7 @@ export function parseArgs(argv) {
     receiptOut: null,
     expectedHead: null,
     keepOnFailure: false,
+    managedTmuxFixture: null,
     tarball: process.env.AO_RELEASE_TARBALL ?? null,
     tarballSha256: process.env.AO_RELEASE_TARBALL_SHA256 ?? null,
     releasePayload: process.env.AO_RELEASE_BUNDLE ? path.join(process.env.AO_RELEASE_BUNDLE, 'payload') : null,
@@ -49,7 +50,9 @@ export function parseArgs(argv) {
   };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    if (argument === '--release-payload') {
+    if (argument === '--managed-tmux-fixture') {
+      options.managedTmuxFixture = path.resolve(requiredValue(argv, index, argument)); index += 1;
+    } else if (argument === '--release-payload') {
       options.releasePayload = path.resolve(requiredValue(argv, index, argument)); index += 1;
     } else if (argument === '--tarball') {
       options.tarball = path.resolve(requiredValue(argv, index, argument)); index += 1;
@@ -92,6 +95,7 @@ function usage() {
     'Options:',
     '  --source <path|url>    Git source. Default: current exact repository',
     '  --release-payload <p> Complete frozen payload for supplied release tarball',
+    '  --managed-tmux-fixture <file> Explicit private tmux unit for source lifecycle tests',
     '  --ref <ref>            Commit/ref to detach after clone. Default: HEAD',
     '  --cache <path>         Reusable verified runtime cache',
     '  --temp-root <path>     Parent for the isolated workspace',
@@ -160,7 +164,31 @@ export function removeTemporaryRoot(root) {
   }
 }
 
-function isolatedEnvironment(root, safePath, cacheRoot, inherited = process.env) {
+export function loadManagedTmuxFixture(file, tempRoot) {
+  if (file == null) return null;
+  const base = fs.realpathSync(tempRoot);
+  const expected = path.join(base, 'ao-fresh-tmux');
+  if (path.resolve(file) !== path.join(expected, 'fixture.json')) fail('fresh_clone_unsafe_tmux_fixture', 'Fixture must be inside the explicit test temp-root');
+  for (const directory of [expected, path.join(expected, 'tmux')]) {
+    const st = fs.lstatSync(directory);
+    if (!st.isDirectory() || st.isSymbolicLink() || st.uid !== process.getuid() || (st.mode & 0o077) !== 0 || fs.realpathSync(directory) !== directory) fail('fresh_clone_unsafe_tmux_fixture', 'Unsafe fixture directory');
+  }
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW); let fixture;
+  try {
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || st.nlink !== 1 || st.uid !== process.getuid() || (st.mode & 0o077) !== 0) fail('fresh_clone_unsafe_tmux_fixture', 'Unsafe fixture configuration');
+    fixture = JSON.parse(fs.readFileSync(fd, 'utf8'));
+  } finally { fs.closeSync(fd); }
+  if (!fixture || JSON.stringify(Object.keys(fixture).sort()) !== JSON.stringify(['dbus_address', 'schema_version', 'socket', 'tmpdir', 'unit'])
+    || fixture.schema_version !== 'ao.fresh-managed-tmux-fixture.v1'
+    || !/^ao-pilot-staging-fresh-[0-9]+-[0-9]+-tmux\.service$/.test(fixture.unit)
+    || fixture.socket !== fixture.unit.replace(/-tmux\.service$/, '')
+    || fixture.tmpdir !== path.join(expected, 'tmux')
+    || fixture.dbus_address !== `unix:path=/run/user/${process.getuid()}/bus`) fail('fresh_clone_unsafe_tmux_fixture', 'Fixture namespace or local bus mismatch');
+  return fixture;
+}
+
+function isolatedEnvironment(root, safePath, cacheRoot, inherited = process.env, fixture = null) {
   const home = path.join(root, 'home');
   const xdg = {
     config: path.join(root, 'xdg-config'),
@@ -194,6 +222,9 @@ function isolatedEnvironment(root, safePath, cacheRoot, inherited = process.env)
     LANG: 'C',
     LC_ALL: 'C',
     ...network,
+    ...(fixture ? { AO_TMUX_SOCKET: fixture.socket, AO_TMUX_UNIT: fixture.unit,
+      AO_TMUX_TMPDIR: fixture.tmpdir, TMUX_TMPDIR: fixture.tmpdir,
+      DBUS_SESSION_BUS_ADDRESS: fixture.dbus_address } : {}),
   };
 }
 
@@ -366,7 +397,10 @@ export async function verifyFreshClone(options, {
     });
   }
   if (options.tarball && !options.releasePayload) fail('fresh_clone_release_payload_required', 'Supplied release requires its complete frozen payload');
+  if (options.tarball && options.managedTmuxFixture) fail('fresh_clone_fixture_conflict', 'Packed lifecycle already owns its managed namespace');
+  if (!options.tarball && !options.managedTmuxFixture) fail('fresh_clone_managed_tmux_fixture_required', 'Source lifecycle requires an explicit independent managed tmux fixture');
   fs.mkdirSync(options.tempRoot, { recursive: true });
+  const managedTmuxFixture = loadManagedTmuxFixture(options.managedTmuxFixture, options.tempRoot);
   const root = fs.mkdtempSync(path.join(options.tempRoot, 'ao-pilot-fresh-clone-'));
   const cloneRoot = path.join(root, 'clone');
   let storeRoot = path.join(root, 'runtime-store');
@@ -379,8 +413,8 @@ export async function verifyFreshClone(options, {
   let node;
   let cli;
   try {
-    const safe = createSafeToolPath(root, inheritedEnv, Boolean(options.tarball));
-    env = isolatedEnvironment(root, safe.directory, cacheRoot, inheritedEnv);
+    const safe = createSafeToolPath(root, inheritedEnv, Boolean(options.tarball || managedTmuxFixture));
+    env = isolatedEnvironment(root, safe.directory, cacheRoot, inheritedEnv, managedTmuxFixture);
     node = commandPath(safe.tools, 'node');
     const git = commandPath(safe.tools, 'git');
     const npm = commandPath(safe.tools, 'npm');

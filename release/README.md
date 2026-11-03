@@ -28,6 +28,19 @@ Without the independent server the unchanged readiness check rejects the run.
 The verifier does not install or start user units itself. Cloud tests continue
 to use isolated fixtures and must not access workstation services or data.
 
+Source-only fresh-clone lifecycle checks require `--managed-tmux-fixture <file>`
+under the explicit `--temp-root`. The owner-only fixture binds a private
+`ao-pilot-staging-fresh-<run>-<attempt>-tmux.service`, matching socket, private
+tmux directory and the current test user's local bus. Unknown fields, shared
+permissions, production unit names and mismatched paths are rejected before
+startup. The external `scripts/ci/fresh-clone-tmux-fixture.js` is restricted to
+this repository on ephemeral GitHub-hosted runners; its cloud execution requires
+the explicit design exception recorded by the Owner. It never connects to
+workstation or production systemd. All existing ready, actual cgroup,
+PID/start-token, owned stop and ownership-lock assertions and deadlines remain
+unchanged. Supplied-package verification retains its existing separately bound
+managed fixture and cannot mix both fixture inputs.
+
 A complete unified release requires a **tracked**, sanitized, empty SQLite
 fixture and `release/compatibility.json` (or `--compatibility <tracked-path>`):
 
