@@ -1764,20 +1764,23 @@ func (m *Manager) reconcileLive(ctx context.Context, rec domain.SessionRecord, a
 	}
 	if err := m.saveAndTeardownOne(ctx, rec, false); err != nil {
 		m.logger.Warn("reconcile: save-and-teardown failed; terminating without restore marker", "sessionID", rec.ID, "error", err)
+		captureErr := fmt.Errorf("reconcile %s: save workspace: %w", rec.ID, err)
 		markerErr := m.store.MarkSessionWorktreesNonRestorable(ctx, rec.ID)
 		terminatedErr := m.lcm.MarkTerminated(ctx, rec.ID)
 		if markerErr != nil {
 			if terminatedErr != nil {
 				return true, errors.Join(
+					captureErr,
 					fmt.Errorf("reconcile %s: quarantine failed restore marker: %w", rec.ID, markerErr),
 					fmt.Errorf("reconcile %s: mark terminated: %w", rec.ID, terminatedErr),
 				)
 			}
-			return true, fmt.Errorf("reconcile %s: quarantine failed restore marker: %w", rec.ID, markerErr)
+			return true, errors.Join(captureErr, fmt.Errorf("reconcile %s: quarantine failed restore marker: %w", rec.ID, markerErr))
 		}
 		if terminatedErr != nil {
-			return true, fmt.Errorf("reconcile %s: mark terminated: %w", rec.ID, terminatedErr)
+			return true, errors.Join(captureErr, fmt.Errorf("reconcile %s: mark terminated: %w", rec.ID, terminatedErr))
 		}
+		return true, captureErr
 	}
 	return true, nil
 }
@@ -1815,8 +1818,8 @@ func (m *Manager) reconcileReap(ctx context.Context, rec domain.SessionRecord) e
 //     collide with a leaked tmux of the same name.
 //  3. Restore pass: relaunch shutdown-saved sessions (existing RestoreAll).
 //
-// Best-effort throughout: a per-session failure is logged and never aborts the
-// pass or blocks boot.
+// Best-effort throughout: per-session failures do not abort the remaining pass.
+// They are returned so boot can expose degraded readiness while serving liveness.
 func (m *Manager) Reconcile(ctx context.Context) error {
 	var failures []error
 	recs, err := m.store.ListAllSessions(ctx)
@@ -1829,7 +1832,7 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 			live = append(live, rec)
 		}
 	}
-	prioritizeBootRecovery(live, bootRestoreLimit)
+	prioritizeBootRecovery(live)
 	recoveryAttempts := 0
 	for _, rec := range live {
 		if !m.spawnAttemptAllowed(ctx, rec.ID) {
@@ -1915,12 +1918,14 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 		candidates = append(candidates, bootRestoreCandidate{rec: rec, rows: rows, activityAt: activityAt})
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
+		if (candidates[i].rec.Kind == domain.KindOrchestrator) != (candidates[j].rec.Kind == domain.KindOrchestrator) {
+			return candidates[i].rec.Kind == domain.KindOrchestrator
+		}
 		if !candidates[i].activityAt.Equal(candidates[j].activityAt) {
 			return candidates[i].activityAt.After(candidates[j].activityAt)
 		}
 		return bootRecoveryBefore(candidates[i].rec, candidates[j].rec)
 	})
-	reserveRecentOrchestratorCandidate(candidates, bootRestoreLimit)
 	runtimeAttempts := 0
 	for _, saved := range candidates {
 		rec, rows := saved.rec, saved.rows
@@ -2042,6 +2047,9 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 }
 
 func bootRecoveryBefore(a, b domain.SessionRecord) bool {
+	if (a.Kind == domain.KindOrchestrator) != (b.Kind == domain.KindOrchestrator) {
+		return a.Kind == domain.KindOrchestrator
+	}
 	if !a.Activity.LastActivityAt.Equal(b.Activity.LastActivityAt) {
 		return a.Activity.LastActivityAt.After(b.Activity.LastActivityAt)
 	}
@@ -2051,46 +2059,10 @@ func bootRecoveryBefore(a, b domain.SessionRecord) bool {
 	return a.ID > b.ID
 }
 
-// prioritizeBootRecovery sorts recent activity first and reserves one slot for
-// the most recent orchestrator. Restoring only workers can leave a recovered
-// project without the controller that owns their next actions.
-func prioritizeBootRecovery(recs []domain.SessionRecord, limit int) {
+// prioritizeBootRecovery restores orchestrators before workers, ranking recent
+// activity within each role. The caller retains the shared cold-start budget.
+func prioritizeBootRecovery(recs []domain.SessionRecord) {
 	sort.SliceStable(recs, func(i, j int) bool { return bootRecoveryBefore(recs[i], recs[j]) })
-	if limit <= 0 || len(recs) <= limit {
-		return
-	}
-	for i := 0; i < limit; i++ {
-		if recs[i].Kind == domain.KindOrchestrator {
-			return
-		}
-	}
-	for i := limit; i < len(recs); i++ {
-		if recs[i].Kind == domain.KindOrchestrator {
-			orchestrator := recs[i]
-			copy(recs[limit:i+1], recs[limit-1:i])
-			recs[limit-1] = orchestrator
-			return
-		}
-	}
-}
-
-func reserveRecentOrchestratorCandidate(candidates []bootRestoreCandidate, limit int) {
-	if limit <= 0 || len(candidates) <= limit {
-		return
-	}
-	for i := 0; i < limit; i++ {
-		if candidates[i].rec.Kind == domain.KindOrchestrator {
-			return
-		}
-	}
-	for i := limit; i < len(candidates); i++ {
-		if candidates[i].rec.Kind == domain.KindOrchestrator {
-			orchestrator := candidates[i]
-			copy(candidates[limit:i+1], candidates[limit-1:i])
-			candidates[limit-1] = orchestrator
-			return
-		}
-	}
 }
 
 func restorableWorktreeRows(rows []domain.SessionWorktreeRecord) []domain.SessionWorktreeRecord {
