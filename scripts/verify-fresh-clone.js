@@ -589,7 +589,15 @@ export async function verifyFreshClone(options, {
       // reason before finally stops it and removes the isolated workspace.
       error.details = { ...error.details, native_status: run(runtimePath.binary_path, ['status', '--json'], {
         cwd: cloneRoot, env, allowFailure: true, timeout: 5_000,
-      }) };
+      }), ...(managedTmuxFixture ? {
+        tmux_client: run(commandPath(safe.tools, 'tmux'), ['-L', managedTmuxFixture.socket, '-N', 'display-message', '-p', '#{pid}'], {
+          cwd: cloneRoot, env, allowFailure: true, timeout: 5_000,
+        }),
+        tmux_unit: run(commandPath(safe.tools, 'systemctl'), ['--user', 'show', '--property=MainPID', '--property=ControlGroup',
+          '--property=ActiveState', '--property=LoadState', '--', managedTmuxFixture.unit], {
+          cwd: cloneRoot, env, allowFailure: true, timeout: 5_000,
+        }),
+      } : {}) };
       throw error;
     }
     if (start.status === 'already_running') {
