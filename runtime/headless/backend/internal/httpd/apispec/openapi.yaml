@@ -1777,6 +1777,57 @@ paths:
         against old daemons
       tags:
       - sessions
+  /api/v1/sessions/{sessionId}/messages/{messageId}:
+    get:
+      operationId: getSessionMessage
+      parameters:
+      - description: Session identifier, e.g. project-1.
+        in: path
+        name: sessionId
+        required: true
+        schema:
+          description: Session identifier, e.g. project-1.
+          type: string
+      - in: path
+        name: messageId
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageStatus'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Service Unavailable
+      summary: Inspect retained custody without sending, acknowledging or restoring
+        a session
+      tags:
+      - sessions
   /api/v1/sessions/{sessionId}/messages/{messageId}/ack:
     post:
       operationId: ackSessionMessage
@@ -3838,12 +3889,16 @@ components:
           items:
             type: string
           type: array
+        read_status:
+          type: boolean
         require_ack:
           type: boolean
         schema_version:
           type: string
         send_timeout_ms:
           type: integer
+        status_schema_version:
+          type: string
       required:
       - schema_version
       - authority
@@ -3876,6 +3931,49 @@ components:
       - signal
       - attempts
       - recorded_at
+      type: object
+    MessageStatus:
+      properties:
+        created_at:
+          type: string
+        evidence:
+          $ref: '#/components/schemas/MessageEvidence'
+        message_id:
+          type: string
+        outcome:
+          enum:
+          - submitted_confirmed
+          - submitted_unconfirmed
+          - rejected
+          - acknowledged
+          - ack_timeout
+          type: string
+        phase:
+          enum:
+          - reserved
+          - started
+          - final
+          type: string
+        require_ack:
+          type: boolean
+        schema_version:
+          type: string
+        session_id:
+          type: string
+        version:
+          format: int64
+          minimum: 0
+          type: integer
+      required:
+      - schema_version
+      - message_id
+      - outcome
+      - evidence
+      - session_id
+      - require_ack
+      - phase
+      - version
+      - created_at
       type: object
     MobileStatusResponse:
       properties:

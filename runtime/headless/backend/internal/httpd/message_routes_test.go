@@ -32,6 +32,36 @@ func (s *routeMessages) AckMessage(ctx context.Context, _ domain.SessionID, _ st
 	s.calls++
 	return domain.MessageResult{MessageID: "id", Outcome: "acknowledged", Evidence: domain.MessageEvidence{Code: "ACKNOWLEDGED", Signal: "explicit_ack", RecordedAt: "now"}}, nil
 }
+
+func (s *routeMessages) GetMessageStatus(ctx context.Context, id domain.SessionID, messageID string) (domain.MessageStatus, bool, error) {
+	s.calls++
+	return domain.MessageStatus{SchemaVersion: domain.MessageStatusVersion, SessionID: id,
+		MessageResult: domain.MessageResult{MessageID: messageID, Outcome: "ack_timeout"}}, true, nil
+}
+
+func TestMessageStatusReadableDuringRecoveryWithoutAdmittingMutations(t *testing.T) {
+	service := &routeMessages{}
+	api := NewAPI(config.Config{}, APIDeps{Sessions: service})
+	router := chi.NewRouter()
+	api.Register(router, func() bool { return false })
+	for _, path := range []string{"/api/v1/message-contract", "/api/v1/sessions/s/messages/id"} {
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, httptest.NewRequest(http.MethodGet, path, nil))
+		if res.Code != 200 {
+			t.Fatal(path, res.Code, res.Body.String())
+		}
+	}
+	for _, path := range []string{"/api/v1/sessions/s/messages", "/api/v1/sessions/s/messages/id/ack"} {
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`)))
+		if res.Code != http.StatusServiceUnavailable {
+			t.Fatal("recovery admitted message mutation", path, res.Code)
+		}
+	}
+	if service.calls != 1 {
+		t.Fatal("inspection caused mutation", service.calls)
+	}
+}
 func TestMessageRoutesCapabilitiesAliasAndDedicatedBudgets(t *testing.T) {
 	service := &routeMessages{}
 	api := NewAPI(config.Config{RequestTimeout: 110 * time.Second}, APIDeps{Sessions: service})

@@ -9,6 +9,7 @@ import (
 )
 
 const MessageContractVersion = "ao.message-contract.v1"
+const MessageStatusVersion = "ao.message-status.v1"
 const MessageSendTimeout = 90 * time.Second
 const MessageAckTimeout = 30 * time.Second
 const MessageMaxAckTimeout = 60 * time.Second
@@ -47,6 +48,19 @@ type MessageRecord struct {
 	Version    int64
 	CreatedAt  string
 }
+
+// MessageStatus is a read-only projection of custody, never a new delivery or
+// proof of task execution. Keep plaintext, hashes and storage internals private.
+type MessageStatus struct {
+	SchemaVersion string `json:"schema_version"`
+	MessageResult
+	SessionID  SessionID `json:"session_id"`
+	RequireAck bool      `json:"require_ack"`
+	Phase      string    `json:"phase" enum:"reserved,started,final"`
+	Version    int64     `json:"version" minimum:"0"`
+	CreatedAt  string    `json:"created_at"`
+}
+
 type MessageContract struct {
 	SchemaVersion       string   `json:"schema_version"`
 	Authority           string   `json:"authority"`
@@ -55,10 +69,17 @@ type MessageContract struct {
 	MaxAckTimeoutMS     int      `json:"max_ack_timeout_ms"`
 	SendTimeoutMS       int      `json:"send_timeout_ms"`
 	Outcomes            []string `json:"outcomes"`
+	ReadStatus          bool     `json:"read_status,omitempty"`
+	StatusSchemaVersion string   `json:"status_schema_version,omitempty"`
 }
 
 func NativeMessageContract() MessageContract {
-	return MessageContract{MessageContractVersion, "native", true, 30000, 60000, 90000, []string{"submitted_confirmed", "submitted_unconfirmed", "rejected", "acknowledged", "ack_timeout"}}
+	return MessageContract{
+		SchemaVersion: MessageContractVersion, Authority: "native", RequireAck: true,
+		DefaultAckTimeoutMS: 30000, MaxAckTimeoutMS: 60000, SendTimeoutMS: 90000,
+		Outcomes:   []string{"submitted_confirmed", "submitted_unconfirmed", "rejected", "acknowledged", "ack_timeout"},
+		ReadStatus: true, StatusSchemaVersion: MessageStatusVersion,
+	}
 }
 
 // Explicit zero/null ACK budgets must not silently turn into a default budget.

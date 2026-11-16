@@ -11,6 +11,55 @@ ao-pilot send --session ORIGINAL_NATIVE_ID --message 'Review task instructions' 
 ao-pilot ack PERSISTENT_DISPATCH_ID --json
 ```
 
+## Inspect an uncertain dispatch without replaying it
+
+After a timeout, use the original message and native session IDs:
+
+```sh
+ao-pilot message show PERSISTENT_DISPATCH_ID --session ORIGINAL_NATIVE_ID --json
+ao-pilot message watch PERSISTENT_DISPATCH_ID --session ORIGINAL_NATIVE_ID --timeout 10m --json
+# The verified native CLI exposes the same `ao message show/watch` commands.
+```
+
+These commands perform capability discovery and **GET requests only**. They do
+not send a message, ACK on behalf of the target, restore a session, allocate a
+new ID, or change its owner. `read_status=true` and
+`status_schema_version=ao.message-status.v1` are required in the native contract;
+an older daemon refuses inspection without a fallback. The original send/ACK
+contract and all five delivery outcomes remain unchanged.
+Invocation and usage-error telemetry are suppressed for inspection and capability
+commands, so an observation does not itself generate a daemon write or progress
+signal. Status GET calls have a 15-second native client budget; the Node wrapper
+preserves watch snapshots as they arrive rather than buffering until child exit.
+
+`GET /api/v1/sessions/{sessionId}/messages/{messageId}` returns the current
+durable custody snapshot: schema version, original message/session ID,
+`require_ack`, creation time, phase, monotonic record version, outcome and
+evidence. A record in a different session is indistinguishable from a missing
+ID (404). Message text and its hash are not exposed. Read-only inspection and
+capability discovery remain available while recovery blocks mutations; sends
+and ACKs still require a ready daemon. Retained records can be read after a
+session terminates, without relaunching it.
+
+`show` exits 0 when a valid snapshot was read, even when its business outcome is
+`ack_timeout` or `rejected`. Query success does not establish delivery, task
+start or completion. Read the returned outcome and evidence.
+
+`watch` polls only the GET endpoint. With `--json` it emits JSON Lines, one
+snapshot when the record version changes. It stops on explicit ACK, rejection,
+or a final notification that did not request ACK. For an ACK-required task,
+`ack_timeout` remains observable and can later become `acknowledged`. The watch
+timeout is positive and at most 15 minutes (default 30 seconds); expiration,
+cancellation, malformed or mismatched identity, a version regression or a
+failed read returns exit 1. Usage errors return 2. Timeout never invents an ACK,
+resends, or changes the last printed outcome.
+
+This is a latest-state query, not a complete delivery-event journal. Intermediate
+versions between polls can be missed. Preserve the initial send command's JSON
+receipt separately: a later ACK does not erase what that invocation returned.
+Append-only history and separate task-start/progress events remain follow-up
+work under issue #170; they are not inferred from `activity_active` or ACK.
+
 The worker must explicitly ACK the ID after reading the task. Submission/activity
 confirmation is not evidence that the task was read. An ACK is a receipt, not
 proof that the requested work is complete.
