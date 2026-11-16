@@ -155,6 +155,9 @@ func (c *commandContext) doJSONPathWithHeaders(
 	if strings.Contains(path, "/messages/") && strings.HasSuffix(path, "/ack") {
 		client.Timeout = 15 * time.Second
 	}
+	if method == http.MethodGet && strings.Contains(path, "/sessions/") && strings.Contains(path, "/messages/") {
+		client.Timeout = 15 * time.Second
+	}
 	if path == "/api/v1/sessions/restore" {
 		client.Timeout = 15*time.Minute + 5*time.Second
 	}

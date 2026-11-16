@@ -43,11 +43,85 @@ it('rejects config/project daemon selectors before probing or mutation', async (
   const result = await runCli(['send', '--config', '/unrelated/config'], { writeStdout: () => {}, writeStderr: () => {} }, { resolve: () => { calls += 1; } });
   expect(result.exitCode).toBe(2); expect(calls).toBe(0);
 });
-it.each(['send', 'ack'])('root %s delegates raw arguments before project config loading', async (command) => {
+it.each(['send', 'ack', 'message'])('root %s delegates raw arguments before project config loading', async (command) => {
   let forwarded;
-  const args = command === 'send' ? ['--session', 'native-original', '--message', 'text', '--json'] : ['original-id', '--json'];
+  const args = command === 'send' ? ['--session', 'native-original', '--message', 'text', '--json'] : command === 'message' ? ['show', 'original-id', '--session', 'native-original', '--json'] : ['original-id', '--json'];
   const result = await rootCli([command, ...args], { writeStdout: () => {}, writeStderr: () => {} }, { cwd: '/nonexistent-project', nativeMessages: async (argv) => { forwarded = argv; return { exitCode: 5 }; } });
   expect(forwarded).toEqual([command, ...args]); expect(result.exitCode).toBe(5);
+});
+
+it.each(['show', 'watch'])('proxies read-only message %s with explicit capability and no send/ack fallback', (subcommand) => {
+  const runtime = fixture(); const calls = [];
+  const result = runNativeMessage('message', [subcommand, 'original-id', '--session', 'native-original', '--json'], {
+    resolve: () => runtime,
+    run: (_binary, args, options) => {
+      calls.push({ args, timeout: options.timeout });
+      return args[0] === 'message-contract'
+        ? { status: 0, stdout: JSON.stringify({ ...capability, read_status: true, status_schema_version: 'ao.message-status.v1' }) }
+        : { status: 0, stdout: '{"outcome":"ack_timeout"}\n' };
+    },
+  });
+  expect(result.stdout).toContain('ack_timeout');
+  expect(calls.map((x) => x.args[0])).toEqual(['message-contract', 'message']);
+  expect(calls[1].args).toEqual(['message', subcommand, 'original-id', '--session', 'native-original', '--json']);
+  expect(calls[1].timeout).toBe(subcommand === 'watch' ? 920000 : 20000);
+});
+
+it('refuses inspection on an old status capability without a command fallback', () => {
+  const runtime = fixture(); const calls = [];
+  expect(() => runNativeMessage('message', ['show', 'original-id', '--session', 'native-original'], {
+    resolve: () => runtime, run: (_binary, args) => { calls.push(args); return { status: 0, stdout: JSON.stringify(capability) }; },
+  })).toThrow('message_status_unavailable');
+  expect(calls).toEqual([['message-contract', '--json']]);
+});
+
+it.each(['send', 'ack', 'restore'])('refuses message %s before runtime discovery', (subcommand) => {
+  let called = false;
+  expect(() => runNativeMessage('message', [subcommand], { resolve: () => { called = true; } })).toThrow('invalid_message_command');
+  expect(called).toBe(false);
+});
+
+it('reports invalid inspection subcommands as usage errors without runtime discovery', async () => {
+  let called = false;
+  const result = await runCli(['message', 'send'], { writeStdout: () => {}, writeStderr: () => {} }, {
+    resolve: () => { called = true; },
+  });
+  expect(result.exitCode).toBe(2); expect(called).toBe(false);
+});
+
+it('streams watch snapshots before the native child exits', async () => {
+  const runtime = fixture(); const release = path.join(path.dirname(runtime.binary), 'release');
+  const supported = { ...capability, read_status: true, status_schema_version: 'ao.message-status.v1' };
+  const source = `#!${process.execPath}
+const fs = require('node:fs');
+if (process.argv[2] === 'message-contract') {
+  process.stdout.write(${JSON.stringify(JSON.stringify(supported))});
+} else if (process.argv[2] === 'message' && process.argv[3] === 'watch') {
+  process.stdout.write('{"outcome":"ack_timeout"}\\n');
+  const deadline = setTimeout(() => process.exit(1), 2000);
+  const poll = setInterval(() => {
+    if (fs.existsSync(${JSON.stringify(release)})) {
+      clearInterval(poll); clearTimeout(deadline);
+      process.stdout.write('{"outcome":"acknowledged"}\\n', () => process.exit(0));
+    }
+  }, 10);
+} else { process.exit(2); }
+`;
+  fs.writeFileSync(runtime.binary, source, { mode: 0o700 });
+  runtime.sha256 = createHash('sha256').update(fs.readFileSync(runtime.binary)).digest('hex');
+  const output = []; let finished = false; let first;
+  const firstSnapshot = new Promise((resolve) => { first = resolve; });
+  const result = runCli(['message', 'watch', 'original-id', '--session', 'native-original', '--json'], {
+    writeStdout: (text) => { output.push(text); if (text.includes('ack_timeout')) first(); },
+    writeStderr: () => {},
+  }, { resolve: () => runtime }).then((value) => { finished = true; return value; });
+  try {
+    await Promise.race([firstSnapshot, result.then(() => { throw new Error('watch exited before a live snapshot'); })]);
+    expect(finished).toBe(false);
+    expect(output.join('')).not.toContain('acknowledged');
+  } finally { fs.writeFileSync(release, 'release fixture child'); }
+  expect((await result).exitCode).toBe(0);
+  expect(output.join('')).toBe('{"outcome":"ack_timeout"}\n{"outcome":"acknowledged"}\n');
 });
 
 it.each(['--project', '--help'])('forwards flag-looking message text %s as opaque content', async (message) => {

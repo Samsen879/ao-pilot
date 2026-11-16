@@ -32,7 +32,10 @@ func executeWithDeps(deps Deps, args []string) error {
 	cmd.SetArgs(args)
 	err := cmd.Execute()
 	if err != nil && ExitCode(err) == 2 {
-		(&commandContext{deps: deps}).emitCLIUsageError(context.Background(), args, err)
+		_, commandPath := usageErrorCommand(args)
+		if !isMessageObservationCommand(commandPath) {
+			(&commandContext{deps: deps}).emitCLIUsageError(context.Background(), args, err)
+		}
 	}
 	return err
 }
@@ -208,6 +211,7 @@ func NewRootCommand(deps Deps) *cobra.Command {
 	root.AddCommand(newSendCommand(ctx))
 	root.AddCommand(newAckCommand(ctx))
 	root.AddCommand(newMessageContractCommand(ctx))
+	root.AddCommand(newMessageCommand(ctx))
 	root.AddCommand(newPreviewCommand(ctx))
 	root.AddCommand(newBrowserCommand(ctx))
 	root.AddCommand(newHooksCommand(ctx))
@@ -255,6 +259,9 @@ func shouldEmitCLIInvocation(cmd *cobra.Command) bool {
 }
 
 func isRoutineInternalCLICommand(commandPath string) bool {
+	if isMessageObservationCommand(commandPath) {
+		return true
+	}
 	switch strings.TrimSpace(commandPath) {
 	case "ao status",
 		"ao session ls",
@@ -264,6 +271,15 @@ func isRoutineInternalCLICommand(commandPath string) bool {
 		"ao orchestrator ls",
 		"ao hooks",
 		"ao pty-host":
+		return true
+	default:
+		return false
+	}
+}
+
+func isMessageObservationCommand(commandPath string) bool {
+	switch strings.TrimSpace(commandPath) {
+	case "ao message-contract", "ao message show", "ao message watch":
 		return true
 	default:
 		return false

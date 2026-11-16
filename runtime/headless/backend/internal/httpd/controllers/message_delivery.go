@@ -15,6 +15,33 @@ type MessageIDParam struct {
 	MessageID string `path:"messageId"`
 }
 type AckMessageRequest struct{}
+
+type MessageStatusReader interface {
+	GetMessageStatus(context.Context, domain.SessionID, string) (domain.MessageStatus, bool, error)
+}
+
+func (c *SessionsController) GetMessageStatus(w http.ResponseWriter, r *http.Request) {
+	if !domain.ValidMessageID(chi.URLParam(r, "messageId")) {
+		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_MESSAGE_ID", "invalid message ID", nil)
+		return
+	}
+	svc, ok := c.Svc.(MessageStatusReader)
+	if !ok {
+		envelope.WriteAPIError(w, r, http.StatusServiceUnavailable, "unavailable", "MESSAGE_CUSTODY_UNAVAILABLE", "message custody unavailable", nil)
+		return
+	}
+	status, found, err := svc.GetMessageStatus(r.Context(), sessionID(r), chi.URLParam(r, "messageId"))
+	if err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	if !found {
+		envelope.WriteAPIError(w, r, http.StatusNotFound, "not_found", "MESSAGE_NOT_FOUND", "message not found for session", nil)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, status)
+}
+
 type messageService interface {
 	SendMessage(context.Context, domain.SessionID, domain.MessageOptions) (domain.MessageResult, error)
 	AckMessage(context.Context, domain.SessionID, string) (domain.MessageResult, error)

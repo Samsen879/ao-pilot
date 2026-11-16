@@ -141,6 +141,7 @@ var schemaNames = map[string]string{
 	"DomainMessageResult":       "SendSessionMessageResponse",
 	"DomainMessageEvidence":     "MessageEvidence",
 	"DomainMessageContract":     "MessageContract",
+	"DomainMessageStatus":       "MessageStatus",
 	"DomainProjectID":           "ProjectID",
 	"DomainSessionID":           "SessionID",
 	"DomainIssueID":             "IssueID",
@@ -1180,6 +1181,7 @@ func prOperations() []operation {
 func messageOperations() []operation {
 	result := []respUnit{{200, domain.MessageResult{}}, {202, domain.MessageResult{}}, {409, domain.MessageResult{}}, {504, domain.MessageResult{}}, {400, envelope.APIError{}}, {500, envelope.APIError{}}}
 	return []operation{
+		{method: http.MethodGet, path: "/api/v1/sessions/{sessionId}/messages/{messageId}", id: "getSessionMessage", tag: "sessions", summary: "Inspect retained custody without sending, acknowledging or restoring a session", pathParams: []any{controllers.SessionIDParam{}, controllers.MessageIDParam{}}, resps: []respUnit{{200, domain.MessageStatus{}}, {400, envelope.APIError{}}, {404, envelope.APIError{}}, {500, envelope.APIError{}}, {503, envelope.APIError{}}}},
 		{method: http.MethodPost, path: "/api/v1/sessions/{sessionId}/messages", id: "createSessionMessage", tag: "sessions", summary: "Send once with durable outcomes; protocol-specific path fails closed against old daemons", pathParams: []any{controllers.SessionIDParam{}}, reqBody: domain.MessageOptions{}, resps: result},
 		{method: http.MethodPost, path: "/api/v1/sessions/{sessionId}/send", id: "sendSessionMessage", tag: "sessions", summary: "Compatibility alias for messages; submitted_unconfirmed returns202, never ordinary200ok", pathParams: []any{controllers.SessionIDParam{}}, reqBody: domain.MessageOptions{}, resps: result},
 		{method: http.MethodPost, path: "/api/v1/sessions/{sessionId}/messages/{messageId}/ack", id: "ackSessionMessage", tag: "sessions", summary: "Acknowledge reading a message for the bound target session", pathParams: []any{controllers.SessionIDParam{}, controllers.MessageIDParam{}}, reqBody: controllers.AckMessageRequest{}, resps: []respUnit{{200, domain.MessageResult{}}, {409, domain.MessageResult{}}, {400, envelope.APIError{}}, {500, envelope.APIError{}}}},

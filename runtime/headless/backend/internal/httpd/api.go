@@ -112,14 +112,22 @@ func (a *API) Register(root chi.Router, isReady func() bool) {
 		r.With(requireReady(isReady), middleware.Timeout(domain.MessageSendTimeout)).Post("/sessions/{sessionId}/send", a.sessions.SendMessage)
 		r.With(requireReady(isReady), middleware.Timeout(domain.MessageSendTimeout)).Post("/sessions/{sessionId}/messages", a.sessions.SendMessage)
 		r.With(requireReady(isReady), middleware.Timeout(10*time.Second)).Post("/sessions/{sessionId}/messages/{messageId}/ack", a.sessions.AckMessage)
-		r.With(requireReady(isReady)).Get("/message-contract", func(w http.ResponseWriter, r *http.Request) {
+		// Custody inspection and capability discovery are safe during recovery.
+		// All delivery and ACK mutations retain their readiness admission.
+		r.With(middleware.Timeout(10*time.Second)).Get("/sessions/{sessionId}/messages/{messageId}", a.sessions.GetMessageStatus)
+		r.With(middleware.Timeout(10*time.Second)).Get("/message-contract", func(w http.ResponseWriter, r *http.Request) {
 			if _, ok := a.sessions.Svc.(interface {
 				SendMessage(context.Context, domain.SessionID, domain.MessageOptions) (domain.MessageResult, error)
 			}); !ok {
 				envelope.WriteAPIError(w, r, 503, "unavailable", "MESSAGE_CUSTODY_UNAVAILABLE", "message custody is unavailable", nil)
 				return
 			}
-			envelope.WriteJSON(w, http.StatusOK, domain.NativeMessageContract())
+			contract := domain.NativeMessageContract()
+			if _, ok := a.sessions.Svc.(controllers.MessageStatusReader); !ok {
+				contract.ReadStatus = false
+				contract.StatusSchemaVersion = ""
+			}
+			envelope.WriteJSON(w, http.StatusOK, contract)
 		})
 		r.Group(func(r chi.Router) {
 			r.Use(requireReady(isReady))

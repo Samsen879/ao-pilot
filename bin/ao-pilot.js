@@ -19,6 +19,7 @@ const COMMAND_MODULES = {
   upgrade: '../scripts/ao-upgrade.js',
   send: '../scripts/ao-messages.js',
   ack: '../scripts/ao-messages.js',
+  message: '../scripts/ao-messages.js',
   restore: '../scripts/ao-runtime.js',
   controller: '../scripts/ao-controller.js',
   dashboard: '../scripts/ao-dashboard.js',
@@ -52,6 +53,7 @@ const PROJECT_SCOPED_COMMANDS = new Set(Object.keys(COMMAND_MODULES).filter(
     'upgrade',
     'send',
     'ack',
+    'message',
     'restore',
     'init',
     'publication-preflight',
@@ -83,6 +85,7 @@ function renderHelp() {
     '  restore     Restore native sessions in current installation',
     '  send        Send once through verified native message authority',
     '  ack         Acknowledge one native message in the same namespace',
+    '  message     Show or watch retained native message status without replay',
     '  init        Create ao.config.json',
     '  controller  Run the control loop',
     '  doctor      Diagnose control-plane, runtime, and auth state',
@@ -196,7 +199,7 @@ export async function runCli(argv, io = createDefaultIo(), {
     return { exitCode: 4, result: null };
   }
 
-  if (command === 'send' || command === 'ack') {
+  if (command === 'send' || command === 'ack' || command === 'message') {
     const delegate = nativeMessages ?? (await import('../scripts/ao-messages.js')).runCli;
     return delegate([command, ...commandArgs], io, { cwd });
   }
