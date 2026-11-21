@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -57,7 +58,7 @@ func TestMessageShowReadsExistingOutcomeWithoutBusinessExitOrMutation(t *testing
 				t.Fatal(err, calls)
 			}
 			var got domain.MessageStatus
-			if json.Unmarshal(out.Bytes(), &got) != nil || got != want {
+			if json.Unmarshal(out.Bytes(), &got) != nil || !reflect.DeepEqual(got, want) {
 				t.Fatal(out.String())
 			}
 		})

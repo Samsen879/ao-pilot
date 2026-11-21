@@ -54,11 +54,13 @@ cancellation, malformed or mismatched identity, a version regression or a
 failed read returns exit 1. Usage errors return 2. Timeout never invents an ACK,
 resends, or changes the last printed outcome.
 
-This is a latest-state query, not a complete delivery-event journal. Intermediate
-versions between polls can be missed. Preserve the initial send command's JSON
-receipt separately: a later ACK does not erase what that invocation returned.
-Append-only history and separate task-start/progress events remain follow-up
-work under issue #170; they are not inferred from `activity_active` or ACK.
+With database migration 45, JSON snapshots include the ordered `previous`
+revisions retained for this ID. After a late ACK, the earlier timeout, evidence
+code and timestamp remain available. For existing records, history starts at
+the revision held when the migration ran. The first available version can exceed
+zero. Preserve the sender's own CLI receipt to document what reached that
+process. The `started` phase timestamps the injection attempt. Proof of task
+execution requires a separate worker event or artifact.
 
 The worker must explicitly ACK the ID after reading the task. Submission/activity
 confirmation is not evidence that the task was read. An ACK is a receipt, not

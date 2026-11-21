@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -63,7 +64,7 @@ func TestMessageStatusHTTPReadContractAndFailures(t *testing.T) {
 			}
 			if tc.code == 200 {
 				var got domain.MessageStatus
-				if json.Unmarshal(res.Body.Bytes(), &got) != nil || got != svc.status {
+				if json.Unmarshal(res.Body.Bytes(), &got) != nil || !reflect.DeepEqual(got, svc.status) {
 					t.Fatal(res.Body.String())
 				}
 			}

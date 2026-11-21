@@ -132,6 +132,13 @@ func TestMessageInspectionCLIHTTPAndSQLiteLateAck(t *testing.T) {
 		first.Outcome != "ack_timeout" || last.Outcome != "acknowledged" || last.Version <= first.Version {
 		t.Fatal(observed)
 	}
+	if len(last.Previous) < 3 {
+		t.Fatal("missing custody history", last)
+	}
+	timeout := last.Previous[len(last.Previous)-1]
+	if timeout.Outcome != original.Outcome || timeout.Evidence != original.Evidence || timeout.Version != first.Version || last.Previous[0].Phase != "reserved" {
+		t.Fatal("lost original timeout or reservation", last)
+	}
 	if nonGET.Load() || messenger.sends.Load() != 1 {
 		t.Fatal("observation performed a mutation or replay", nonGET.Load(), messenger.sends.Load())
 	}

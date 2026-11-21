@@ -135,7 +135,7 @@ func TestPreviousMigrationLoaderRetainsMessageAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), "0044_") {
+		if entry.Name() >= "0044_" {
 			continue
 		}
 		name := "migrations/" + entry.Name()
@@ -156,7 +156,7 @@ func TestPreviousMigrationLoaderRetainsMessageAudit(t *testing.T) {
 	gooseMu.Unlock()
 	db.Close()
 	if err != nil {
-		t.Fatalf("pre44 loader rejected schema44: %v", err)
+		t.Fatalf("pre44 loader rejected current schema: %v", err)
 	}
 	store, err = Open(root)
 	if err != nil {

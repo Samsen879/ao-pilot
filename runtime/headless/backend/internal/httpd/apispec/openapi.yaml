@@ -3660,6 +3660,23 @@ components:
       - state
       - lastActivityAt
       type: object
+    DomainMessageRevision:
+      properties:
+        evidence:
+          $ref: '#/components/schemas/MessageEvidence'
+        outcome:
+          type: string
+        phase:
+          type: string
+        version:
+          format: int64
+          type: integer
+      required:
+      - version
+      - phase
+      - outcome
+      - evidence
+      type: object
     DomainReviewerConfig:
       properties:
         harness:
@@ -3954,6 +3971,10 @@ components:
           - started
           - final
           type: string
+        previous:
+          items:
+            $ref: '#/components/schemas/DomainMessageRevision'
+          type: array
         require_ack:
           type: boolean
         schema_version:

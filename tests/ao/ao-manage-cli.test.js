@@ -120,6 +120,28 @@ describe('ao manage cli', () => {
     }));
   });
 
+  it('forwards an explicit bounded first-acquire request without changing legacy options', async () => {
+    const io = { writeStdout: () => {}, writeStderr: () => {} };
+    const base = ['enroll', '--task', 'duration-parser', '--branch', 'task/duration', '--worktree', '/tmp/duration-parser', '--json'];
+    expect((await runCli(base, io)).exitCode).toBe(0);
+    expect(mockRunManageCommand.mock.calls[0][0]).not.toHaveProperty('ownershipDurationMs');
+    mockRunManageCommand.mockClear();
+    const result = await runCli([...base, '--ownership-duration-ms', '3600000',
+      '--ownership-admission-file', '/tmp/duration-request.json', '--ownership-admission-sha256', 'a'.repeat(64)], io);
+    expect(result.exitCode).toBe(0);
+    expect(mockRunManageCommand).toHaveBeenCalledWith(expect.objectContaining({
+      ownershipDurationMs: 3600000, ownershipAdmissionFile: '/tmp/duration-request.json', ownershipAdmissionSha256: 'a'.repeat(64),
+    }));
+  });
+
+  it.each(['0', '-1', '1.5', '1e3', '3600001', '9007199254740992'])('refuses invalid duration %s before the runner', async raw => {
+    const result = await runCli(['enroll', '--task', 'duration-parser', '--branch', 'task/duration', '--worktree', '/tmp/duration-parser',
+      '--ownership-duration-ms', raw, '--ownership-admission-file', '/tmp/request.json', '--ownership-admission-sha256', 'a'.repeat(64)],
+    { writeStdout: () => {}, writeStderr: () => {} });
+    expect(result.exitCode).toBe(4);
+    expect(mockRunManageCommand).not.toHaveBeenCalled();
+  });
+
   it('runs the historical metadata scan without requiring a task identity', async () => {
     const stdout = [];
     mockRunManagedTaskMetadataScan.mockReturnValue({

@@ -9,6 +9,7 @@ import {
   createOwnershipLease,
   createPrBinding,
 } from './state-contracts.js';
+import { checkedOwnershipExpiry } from './ownership-duration-policy.js';
 
 export const DEFAULT_OWNERSHIP_LEASE_DURATION_MS = 20 * 60 * 1000;
 export const DEFAULT_CONTROLLER_LEASE_DURATION_MS = 5 * 60 * 1000;
@@ -281,9 +282,16 @@ export function transitionOwnershipLease({
   ownerSessionName = null,
   ownerSessionId = null,
   expiresAt = null,
+  durationMs = undefined,
   metadata = null,
   reason = null,
 } = {}) {
+  if (durationMs !== undefined) {
+    if (intent !== 'acquire' || existingLease != null || expiresAt != null) {
+      throw new Error('Custom ownership duration requires a genuine first acquire without expiresAt override');
+    }
+    expiresAt = checkedOwnershipExpiry(resolveNow(now), durationMs);
+  }
   return transitionLease({
     kind: 'ownership',
     intent,

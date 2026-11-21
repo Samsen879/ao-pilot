@@ -9,6 +9,7 @@ import {
   runManagedTaskMetadataScan,
 } from './ao/lib/manage-runner.js';
 import { findRepoRoot } from './ao/lib/repo-root.js';
+import { parseOwnershipDurationMs } from './ao/lib/ownership-duration-policy.js';
 
 function createDefaultIo() {
   return {
@@ -82,6 +83,14 @@ function parseArgs(argv) {
     } else if (arg === '--owner-session-id') {
       options.ownerSessionId = readOptionValue(argv, index, '--owner-session-id');
       index += 1;
+    } else if (['--ownership-duration-ms', '--ownership-admission-file', '--ownership-admission-sha256'].includes(arg)) {
+      const key = { '--ownership-duration-ms': 'ownershipDurationMs', '--ownership-admission-file': 'ownershipAdmissionFile', '--ownership-admission-sha256': 'ownershipAdmissionSha256' }[arg];
+      try {
+        if (Object.hasOwn(options, key)) throw new Error(`Duplicate option: ${arg}`);
+        const raw = readOptionValue(argv, index, arg);
+        options[key] = arg === '--ownership-duration-ms' ? parseOwnershipDurationMs(raw) : raw;
+        index += 1;
+      } catch (error) { return { ok: false, error: error.message }; }
     } else if (arg === '--reason') {
       options.reason = readOptionValue(argv, index, '--reason');
       index += 1;
@@ -133,6 +142,11 @@ function parseArgs(argv) {
       error: 'enroll requires --branch and --worktree',
     };
   }
+  const durationOptions = ['ownershipDurationMs', 'ownershipAdmissionFile', 'ownershipAdmissionSha256'];
+  if (durationOptions.some(key => Object.hasOwn(options, key))
+    && (options.command !== 'enroll' || durationOptions.some(key => !Object.hasOwn(options, key)))) {
+    return { ok: false, error: 'Bounded ownership duration requires enroll and all three ownership options' };
+  }
 
   return {
     ok: true,
@@ -163,6 +177,9 @@ function renderHelp() {
     '  --pr <number>               Durable PR binding',
     '  --owner-session <name>      Ownership session name',
     '  --owner-session-id <id>     Ownership session id',
+    '  --ownership-duration-ms <ms>  Opt-in genuine first acquire only; integer1..3600000, default20min unchanged',
+    '  --ownership-admission-file <path>  Immutable private first-acquire precondition',
+    '  --ownership-admission-sha256 <sha>  Actual raw precondition SHA256',
     '  --reason <text>             Transition reason',
     '  --json                      Print machine-readable JSON output',
     '  -h, --help                  Show help',
@@ -254,6 +271,11 @@ export async function runCli(argv, io = createDefaultIo(), {
       ownerSessionName: options.ownerSessionName,
       ownerSessionId: options.ownerSessionId,
       reason: options.reason,
+      ...(Object.hasOwn(options, 'ownershipDurationMs') ? {
+        ownershipDurationMs: options.ownershipDurationMs,
+        ownershipAdmissionFile: options.ownershipAdmissionFile,
+        ownershipAdmissionSha256: options.ownershipAdmissionSha256,
+      } : {}),
     });
 
     if (options.json) {
@@ -267,7 +289,9 @@ export async function runCli(argv, io = createDefaultIo(), {
       result,
     };
   } catch (error) {
-    io.writeStderr(`${error.message}\n`);
+    if (Object.hasOwn(options, 'ownershipDurationMs') && options.json && error.code === 'MANAGED_TASK_COMMIT_RECOVERY_REQUIRED') {
+      io.writeStderr(`${JSON.stringify({ status: 'HOLD_COMMIT_RECOVERY_REQUIRED', code: error.code, task_id: error.task_id, no_replay: true, message: error.message })}\n`);
+    } else io.writeStderr(`${error.message}\n`);
     return {
       exitCode: 3,
       result: null,
