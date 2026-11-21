@@ -81,7 +81,7 @@ func TestTaskProgressAndPauseAcrossRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	view, err = store.TaskOverview(ctx, "fixture")
-	if err != nil || len(view.Paused) != 0 || view.Tasks[0].FirstCommand != "fixture-command" || view.Tasks[0].Latest != "blocked" {
+	if err != nil || len(view.Paused) != 0 || view.Tasks[0].FirstCommand != "fixture-command" || view.Tasks[0].Latest != "blocked" || view.Tasks[0].Artifact != "result.txt" || view.Tasks[0].ArtifactDigest != strings.Repeat("f", 64) {
 		t.Fatal(view, err)
 	}
 	view, err = store.TaskOverview(ctx, "other")

@@ -84,9 +84,10 @@ func (s *Store) TaskOverview(ctx context.Context, project string) (domain.TaskOv
 		return out, err
 	}
 	rows, err = tx.QueryContext(ctx, `SELECT s.project_id,m.session_id,m.message_id,m.created_at,m.outcome,coalesce(json_extract(m.evidence,'$.acknowledged_at'),''),
- coalesce(f.recorded_at,''),coalesce(f.detail,''),coalesce(l.kind,''),coalesce(l.detail,''),coalesce(l.digest,''),coalesce(l.recorded_at,'')
+ coalesce(f.recorded_at,''),coalesce(f.detail,''),coalesce(a.detail,''),coalesce(a.digest,''),coalesce(a.recorded_at,''),coalesce(l.kind,''),coalesce(l.detail,''),coalesce(l.digest,''),coalesce(l.recorded_at,'')
  FROM session_messages m JOIN sessions s ON s.id=m.session_id
  LEFT JOIN task_checkpoints f ON f.message_id=m.message_id AND f.kind='started'
+ LEFT JOIN task_checkpoints a ON a.sequence=(SELECT max(sequence) FROM task_checkpoints WHERE message_id=m.message_id AND kind='artifact')
  LEFT JOIN task_checkpoints l ON l.sequence=(SELECT max(sequence) FROM task_checkpoints WHERE message_id=m.message_id)
  WHERE m.require_ack=1 AND (?='' OR s.project_id=?) ORDER BY m.created_at DESC,m.message_id LIMIT 100`, project, project)
 	if err != nil {
@@ -95,7 +96,7 @@ func (s *Store) TaskOverview(ctx context.Context, project string) (domain.TaskOv
 	defer rows.Close()
 	for rows.Next() {
 		var r domain.TaskObservation
-		if err := rows.Scan(&r.Project, &r.Session, &r.MessageID, &r.Sent, &r.Outcome, &r.Ack, &r.Started, &r.FirstCommand, &r.Latest, &r.Detail, &r.Digest, &r.Updated); err != nil {
+		if err := rows.Scan(&r.Project, &r.Session, &r.MessageID, &r.Sent, &r.Outcome, &r.Ack, &r.Started, &r.FirstCommand, &r.Artifact, &r.ArtifactDigest, &r.ArtifactAt, &r.Latest, &r.Detail, &r.Digest, &r.Updated); err != nil {
 			return out, err
 		}
 		out.Tasks = append(out.Tasks, r)

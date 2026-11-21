@@ -2044,6 +2044,9 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 		// Step 3: relaunch the agent in the restored workspace.
 		if _, err := m.relaunchRestoredSessionWithAttempt(ctx, rec, project, ws, func() { runtimeAttempts++ }); err != nil {
 			switch {
+			case errors.Is(err, domain.ErrProjectPaused):
+				// A pause after candidate selection retains the marker for a later restore.
+				continue
 			case errors.Is(err, ErrNotResumable):
 				// A promptless, unresumable worker is intentionally left terminated:
 				// expected, not an operational failure, so log it quietly.

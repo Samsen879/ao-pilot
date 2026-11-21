@@ -23,6 +23,7 @@ import type { ProjectInfo } from "@/lib/project-name";
 
 interface DashboardProps {
   initialSessions: DashboardSession[];
+  taskProgressSupported?: boolean;
   projectId?: string;
   projectName?: string;
   projects?: ProjectInfo[];
@@ -48,6 +49,7 @@ function mergeOrchestrators(
 
 export function Dashboard({
   initialSessions,
+  taskProgressSupported = false,
   projectId,
   projectName,
   projects = [],
@@ -261,7 +263,7 @@ export function Dashboard({
           {!allProjectsView && <OrchestratorControl orchestrators={activeOrchestrators} />}
         </div>
 
-        <TaskProgress key={projectId ?? "all"} project={projectId} />
+        {taskProgressSupported && <TaskProgress key={projectId ?? "all"} project={projectId} />}
 
         {globalPause && !globalPauseDismissed && (
           <div className="mb-6 flex items-center gap-2.5 rounded border border-[rgba(239,68,68,0.25)] bg-[rgba(239,68,68,0.05)] px-3.5 py-2.5 text-[11px] text-[var(--color-status-error)]">

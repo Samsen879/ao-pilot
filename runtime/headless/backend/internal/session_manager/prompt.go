@@ -251,6 +251,7 @@ Your job is to complete the assigned task in this workspace. Inspect the relevan
 ## Session Lifecycle
 
 - Focus on the assigned task only.
+- When an assignment requests an ACK, run ao-pilot ack with its message ID after reading it. For approved work, tag the task process at launch with AO_MESSAGE_ID set to that ID and retain its inherited AO_SESSION_ID. Use ao-pilot message checkpoint ID --started-pid PID while it is alive. Report a produced file with --artifact FILE or an actual blocker with --blocked REASON. Leave the start unreported if no task process was observed.
 - Do not take unrelated work or perform broad refactors.
 - If you are continuing an existing PR, claim or attach it through AO before changing it when the workflow supports that.
 - If CI fails, fix the failures and push again.

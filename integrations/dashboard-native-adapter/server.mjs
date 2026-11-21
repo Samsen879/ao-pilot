@@ -55,6 +55,7 @@ async function listSessions(projectFilter) {
   const workers = mapped.filter(s => s.metadata.role !== 'orchestrator');
   return {
     sessions:workers,
+    taskProgressSupported:true,
     stats:{totalSessions:workers.length,workingSessions:workers.filter(s => s.activity === 'active').length,openPRs:0,needsReview:0},
     orchestratorId:orchestrators.length === 1 ? orchestrators[0].id : null,
     orchestrators,

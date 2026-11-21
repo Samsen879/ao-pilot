@@ -33,18 +33,21 @@ func (e TaskCheckpoint) Valid() bool {
 }
 
 type TaskObservation struct {
-	Project      string `json:"project"`
-	Session      string `json:"session"`
-	MessageID    string `json:"message_id"`
-	Sent         string `json:"sent_at"`
-	Outcome      string `json:"outcome"`
-	Ack          string `json:"ack_at,omitempty"`
-	Started      string `json:"started_at,omitempty"`
-	FirstCommand string `json:"first_command,omitempty"`
-	Latest       string `json:"latest,omitempty"`
-	Detail       string `json:"detail,omitempty"`
-	Digest       string `json:"sha256,omitempty"`
-	Updated      string `json:"updated_at,omitempty"`
+	Project        string `json:"project"`
+	Session        string `json:"session"`
+	MessageID      string `json:"message_id"`
+	Sent           string `json:"sent_at"`
+	Outcome        string `json:"outcome"`
+	Ack            string `json:"ack_at,omitempty"`
+	Started        string `json:"started_at,omitempty"`
+	FirstCommand   string `json:"first_command,omitempty"`
+	Artifact       string `json:"artifact,omitempty"`
+	ArtifactDigest string `json:"artifact_sha256,omitempty"`
+	ArtifactAt     string `json:"artifact_at,omitempty"`
+	Latest         string `json:"latest,omitempty"`
+	Detail         string `json:"detail,omitempty"`
+	Digest         string `json:"sha256,omitempty"`
+	Updated        string `json:"updated_at,omitempty"`
 }
 type TaskOverview struct {
 	Tasks  []TaskObservation `json:"tasks"`

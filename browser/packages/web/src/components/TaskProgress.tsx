@@ -11,6 +11,9 @@ interface Task {
   ack_at?: string;
   started_at?: string;
   first_command?: string;
+  artifact?: string;
+  artifact_sha256?: string;
+  artifact_at?: string;
   latest?: string;
   detail?: string;
   sha256?: string;
@@ -37,10 +40,9 @@ function TaskRow({ task }: { task: Task }) {
       <p>{task.project} / {task.session}</p>
       <p>Dispatched {when(task.sent_at)}{task.ack_at && <> · Acknowledged {when(task.ack_at)}</>}</p>
       {task.started_at && <p>First observed command: {task.first_command} · {when(task.started_at)}</p>}
-      {task.latest && task.latest !== "started" && <p className="break-words">
-        {task.latest === "blocked" ? "Blocker" : "File"}: {task.detail} {task.updated_at && when(task.updated_at)}
-      </p>}
-      {task.latest === "artifact" && <code className="break-all">SHA256 {task.sha256}</code>}
+      {task.artifact && <p className="break-words">File: {task.artifact} {task.artifact_at && when(task.artifact_at)}</p>}
+      {task.artifact_sha256 && <code className="break-all">SHA256 {task.artifact_sha256}</code>}
+      {task.latest === "blocked" && <p className="break-words">Blocker: {task.detail} {task.updated_at && when(task.updated_at)}</p>}
     </li>
   );
 }

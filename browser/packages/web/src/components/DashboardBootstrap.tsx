@@ -17,12 +17,14 @@ interface DashboardBootstrapProps {
 
 interface DashboardSnapshot {
   sessions: DashboardSession[];
+  taskProgressSupported: boolean;
   globalPause: GlobalPauseState | null;
   orchestrators: DashboardOrchestratorLink[];
 }
 
 const EMPTY_SNAPSHOT: DashboardSnapshot = {
   sessions: [],
+  taskProgressSupported: false,
   globalPause: null,
   orchestrators: [],
 };
@@ -44,6 +46,7 @@ export function DashboardBootstrap({
         (
           data: {
             sessions?: DashboardSession[];
+            taskProgressSupported?: boolean;
             globalPause?: GlobalPauseState | null;
             orchestrators?: DashboardOrchestratorLink[];
           } | null,
@@ -51,6 +54,7 @@ export function DashboardBootstrap({
           if (!data?.sessions || controller.signal.aborted) return;
           setSnapshot({
             sessions: data.sessions,
+            taskProgressSupported: data.taskProgressSupported === true,
             globalPause: data.globalPause ?? null,
             orchestrators: data.orchestrators ?? [],
           });
@@ -64,6 +68,7 @@ export function DashboardBootstrap({
   return (
     <Dashboard
       initialSessions={snapshot.sessions}
+      taskProgressSupported={snapshot.taskProgressSupported}
       projectId={projectId}
       projectName={projectName}
       projects={projects}

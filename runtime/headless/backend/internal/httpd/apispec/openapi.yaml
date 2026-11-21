@@ -3828,6 +3828,12 @@ components:
       properties:
         ack_at:
           type: string
+        artifact:
+          type: string
+        artifact_at:
+          type: string
+        artifact_sha256:
+          type: string
         detail:
           type: string
         first_command:
