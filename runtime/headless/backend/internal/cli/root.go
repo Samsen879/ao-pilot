@@ -251,7 +251,7 @@ func shouldEmitCLIInvocation(cmd *cobra.Command) bool {
 	// "ao pty-host" and "ao agent-process" are internal runtime processes.
 	// Import is an offline writer: do not contact a running daemon before
 	// ownership admission. The remaining commands do not reflect user activity.
-	case "ao import", "ao daemon", "ao start", "ao completion", "ao help", "ao pty-host", "ao agent-process", "ao agent-process supervise":
+	case "ao version", "ao import", "ao daemon", "ao start", "ao completion", "ao help", "ao pty-host", "ao agent-process", "ao agent-process supervise":
 		return false
 	default:
 		return true

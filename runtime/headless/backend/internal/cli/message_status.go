@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"reflect"
 	"strings"
 	"time"
 
@@ -114,7 +115,7 @@ func (c *commandContext) watchMessageStatus(cmd *cobra.Command, session, message
 		if status.Version < lastVersion {
 			return errors.New("native message status version regressed")
 		}
-		if status.Version == lastVersion && status != last {
+		if status.Version == lastVersion && !reflect.DeepEqual(status, last) {
 			return errors.New("native message status changed without a version advance")
 		}
 		if status.Version != lastVersion {

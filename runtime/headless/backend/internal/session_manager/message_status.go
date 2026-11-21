@@ -16,6 +16,7 @@ func (m *Manager) GetMessageStatus(ctx context.Context, id domain.SessionID, mes
 	}
 	store, ok := m.store.(interface {
 		GetMessage(context.Context, string) (domain.MessageRecord, bool, error)
+		MessageHistory(context.Context, string, int64) ([]domain.MessageRevision, error)
 	})
 	if !ok {
 		return domain.MessageStatus{}, false, errors.New("message custody unavailable")
@@ -28,7 +29,12 @@ func (m *Manager) GetMessageStatus(ctx context.Context, id domain.SessionID, mes
 	if !found || record.SessionID != id {
 		return domain.MessageStatus{}, false, nil
 	}
+	history, err := store.MessageHistory(ctx, messageID, record.Version)
+	if err != nil {
+		return domain.MessageStatus{}, false, err
+	}
 	return domain.MessageStatus{
+		Previous:      history,
 		SchemaVersion: domain.MessageStatusVersion, MessageResult: record.MessageResult,
 		SessionID: record.SessionID, RequireAck: record.RequireAck, Phase: record.Phase,
 		Version: record.Version, CreatedAt: record.CreatedAt,

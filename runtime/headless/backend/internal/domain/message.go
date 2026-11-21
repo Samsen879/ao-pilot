@@ -51,8 +51,16 @@ type MessageRecord struct {
 
 // MessageStatus is a read-only projection of custody, never a new delivery or
 // proof of task execution. Keep plaintext, hashes and storage internals private.
+type MessageRevision struct {
+	Version  int64           `json:"version"`
+	Phase    string          `json:"phase"`
+	Outcome  string          `json:"outcome"`
+	Evidence MessageEvidence `json:"evidence"`
+}
+
 type MessageStatus struct {
-	SchemaVersion string `json:"schema_version"`
+	Previous      []MessageRevision `json:"previous,omitempty"`
+	SchemaVersion string            `json:"schema_version"`
 	MessageResult
 	SessionID  SessionID `json:"session_id"`
 	RequireAck bool      `json:"require_ack"`

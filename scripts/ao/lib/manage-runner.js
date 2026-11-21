@@ -9,6 +9,8 @@ import {
   completeManagedTaskExecutionAttemptMetric,
 } from './run-metrics.js';
 import { createStateRepository } from './state-repository.js';
+import { assertOwnershipFirstAcquire, validateOwnershipDurationInput, canonicalOwnershipJson } from './ownership-duration-policy.js';
+import { createHash } from 'node:crypto';
 import {
   CONTROL_PLANE_LATEST_VERSION,
   CONTROL_PLANE_SCHEMA_FORMAT,
@@ -292,6 +294,11 @@ function releaseConflictingPrBindings(repository, taskId, prNumber, now) {
 // The public API remains async; the lock-held planning callback is strictly
 // synchronous and all helper writes target the in-memory transaction facade.
 export async function runManageCommand(options = {}) {
+  const custom = Object.hasOwn(options, 'ownershipDurationMs');
+  if (!custom && (options.ownershipAdmissionFile != null || options.ownershipAdmissionSha256 != null)) throw new Error('Ownership admission requires explicit duration');
+  const durationRequest = custom ? { ...options, projectId: options.projectId ?? DEFAULT_PROJECT_ID,
+    taskId: deriveManagedTaskId(options) } : null;
+  if (custom) validateOwnershipDurationInput(durationRequest); // No bootstrap/write for malformed input.
 
   function stageManageCommand(repository, {
     repoRoot,
@@ -322,6 +329,7 @@ export async function runManageCommand(options = {}) {
       now: () => timestamp,
     });
     const snapshot = repository.getSnapshot();
+    const customAcquisition = durationRequest ? assertOwnershipFirstAcquire(durationRequest, snapshot.state, timestamp) : null;
     const existingTask = snapshot.state.managed_tasks.find((task) => matchesTaskIdentity(task, {
       taskId,
       issueNumber,
@@ -405,6 +413,7 @@ export async function runManageCommand(options = {}) {
         });
         repository.upsertTaskSpec(taskSpec);
       }
+      if (custom && taskSpec?.state !== 'valid') throw new Error('Custom first acquire requires a valid TaskSpec');
     }
 
     let prBinding = null;
@@ -475,6 +484,14 @@ export async function runManageCommand(options = {}) {
           taskId: task.task_id,
           ownerSessionName,
           ownerSessionId,
+          ...(customAcquisition ? { durationMs: customAcquisition.durationMs,
+            metadata: { ownership_acquisition: { ...customAcquisition.policy,
+              operation_id: customAcquisition.admission.operation_id, request_sha256: customAcquisition.requestSha256,
+              requested_duration_ms: customAcquisition.durationMs, granted_duration_ms: customAcquisition.durationMs,
+              expected_task_state_sha256: customAcquisition.admission.expected_task_state_sha256,
+              task_spec_raw_sha256: customAcquisition.admission.task_spec_raw_sha256,
+              task_spec_record_sha256: createHash('sha256').update(canonicalOwnershipJson(taskSpec)).digest('hex'),
+              actor: customAcquisition.admission.actor } } } : {}),
         });
         repository.upsertOwnershipLease(ownershipLease);
       }
@@ -591,6 +608,7 @@ export async function runManageCommand(options = {}) {
       review,
       releasedOwnershipLeaseIds,
       releasedPrBindingIds,
+      ...(customAcquisition ? { ownershipDuration: ownershipLease.metadata.ownership_acquisition } : {}),
     };
   }
 
@@ -598,6 +616,7 @@ export async function runManageCommand(options = {}) {
   const repository = createStateRepository({ repoRoot, projectId });
   return repository.mutateManagedTaskAtomically({
     command,
+    ...(durationRequest ? { ownershipDurationRequest: durationRequest } : {}),
     mutate: (stagedRepository) => stageManageCommand(stagedRepository, options),
   });
 }

@@ -47,3 +47,26 @@ func (s *Store) CompareAndSwapMessage(ctx context.Context, rec domain.MessageRec
 	n, err := result.RowsAffected()
 	return n == 1, err
 }
+
+// MessageHistory reads the immutable prefix of an already-authorized snapshot.
+// A concurrent ACK can append a revision but cannot change this prefix.
+func (s *Store) MessageHistory(ctx context.Context, id string, before int64) ([]domain.MessageRevision, error) {
+	rows, err := s.readDB.QueryContext(ctx, `SELECT version,phase,outcome,evidence FROM session_message_history WHERE message_id=? AND version<? ORDER BY version`, id, before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var revisions []domain.MessageRevision
+	for rows.Next() {
+		var item domain.MessageRevision
+		var evidence []byte
+		if err := rows.Scan(&item.Version, &item.Phase, &item.Outcome, &evidence); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(evidence, &item.Evidence); err != nil {
+			return nil, err
+		}
+		revisions = append(revisions, item)
+	}
+	return revisions, rows.Err()
+}

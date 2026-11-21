@@ -141,6 +141,7 @@ func (m *Manager) SendMessage(ctx context.Context, id domain.SessionID, o domain
 			return messageResult(o.MessageID, "rejected", "PREPARED_MESSAGE_TOO_LONG", 0)
 		}
 		rec.Phase = "started"
+		rec.Evidence.RecordedAt = time.Now().UTC().Format(time.RFC3339Nano)
 		rec.Evidence.Code = "INJECTION_STARTED"
 		rec.Evidence.Attempts = 1
 		swapped, err := store.CompareAndSwapMessage(ctx, rec, rec.Version)

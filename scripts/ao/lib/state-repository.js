@@ -44,6 +44,7 @@ import {
   terminalEvidenceFromManagedTasks,
 } from './task-graph.js';
 import { appendControlPlaneAuditEntry, readControlPlaneAuditEntries } from './state-audit.js';
+import { assertOwnershipFirstAcquire, canonicalOwnershipJson } from './ownership-duration-policy.js';
 import {
   bootstrapControlPlaneState,
   readControlPlaneSchema,
@@ -531,7 +532,7 @@ export function createStateRepository({
 
   const collectionUpsertMethods = createRepositoryCollectionUpsertMethods(upsertCollectionRecord);
 
-  function mutateManagedTaskAtomically({ command, mutate } = {}) {
+  function mutateManagedTaskAtomically({ command, mutate, ownershipDurationRequest = null } = {}) {
     if (!['enroll', 'adopt', 'resume', 'unmanage', 'retire'].includes(command)) {
       throw new Error('Unsupported managed-task transaction command');
     }
@@ -550,6 +551,9 @@ export function createStateRepository({
           throw new Error('Schema migration must complete before the state transaction');
         }
         const snapshot = readSnapshot({ stateLockHeld: true });
+        const requestNow = () => resolveNow(ownershipDurationRequest?.now ?? clock);
+        const firstAcquire = ownershipDurationRequest ? assertOwnershipFirstAcquire(ownershipDurationRequest, snapshot.state, requestNow()) : null;
+        const lockedStateDigest = ownershipDurationRequest ? createHash('sha256').update(fs.readFileSync(paths.statePath)).digest('hex') : null;
         const nextState = cloneJsonValue(snapshot.state);
         const changes = [];
         let active = true;
@@ -593,7 +597,28 @@ export function createStateRepository({
         if (owners.length > 1 || bindings.length > 1 || (command === 'retire' && (owners.length || bindings.length))) {
           throw new Error('Managed-task transaction has conflicting task ownership or PR bindings');
         }
+        if (firstAcquire) {
+          const lease = owners[0], spec = nextState.task_specs.find(row => row.task_id === taskId);
+          const evidence = lease?.metadata?.ownership_acquisition;
+          if (taskId !== ownershipDurationRequest.taskId || owners.length !== 1
+            || lease.owner_session_name !== ownershipDurationRequest.ownerSessionName
+            || lease.owner_session_id !== ownershipDurationRequest.ownerSessionId
+            || Date.parse(lease.expires_at) - Date.parse(lease.acquired_at) !== firstAcquire.durationMs
+            || spec?.state !== 'valid' || spec.snapshot?.valid !== true
+            || evidence?.request_sha256 !== firstAcquire.requestSha256
+            || evidence.policy_source_sha256 !== firstAcquire.policy.policy_source_sha256
+            || evidence.task_spec_record_sha256 !== createHash('sha256').update(canonicalOwnershipJson(spec)).digest('hex')
+            || canonicalOwnershipJson(result.ownershipDuration) !== canonicalOwnershipJson(evidence)) {
+            throw new Error('Custom first-acquire result/provenance does not match guarded request');
+          }
+        }
         try {
+          if (ownershipDurationRequest) {
+            if (createHash('sha256').update(fs.readFileSync(paths.statePath)).digest('hex') !== lockedStateDigest) throw new Error('Ownership first-acquire CAS changed during staging');
+            // STOP/private request freshness/source/rawhash sampled again before
+            // durable journal intent. Later external STOP is not a rollback.
+            assertOwnershipFirstAcquire(ownershipDurationRequest, snapshot.state, requestNow());
+          }
           persistState({
             state: sortRepositoryStateCollections(nextState),
             entityKind: 'managed_task_command',
@@ -606,6 +631,7 @@ export function createStateRepository({
               prior_status: snapshot.state.managed_tasks.find((task) => task.task_id === taskId)?.status ?? null,
               next_status: nextState.managed_tasks.find((task) => task.task_id === taskId)?.status ?? null,
               changes,
+              ...(ownershipDurationRequest ? { ownership_duration: result.ownershipDuration } : {}),
             },
             stateLockHeld: true,
           });
