@@ -22,6 +22,7 @@ import (
 
 // APIDeps bundles every service the API layer's controllers depend on.
 type APIDeps struct {
+	Tasks               controllers.TaskStore
 	Agents              controllers.AgentCatalog
 	Projects            projectsvc.Manager
 	Sessions            controllers.SessionService
@@ -46,6 +47,7 @@ type APIDeps struct {
 // API owns one controller per resource and is the single Register call the
 // router invokes to mount the /api/v1 surface.
 type API struct {
+	tasks         controllers.TasksController
 	cfg           config.Config
 	agents        *controllers.AgentsController
 	projects      *controllers.ProjectsController
@@ -66,7 +68,8 @@ type API struct {
 // environment.
 func NewAPI(cfg config.Config, deps APIDeps) *API {
 	return &API{
-		cfg: cfg,
+		cfg:   cfg,
+		tasks: controllers.TasksController{Store: deps.Tasks},
 		agents: &controllers.AgentsController{
 			Catalog: deps.Agents,
 		},
@@ -102,6 +105,11 @@ func (a *API) Register(root chi.Router, isReady func() bool) {
 	root.Route("/api/v1", func(r chi.Router) {
 		// Serve the OpenAPI document from the same origin as the routes it describes.
 		r.Get("/openapi.yaml", apispec.ServeYAML)
+		if a.tasks.Store != nil {
+			r.With(middleware.Timeout(timeout)).Get("/tasks", a.tasks.List)
+			r.With(requireReady(isReady), middleware.Timeout(timeout)).Post("/projects/{id}/pause", a.tasks.Pause)
+			r.With(requireReady(isReady), middleware.Timeout(timeout)).Post("/sessions/{sessionId}/messages/{messageId}/checkpoint", a.tasks.Checkpoint)
+		}
 		r.With(middleware.Timeout(timeout)).Group(func(r chi.Router) {
 			a.sessions.RegisterActivity(r)
 		})
@@ -123,6 +131,7 @@ func (a *API) Register(root chi.Router, isReady func() bool) {
 				return
 			}
 			contract := domain.NativeMessageContract()
+			contract.TaskCheckpoints = a.tasks.Store != nil
 			if _, ok := a.sessions.Svc.(controllers.MessageStatusReader); !ok {
 				contract.ReadStatus = false
 				contract.StatusSchemaVersion = ""

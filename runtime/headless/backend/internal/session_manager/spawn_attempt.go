@@ -32,6 +32,11 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (rec domain.
 	if _, ok := m.store.(attemptStore); !ok {
 		return rec, 0, 0, fmt.Errorf("spawn attempt requires atomic custody store")
 	}
+	release, err := domain.AdmitProject(ctx, m.store, cfg.ProjectID)
+	if err != nil {
+		return rec, 0, 0, err
+	}
+	release()
 	if cfg.AttemptID == "" {
 		cfg.AttemptID = uuid.NewString()
 	}

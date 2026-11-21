@@ -151,6 +151,9 @@ func (m *Manager) SendMessage(ctx context.Context, id domain.SessionID, o domain
 		rec.Version++
 		delivery, err := m.messenger.Deliver(ctx, id, message)
 		result := messageResult(o.MessageID, "submitted_unconfirmed", "CONFIRMATION_UNAVAILABLE", 1)
+		if errors.Is(err, domain.ErrProjectPaused) {
+			return messageResult(o.MessageID, "rejected", "PROJECT_PAUSED", 0)
+		}
 		if err != nil {
 			result.Evidence.Code = "INJECTION_ERROR"
 			return result

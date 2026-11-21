@@ -19,11 +19,12 @@ import (
 // CDC is captured by DB triggers (migration 0001), NOT by this layer: the store
 // never writes change_log, it only reads it for the CDC poller.
 type Store struct {
-	writeDB *sql.DB
-	readDB  *sql.DB
-	qw      *gen.Queries // bound to the single writer connection
-	qr      *gen.Queries // bound to the reader pool
-	writeMu sync.Mutex
+	writeDB     *sql.DB
+	readDB      *sql.DB
+	qw          *gen.Queries // bound to the single writer connection
+	qr          *gen.Queries // bound to the reader pool
+	writeMu     sync.Mutex
+	admissionMu sync.RWMutex
 }
 
 // NewStore wraps an opened writer + reader *sql.DB (see Open) as a Store.

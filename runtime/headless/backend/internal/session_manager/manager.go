@@ -626,12 +626,19 @@ func (m *Manager) spawnWithAttempt(ctx context.Context, cfg ports.SpawnConfig, a
 		m.rollbackSeedSpawnWorkspaceIndependent(ctx, rec, ws, workspaceProject, true)
 		return domain.SessionRecord{}, 0, 0, err
 	}
-	handle, err := m.runtime.Create(ctx, ports.RuntimeConfig{
-		SessionID:     id,
-		WorkspacePath: ws.Path,
-		Argv:          argv,
-		Env:           env,
-	})
+	handle, err := func() (ports.RuntimeHandle, error) {
+		release, err := domain.AdmitProject(ctx, m.store, cfg.ProjectID)
+		if err != nil {
+			return ports.RuntimeHandle{}, err
+		}
+		defer release()
+		return m.runtime.Create(ctx, ports.RuntimeConfig{
+			SessionID:     id,
+			WorkspacePath: ws.Path,
+			Argv:          argv,
+			Env:           env,
+		})
+	}()
 	if err != nil {
 		cleanupCtx, cancel := rollbackContext(ctx)
 		defer cancel()
@@ -1355,6 +1362,12 @@ func (m *Manager) RestoreWithMode(ctx context.Context, id domain.SessionID) (Res
 	if !ok {
 		return RestoreResult{}, fmt.Errorf("restore %s: %w", id, ErrNotFound)
 	}
+	release, err := domain.AdmitProject(ctx, m.store, rec.ProjectID)
+	if err != nil {
+		return RestoreResult{}, err
+	}
+	release()
+
 	if !rec.IsTerminated {
 		return RestoreResult{}, fmt.Errorf("restore %s: %w", id, ErrNotRestorable)
 	}
@@ -1428,6 +1441,12 @@ func (m *Manager) ResumeAgentWithMode(ctx context.Context, id domain.SessionID) 
 	if !ok {
 		return RestoreResult{}, fmt.Errorf("resume agent %s: %w", id, ErrNotFound)
 	}
+	release, err := domain.AdmitProject(ctx, m.store, rec.ProjectID)
+	if err != nil {
+		return RestoreResult{}, err
+	}
+	release()
+
 	if rec.IsTerminated {
 		return RestoreResult{}, fmt.Errorf("resume agent %s: %w", id, ErrTerminated)
 	}
@@ -1522,6 +1541,11 @@ func (m *Manager) relaunchSession(ctx context.Context, operation string, rec dom
 	}
 	var handle ports.RuntimeHandle
 	handle, err = sessionguard.ReplacePane(ctx, m.store, rec.ID, func() (ports.RuntimeHandle, error) {
+		release, err := domain.AdmitProject(ctx, m.store, rec.ProjectID)
+		if err != nil {
+			return ports.RuntimeHandle{}, err
+		}
+		defer release()
 		if beforeRuntimeLaunch != nil {
 			beforeRuntimeLaunch()
 		}
@@ -1714,6 +1738,14 @@ func (m *Manager) saveAndTeardownOne(ctx context.Context, rec domain.SessionReco
 // worktree intact: better to skip the relaunch than to tear down un-preserved
 // work or relaunch onto an inconsistent worktree.
 func (m *Manager) reconcileLive(ctx context.Context, rec domain.SessionRecord, allowRestore bool) (bool, error) {
+	release, err := domain.AdmitProject(ctx, m.store, rec.ProjectID)
+	if errors.Is(err, domain.ErrProjectPaused) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	release()
 	project, err := m.loadProject(ctx, rec.ProjectID)
 	if err != nil {
 		return false, err
@@ -1882,6 +1914,15 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 	}
 	candidates := make([]bootRestoreCandidate, 0)
 	for _, rec := range recs {
+		release, err := domain.AdmitProject(ctx, m.store, rec.ProjectID)
+		if errors.Is(err, domain.ErrProjectPaused) {
+			continue
+		}
+		if err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		release()
 		if m.deferredBootRestore[rec.ID] {
 			continue
 		}
@@ -2003,6 +2044,9 @@ func (m *Manager) RestoreAll(ctx context.Context) error {
 		// Step 3: relaunch the agent in the restored workspace.
 		if _, err := m.relaunchRestoredSessionWithAttempt(ctx, rec, project, ws, func() { runtimeAttempts++ }); err != nil {
 			switch {
+			case errors.Is(err, domain.ErrProjectPaused):
+				// A pause after candidate selection retains the marker for a later restore.
+				continue
 			case errors.Is(err, ErrNotResumable):
 				// A promptless, unresumable worker is intentionally left terminated:
 				// expected, not an operational failure, so log it quietly.

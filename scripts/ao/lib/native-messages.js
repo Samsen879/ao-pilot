@@ -23,7 +23,7 @@ export function resolveMessageRuntime(env = process.env) {
 }
 function prepareNativeMessage(command, argv, { env = process.env, resolve = resolveMessageRuntime, run = spawnSync } = {}) {
   assertRelease(['send', 'ack', 'message'].includes(command), 'invalid_message_command');
-  if (command === 'message') assertRelease(['show', 'watch'].includes(argv[0]), 'invalid_message_command');
+  if (command === 'message') assertRelease(['show', 'watch', 'checkpoint'].includes(argv[0]), 'invalid_message_command');
   const runtime = resolve(env);
   const verify = () => assertRelease(fs.lstatSync(runtime.binary).isFile() && !fs.lstatSync(runtime.binary).isSymbolicLink()
     && fileSha256(runtime.binary) === runtime.sha256, 'message_binary_drift');
@@ -36,6 +36,7 @@ function prepareNativeMessage(command, argv, { env = process.env, resolve = reso
   let contract;
   try { contract = validateMessageContract(JSON.parse(probe.stdout)); } catch { assertRelease(false, 'message_contract_unavailable'); }
   if (command === 'message') assertRelease(contract.read_status === true && contract.status_schema_version === 'ao.message-status.v1', 'message_status_unavailable');
+  if (command === 'message' && argv[0] === 'checkpoint') assertRelease(contract.task_checkpoints === true, 'task_checkpoint_unavailable');
   verify();
   return { runtime, options };
 }

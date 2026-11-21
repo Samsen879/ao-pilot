@@ -55,6 +55,7 @@ async function listSessions(projectFilter) {
   const workers = mapped.filter(s => s.metadata.role !== 'orchestrator');
   return {
     sessions:workers,
+    taskProgressSupported:true,
     stats:{totalSessions:workers.length,workingSessions:workers.filter(s => s.activity === 'active').length,openPRs:0,needsReview:0},
     orchestratorId:orchestrators.length === 1 ? orchestrators[0].id : null,
     orchestrators,
@@ -134,6 +135,10 @@ const server = http.createServer(async (req,res) => {
   const url = new URL(req.url || '/',`http://${dashboardHost}:${port}`);
   if (url.pathname.startsWith('/api/') && req.method !== 'GET') return json(res,403,{error:'Dashboard is read-only'});
   try {
+    if (url.pathname === '/api/task-progress') {
+      const project = url.searchParams.get('project') || '';
+      return json(res, 200, await native('/api/v1/tasks?project=' + encodeURIComponent(project)));
+    }
     if (url.pathname === '/api/sessions') {
       return json(res,200,await listSessions(url.searchParams.get('project')));
     }

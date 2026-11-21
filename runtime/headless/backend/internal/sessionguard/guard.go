@@ -441,6 +441,20 @@ func (g *Guard) SubmitPendingCoordinationOwnedForGeneration(ctx context.Context,
 // suppresses the write rather than pressing Enter on an unknown state.
 func (g *Guard) send(ctx context.Context, id domain.SessionID, msg string, requirePending bool, expectedGeneration *int64, owner string, refuse func(domain.SessionRecord) (Outcome, bool)) (Outcome, error) {
 	defer g.lockSession(id)()
+	if admission, ok := g.store.(domain.ProjectAdmission); ok {
+		rec, exists, err := g.store.GetSession(ctx, id)
+		if err != nil {
+			return SuppressedUnknown, err
+		}
+		if !exists {
+			return SuppressedNotFound, nil
+		}
+		release, err := admission.AdmitProject(ctx, rec.ProjectID)
+		if err != nil {
+			return SuppressedUnknown, err
+		}
+		defer release()
+	}
 	pending, err := g.pendingDraft(ctx, id)
 	if err != nil {
 		return SuppressedUnknown, err
