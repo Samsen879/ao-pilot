@@ -21,7 +21,7 @@ export async function runCli(argv, io = { writeStdout: (text) => process.stdout.
   apply = applyRelease, preflight = preflightRelease, runner = null, configLoader = loadInstallConfiguration, env = process.env,
 } = {}) {
   if (argv.includes('--help') || argv.length === 0) {
-    io.writeStdout('Usage: ao-pilot upgrade apply --release <id> [--install-config <file>] [--adopt-legacy | --adopt-legacy-offline] [--resume] [--allow-database-restore]\n       ao-pilot upgrade preflight --release <id> [--install-config <file>] [--adopt-legacy | --adopt-legacy-offline] [--prepared-config <file>] [--prepared-token <file>]\n       ao-pilot upgrade inspect [--install-config <file>]\n');
+    io.writeStdout('Usage: ao-pilot upgrade apply --release <id> [--install-config <file>] [--adopt-legacy | --adopt-legacy-offline] [--resume] [--allow-database-restore]\n       ao-pilot upgrade preflight --release <id> [--install-config <file>] [--adopt-legacy | --adopt-legacy-offline] [--prepared-config <file>] [--prepared-token <file>]\n       ao-pilot upgrade plan --release <id> [--install-config <file>]\n       ao-pilot upgrade inspect [--install-config <file>]\n');
     return { exitCode: 0 };
   }
   let operation; let releaseId; let file = env.AO_INSTALL_CONFIG ?? path.join(os.homedir(), '.config/ao-pilot/install.json');
@@ -53,9 +53,24 @@ export async function runCli(argv, io = { writeStdout: (text) => process.stdout.
       io.writeStdout(`${JSON.stringify(report, null, 2)}\n`);
       return { exitCode: report.status === 'passed' ? 0 : 2, report };
     }
-    assertRelease(['apply', 'preflight'].includes(operation) && /^[0-9][A-Za-z0-9._-]*\+[a-f0-9]{40}$/.test(releaseId ?? ''), 'invalid_upgrade_argument');
+    assertRelease(['apply', 'preflight', 'plan'].includes(operation) && /^[0-9][A-Za-z0-9._-]*\+[a-f0-9]{40}$/.test(releaseId ?? ''), 'invalid_upgrade_argument');
     const entry = configuration.releaseCatalog?.[releaseId];
     assertRelease(entry && path.isAbsolute(entry.bundle), 'release_not_registered');
+    if (operation === 'plan') {
+      assertRelease(!resume && !restore && !adoptLegacy, 'invalid_upgrade_argument');
+      const current = path.join(configuration.installRoot, 'current');
+      const installed = fs.existsSync(current) ? readJson(path.join(current, 'release.json')).release_id : null;
+      const services = ['runtime', 'dashboard', 'dashboard-adapter', 'session-recovery', 'tmux']
+        .map(name => `${configuration.namespace}-${name}.service`);
+      const overrides = services.flatMap(unit => {
+        const directory = path.join(configuration.unitRoot, unit + '.d');
+        return fs.existsSync(directory) ? fs.readdirSync(directory).filter(name => name.endsWith('.conf'))
+          .sort().map(name => path.join(directory, name)) : [];
+      });
+      const plan = { installed, target: releaseId, services, overrides, bundle: entry.bundle };
+      io.writeStdout(`${JSON.stringify(plan, null, 2)}\n`);
+      return { exitCode: 0, plan };
+    }
     assertRelease(operation !== 'preflight' || !resume && !restore, 'invalid_upgrade_argument');
     const operationRunner = runner ?? createSystemdReleaseRunner(configuration, { preparedInputs: Object.keys(preparedInputs).length ? preparedInputs : null });
     const receipt = await (operation === 'preflight' ? preflight : apply)({ bundle: entry.bundle, expectedEnvelopeSha256: entry.envelope_sha256,

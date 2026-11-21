@@ -17,6 +17,6 @@ export async function runCli(argv) {
     const result = await buildRelease({ repository: path.resolve(options.repository ?? '.'), commit: options.commit,
       version: options.version, output: path.resolve(options.output ?? 'release-output'), adapter, compatibilityEvidence: options.compatibility, oldBinary: options['old-binary'], diagnosticsFile: options.diagnostics });
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`); return 0;
-  } catch (error) { process.stderr.write(`${error.code ?? 'release_build_failed'}\n`); return 2; }
+  } catch (error) { process.stderr.write(`${error.code === 'release_command_failed' ? error.message : error.code ?? 'release_build_failed'}\n`); return 2; }
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await runCli(process.argv.slice(2));
