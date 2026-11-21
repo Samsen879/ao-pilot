@@ -15,7 +15,16 @@ import {
 
 export function releaseCommand(command, args, options = {}) {
   const result = spawnSync(command, args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, ...options });
-  assertRelease(!result.error && result.status === 0, 'release_command_failed', `Release command failed: ${command}`);
+  if (result.error || result.status !== 0) {
+    const output = String(result.stderr ?? '') + String(result.stdout ?? '');
+    const executable = path.basename(command);
+    const npmBuild = executable === 'npm' && args[0] === 'run' && args[1] === 'build';
+    const subcommand = args[0] === 'run' && executable === 'npm' ? args.slice(0, 2) : args.slice(0, 1);
+    const step = [executable, ...subcommand.map(arg => path.basename(arg))].join(' ');
+    const cause = npmBuild && /failed to (fetch|download).*font|failed to fetch .{1,120} from Google Fonts|(?:ENOTFOUND|EAI_AGAIN).*fonts\.(?:gstatic|googleapis)/i.test(output)
+      ? ' (Dashboard font download failed)' : '';
+    throw Object.assign(new Error(`Release command failed at ${step}${cause}`), { code: 'release_command_failed' });
+  }
   return result.stdout?.trim() ?? '';
 }
 function executable(name, env) {
