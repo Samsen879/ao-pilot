@@ -18,6 +18,7 @@ const messageWatchMaximum = 15 * time.Minute
 
 func newMessageCommand(c *commandContext) *cobra.Command {
 	cmd := &cobra.Command{Use: "message", Short: "Inspect message custody without resubmitting a task"}
+	cmd.AddCommand(newCheckpointCommand(c))
 	for _, watch := range []bool{false, true} {
 		watch := watch
 		name, description := "show", "Read the current durable message state"

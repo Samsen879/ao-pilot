@@ -70,6 +70,7 @@ type MessageStatus struct {
 }
 
 type MessageContract struct {
+	TaskCheckpoints     bool     `json:"task_checkpoints,omitempty"`
 	SchemaVersion       string   `json:"schema_version"`
 	Authority           string   `json:"authority"`
 	RequireAck          bool     `json:"require_ack"`

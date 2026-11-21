@@ -1132,6 +1132,45 @@ paths:
       summary: Replace a project's per-project config
       tags:
       - projects
+  /api/v1/projects/{id}/pause:
+    post:
+      operationId: setProjectPause
+      parameters:
+      - description: Project identifier (registry key).
+        in: path
+        name: id
+        required: true
+        schema:
+          description: Project identifier (registry key).
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ControllersProjectPauseInput'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControllersTaskWriteReceipt'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Service Unavailable
+      summary: Set durable operator pause
+      tags:
+      - projects
   /api/v1/projects/initialize:
     post:
       operationId: initializeProjectRepository
@@ -1876,6 +1915,50 @@ paths:
                 $ref: '#/components/schemas/APIError'
           description: Service Unavailable
       summary: Acknowledge reading a message for the bound target session
+      tags:
+      - sessions
+  /api/v1/sessions/{sessionId}/messages/{messageId}/checkpoint:
+    post:
+      operationId: recordTaskCheckpoint
+      parameters:
+      - description: Session identifier, e.g. project-1.
+        in: path
+        name: sessionId
+        required: true
+        schema:
+          description: Session identifier, e.g. project-1.
+          type: string
+      - in: path
+        name: messageId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DomainTaskCheckpoint'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControllersTaskWriteReceipt'
+          description: OK
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Conflict
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Service Unavailable
+      summary: Record worker evidence
       tags:
       - sessions
   /api/v1/sessions/{sessionId}/pr:
@@ -3204,6 +3287,30 @@ paths:
       summary: Inspect native spawn custody without effects
       tags:
       - sessions
+  /api/v1/tasks:
+    get:
+      operationId: listTaskProgress
+      parameters:
+      - in: query
+        name: project
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DomainTaskOverview'
+          description: OK
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Service Unavailable
+      summary: List the latest 100 ACK-requested dispatches and paused projects
+      tags:
+      - sessions
   /readyz:
     get:
       operationId: getReadiness
@@ -3434,6 +3541,15 @@ components:
       - project
       - concurrency
       type: object
+    ControllersProjectPauseInput:
+      properties:
+        paused:
+          type:
+          - "null"
+          - boolean
+      required:
+      - paused
+      type: object
     ControllersReadinessReason:
       properties:
         code:
@@ -3565,6 +3681,13 @@ components:
       required:
       - data
       type: object
+    ControllersTaskWriteReceipt:
+      properties:
+        recorded:
+          type: boolean
+      required:
+      - recorded
+      type: object
     DegradedProject:
       properties:
         id:
@@ -3683,6 +3806,70 @@ components:
           type: string
       required:
       - harness
+      type: object
+    DomainTaskCheckpoint:
+      properties:
+        detail:
+          maxLength: 256
+          type: string
+        kind:
+          enum:
+          - started
+          - artifact
+          - blocked
+          type: string
+        sha256:
+          type: string
+      required:
+      - kind
+      - detail
+      type: object
+    DomainTaskObservation:
+      properties:
+        ack_at:
+          type: string
+        detail:
+          type: string
+        first_command:
+          type: string
+        latest:
+          type: string
+        message_id:
+          type: string
+        outcome:
+          type: string
+        project:
+          type: string
+        sent_at:
+          type: string
+        session:
+          type: string
+        sha256:
+          type: string
+        started_at:
+          type: string
+        updated_at:
+          type: string
+      required:
+      - project
+      - session
+      - message_id
+      - sent_at
+      - outcome
+      type: object
+    DomainTaskOverview:
+      properties:
+        paused_projects:
+          items:
+            type: string
+          type: array
+        tasks:
+          items:
+            $ref: '#/components/schemas/DomainTaskObservation'
+          type: array
+      required:
+      - tasks
+      - paused_projects
       type: object
     ImportReport:
       properties:
@@ -3916,6 +4103,8 @@ components:
           type: integer
         status_schema_version:
           type: string
+        task_checkpoints:
+          type: boolean
       required:
       - schema_version
       - authority

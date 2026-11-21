@@ -176,3 +176,38 @@ by the accompanying Go lane and integrated review. Real installed worker ACK,
 staging upgrade/rollback and release promotion remain local validation work;
 source checks do not prove deployment or promote the runtime lock. The current
 historical lock does not supply A4 capability, so a real old daemon must refuse.
+
+## Task progress and operator pause
+
+The native Dashboard lists the latest 100 ACK-requested dispatches for the
+selected project, including those belonging to terminated sessions retained in
+the registry. It polls the read-only tasks endpoint every five seconds. The
+record shows the dispatch and ACK timestamps separately from worker observations.
+
+For a task with an explicit ACK, the worker can report observations from its
+bound session. Tag the task process at launch with its original message ID.
+In this example the task process is already running when observed.
+
+```sh
+export AO_MESSAGE_ID=original-dispatch-id
+./approved-task &
+task_pid=$!
+ao message checkpoint "$AO_MESSAGE_ID" --started-pid "$task_pid"
+wait "$task_pid"
+ao message checkpoint "$AO_MESSAGE_ID" --artifact result.txt
+ao message checkpoint "$AO_MESSAGE_ID" --blocked 'Waiting for input from the reviewer'
+```
+
+The Linux observer checks the process's session and message environment and
+birth identity. A process that exits before inspection has no start receipt.
+Artifact reporting hashes a regular file locally. The Dashboard receives its
+basename and digest. A blocker is the worker's own description. Checkpoints
+are reported by trusted local workers under the native API's same-user trust
+model. The first observed command remains visible after later checkpoints.
+
+Use `ao project pause PROJECT` and `ao project resume PROJECT` to change the
+durable pause. A paused project still accepts read ACKs and reports from work
+already underway. New native sends, automated pane submissions, launches and
+first-start reports are gated. Startup preserves the pause in the same DataDir.
+Programs already running outside the native dispatch/launch paths retain their
+own stop controls.
