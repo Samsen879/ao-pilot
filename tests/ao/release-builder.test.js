@@ -224,3 +224,12 @@ it.each(['scripts/ao-session.js', 'scripts/ao-release-entry.js', 'schemas/fixtur
   const envelope = readJson(path.join(bundle.bundle, 'release-envelope.json')); envelope.npm_tarball_sha256 = fileSha256(path.join(bundle.bundle, 'package.tgz')); durableJson(path.join(bundle.bundle, 'release-envelope.json'), envelope);
   expect(() => verifyReleaseEnvelope(bundle.bundle, fileSha256(path.join(bundle.bundle, 'release-envelope.json')))).toThrow('release_package_file_missing');
 });
+
+it('names a Dashboard font fetch failure without copying dependency output into the error', () => {
+  const root = fixtureRoot();
+  roots.push(root);
+  const npm = path.join(root, 'npm');
+  fs.writeFileSync(npm, '#!/bin/sh\necho "Failed to fetch font from Google Fonts: private-log-value" >&2\nexit 1\n', { mode: 0o700 });
+  expect(() => releaseCommand(npm, ['run', 'build'])).toThrow(/^Release command failed at npm run build \(Dashboard font download failed\)$/);
+  expect(() => releaseCommand(npm, ['ci'])).toThrow(/^Release command failed at npm ci$/);
+});

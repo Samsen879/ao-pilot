@@ -80,3 +80,28 @@ it.each([['tmux_cgroup_violation', true], ['session_reconcile_failed', false]])(
  const verify = await runner.observe({ releaseRoot: bundle.payload }); expect(verify.ready).toBeNull();
  expect(commands.filter(([tool]) => tool.endsWith('/native/ao')).every(([,args])=>args.includes('--tmux-only'))).toBe(true);
 });
+
+it('previews the registered release and local unit overrides without activating the install', async () => {
+  const { config } = fixture();
+  const target = '1.0.0+' + 'a'.repeat(40);
+  const bundle = path.join(config.installRoot, 'candidate');
+  const current = path.join(config.installRoot, 'current');
+  const unit = config.namespace + '-dashboard-adapter.service';
+  const drops = path.join(config.unitRoot, unit + '.d');
+  fs.mkdirSync(drops, { recursive: true });
+  fs.writeFileSync(path.join(drops, '10-local.conf'), 'private settings');
+  fs.writeFileSync(path.join(drops, 'saved.bak'), '');
+  config.releaseCatalog = { [target]: { bundle } };
+  const preview = () => runCli(['plan', '--release', target], { writeStdout() {}, writeStderr() {} },
+    { configLoader: () => config });
+  const fresh = await preview();
+  expect(fresh.plan).toMatchObject({ installed: null, target, bundle, overrides: [path.join(drops, '10-local.conf')] });
+  expect(fresh.plan.services).toContain(unit);
+  expect(fs.existsSync(config.installRoot)).toBe(false);
+  fs.mkdirSync(current, { recursive: true });
+  fs.writeFileSync(path.join(current, 'release.json'), JSON.stringify({ release_id: 'previous' }));
+  expect((await preview()).plan.installed).toBe('previous');
+  fs.renameSync(current, current + '-saved');
+  fs.symlinkSync('missing', current);
+  expect((await preview()).exitCode).toBe(2);
+});

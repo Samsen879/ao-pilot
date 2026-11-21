@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyRelease, preflightRelease } from './ao/lib/release-installer.js';
 import { createSystemdReleaseRunner } from './ao/lib/release-systemd.js';
+import { RELEASE_SERVICES } from './ao/lib/release-units.js';
 import { inspectInstall } from './ao/lib/install-doctor.js';
 import { assertRelease, readJson } from './ao/lib/release-manifest.js';
 
@@ -59,9 +60,10 @@ export async function runCli(argv, io = { writeStdout: (text) => process.stdout.
     if (operation === 'plan') {
       assertRelease(!resume && !restore && !adoptLegacy, 'invalid_upgrade_argument');
       const current = path.join(configuration.installRoot, 'current');
-      const installed = fs.existsSync(current) ? readJson(path.join(current, 'release.json')).release_id : null;
-      const services = ['runtime', 'dashboard', 'dashboard-adapter', 'session-recovery', 'tmux']
-        .map(name => `${configuration.namespace}-${name}.service`);
+      const installed = fs.lstatSync(current, { throwIfNoEntry: false })
+        ? readJson(path.join(current, 'release.json')).release_id : null;
+      const services = RELEASE_SERVICES.map(name =>
+        `${configuration.namespace}-${name === 'adapter' ? 'dashboard-adapter' : name}.service`);
       const overrides = services.flatMap(unit => {
         const directory = path.join(configuration.unitRoot, unit + '.d');
         return fs.existsSync(directory) ? fs.readdirSync(directory).filter(name => name.endsWith('.conf'))
